@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const state = { projectId: null, view: 'actions', overview: null };
+const state = { projectId: null, view: 'actions', overview: null, interval: 'month' };
 
 const esc = (s) =>
   String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
@@ -583,9 +583,12 @@ async function viewBilling() {
   const barClass = u.percent >= 90 ? 'over' : u.percent >= 70 ? 'warn' : '';
   const spent = u.spend ? `$${Number(u.spend).toFixed(2)} of engine cost` : 'no spend recorded yet';
 
+  const yearly = state.interval === 'year';
+
   const cards = meta.plans
     .map((p) => {
-      const current = p.id === b.plan.id;
+      const current = p.id === b.plan.id && (p.id === 'free' || b.interval === state.interval);
+      const monthlyEquivalent = yearly && p.priceAnnual ? Math.round(p.priceAnnual / 12) : p.price;
       const cta = current
         ? `<button class="ghost" disabled>Current plan</button>`
         : p.id === 'free'
@@ -594,7 +597,8 @@ async function viewBilling() {
       return `
       <div class="plan ${current ? 'is-current' : ''} ${p.popular ? 'is-popular' : ''}">
         <div class="plan-name">${esc(p.name)}</div>
-        <div class="plan-price">${p.price ? '$' + p.price : 'Free'}<span>${p.price ? '/mo' : ''}</span></div>
+        <div class="plan-price">${p.price ? '$' + monthlyEquivalent : 'Free'}<span>${p.price ? '/mo' : ''}</span></div>
+        ${p.price && yearly ? `<div class="plan-annual">$${p.priceAnnual} billed yearly</div>` : ''}
         <p class="plan-blurb">${esc(p.blurb)}</p>
         <div class="plan-limits">
           <span>${p.sites} site${p.sites > 1 ? 's' : ''}</span>
@@ -622,7 +626,7 @@ async function viewBilling() {
         <div class="sub" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">answer checks used &middot; ${spent}</div>
       </div>
       <div class="usage-plan">
-        <div class="tag">${esc(b.plan.name)} plan</div>
+        <div class="tag">${esc(b.plan.name)} plan${b.plan.id !== 'free' ? ' &middot; ' + (b.interval === 'year' ? 'yearly' : 'monthly') : ''}</div>
         ${b.cancelAtPeriodEnd ? '<div class="tag" style="background:#fbe9e7;color:#9e2b25">Cancels at period end</div>' : ''}
       </div>
     </div>
@@ -643,7 +647,14 @@ async function viewBilling() {
   </div>
 
   <div class="panel">
-    <div class="panel-head"><h2>Plans</h2></div>
+    <div class="panel-head">
+      <h2>Plans</h2>
+      <div class="spacer"></div>
+      <div class="switch-int" role="group" aria-label="Billing period">
+        <button class="int-b ${yearly ? '' : 'is-on'}" data-interval="month">Monthly</button>
+        <button class="int-b ${yearly ? 'is-on' : ''}" data-interval="year">Yearly &middot; 2 months free</button>
+      </div>
+    </div>
     ${b.stripeEnabled ? '' : '<p class="notice" style="margin-bottom:16px">Billing is not configured on this deployment, so everything runs on the Free plan. Add your Stripe keys to enable upgrades.</p>'}
     <div class="plans">${cards}</div>
     <p class="hint" style="margin-top:16px">
@@ -671,11 +682,16 @@ document.addEventListener('click', async (e) => {
   const buy = e.target.closest('button[data-buy]');
   if (buy) {
     buy.disabled = true;
-    await goToStripe('/api/billing/checkout', { plan: buy.dataset.buy, interval: 'month' });
+    await goToStripe('/api/billing/checkout', { plan: buy.dataset.buy, interval: state.interval });
     buy.disabled = false;
   }
   if (e.target.closest('button[data-portal]')) {
     await goToStripe('/api/billing/portal');
+  }
+  const int = e.target.closest('button[data-interval]');
+  if (int && int.classList.contains('int-b')) {
+    state.interval = int.dataset.interval;
+    await render();
   }
   if (e.target.closest('[data-goto-billing]')) {
     document.querySelector('.tab[data-view="billing"]').click();

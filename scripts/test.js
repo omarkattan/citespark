@@ -433,6 +433,12 @@ await test('an unknown plan falls back to free rather than throwing', () => {
   assert.equal(planFor(undefined).id, 'free');
 });
 
+await test('annual is offered for every paid plan', () => {
+  for (const id of ['starter', 'growth', 'agency']) {
+    assert.ok(PLANS[id].priceAnnual > 0, `${id} has no annual price`);
+  }
+});
+
 console.log('\nprompt generation');
 
 await test('falls back to templates without an API key', async () => {

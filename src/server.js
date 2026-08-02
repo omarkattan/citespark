@@ -676,7 +676,8 @@ app.get('/app', (req, res) => {
 app.get('/api/version', (_req, res) => {
   res.json({
     startedAt: STARTED_AT,
-    features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete', 'billing']
+    features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
+      'billing', 'annual-plans']
   });
 });
 

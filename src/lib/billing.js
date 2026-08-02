@@ -22,7 +22,9 @@ export async function getStripe() {
   if (!stripeEnabled) return null;
   if (stripe) return stripe;
   const { default: Stripe } = await import('stripe');
-  stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' });
+  // No apiVersion pin: use whatever the account is configured for, so this
+  // keeps working as Stripe moves versions forward.
+  stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
   return stripe;
 }
 
@@ -203,6 +205,20 @@ function planFromPrice(priceId) {
   return null;
 }
 
+/**
+ * current_period_end moved from the subscription object down onto the
+ * subscription items in Stripe's 2025 API versions. Read whichever is
+ * present so the renewal date is right on old and new accounts alike.
+ */
+function periodEnd(subscription) {
+  return (
+    subscription.current_period_end ||
+    subscription.items?.data?.[0]?.current_period_end ||
+    subscription.billing_cycle_anchor ||
+    Math.floor(Date.now() / 1000)
+  );
+}
+
 async function applySubscription(subscription) {
   const orgId = Number(subscription.metadata?.org_id);
   const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id;
@@ -234,7 +250,7 @@ async function applySubscription(subscription) {
       mapped?.interval || 'month',
       subscription.id,
       customerId,
-      subscription.current_period_end || Math.floor(Date.now() / 1000),
+      periodEnd(subscription),
       Boolean(subscription.cancel_at_period_end)
     ]
   );
