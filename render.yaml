@@ -1,0 +1,69 @@
+# Render blueprint. In Render: New > Blueprint > point at this repo.
+services:
+  - type: web
+    name: cited
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run migrate
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cited-db
+          property: connectionString
+      - key: MOCK_MODE
+        value: "true"
+      - key: ENGINES
+        value: chatgpt,gemini,perplexity
+      - key: MAX_OUTPUT_TOKENS
+        value: "700"
+      - key: CONCURRENCY
+        value: "4"
+      - key: DATAFORSEO_LOGIN
+        sync: false
+      - key: DATAFORSEO_PASSWORD
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REFRESH_TOKEN
+        sync: false
+      - key: GA4_PROPERTY_ID
+        sync: false
+
+  - type: cron
+    name: cited-weekly-cycle
+    runtime: node
+    plan: starter
+    schedule: "0 6 * * 1"
+    buildCommand: npm ci
+    startCommand: npm run cycle
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cited-db
+          property: connectionString
+      - key: MOCK_MODE
+        value: "true"
+      - key: ENGINES
+        value: chatgpt,gemini,perplexity
+      - key: MAX_OUTPUT_TOKENS
+        value: "700"
+      - key: DATAFORSEO_LOGIN
+        sync: false
+      - key: DATAFORSEO_PASSWORD
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+databases:
+  - name: cited-db
+    plan: basic-256mb

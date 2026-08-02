@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sign in to Cited</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="wordmark" style="margin-bottom:6px">Cit<span>ed</span></div>
+    <p class="eyebrow">Answer engine visibility</p>
+
+    <div class="panel">
+      <h2 id="formTitle">Sign in</h2>
+      <p class="dek" style="margin:8px 0 20px;font-size:14px">Track what ChatGPT, Gemini and Perplexity say about you, and what to do about it.</p>
+
+      <div class="field" id="orgField" hidden>
+        <label for="orgName">Company</label>
+        <input id="orgName" autocomplete="organization" />
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="email" />
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" />
+      </div>
+
+      <button id="submit" style="width:100%">Sign in</button>
+      <p class="error" id="error" role="alert"></p>
+      <p class="switch">
+        <a href="#" id="toggle">Create an account instead</a>
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+  let mode = 'login';
+  const $ = (id) => document.getElementById(id);
+
+  $('toggle').addEventListener('click', (e) => {
+    e.preventDefault();
+    mode = mode === 'login' ? 'register' : 'login';
+    $('formTitle').textContent = mode === 'login' ? 'Sign in' : 'Create an account';
+    $('submit').textContent = mode === 'login' ? 'Sign in' : 'Create account';
+    $('toggle').textContent = mode === 'login' ? 'Create an account instead' : 'Sign in instead';
+    $('orgField').hidden = mode === 'login';
+    $('password').setAttribute('autocomplete', mode === 'login' ? 'current-password' : 'new-password');
+    $('error').textContent = '';
+  });
+
+  async function submit() {
+    $('error').textContent = '';
+    $('submit').disabled = true;
+    try {
+      const res = await fetch(`/api/${mode}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: $('email').value.trim(),
+          password: $('password').value,
+          orgName: $('orgName').value.trim()
+        })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Something went wrong');
+      window.location.href = '/';
+    } catch (err) {
+      $('error').textContent = err.message;
+      $('submit').disabled = false;
+    }
+  }
+
+  $('submit').addEventListener('click', submit);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+</script>
+</body>
+</html>
