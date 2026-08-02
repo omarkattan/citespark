@@ -49,11 +49,23 @@
     <h2>Add a site</h2>
     <p class="dek" style="margin:8px 0 20px;font-size:13.5px">We generate the question set from this, so the category and customer description matter more than the name.</p>
 
+    <div class="field">
+      <label for="f_domain">Domain</label>
+      <div class="inline-form" style="margin:0;padding:0;border:none">
+        <input id="f_domain" placeholder="sandstormdigital.com" />
+        <button type="button" id="f_scan">Scan site</button>
+      </div>
+      <p class="hint" id="f_scanned"></p>
+    </div>
     <div class="field"><label for="f_brand">Brand name as customers say it</label><input id="f_brand" placeholder="Sandstorm Digital" /></div>
-    <div class="field"><label for="f_domain">Domain</label><input id="f_domain" placeholder="sandstormdigital.com" /></div>
+    <div class="field"><label for="f_aliases">Also known as, comma separated</label><input id="f_aliases" placeholder="Sandstorm" /></div>
     <div class="field"><label for="f_category">What the business does</label><input id="f_category" placeholder="SEO and digital marketing agency" /></div>
-    <div class="field"><label for="f_qualifier">Who the customer is</label><input id="f_qualifier" placeholder="UK ecommerce brands turning over 1m to 20m" /></div>
-    <div class="field"><label for="f_market">Market</label><input id="f_market" value="GB" maxlength="2" style="width:90px" /></div>
+    <div class="field">
+      <label for="f_qualifier">Who the customer is</label>
+      <input id="f_qualifier" placeholder="UK ecommerce brands turning over 1m to 20m" />
+      <p class="hint">The more specific this is, the better the questions. "UK ecommerce brands" beats "businesses".</p>
+    </div>
+    <div class="field"><label for="f_market">Market</label><select id="f_market"></select></div>
     <div class="field">
       <label for="f_rivals">Competitors, one per line, name then comma then domain</label>
       <textarea id="f_rivals" rows="5" placeholder="Impression, impression.co.uk&#10;Rise at Seven, riseatseven.com"></textarea>
@@ -67,6 +79,7 @@
   </form>
 </dialog>
 
+<script src="/countries.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

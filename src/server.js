@@ -9,6 +9,7 @@ import { runCycleForProject } from './jobs/runCycle.js';
 import { buildRecommendations, persistRecommendations } from './lib/recommend.js';
 import { syncGa4 } from './lib/ga4.js';
 import { generatePrompts } from './lib/prompts.js';
+import { discoverSite } from './lib/discover.js';
 import { MOCK } from './lib/dataforseo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,6 +28,7 @@ app.use(
 );
 
 const publicDir = path.join(__dirname, 'public');
+const STARTED_AT = new Date().toISOString();
 
 /** Express 4 does not catch rejected promises, so an unhandled DB error
  *  would otherwise take the whole process down. Wrap every async handler. */
@@ -292,8 +294,14 @@ app.get('/api/projects/:id/traffic', requireAuth, wrap(async (req, res) => {
 
 /* ---------------- setup: projects, competitors, questions ---------------- */
 
+app.post('/api/discover', requireAuth, wrap(async (req, res) => {
+  const result = await discoverSite(req.body?.domain);
+  if (!result.ok) return res.status(422).json(result);
+  res.json(result);
+}));
+
 app.post('/api/projects', requireAuth, wrap(async (req, res) => {
-  const { name, domain, brandName, category, market, qualifier, competitors, generate } = req.body || {};
+  const { name, domain, brandName, aliases, category, market, qualifier, competitors, generate } = req.body || {};
 
   const cleanDomain = String(domain || '')
     .trim()
@@ -316,7 +324,7 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
       (name || brandName).trim(),
       cleanDomain,
       brandName.trim(),
-      [],
+      Array.isArray(aliases) ? aliases.map((a) => String(a).trim()).filter(Boolean).slice(0, 10) : [],
       (market || 'GB').toUpperCase(),
       (category || 'business').trim(),
       (qualifier || 'small business').trim()
@@ -324,9 +332,9 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
   );
 
   await query(
-    `INSERT INTO entities (project_id, name, domain, kind) VALUES ($1,$2,$3,'owned')
+    `INSERT INTO entities (project_id, name, domain, kind, aliases) VALUES ($1,$2,$3,'owned',$4)
      ON CONFLICT (project_id, name) DO NOTHING`,
-    [project.id, project.brand_name, project.domain]
+    [project.id, project.brand_name, project.domain, project.aliases]
   );
 
   for (const c of Array.isArray(competitors) ? competitors.slice(0, 20) : []) {
@@ -536,12 +544,35 @@ app.get('/healthz', (_req, res) => res.json({ ok: true }));
 /* ---------------- pages ---------------- */
 
 // index: false so that GET / does not bypass the session check below.
-app.use(express.static(publicDir, { index: false }));
+// no-cache on the HTML and JS means a deploy is visible on the next normal
+// refresh, rather than needing a hard refresh to clear a stale bundle.
+app.use(
+  express.static(publicDir, {
+    index: false,
+    etag: true,
+    setHeaders: (res, filePath) => {
+      if (/\.(html|js|css)$/.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+    }
+  })
+);
 
-app.get('/login', (_req, res) => res.sendFile(path.join(publicDir, 'login.html')));
+app.get('/login', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(publicDir, 'login.html'));
+});
+
 app.get('/', (req, res) => {
   if (!req.session?.userId) return res.redirect('/login');
+  res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(publicDir, 'index.html'));
+});
+
+// Lets you confirm which build is actually running.
+app.get('/api/version', (_req, res) => {
+  res.json({
+    startedAt: STARTED_AT,
+    features: ['scan-site', 'country-dropdown', 'fanout-queries', 'project-delete']
+  });
 });
 
 // Errors surface as JSON rather than taking the service down.

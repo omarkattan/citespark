@@ -323,6 +323,7 @@ async function viewSetup() {
         <div class="field"><label for="s_aliases">Also known as, comma separated</label><input id="s_aliases" value="${esc((p.aliases || []).join(', '))}" placeholder="Sandstorm, Sandstorm Digital Ltd" /></div>
         <div class="field"><label for="s_category">What the business does</label><input id="s_category" value="${esc(p.category || '')}" /></div>
         <div class="field"><label for="s_qualifier">Who the customer is</label><input id="s_qualifier" value="${esc(p.qualifier || '')}" /></div>
+        <div class="field"><label for="s_market">Market</label><select id="s_market">${window.countryOptions(p.market)}</select></div>
         <div class="field"><label for="s_runs">Runs per question, per engine</label><input id="s_runs" type="number" min="1" max="10" value="${p.runs_per_cycle}" /></div>
         <p class="sub" style="font-family:var(--mono);font-size:11px;color:var(--ink-3);margin:0 0 14px">
           ${active} active questions &times; 3 engines &times; ${p.runs_per_cycle} runs = ${cost} calls per cycle.
@@ -343,9 +344,9 @@ async function viewSetup() {
       </div>
 
       <div class="panel">
-        <div class="panel-head"><h2>Danger zone</h2></div>
-        <p class="dek" style="margin:0 0 14px;font-size:13.5px">Deleting a site removes its questions, every answer recorded against it, and its action list. There is no undo.</p>
-        <button class="ghost danger" id="s_delete">Delete this site</button>
+        <div class="panel-head"><h2>Remove this site</h2></div>
+        <p class="dek" style="margin:0 0 14px;font-size:13.5px">Deletes <b>${esc(p.name)}</b>, its questions, every answer recorded against it and its action list. There is no undo, so export anything you need first.</p>
+        <button class="ghost danger" id="s_delete">Delete ${esc(p.name)}</button>
       </div>
     </div>
 
@@ -384,6 +385,7 @@ document.addEventListener('click', async (e) => {
         aliases: $('s_aliases').value.split(',').map((x) => x.trim()).filter(Boolean),
         category: $('s_category').value,
         qualifier: $('s_qualifier').value,
+        market: $('s_market').value,
         runsPerCycle: Number($('s_runs').value)
       })
     });
@@ -468,7 +470,55 @@ function parseRivals(text) {
     .filter((r) => r.name);
 }
 
-$('addSiteBtn').addEventListener('click', () => $('siteDialog').showModal());
+$('addSiteBtn').addEventListener('click', () => {
+  $('f_market').innerHTML = window.countryOptions('GB');
+  $('siteDialog').showModal();
+  $('f_domain').focus();
+});
+
+$('f_scan').addEventListener('click', async () => {
+  const btn = $('f_scan');
+  const note = $('f_scanned');
+  const domain = $('f_domain').value.trim();
+  if (!domain) { note.className = 'hint warn'; note.textContent = 'Enter a domain first.'; return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Reading';
+  note.className = 'hint';
+  note.textContent = 'Reading the homepage';
+  $('siteError').textContent = '';
+
+  try {
+    const res = await fetch('/api/discover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain })
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'Could not read that site');
+
+    $('f_domain').value = d.domain;
+    $('f_brand').value = d.brandName || '';
+    $('f_aliases').value = (d.aliases || []).join(', ');
+    $('f_category').value = d.category || '';
+    $('f_qualifier').value = d.qualifier || '';
+    $('f_market').innerHTML = window.countryOptions(d.market || 'GB');
+    if (d.competitors?.length) {
+      $('f_rivals').value = d.competitors.map((c) => `${c.name}${c.domain ? ', ' + c.domain : ''}`).join('\n');
+    }
+
+    note.className = d.confident ? 'hint good' : 'hint warn';
+    note.textContent = d.confident
+      ? 'Filled in from the homepage. Check every field, especially who the customer is.'
+      : 'Read the page but could not infer much. Fill the fields in yourself.';
+  } catch (err) {
+    note.className = 'hint warn';
+    note.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Scan site';
+  }
+});
 $('siteCancel').addEventListener('click', () => $('siteDialog').close());
 
 $('siteSave').addEventListener('click', async () => {
@@ -482,6 +532,7 @@ $('siteSave').addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         brandName: $('f_brand').value,
+        aliases: $('f_aliases').value.split(',').map((x) => x.trim()).filter(Boolean),
         domain: $('f_domain').value,
         category: $('f_category').value,
         qualifier: $('f_qualifier').value,

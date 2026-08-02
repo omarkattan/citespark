@@ -8,6 +8,7 @@ import { analyseRun } from '../src/lib/analyze.js';
 import { askEngine, domainOf } from '../src/lib/dataforseo.js';
 import { evaluateRules } from '../src/lib/recommend.js';
 import { generatePrompts } from '../src/lib/prompts.js';
+import { readSignals, normaliseDomain } from '../src/lib/discover.js';
 
 let pass = 0;
 const test = async (name, fn) => {
@@ -278,6 +279,49 @@ await test('parses the verified ChatGPT payload shape', async () => {
   assert.equal(a.citations[0].domain, 'clickslice.co.uk');
   assert.equal(a.citations[0].position, 1, 'ordered by position in the answer');
   assert.ok(!a.text.includes('[ClickSlice](https'.repeat(2)), 'annotation text not duplicated into the body');
+});
+
+console.log('\nsite scanning');
+
+const SAMPLE = `<html><head>
+<title>Sandstorm Digital | SEO &amp; PPC Agency Manchester</title>
+<meta name="description" content="Award-winning SEO agency helping UK ecommerce brands grow.">
+<script type="application/ld+json">{"@type":"Organization","name":"Sandstorm Digital Ltd","address":{"addressLocality":"Manchester"},"sameAs":["https://linkedin.com/company/x"]}</script>
+</head><body><nav>navigation junk</nav><h1>Organic growth for ecommerce</h1><h2>SEO &amp; PPC</h2>
+<p>We work with UK retailers.</p><footer>footer junk</footer><script>var x=1;</script></body></html>`;
+
+await test('normalises whatever domain form is pasted in', () => {
+  assert.equal(normaliseDomain('https://www.Sandstormdigital.com/about?x=1'), 'sandstormdigital.com');
+  assert.equal(normaliseDomain('SANDSTORMDIGITAL.COM'), 'sandstormdigital.com');
+  assert.equal(normaliseDomain(''), '');
+});
+
+await test('pulls the stated facts off a homepage', () => {
+  const s = readSignals(SAMPLE);
+  assert.equal(s.schemaName, 'Sandstorm Digital Ltd');
+  assert.equal(s.schemaType, 'Organization');
+  assert.equal(s.address, 'Manchester');
+  assert.equal(s.h1, 'Organic growth for ecommerce');
+  assert.equal(s.sameAs.length, 1);
+});
+
+await test('decodes entities rather than leaving raw markup', () => {
+  const s = readSignals(SAMPLE);
+  assert.ok(s.title.includes('SEO & PPC'), `got: ${s.title}`);
+  assert.ok(!s.title.includes('&amp;'));
+  assert.equal(s.h2s[0], 'SEO & PPC');
+});
+
+await test('strips scripts, nav and footer from the body text', () => {
+  const s = readSignals(SAMPLE);
+  assert.ok(!/var x=1|navigation junk|footer junk/.test(s.body), `leaked: ${s.body}`);
+  assert.ok(s.body.includes('UK retailers'));
+});
+
+await test('survives malformed JSON-LD without throwing', () => {
+  const s = readSignals('<html><script type="application/ld+json">{broken,,}</script><title>Fine</title></html>');
+  assert.equal(s.title, 'Fine');
+  assert.equal(s.schemaName, null);
 });
 
 console.log('\nprompt generation');
