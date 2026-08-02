@@ -38,6 +38,24 @@ services:
         sync: false
       - key: GA4_PROPERTY_ID
         sync: false
+      - key: COST_PER_CALL
+        value: "0.03"
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_STARTER
+        sync: false
+      - key: STRIPE_PRICE_STARTER_ANNUAL
+        sync: false
+      - key: STRIPE_PRICE_GROWTH
+        sync: false
+      - key: STRIPE_PRICE_GROWTH_ANNUAL
+        sync: false
+      - key: STRIPE_PRICE_AGENCY
+        sync: false
+      - key: STRIPE_PRICE_AGENCY_ANNUAL
+        sync: false
 
   - type: cron
     name: citespark-weekly-cycle

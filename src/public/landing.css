@@ -351,3 +351,93 @@ footer { border-top: 1px solid var(--line); padding: 52px 0 40px; background: va
 /* brand mention highlighted inside the answer, the way the app marks it */
 .a mark { background: rgba(53, 224, 138, 0.15); color: var(--spark); padding: 0 3px; border-radius: 2px; }
 .verdict-you.hit { color: var(--spark); }
+
+/* ---------- pricing ---------- */
+
+.toggle {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  margin: 30px 0 8px;
+  background: var(--deeper);
+}
+.toggle-b {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 9px 16px;
+  border: none;
+  border-radius: 2px;
+  background: none;
+  color: var(--sand-2);
+  cursor: pointer;
+}
+.toggle-b.is-on { background: var(--spark); color: var(--ink); font-weight: 500; }
+.toggle-b .save { color: var(--dune); margin-left: 6px; }
+.toggle-b.is-on .save { color: var(--ink); opacity: 0.7; }
+
+.tiers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 28px; align-items: start; }
+
+.tier {
+  background: var(--deep);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 26px 22px;
+  position: relative;
+}
+.tier.is-popular { border-color: var(--spark); box-shadow: 0 0 0 1px var(--spark), 0 24px 60px rgba(53, 224, 138, 0.09); }
+.tier-flag {
+  position: absolute;
+  top: -10px;
+  left: 22px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: var(--spark);
+  color: var(--ink);
+  padding: 3px 9px;
+  border-radius: 2px;
+  font-weight: 500;
+}
+
+.tier-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dune);
+  margin-bottom: 14px;
+}
+.tier-price { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+.tier-price .amt { font-family: var(--serif); font-size: 40px; line-height: 1; letter-spacing: -0.01em; }
+.tier-price .per { font-family: var(--mono); font-size: 11px; color: var(--mute); }
+.tier-blurb { font-size: 14px; color: var(--sand-2); margin: 0 0 20px; min-height: 42px; line-height: 1.5; }
+
+.btn.full { display: block; text-align: center; width: 100%; }
+
+.tier-list { list-style: none; margin: 22px 0 0; padding: 0; }
+.tier-list li {
+  font-size: 13.5px;
+  color: var(--sand-2);
+  padding: 7px 0 7px 22px;
+  position: relative;
+  line-height: 1.45;
+}
+.tier-list li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 14px;
+  width: 7px;
+  height: 7px;
+  background: var(--moss);
+  transform: rotate(45deg);
+}
+.tier.is-popular .tier-list li::before { background: var(--spark); }
+
+@media (max-width: 1000px) { .tiers { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 620px) { .tiers { grid-template-columns: 1fr; } .tier-blurb { min-height: 0; } }

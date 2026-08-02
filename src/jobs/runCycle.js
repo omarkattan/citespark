@@ -4,6 +4,7 @@ import { askEngine, MOCK } from '../lib/dataforseo.js';
 import { analyseRun } from '../lib/analyze.js';
 import { buildRecommendations, persistRecommendations } from '../lib/recommend.js';
 import { hasAnthropic } from '../lib/anthropic.js';
+import { budgetForCycle, recordUsage } from '../lib/billing.js';
 
 const ENGINE_LIST = (process.env.ENGINES || 'chatgpt,gemini,perplexity').split(',').map((s) => s.trim());
 const CONCURRENCY = Number(process.env.CONCURRENCY || 4);
@@ -31,17 +32,33 @@ export async function runCycleForProject(projectId, { cycleDate } = {}) {
   const prompts = await many('SELECT * FROM prompts WHERE project_id = $1 AND active', [projectId]);
   const entities = await many('SELECT * FROM entities WHERE project_id = $1', [projectId]);
 
+  // A plan is a call budget. Trim the cycle to fit rather than overspending,
+  // and stop entirely when the month's allowance is gone.
+  const budget = await budgetForCycle(project.org_id, {
+    questions: prompts.length,
+    engines: ENGINE_LIST,
+    runs: project.runs_per_cycle
+  });
+
+  if (!budget.ok) {
+    console.log(`Cycle skipped for ${project.brand_name}: ${budget.reason}`);
+    return { runs: 0, spend: 0, recommendations: 0, cycle, blocked: true, reason: budget.reason };
+  }
+
   const jobs = [];
   for (const prompt of prompts) {
-    for (const engine of ENGINE_LIST) {
-      for (let i = 0; i < project.runs_per_cycle; i++) {
+    for (const engine of budget.engines) {
+      for (let i = 0; i < budget.runs; i++) {
         jobs.push({ prompt, engine, runIndex: i });
       }
     }
   }
+  if (jobs.length > budget.maxCalls) jobs.length = budget.maxCalls;
 
   console.log(
-    `Cycle ${cycle} for ${project.brand_name}: ${prompts.length} prompts x ${ENGINE_LIST.length} engines x ${project.runs_per_cycle} runs = ${jobs.length} calls${MOCK ? ' (MOCK MODE, no spend)' : ''}`
+    `Cycle ${cycle} for ${project.brand_name}: ${prompts.length} prompts x ${budget.engines.length} engines x ${budget.runs} runs = ${jobs.length} calls` +
+      (budget.trimmed ? ' (trimmed to the remaining monthly allowance)' : '') +
+      (MOCK ? ' (MOCK MODE, no spend)' : '')
   );
 
   let spend = 0;
@@ -104,11 +121,13 @@ export async function runCycleForProject(projectId, { cycleDate } = {}) {
     if (done % 20 === 0) console.log(`  ${done}/${jobs.length} runs complete`);
   });
 
+  await recordUsage(project.org_id, jobs.length, spend);
+
   const recs = await buildRecommendations(projectId);
   await persistRecommendations(projectId, recs);
 
   console.log(`Done. ${done}/${jobs.length} usable runs, $${spend.toFixed(4)} spent, ${recs.length} recommendations.`);
-  return { runs: done, spend, recommendations: recs.length, cycle };
+  return { runs: done, spend, recommendations: recs.length, cycle, trimmed: budget.trimmed };
 }
 
 // Allow: npm run cycle  (all projects)  or  npm run cycle -- 1

@@ -199,7 +199,7 @@ async function renderFigures() {
 async function render() {
   const view = state.view;
   $('view').innerHTML = '<div class="empty">Loading</div>';
-  const fn = { actions: viewActions, questions: viewQuestions, rivals: viewRivals, sources: viewSources, traffic: viewTraffic, setup: viewSetup }[view];
+  const fn = { actions: viewActions, questions: viewQuestions, rivals: viewRivals, sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling }[view];
   $('view').innerHTML = await fn();
 }
 
@@ -239,6 +239,7 @@ async function boot() {
   if (!me?.signedIn) { window.location.href = '/login'; return; }
   if (me.mock) $('mockNotice').hidden = false;
   await loadProjectList();
+  await refreshUsagePill();
 }
 
 document.querySelectorAll('.tab').forEach((tab) => {
@@ -257,13 +258,27 @@ $('signOut').addEventListener('click', async () => {
 });
 
 $('runBtn').addEventListener('click', async () => {
-  $('runBtn').disabled = true;
-  $('runBtn').textContent = 'Running';
-  await api(`/api/projects/${state.projectId}/run`, { method: 'POST' });
+  const btn = $('runBtn');
+  btn.disabled = true;
+  btn.textContent = 'Starting';
+
+  const res = await fetch(`/api/projects/${state.projectId}/run`, { method: 'POST' });
+  const json = await res.json();
+
+  if (res.status === 402) {
+    btn.disabled = false;
+    btn.textContent = 'Run cycle';
+    alert(`${json.error}`);
+    document.querySelector('.tab[data-view="billing"]').click();
+    return;
+  }
+
+  btn.textContent = json.trimmed ? `Running ${json.calls} (trimmed)` : `Running ${json.calls}`;
   setTimeout(async () => {
     await loadProject(state.projectId);
-    $('runBtn').disabled = false;
-    $('runBtn').textContent = 'Run cycle';
+    await refreshUsagePill();
+    btn.disabled = false;
+    btn.textContent = 'Run cycle';
   }, 12000);
 });
 
@@ -541,6 +556,10 @@ $('siteSave').addEventListener('click', async () => {
       })
     });
     const json = await res.json();
+    if (res.status === 402) {
+      $('siteError').innerHTML = `${esc(json.error)} <a href="#" data-goto-billing="1">See plans</a>`;
+      return;
+    }
     if (!res.ok) throw new Error(json.error || 'Could not create the site');
     $('siteDialog').close();
     await loadProjectList(json.project.id);
@@ -552,5 +571,125 @@ $('siteSave').addEventListener('click', async () => {
     btn.textContent = 'Create and write questions';
   }
 });
+
+/* ---------- plan and usage ---------- */
+
+async function viewBilling() {
+  const [b, meta] = await Promise.all([api('/api/billing'), api('/api/plans')]);
+  if (!b) return '';
+  state.billing = b;
+
+  const u = b.usage;
+  const barClass = u.percent >= 90 ? 'over' : u.percent >= 70 ? 'warn' : '';
+  const spent = u.spend ? `$${Number(u.spend).toFixed(2)} of engine cost` : 'no spend recorded yet';
+
+  const cards = meta.plans
+    .map((p) => {
+      const current = p.id === b.plan.id;
+      const cta = current
+        ? `<button class="ghost" disabled>Current plan</button>`
+        : p.id === 'free'
+          ? `<button class="ghost" data-portal="1">Downgrade</button>`
+          : `<button data-buy="${p.id}">Choose ${esc(p.name)}</button>`;
+      return `
+      <div class="plan ${current ? 'is-current' : ''} ${p.popular ? 'is-popular' : ''}">
+        <div class="plan-name">${esc(p.name)}</div>
+        <div class="plan-price">${p.price ? '$' + p.price : 'Free'}<span>${p.price ? '/mo' : ''}</span></div>
+        <p class="plan-blurb">${esc(p.blurb)}</p>
+        <div class="plan-limits">
+          <span>${p.sites} site${p.sites > 1 ? 's' : ''}</span>
+          <span>${p.questions} questions</span>
+          <span>${p.engines} engine${p.engines > 1 ? 's' : ''}</span>
+          <span>${p.runs} run${p.runs > 1 ? 's' : ''}</span>
+          <span>${p.monthlyCalls.toLocaleString()} checks</span>
+        </div>
+        ${cta}
+      </div>`;
+    })
+    .join('');
+
+  return `
+  <div class="panel">
+    <div class="panel-head">
+      <h2>This month</h2>
+      <div class="spacer"></div>
+      ${b.hasStripeCustomer ? '<button class="ghost" data-portal="1">Manage billing</button>' : ''}
+    </div>
+
+    <div class="usage-top">
+      <div>
+        <div class="usage-big">${u.calls.toLocaleString()} <span>of ${u.limit.toLocaleString()}</span></div>
+        <div class="sub" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">answer checks used &middot; ${spent}</div>
+      </div>
+      <div class="usage-plan">
+        <div class="tag">${esc(b.plan.name)} plan</div>
+        ${b.cancelAtPeriodEnd ? '<div class="tag" style="background:#fbe9e7;color:#9e2b25">Cancels at period end</div>' : ''}
+      </div>
+    </div>
+
+    <div class="usage-track"><div class="usage-fill ${barClass}" style="width:${u.percent}%"></div></div>
+    <p class="hint" style="margin-top:10px">
+      ${u.remaining > 0
+        ? `${u.remaining.toLocaleString()} left, resetting on the 1st. A cycle trims itself to fit rather than running you over.`
+        : 'Allowance used for this month. Cycles are paused until the 1st, or upgrade to carry on now.'}
+    </p>
+
+    <div class="usage-counts">
+      <span><b>${b.counts.sites}</b> of ${b.plan.sites} sites</span>
+      <span><b>${b.counts.questions}</b> active questions</span>
+      <span>${b.plan.engines} engine${b.plan.engines > 1 ? 's' : ''} allowed</span>
+      <span>${b.plan.runs} run${b.plan.runs > 1 ? 's' : ''} per question</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Plans</h2></div>
+    ${b.stripeEnabled ? '' : '<p class="notice" style="margin-bottom:16px">Billing is not configured on this deployment, so everything runs on the Free plan. Add your Stripe keys to enable upgrades.</p>'}
+    <div class="plans">${cards}</div>
+    <p class="hint" style="margin-top:16px">
+      One answer check is one question put to one engine, once. Questions multiply by engines and by runs, which is why the
+      allowance is the number worth watching.
+    </p>
+    <p class="error" id="billingError" role="alert"></p>
+  </div>`;
+}
+
+async function goToStripe(path, body) {
+  const err = $('billingError');
+  if (err) err.textContent = '';
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {})
+  });
+  const json = await res.json();
+  if (!res.ok) { if (err) err.textContent = json.error; return; }
+  window.location.href = json.url;
+}
+
+document.addEventListener('click', async (e) => {
+  const buy = e.target.closest('button[data-buy]');
+  if (buy) {
+    buy.disabled = true;
+    await goToStripe('/api/billing/checkout', { plan: buy.dataset.buy, interval: 'month' });
+    buy.disabled = false;
+  }
+  if (e.target.closest('button[data-portal]')) {
+    await goToStripe('/api/billing/portal');
+  }
+  if (e.target.closest('[data-goto-billing]')) {
+    document.querySelector('.tab[data-view="billing"]').click();
+  }
+});
+
+async function refreshUsagePill() {
+  const b = await api('/api/billing');
+  if (!b) return;
+  state.billing = b;
+  const pill = $('usagePill');
+  pill.hidden = false;
+  pill.textContent = `${b.plan.name} \u00b7 ${b.usage.calls}/${b.usage.limit}`;
+  pill.className = 'pill' + (b.usage.percent >= 90 ? ' over' : b.usage.percent >= 70 ? ' warn' : '');
+}
 
 boot();

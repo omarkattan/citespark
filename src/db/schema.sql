@@ -131,3 +131,38 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS qualifier TEXT NOT NULL DEFAULT 's
 -- The searches an engine actually ran to build its answer. Verified present in
 -- ChatGPT llm_responses payloads. This is the bridge between GEO and classic SEO.
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS fan_out_queries TEXT[] NOT NULL DEFAULT '{}';
+
+-- ---------------------------------------------------------------
+-- Billing. One subscription row per org, created lazily on first read.
+-- ---------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  org_id                 INTEGER PRIMARY KEY REFERENCES orgs(id) ON DELETE CASCADE,
+  plan                   TEXT NOT NULL DEFAULT 'free',
+  status                 TEXT NOT NULL DEFAULT 'active',
+  interval               TEXT NOT NULL DEFAULT 'month',
+  stripe_customer_id     TEXT,
+  stripe_subscription_id TEXT,
+  current_period_end     TIMESTAMPTZ,
+  cancel_at_period_end   BOOLEAN NOT NULL DEFAULT false,
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS subs_customer ON subscriptions (stripe_customer_id);
+
+-- Usage is counted per calendar month so a plan's call budget is easy to
+-- reason about and easy to explain on an invoice query.
+CREATE TABLE IF NOT EXISTS usage_monthly (
+  org_id     INTEGER NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  month      DATE NOT NULL,
+  calls      INTEGER NOT NULL DEFAULT 0,
+  spend_usd  NUMERIC(10,4) NOT NULL DEFAULT 0,
+  PRIMARY KEY (org_id, month)
+);
+
+-- Stripe retries webhooks. Recording event IDs makes handling idempotent.
+CREATE TABLE IF NOT EXISTS billing_events (
+  id          TEXT PRIMARY KEY,
+  type        TEXT NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

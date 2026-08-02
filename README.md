@@ -146,6 +146,53 @@ scripts/
   seed.js            edit CONFIG here to point at another domain
 ```
 
+## Billing
+
+Plans live in `src/lib/plans.js`, which is the single source of truth. Limits are derived from one measured number: an engine call with web search costs about `COST_PER_CALL`, currently $0.03.
+
+| Plan | Price | Sites | Questions | Engines | Runs | Checks/mo | Cost at full use | Margin |
+|---|---|---|---|---|---|---|---|---|
+| Free | $0 | 1 | 10 | 1 | 1 | 40 | $1.20 | - |
+| Starter | $79 | 1 | 25 | 2 | 3 | 700 | $21 | 73% |
+| Growth | $199 | 3 | 40 | 3 | 3 | 2,000 | $60 | 70% |
+| Agency | $499 | 10 | 60 | 4 | 5 | 5,000 | $150 | 70% |
+
+Annual is priced at ten months, so two months free. There is a test asserting every paid plan clears a 60% gross margin at full usage, which will fail loudly if you change a price without checking the maths.
+
+### Stripe setup
+
+Stripe is optional. With no keys set every org sits on Free and the product works end to end, which keeps local development simple.
+
+1. In Stripe, create a product per paid plan with a monthly price and a yearly price.
+2. Set these env vars on the web service:
+
+```
+STRIPE_SECRET_KEY=sk_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_STARTER=price_...
+STRIPE_PRICE_STARTER_ANNUAL=price_...
+STRIPE_PRICE_GROWTH=price_...
+STRIPE_PRICE_GROWTH_ANNUAL=price_...
+STRIPE_PRICE_AGENCY=price_...
+STRIPE_PRICE_AGENCY_ANNUAL=price_...
+```
+
+3. Add a webhook endpoint pointing at `https://your-domain/api/stripe/webhook`, subscribed to `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated` and `customer.subscription.deleted`. Copy its signing secret into `STRIPE_WEBHOOK_SECRET`.
+4. Enable the Customer Portal in Stripe settings, which is what the Manage billing button opens.
+
+Test locally with `stripe listen --forward-to localhost:3000/api/stripe/webhook`, and card `4242 4242 4242 4242`.
+
+### How enforcement works
+
+The database is the source of truth for what an org may do, not Stripe. Webhooks write into `subscriptions`; every limit check reads from it. A Stripe outage therefore degrades to "nobody can change plan" rather than "nobody can work".
+
+- Adding a site or a question returns HTTP 402 with a message written for the person, and the interface links to the Plan tab.
+- A cycle clamps engines and runs down to the plan before it starts, so a downgrade takes effect immediately.
+- If the remaining monthly allowance is smaller than the cycle, the cycle **trims itself to fit** and says so, rather than refusing or overspending.
+- When the allowance is gone, cycles stop until the 1st. Usage is recorded in `usage_monthly` per calendar month.
+
+Webhook handling is idempotent via the `billing_events` table, because Stripe retries.
+
 ## Before you take payment
 
 - Rate limit `/api/login` and `/api/register`.

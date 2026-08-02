@@ -9,6 +9,7 @@ import { askEngine, domainOf } from '../src/lib/dataforseo.js';
 import { evaluateRules } from '../src/lib/recommend.js';
 import { generatePrompts } from '../src/lib/prompts.js';
 import { readSignals, normaliseDomain } from '../src/lib/discover.js';
+import { PLANS, PLAN_ORDER, planFor, estimateCycle, clampToPlan, COST_PER_CALL } from '../src/lib/plans.js';
 
 let pass = 0;
 const test = async (name, fn) => {
@@ -371,6 +372,65 @@ await test('survives malformed JSON-LD without throwing', () => {
   const s = readSignals('<html><script type="application/ld+json">{broken,,}</script><title>Fine</title></html>');
   assert.equal(s.title, 'Fine');
   assert.equal(s.schemaName, null);
+});
+
+console.log('\nplans and margins');
+
+await test('every plan is internally consistent', () => {
+  for (const id of PLAN_ORDER) {
+    const p = PLANS[id];
+    assert.equal(p.id, id);
+    assert.ok(p.sites >= 1 && p.questions >= 1 && p.engines >= 1 && p.runs >= 1);
+    assert.ok(p.monthlyCalls > 0);
+    assert.ok(p.features.length >= 3, `${id} needs features listed`);
+  }
+});
+
+await test('limits rise monotonically with price', () => {
+  const paid = PLAN_ORDER.map((id) => PLANS[id]);
+  for (let i = 1; i < paid.length; i++) {
+    assert.ok(paid[i].price > paid[i - 1].price, `${paid[i].id} should cost more than ${paid[i - 1].id}`);
+    assert.ok(paid[i].monthlyCalls > paid[i - 1].monthlyCalls, `${paid[i].id} should include more checks`);
+    assert.ok(paid[i].sites >= paid[i - 1].sites);
+    assert.ok(paid[i].questions >= paid[i - 1].questions);
+  }
+});
+
+await test('every paid plan clears a 60% gross margin at full usage', () => {
+  for (const id of ['starter', 'growth', 'agency']) {
+    const p = PLANS[id];
+    const cost = p.monthlyCalls * COST_PER_CALL;
+    const margin = (p.price - cost) / p.price;
+    assert.ok(margin >= 0.6, `${id}: cost $${cost.toFixed(2)} against $${p.price} is only ${Math.round(margin * 100)}%`);
+  }
+});
+
+await test('annual pricing gives roughly two months free', () => {
+  for (const id of ['starter', 'growth', 'agency']) {
+    const p = PLANS[id];
+    const ratio = p.priceAnnual / (p.price * 12);
+    assert.ok(ratio > 0.78 && ratio < 0.88, `${id} annual discount is ${Math.round((1 - ratio) * 100)}%`);
+  }
+});
+
+await test('a cycle estimate matches the plan allowance', () => {
+  const p = PLANS.starter;
+  const { calls, usd } = estimateCycle({ questions: p.questions, engines: p.engines, runs: p.runs });
+  assert.equal(calls, 150);
+  assert.ok(usd > 4 && usd < 5, `expected about $4.50, got $${usd}`);
+  // four and a bit weekly cycles must fit inside the monthly allowance
+  assert.ok(calls * 4.33 <= p.monthlyCalls, 'weekly cadence must fit the allowance');
+});
+
+await test('downgrading clamps engines and runs immediately', () => {
+  const clamped = clampToPlan(PLANS.free, { engines: ['chatgpt', 'gemini', 'perplexity'], runs: 5 });
+  assert.deepEqual(clamped.engines, ['chatgpt']);
+  assert.equal(clamped.runs, 1);
+});
+
+await test('an unknown plan falls back to free rather than throwing', () => {
+  assert.equal(planFor('enterprise-deluxe').id, 'free');
+  assert.equal(planFor(undefined).id, 'free');
 });
 
 console.log('\nprompt generation');

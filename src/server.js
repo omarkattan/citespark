@@ -10,12 +10,35 @@ import { buildRecommendations, persistRecommendations } from './lib/recommend.js
 import { syncGa4 } from './lib/ga4.js';
 import { generatePrompts } from './lib/prompts.js';
 import { discoverSite } from './lib/discover.js';
+import { PLANS, PLAN_ORDER, planFor } from './lib/plans.js';
+import {
+  stripeEnabled, getStripe, getEntitlements, checkCanAddSite, checkCanAddQuestions,
+  createCheckoutSession, createPortalSession, handleWebhook, budgetForCycle
+} from './lib/billing.js';
 import { MOCK } from './lib/dataforseo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
 app.set('trust proxy', 1);
+// Stripe signs the raw body, so this route is mounted before the JSON parser.
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!stripeEnabled) return res.status(503).json({ error: 'Billing is not configured' });
+  try {
+    const s = await getStripe();
+    const event = s.webhooks.constructEvent(
+      req.body,
+      req.headers['stripe-signature'],
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+    await handleWebhook(event);
+    res.json({ received: true });
+  } catch (err) {
+    console.error('stripe webhook rejected:', err.message);
+    res.status(400).json({ error: `Webhook error: ${err.message}` });
+  }
+});
+
 app.use(express.json({ limit: '1mb' }));
 app.use(
   cookieSession({
@@ -316,6 +339,9 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
   const existing = await one('SELECT id FROM projects WHERE org_id = $1 AND domain = $2', [req.session.orgId, cleanDomain]);
   if (existing) return res.status(409).json({ error: 'You are already tracking that domain' });
 
+  const blocked = await checkCanAddSite(req.session.orgId);
+  if (blocked) return res.status(402).json({ error: blocked, upgrade: true });
+
   const project = await one(
     `INSERT INTO projects (org_id, name, domain, brand_name, aliases, market, language, category, qualifier)
      VALUES ($1,$2,$3,$4,$5,$6,'en',$7,$8) RETURNING *`,
@@ -347,6 +373,7 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
     );
   }
 
+  const entitlements = await getEntitlements(req.session.orgId);
   let added = 0;
   if (generate !== false) {
     const prompts = await generatePrompts({
@@ -355,9 +382,9 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
       category: project.category,
       market: project.market === 'GB' ? 'the UK' : project.market,
       qualifier: project.qualifier,
-      count: 20
+      count: Math.min(20, entitlements.plan.questions)
     });
-    for (const p of prompts) {
+    for (const p of prompts.slice(0, entitlements.plan.questions)) {
       await query(
         `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume)
          VALUES ($1,$2,$3,$4,$5) ON CONFLICT (project_id, text) DO NOTHING`,
@@ -455,6 +482,8 @@ app.post('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
   const text = String(req.body?.text || '').trim();
   if (text.length < 10) return res.status(400).json({ error: 'Write the question as a customer would type it' });
   if (text.length > 500) return res.status(400).json({ error: 'Questions are capped at 500 characters by the engines' });
+  const overQuestions = await checkCanAddQuestions(req.session.orgId, project.id, 1);
+  if (overQuestions) return res.status(402).json({ error: overQuestions, upgrade: true });
   const row = await one(
     `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume, source)
      VALUES ($1,$2,$3,$4,$5,'custom') ON CONFLICT (project_id, text) DO NOTHING RETURNING *`,
@@ -492,6 +521,16 @@ app.delete('/api/prompts/:promptId', requireAuth, wrap(async (req, res) => {
 app.post('/api/projects/:id/generate-prompts', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
+  const ent = await getEntitlements(req.session.orgId);
+  const active = await one('SELECT COUNT(*)::int AS n FROM prompts WHERE project_id = $1 AND active', [project.id]);
+  const room = ent.plan.questions - active.n;
+  if (room <= 0) {
+    return res.status(402).json({
+      error: `The ${ent.plan.name} plan allows ${ent.plan.questions} active questions per site. Pause one or upgrade to add more.`,
+      upgrade: true
+    });
+  }
+
   const prompts = await generatePrompts({
     brand: project.brand_name,
     domain: project.domain,
@@ -502,6 +541,7 @@ app.post('/api/projects/:id/generate-prompts', requireAuth, wrap(async (req, res
   });
   let added = 0;
   for (const p of prompts) {
+    if (added >= room) break;
     const row = await one(
       `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume)
        VALUES ($1,$2,$3,$4,$5) ON CONFLICT (project_id, text) DO NOTHING RETURNING id`,
@@ -509,7 +549,48 @@ app.post('/api/projects/:id/generate-prompts', requireAuth, wrap(async (req, res
     );
     if (row) added++;
   }
-  res.json({ ok: true, added, suggested: prompts.length });
+  res.json({ ok: true, added, suggested: prompts.length, room });
+}));
+
+/* ---------------- billing ---------------- */
+
+app.get('/api/plans', (_req, res) => {
+  res.json({ plans: PLAN_ORDER.map((id) => PLANS[id]), stripeEnabled });
+});
+
+app.get('/api/billing', requireAuth, wrap(async (req, res) => {
+  const e = await getEntitlements(req.session.orgId);
+  res.json({ ...e, stripeEnabled });
+}));
+
+app.post('/api/billing/checkout', requireAuth, wrap(async (req, res) => {
+  const { plan, interval } = req.body || {};
+  if (!PLANS[plan] || plan === 'free') return res.status(400).json({ error: 'Choose a paid plan' });
+  const user = await one('SELECT email FROM users WHERE id = $1', [req.session.userId]);
+  try {
+    const session = await createCheckoutSession({
+      orgId: req.session.orgId,
+      email: user.email,
+      planId: plan,
+      interval: interval === 'year' ? 'year' : 'month',
+      origin: `${req.protocol}://${req.get('host')}`
+    });
+    res.json({ url: session.url });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/billing/portal', requireAuth, wrap(async (req, res) => {
+  try {
+    const session = await createPortalSession({
+      orgId: req.session.orgId,
+      origin: `${req.protocol}://${req.get('host')}`
+    });
+    res.json({ url: session.url });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 }));
 
 /* ---------------- actions ---------------- */
@@ -517,7 +598,24 @@ app.post('/api/projects/:id/generate-prompts', requireAuth, wrap(async (req, res
 app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
-  res.json({ ok: true, started: true, mock: MOCK });
+
+  const active = await one('SELECT COUNT(*)::int AS n FROM prompts WHERE project_id = $1 AND active', [project.id]);
+  const budget = await budgetForCycle(req.session.orgId, {
+    questions: active.n,
+    engines: (process.env.ENGINES || 'chatgpt,gemini,perplexity').split(',').map((s) => s.trim()),
+    runs: project.runs_per_cycle
+  });
+
+  if (!budget.ok) return res.status(402).json({ error: budget.reason, upgrade: true });
+
+  res.json({
+    ok: true,
+    started: true,
+    mock: MOCK,
+    calls: budget.maxCalls,
+    estimateUsd: budget.estimateUsd,
+    trimmed: budget.trimmed
+  });
   runCycleForProject(project.id).catch((err) => console.error('cycle failed:', err));
 }));
 
@@ -578,7 +676,7 @@ app.get('/app', (req, res) => {
 app.get('/api/version', (_req, res) => {
   res.json({
     startedAt: STARTED_AT,
-    features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete']
+    features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete', 'billing']
   });
 });
 
