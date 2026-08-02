@@ -29,9 +29,24 @@ const EFFORT = {
 
 const AGGREGATOR_HINT = /(clutch|g2|capterra|trustpilot|reddit|quora|designrush|sortlist|yelp|tripadvisor|wikipedia|linkedin|glassdoor|producthunt|crunchbase)/i;
 
-function norm(volume) {
-  // 0 to 100, compressing the long tail so one huge prompt cannot dominate.
-  return Math.min(100, Math.round(Math.sqrt(Math.max(0, volume)) * 4.5));
+/**
+ * Score volume relative to this project's own question set, not an absolute
+ * scale. An absolute scale collapses: if a model assigns every question a
+ * high volume they all hit the ceiling and every action lands on the same
+ * priority, which is exactly what happened in the first live run.
+ *
+ * Percentile within the set guarantees a real spread from 25 to 100 however
+ * the volumes were estimated, and keeps ordering meaningful when the
+ * estimates themselves are unreliable.
+ */
+function makeScorer(volumes) {
+  const sorted = [...new Set(volumes.filter((v) => Number.isFinite(v)))].sort((a, b) => a - b);
+  if (sorted.length < 2) return () => 100;
+  return (volume) => {
+    const below = sorted.filter((v) => v < volume).length;
+    const percentile = below / (sorted.length - 1);
+    return Math.round(25 + 75 * percentile);
+  };
 }
 
 function rec({ type, title, action, targetUrl = null, impact, evidence = {} }) {
@@ -201,7 +216,9 @@ export function evaluateRules({ project, stats, sourceRows = [], ownCitedByPromp
   }
 
   const out = [];
+  const rivalGaps = new Map();
   const rate = (hits, runs) => (runs ? hits / runs : 0);
+  const norm = makeScorer([...prompts.values()].map((p) => p.volume));
 
   for (const p of prompts.values()) {
     const ownRate = rate(p.owned.hits, p.owned.runs);
@@ -209,18 +226,37 @@ export function evaluateRules({ project, stats, sourceRows = [], ownCitedByPromp
     const avgOrdinal = p.owned.ordinalN ? p.owned.ordinalSum / p.owned.ordinalN : null;
     const cited = ownCitedByPrompt.get(p.id) || 0;
 
+    const fanOut = fanOutByPrompt.get(p.id) || [];
+    const topQuery = fanOut[0]?.query || null;
+
     /* Rule 1: invisible on a question that matters */
     if (ownRate === 0 && p.owned.runs >= 2) {
+      const rivals = [...p.competitors.values()]
+        .filter((c) => rate(c.hits, c.runs) >= 0.5)
+        .map((c) => c.name)
+        .slice(0, 3);
+
       out.push(
         rec({
           type: 'content_gap',
           title: `Invisible for: "${p.text}"`,
           action:
-            `No answer engine named you across ${p.owned.runs} runs. Publish or rewrite a page that answers this question directly. ` +
-            `Put a plain 40 to 60 word answer in the first paragraph before any preamble, use the question itself as an H2, and add a named-entity sentence ` +
-            `("${project.brand_name} is a ...") so a model can attribute the answer to you.`,
+            `Not named once across ${p.owned.runs} answers` +
+            (rivals.length ? `, while ${rivals.join(', ')} ${rivals.length > 1 ? 'were' : 'was'}. ` : '. ') +
+            (topQuery
+              ? `The engine got there by searching "${topQuery}", so start by checking your rank for that. If you are off page one you are not even in the candidate set, and no amount of rewriting fixes that. `
+              : '') +
+            `On the page itself: answer the question in the first 40 to 60 words before any preamble, use the question as an H2, and include a sentence that names you plainly ` +
+            `("${project.brand_name} is a ...") so the model has something to attribute.`,
           impact: volumeScore * 1.0,
-          evidence: { prompt_id: p.id, prompt: p.text, runs: p.owned.runs, own_rate: 0, cluster: p.cluster }
+          evidence: {
+            prompt_id: p.id,
+            prompt: p.text,
+            runs: p.owned.runs,
+            own_rate: 0,
+            cluster: p.cluster,
+            queries: topQuery ? fanOut.map((f) => f.query) : undefined
+          }
         })
       );
     }
@@ -272,28 +308,18 @@ export function evaluateRules({ project, stats, sourceRows = [], ownCitedByPromp
       );
     }
 
-    /* Rule 5: a competitor owns this question */
+    /* Rule 5: note where a competitor leads. Rolled up after the loop, because
+       you write one comparison page per rival, not one per question. */
     for (const c of p.competitors.values()) {
       const cRate = rate(c.hits, c.runs);
       if (cRate - ownRate >= 0.4 && cRate >= 0.5) {
-        out.push(
-          rec({
-            type: 'competitor_comparison',
-            title: `${c.name} owns "${p.text}"`,
-            action:
-              `${c.name} appears in ${Math.round(cRate * 100)}% of answers here against your ${Math.round(ownRate * 100)}%. ` +
-              `Build a page that addresses the comparison honestly, including where they are the better fit. Balanced comparison pages get cited far more often ` +
-              `than one-sided ones, because models are trained to prefer sources that acknowledge trade-offs.`,
-            impact: volumeScore * (cRate - ownRate),
-            evidence: {
-              prompt_id: p.id,
-              prompt: p.text,
-              competitor: c.name,
-              competitor_rate: Math.round(cRate * 100),
-              own_rate: Math.round(ownRate * 100)
-            }
-          })
-        );
+        if (!rivalGaps.has(c.name)) {
+          rivalGaps.set(c.name, { name: c.name, domain: c.domain, questions: [], gapSum: 0, impact: 0 });
+        }
+        const g = rivalGaps.get(c.name);
+        g.questions.push({ prompt_id: p.id, text: p.text, theirs: Math.round(cRate * 100), yours: Math.round(ownRate * 100) });
+        g.gapSum += cRate - ownRate;
+        g.impact += volumeScore * (cRate - ownRate);
       }
     }
 
@@ -336,9 +362,8 @@ export function evaluateRules({ project, stats, sourceRows = [], ownCitedByPromp
       );
     }
 
-    /* Rule 8: the search the engine actually ran */
-    const fanOut = fanOutByPrompt.get(p.id) || [];
-    if (fanOut.length && ownRate < 0.5) {
+    /* Rule 8: the search the engine ran, when there is no content gap to fold it into */
+    if (fanOut.length && ownRate > 0 && ownRate < 0.5) {
       const list = fanOut.map((f) => `"${f.query}"`).join(', ');
       out.push(
         rec({
@@ -370,6 +395,38 @@ export function evaluateRules({ project, stats, sourceRows = [], ownCitedByPromp
         })
       );
     }
+  }
+
+  /* Rule 5, emitted: one comparison job per rival, not one per question */
+  for (const g of rivalGaps.values()) {
+    const n = g.questions.length;
+    const avgTheirs = Math.round(g.questions.reduce((a, q) => a + q.theirs, 0) / n);
+    const avgYours = Math.round(g.questions.reduce((a, q) => a + q.yours, 0) / n);
+    const examples = g.questions
+      .slice(0, 3)
+      .map((q) => `"${q.text}"`)
+      .join(', ');
+
+    out.push(
+      rec({
+        type: 'competitor_comparison',
+        title: `${g.name} beats you on ${n} question${n > 1 ? 's' : ''}`,
+        action:
+          `Across ${n} of your tracked question${n > 1 ? 's' : ''}, ${g.name} is named in ${avgTheirs}% of answers against your ${avgYours}%. ` +
+          `Examples: ${examples}. ` +
+          `Write one honest comparison page covering ${g.name}, including the cases where they are the better choice. Balanced comparisons get cited far more often ` +
+          `than one-sided ones, because models favour sources that acknowledge trade-offs. ` +
+          `Then look at what they have that you do not: check which pages of theirs the engines are citing on the Sources tab.`,
+        targetUrl: g.domain ? `https://${g.domain}` : null,
+        impact: Math.min(100, g.impact / Math.max(1, Math.sqrt(n))),
+        evidence: {
+          competitor: g.name,
+          competitor_rate: avgTheirs,
+          own_rate: avgYours,
+          questions: g.questions.map((q) => q.text).slice(0, 6)
+        }
+      })
+    );
   }
 
   /* Rule 10: sources that shape your category and do not include you */
@@ -416,7 +473,23 @@ export function evaluateRules({ project, stats, sourceRows = [], ownCitedByPromp
     }
   }
 
-  return out.sort((a, b) => b.priority - a.priority);
+  /* One question should not fill the screen. Keep the two strongest actions
+     per question; the rest stay measurable but do not clutter the list. */
+  const perPrompt = new Map();
+  const capped = [];
+  for (const r of out.sort((a, b) => b.priority - a.priority)) {
+    const id = r.evidence.prompt_id;
+    if (id === undefined) {
+      capped.push(r);
+      continue;
+    }
+    const seen = perPrompt.get(id) || 0;
+    if (seen >= 2) continue;
+    perPrompt.set(id, seen + 1);
+    capped.push(r);
+  }
+
+  return capped.sort((a, b) => b.priority - a.priority);
 }
 
 /** Upsert into the recommendations table, keeping human status changes intact. */

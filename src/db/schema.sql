@@ -1,4 +1,4 @@
--- Cited: schema
+-- CiteSpark: schema
 -- Safe to run repeatedly.
 
 CREATE TABLE IF NOT EXISTS orgs (

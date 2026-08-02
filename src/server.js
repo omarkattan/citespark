@@ -19,7 +19,7 @@ app.set('trust proxy', 1);
 app.use(express.json({ limit: '1mb' }));
 app.use(
   cookieSession({
-    name: 'cited',
+    name: 'citespark',
     keys: [process.env.SESSION_SECRET || 'change-me-in-env'],
     maxAge: 30 * 24 * 60 * 60 * 1000,
     sameSite: 'lax',
@@ -561,7 +561,14 @@ app.get('/login', (_req, res) => {
   res.sendFile(path.join(publicDir, 'login.html'));
 });
 
-app.get('/', (req, res) => {
+// Public marketing page.
+app.get('/', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(publicDir, 'landing.html'));
+});
+
+// The product itself.
+app.get('/app', (req, res) => {
   if (!req.session?.userId) return res.redirect('/login');
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(publicDir, 'index.html'));
@@ -571,7 +578,7 @@ app.get('/', (req, res) => {
 app.get('/api/version', (_req, res) => {
   res.json({
     startedAt: STARTED_AT,
-    features: ['scan-site', 'country-dropdown', 'fanout-queries', 'project-delete']
+    features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete']
   });
 });
 
@@ -586,5 +593,5 @@ process.on('unhandledRejection', (err) => console.error('unhandled rejection:', 
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`Cited listening on ${port}${MOCK ? ' [MOCK MODE]' : ''}`);
+  console.log(`CiteSpark listening on ${port}${MOCK ? ' [MOCK MODE]' : ''}`);
 });

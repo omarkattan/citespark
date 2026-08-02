@@ -1,26 +1,32 @@
-/* Cited: design tokens
+/* CiteSpark: design tokens
    paper  cool neutral, deliberately not cream
    you    the tracked brand
    rival  competitors
    Type: Space Grotesk display / IBM Plex Sans body / IBM Plex Mono data */
 
 :root {
-  --ink: #14161a;
-  --ink-2: #464c55;
-  --ink-3: #7b828c;
-  --paper: #eef0ea;
+  /* CiteSpark. Same palette as the landing page, lighter ground because
+     this is where people spend forty minutes at a time. Swap --you and
+     --deep-ink for exact Sandstorm brand values and everything follows. */
+  --ink: #0b1a12;
+  --ink-2: #3f5449;
+  --ink-3: #75887c;
+  --paper: #eef1eb;
   --panel: #ffffff;
-  --line: #d7dad1;
-  --line-2: #e8eae3;
-  --you: #1f4fd8;
-  --you-soft: rgba(31, 79, 216, 0.12);
+  --line: #cfd8d0;
+  --line-2: #e4e9e3;
+  --you: #157a4a;
+  --you-soft: rgba(21, 122, 74, 0.13);
+  --spark: #35e08a;
   --rival: #a8601b;
   --alert: #9e2b25;
-  --good: #2e6b4f;
+  --good: #157a4a;
+  --dune: #c9a96b;
 
   --sp: 8px;
   --radius: 4px;
-  --display: 'Space Grotesk', system-ui, sans-serif;
+  --display: 'Instrument Serif', Georgia, serif;
+  --display-alt: 'IBM Plex Sans', system-ui, sans-serif;
   --body: 'IBM Plex Sans', system-ui, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, monospace;
 }
@@ -59,13 +65,16 @@ a { color: var(--you); }
   gap: 20px;
 }
 
-.wordmark {
+.wordmark { display: inline-flex; align-items: center; gap: 9px; text-decoration: none; }
+.wordmark svg { display: block; flex: none; }
+.wordmark-text {
   font-family: var(--display);
-  font-weight: 700;
-  font-size: 20px;
-  letter-spacing: -0.02em;
+  font-size: 23px;
+  line-height: 1;
+  letter-spacing: -0.005em;
+  color: var(--ink);
 }
-.wordmark span { color: var(--you); }
+.wordmark-text em { font-style: normal; color: var(--you); }
 
 .masthead .meta {
   font-family: var(--mono);
@@ -87,14 +96,15 @@ main {
 
 h1 {
   font-family: var(--display);
-  font-size: 30px;
-  font-weight: 600;
-  letter-spacing: -0.025em;
-  margin: 0 0 4px;
+  font-size: 38px;
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  line-height: 1.08;
+  margin: 0 0 6px;
 }
 
 h2 {
-  font-family: var(--display);
+  font-family: var(--display-alt);
   font-size: 17px;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -158,9 +168,9 @@ h2 {
 
 .figure .value {
   font-family: var(--display);
-  font-size: 30px;
-  font-weight: 600;
-  letter-spacing: -0.03em;
+  font-size: 34px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
   line-height: 1;
 }
 .figure .value.dim { color: var(--ink-3); }
@@ -243,9 +253,9 @@ h2 {
 
 .rate {
   font-family: var(--display);
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  font-size: 26px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
   text-align: right;
   min-width: 60px;
 }
@@ -281,7 +291,7 @@ h2 {
 .rec[data-type='replicate_winner'] { border-left-color: var(--good); }
 
 .rec-top { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; }
-.rec-title { font-family: var(--display); font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; flex: 1; }
+.rec-title { font-family: var(--display-alt); font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; flex: 1; }
 .rec-pri {
   font-family: var(--mono);
   font-size: 11px;

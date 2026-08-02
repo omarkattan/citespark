@@ -67,7 +67,7 @@ async function viewActions() {
       <article class="rec" data-type="${esc(r.type)}">
         <div class="rec-top">
           <div class="rec-title">${esc(r.title)}</div>
-          <div class="rec-pri">priority ${Number(r.priority).toFixed(1)} &middot; effort ${r.effort}/5</div>
+          <div class="rec-pri">priority ${Number(r.priority).toFixed(1)} &middot; effort ${Number(r.effort)}/5</div>
         </div>
         <p class="rec-action">${esc(r.action)}</p>
         ${ev.snippet ? `<div class="excerpt">${highlight(ev.snippet, state.overview?.project?.brand_name)}</div>` : ''}

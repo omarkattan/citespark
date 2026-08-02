@@ -1,9 +1,9 @@
 {
-  "name": "cited",
+  "name": "citespark",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "AI answer visibility tracking with a recommendations engine",
+  "description": "CiteSpark: AI answer visibility tracking with a recommendations engine, by Sandstorm Digital",
   "engines": {
     "node": ">=20"
   },
