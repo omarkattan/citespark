@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cited</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="wordmark">Cit<span>ed</span></div>
+    <div class="meta" id="cycleMeta"></div>
+    <div class="spacer"></div>
+    <select id="projectPicker" style="width:auto;min-width:200px"></select>
+    <button class="ghost" id="runBtn">Run cycle</button>
+    <button class="ghost" id="signOut">Sign out</button>
+  </div>
+</header>
+
+<main>
+  <div id="mockNotice" class="notice" hidden>Mock mode is on. Answers are simulated, nothing is being spent, and the recommendations are built from the simulated data.</div>
+
+  <p class="eyebrow">What to do next</p>
+  <h1 id="brandTitle">Loading</h1>
+  <p class="dek" id="brandDek"></p>
+
+  <div class="figures" id="figures"></div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-view="actions">Actions</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="questions">Questions</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="rivals">Share of voice</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="sources">Sources</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="traffic">Traffic</button>
+  </div>
+
+  <section id="view"></section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>
