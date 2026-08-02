@@ -223,6 +223,63 @@ await test('output is sorted by priority and every rec is actionable', () => {
     'higher volume question outranks lower volume one');
 });
 
+await test('fanout_target fires and quotes the real search', () => {
+  const recs = evaluateRules({
+    project,
+    stats: [stat({ hits: 0 })],
+    fanOutByPrompt: new Map([[1, [{ query: 'best SEO agency for UK ecommerce brand 2024', n: 3 }]]])
+  });
+  const r = recs.find((x) => x.type === 'fanout_target');
+  assert.ok(r, 'rule fired');
+  assert.ok(r.action.includes('best SEO agency for UK ecommerce brand 2024'));
+  assert.deepEqual(r.evidence.queries, ['best SEO agency for UK ecommerce brand 2024']);
+});
+
+await test('fanout_target stays quiet when visibility is already strong', () => {
+  const recs = evaluateRules({
+    project,
+    stats: [stat({ hits: 3 })],
+    ownCitedByPrompt: new Map([[1, 2]]),
+    fanOutByPrompt: new Map([[1, [{ query: 'x y z', n: 3 }]]])
+  });
+  assert.equal(recs.find((x) => x.type === 'fanout_target'), undefined);
+});
+
+console.log('\nlive payload parsing');
+
+await test('parses the verified ChatGPT payload shape', async () => {
+  const fixture = {
+    tasks: [{ status_code: 20000, cost: 0.029556, result: [{
+      model_name: 'gpt-4.1-mini-2025-04-14',
+      fan_out_queries: ['best SEO agency for UK ecommerce brand 2024'],
+      items: [{ type: 'message', sections: [{ type: 'text',
+        text: 'Try [ClickSlice](https://www.clickslice.co.uk/?utm_source=openai) or [NOVOS](https://thisisnovos.com/?utm_source=openai).',
+        annotations: [
+          { title: 'ClickSlice', url: 'https://www.clickslice.co.uk/?utm_source=openai', start_index: 4, end_index: 60 },
+          { title: 'NOVOS', url: 'https://thisisnovos.com/?utm_source=openai', start_index: 65, end_index: 110 }
+        ] }] }]
+    }] }]
+  };
+  const realFetch = global.fetch;
+  global.fetch = async () => ({ ok: true, json: async () => fixture });
+  process.env.MOCK_MODE = 'false';
+  process.env.DATAFORSEO_LOGIN = 'x';
+  process.env.DATAFORSEO_PASSWORD = 'y';
+  const { askEngine: live } = await import('../src/lib/dataforseo.js?live=1');
+  const a = await live({ engine: 'chatgpt', prompt: 'test' });
+  global.fetch = realFetch;
+
+  assert.equal(a.ok, true);
+  assert.equal(a.model, 'gpt-4.1-mini-2025-04-14', 'captures the exact model version');
+  assert.equal(a.costUsd, 0.029556);
+  assert.deepEqual(a.fanOut, ['best SEO agency for UK ecommerce brand 2024']);
+  assert.equal(a.citations.length, 2);
+  assert.equal(a.citations[0].url, 'https://www.clickslice.co.uk/', 'tracking params stripped');
+  assert.equal(a.citations[0].domain, 'clickslice.co.uk');
+  assert.equal(a.citations[0].position, 1, 'ordered by position in the answer');
+  assert.ok(!a.text.includes('[ClickSlice](https'.repeat(2)), 'annotation text not duplicated into the body');
+});
+
 console.log('\nprompt generation');
 
 await test('falls back to templates without an API key', async () => {

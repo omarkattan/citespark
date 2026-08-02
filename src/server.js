@@ -189,6 +189,14 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
     [project.id, cycle]
   );
 
+  const fanOut = await many(
+    `SELECT r.prompt_id, q AS query, COUNT(*)::int AS n
+     FROM runs r, UNNEST(r.fan_out_queries) AS q
+     WHERE r.project_id = $1 AND r.cycle_date = $2 AND r.ok
+     GROUP BY r.prompt_id, q ORDER BY n DESC`,
+    [project.id, cycle]
+  );
+
   const byPrompt = new Map();
   for (const row of rows) {
     if (!byPrompt.has(row.id)) {
@@ -200,7 +208,8 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
         volume: row.ai_search_volume,
         runs: [],
         snippet: null,
-        citations: []
+        citations: [],
+        fanOut: []
       });
     }
     const p = byPrompt.get(row.id);
@@ -210,6 +219,10 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
   for (const c of citations) {
     const p = byPrompt.get(c.prompt_id);
     if (p && p.citations.length < 6) p.citations.push({ domain: c.domain, n: c.n });
+  }
+  for (const f of fanOut) {
+    const p = byPrompt.get(f.prompt_id);
+    if (p && p.fanOut.length < 4) p.fanOut.push(f.query);
   }
 
   const out = [...byPrompt.values()].map((p) => ({

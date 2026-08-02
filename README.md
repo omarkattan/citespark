@@ -84,16 +84,37 @@ Some AI traffic arrives with no referrer and lands in Direct. Both series are a 
 
 ## Cost control
 
-The whole margin lives in four settings.
+**Verified against a live call, August 2026:** one ChatGPT `llm_responses` request with `web_search: true` and `max_output_tokens: 400` cost **$0.0296**. Of that, DataForSEO's own task fee was about $0.0006 and the rest was the LLM charge. The driver is not the model, it is the web search tool fee, visible as an `input_tokens` count of 8,174 for a 60-character prompt.
 
-- `ENGINES` - each engine multiplies the call count. Three is usually enough.
-- `runs_per_cycle` on the project - the accuracy dial.
-- `MAX_OUTPUT_TOKENS` - the LLM fee scales with output length. 700 is plenty for a recommendation-style answer.
-- Cycle cadence - weekly by default in `render.yaml`. Daily is roughly seven times the cost and should be a paid upgrade, not the default.
+You cannot switch web search off. Without it there are no citations and no grounding, which is the whole product.
 
-Worked example: 25 prompts x 3 engines x 3 runs = 225 calls per cycle, about 975 a month at weekly cadence. Actual per-call cost is a DataForSEO task fee plus the underlying model's API charge, so check the live figures on their pricing page before you set your own prices. The per-cycle spend is recorded on every run and shown on the dashboard.
+| Setup | Calls per cycle | Cost per month, weekly cadence |
+|---|---|---|
+| 20 questions x 3 engines x 5 runs | 300 | ~$39 |
+| 20 x 3 x 3 | 180 | ~$23 |
+| 20 x 2 x 3 | 120 | ~$16 |
 
----
+Price accordingly. A £29/month tier is not viable. £59 works at three engines and three runs.
+
+The levers, in order of effect:
+
+- `ENGINES` - each engine multiplies everything. Three is usually enough.
+- `runs_per_cycle` on the project - the accuracy dial, editable per site in the Setup tab.
+- Cycle cadence - weekly in `render.yaml`. Daily costs seven times as much and should be a paid upgrade.
+- `MAX_OUTPUT_TOKENS` - helps least, since output is a small share of the bill.
+
+**Worth testing before you scale:** the LLM Scraper endpoints were priced around $0.0012 to $0.002 per page rather than three cents. If their ChatGPT output carries citations, they change the economics entirely. Cost per cycle is recorded on every run and shown on the dashboard.
+
+## Fan-out queries
+
+`fan_out_queries` in the response holds the searches the engine actually ran to build its answer. A real example:
+
+> Question asked: *Which SEO agency is best for a UK ecommerce brand?*
+> Engine searched: *best SEO agency for UK ecommerce brand 2024*
+
+That second string is an ordinary Google query, which means classic SEO applies to it directly. If you do not rank for it, you are not in the candidate set the model reads from, and rewriting the page for the conversational question will not help. The `fanout_target` rule turns this into a keyword target automatically.
+
+No competitor tool surfaces this. It is the bridge between GEO and the SEO work you already do.
 
 ## Verify the response parser once
 

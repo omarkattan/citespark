@@ -23,7 +23,8 @@ const EFFORT = {
   engine_gap: 2,
   sentiment_correction: 3,
   decline_alert: 1,
-  replicate_winner: 2
+  replicate_winner: 2,
+  fanout_target: 3
 };
 
 const AGGREGATOR_HINT = /(clutch|g2|capterra|trustpilot|reddit|quora|designrush|sortlist|yelp|tripadvisor|wikipedia|linkedin|glassdoor|producthunt|crunchbase)/i;
@@ -122,6 +123,21 @@ export async function buildRecommendations(projectId) {
     priorRates = new Map(rows.map((r) => [r.prompt_id, Number(r.rate)]));
   }
 
+  const fanOutRows = await many(
+    `SELECT r.prompt_id, q AS query, COUNT(*)::int AS n
+     FROM runs r, UNNEST(r.fan_out_queries) AS q
+     WHERE r.project_id = $1 AND r.cycle_date = $2 AND r.ok
+     GROUP BY r.prompt_id, q
+     ORDER BY n DESC`,
+    [projectId, cycle]
+  );
+  const fanOutByPrompt = new Map();
+  for (const row of fanOutRows) {
+    if (!fanOutByPrompt.has(row.prompt_id)) fanOutByPrompt.set(row.prompt_id, []);
+    const list = fanOutByPrompt.get(row.prompt_id);
+    if (list.length < 5) list.push({ query: row.query, n: row.n });
+  }
+
   const ga4 = await many(
     `SELECT landing_page,
             SUM(sessions)::int AS sessions,
@@ -136,14 +152,14 @@ export async function buildRecommendations(projectId) {
     [projectId]
   );
 
-  return evaluateRules({ project, stats, sourceRows, ownCitedByPrompt, priorRates, ga4 });
+  return evaluateRules({ project, stats, sourceRows, ownCitedByPrompt, priorRates, ga4, fanOutByPrompt });
 }
 
 /**
  * Pure rule evaluation. No database access, so it can be tested with fixtures
  * and reasoned about on its own.
  */
-export function evaluateRules({ project, stats, sourceRows = [], ownCitedByPrompt = new Map(), priorRates = new Map(), ga4 = [] }) {
+export function evaluateRules({ project, stats, sourceRows = [], ownCitedByPrompt = new Map(), priorRates = new Map(), ga4 = [], fanOutByPrompt = new Map() }) {
   /* ---- reshape into per-prompt views ---- */
 
   const prompts = new Map();
@@ -320,7 +336,26 @@ export function evaluateRules({ project, stats, sourceRows = [], ownCitedByPromp
       );
     }
 
-    /* Rule 8: it got worse */
+    /* Rule 8: the search the engine actually ran */
+    const fanOut = fanOutByPrompt.get(p.id) || [];
+    if (fanOut.length && ownRate < 0.5) {
+      const list = fanOut.map((f) => `"${f.query}"`).join(', ');
+      out.push(
+        rec({
+          type: 'fanout_target',
+          title: `The engines searched ${list} to answer this`,
+          action:
+            `To build its answer for "${p.text}", the engine ran ${fanOut.length > 1 ? 'these searches' : 'this search'}: ${list}. ` +
+            `That is a normal Google query, so classic SEO applies directly. Check where you rank for it today. If you are not on page one, ` +
+            `you are not in the candidate set the model reads from, and no amount of on-page rewriting for the conversational question will fix that. ` +
+            `Treat it as a keyword target and track it alongside your usual rankings.`,
+          impact: volumeScore * 0.75 * (1 - ownRate),
+          evidence: { prompt_id: p.id, prompt: p.text, queries: fanOut.map((f) => f.query), own_rate: Math.round(ownRate * 100) }
+        })
+      );
+    }
+
+    /* Rule 9: it got worse */
     const before = priorRates.get(p.id);
     if (before !== undefined && before - ownRate >= 0.2) {
       out.push(
@@ -337,7 +372,7 @@ export function evaluateRules({ project, stats, sourceRows = [], ownCitedByPromp
     }
   }
 
-  /* Rule 9: sources that shape your category and do not include you */
+  /* Rule 10: sources that shape your category and do not include you */
   const ownDomain = project.domain.replace(/^www\./, '');
   for (const s of sourceRows.slice(0, 15)) {
     if (s.domain === ownDomain) continue;
@@ -357,7 +392,7 @@ export function evaluateRules({ project, stats, sourceRows = [], ownCitedByPromp
     );
   }
 
-  /* Rule 10: a page that AI traffic already converts on */
+  /* Rule 11: a page that AI traffic already converts on */
   if (ga4.length) {
     const totalSessions = ga4.reduce((a, r) => a + r.sessions, 0);
     const totalConv = ga4.reduce((a, r) => a + r.conversions, 0);

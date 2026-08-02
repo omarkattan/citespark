@@ -58,8 +58,8 @@ export async function runCycleForProject(projectId, { cycleDate } = {}) {
     spend += answer.costUsd || 0;
 
     const run = await one(
-      `INSERT INTO runs (prompt_id, project_id, engine, model, cycle_date, run_index, response_text, ok, error, cost_usd)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+      `INSERT INTO runs (prompt_id, project_id, engine, model, cycle_date, run_index, response_text, ok, error, cost_usd, fan_out_queries)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
       [
         prompt.id,
         projectId,
@@ -70,7 +70,8 @@ export async function runCycleForProject(projectId, { cycleDate } = {}) {
         answer.text,
         answer.ok,
         answer.error,
-        answer.costUsd || 0
+        answer.costUsd || 0,
+        answer.fanOut || []
       ]
     );
 

@@ -62,6 +62,7 @@ async function viewActions() {
       if (ev.competitor_rate !== undefined) bits.push(`<span class="tag">${esc(ev.competitor)} ${ev.competitor_rate}%</span>`);
       if (ev.citations !== undefined) bits.push(`<span class="tag">${ev.citations} citations</span>`);
       if (ev.sessions !== undefined) bits.push(`<span class="tag">${ev.sessions} sessions</span>`);
+      if (ev.queries) bits.push(...ev.queries.slice(0, 3).map((q) => `<span class="tag">${esc(q)}</span>`));
       return `
       <article class="rec" data-type="${esc(r.type)}">
         <div class="rec-top">
@@ -103,6 +104,7 @@ async function viewQuestions() {
           ${runStrip(p.runs)}
           ${p.snippet ? `<div class="excerpt">${highlight(p.snippet, brand)}</div>` : ''}
           ${chips ? `<div class="chips">${chips}</div>` : ''}
+          ${p.fanOut?.length ? `<div class="fanout"><span class="fanout-label">searched for</span>${p.fanOut.map((q) => `<span class="chip">${esc(q)}</span>`).join('')}</div>` : ''}
         </div>
         <div class="rate ${rateClass(p.rate)}">${pct(p.rate)}</div>
       </div>`;

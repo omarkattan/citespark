@@ -29,7 +29,47 @@ function authHeader() {
   return `Basic ${token}`;
 }
 
-/** Recursively collect plausible answer text from an arbitrary JSON tree. */
+/**
+ * Structured parse of a task result.
+ *
+ * Verified against a live ChatGPT llm_responses payload (August 2026):
+ *   task.result[0].items[]           type: "message"
+ *     .sections[]                    type: "text", holds .text and .annotations[]
+ *       .annotations[]               { title, url, start_index, end_index, text }
+ *   task.result[0].fan_out_queries[] the searches the engine actually ran
+ *
+ * Citations come from annotations in character order, which is the order they
+ * appear in the answer. The tree walk below is kept as a fallback for engines
+ * whose shape differs or changes.
+ */
+function parseStructured(result) {
+  if (!Array.isArray(result) || !result.length) return null;
+  const texts = [];
+  const annotations = [];
+  const fanOut = [];
+
+  for (const res of result) {
+    for (const q of res.fan_out_queries || []) {
+      if (typeof q === 'string' && q.trim()) fanOut.push(q.trim());
+    }
+    for (const item of res.items || []) {
+      for (const section of item.sections || []) {
+        if (typeof section.text === 'string' && section.text.trim()) {
+          texts.push(section.text.trim());
+        }
+        for (const a of section.annotations || []) {
+          if (a?.url) annotations.push({ url: a.url, title: a.title, at: a.start_index ?? 0 });
+        }
+      }
+    }
+  }
+
+  if (!texts.length) return null;
+  annotations.sort((a, b) => a.at - b.at);
+  return { text: texts.join('\n\n'), annotations, fanOut };
+}
+
+/** Fallback: recursively collect plausible answer text from an arbitrary tree. */
 function collectText(node, out = []) {
   if (node == null) return out;
   if (typeof node === 'string') return out;
@@ -88,16 +128,31 @@ export function domainOf(url) {
   }
 }
 
-function dedupeCitations(urls) {
+/** Engines append tracking params (?utm_source=openai). Strip them so the
+ *  same page cited twice does not look like two different sources. */
+function cleanUrl(url) {
+  try {
+    const u = new URL(url);
+    for (const p of ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'ref', 'source']) {
+      u.searchParams.delete(p);
+    }
+    u.hash = '';
+    return u.toString().replace(/\?$/, '');
+  } catch {
+    return url.split('#')[0];
+  }
+}
+
+function dedupeCitations(items) {
   const seen = new Set();
   const out = [];
-  for (const url of urls) {
+  for (const item of items) {
+    const url = cleanUrl(typeof item === 'string' ? item : item.url);
     const domain = domainOf(url);
     if (!domain) continue;
-    const key = url.split('#')[0];
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({ url: key, domain, position: out.length + 1 });
+    if (seen.has(url)) continue;
+    seen.add(url);
+    out.push({ url, domain, position: out.length + 1, title: item.title || null });
   }
   return out;
 }
@@ -108,7 +163,7 @@ function dedupeCitations(urls) {
  */
 export async function askEngine({ engine, prompt, market = 'GB', maxTokens = 700 }) {
   const cfg = ENGINES[engine];
-  if (!cfg) return { ok: false, text: '', citations: [], costUsd: 0, error: `Unknown engine ${engine}` };
+  if (!cfg) return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, error: `Unknown engine ${engine}` };
 
   if (MOCK) return mockAnswer({ engine, prompt, model: cfg.model });
 
@@ -131,7 +186,7 @@ export async function askEngine({ engine, prompt, market = 'GB', maxTokens = 700
     });
 
     if (!res.ok) {
-      return { ok: false, text: '', citations: [], costUsd: 0, model: cfg.model, error: `HTTP ${res.status}` };
+      return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, model: cfg.model, error: `HTTP ${res.status}` };
     }
 
     const json = await res.json();
@@ -141,26 +196,39 @@ export async function askEngine({ engine, prompt, market = 'GB', maxTokens = 700
         ok: false,
         text: '',
         citations: [],
+        fanOut: [],
         costUsd: Number(json?.cost || 0),
         model: cfg.model,
         error: task?.status_message || 'Task failed'
       };
     }
 
-    const textParts = collectText(task.result);
-    const text = textParts.join('\n\n').trim();
-    const urls = [...collectUrls(task.result), ...urlsFromText(text)];
+    const structured = parseStructured(task.result);
+    let text;
+    let citationSource;
+    let fanOut = [];
+
+    if (structured) {
+      text = structured.text;
+      fanOut = structured.fanOut;
+      // Annotations are authoritative. Fall back to a text scan only if there are none.
+      citationSource = structured.annotations.length ? structured.annotations : urlsFromText(text);
+    } else {
+      text = collectText(task.result).join('\n\n').trim();
+      citationSource = [...collectUrls(task.result), ...urlsFromText(text)];
+    }
 
     return {
       ok: text.length > 0,
       text,
-      citations: dedupeCitations(urls),
-      costUsd: Number(json?.cost || task?.cost || 0),
-      model: cfg.model,
+      citations: dedupeCitations(citationSource),
+      fanOut,
+      costUsd: Number(json?.cost ?? task?.cost ?? 0),
+      model: task?.result?.[0]?.model_name || cfg.model,
       error: text.length ? null : 'Empty response'
     };
   } catch (err) {
-    return { ok: false, text: '', citations: [], costUsd: 0, model: cfg.model, error: String(err.message || err) };
+    return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, model: cfg.model, error: String(err.message || err) };
   }
 }
 
@@ -201,6 +269,16 @@ function seededRandom(seed) {
   };
 }
 
+/** Crude stand-in for the searches an engine would run. Live data is far better. */
+function mockFanOut(prompt) {
+  const words = prompt
+    .toLowerCase()
+    .replace(/[?.,!]/g, '')
+    .split(' ')
+    .filter((w) => w.length > 3 && !['what', 'which', 'best', 'should', 'would', 'there', 'about'].includes(w));
+  return `best ${words.slice(0, 4).join(' ')} 2026`;
+}
+
 function mockAnswer({ engine, prompt, model }) {
   const rand = seededRandom(`${engine}:${prompt}:${Date.now() % 100000}`);
   const picked = MOCK_BRANDS.filter(() => rand() > 0.45).slice(0, 4);
@@ -221,6 +299,7 @@ function mockAnswer({ engine, prompt, model }) {
     ok: true,
     text,
     citations: dedupeCitations(urls),
+    fanOut: [mockFanOut(prompt)],
     costUsd: 0,
     model: `${model} (mock)`,
     error: null

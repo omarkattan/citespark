@@ -449,3 +449,14 @@ textarea {
 
 .danger { border-color: var(--alert); color: var(--alert); }
 .danger:hover { background: var(--alert); color: var(--paper); }
+
+/* the searches an engine ran to build its answer */
+.fanout { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.fanout-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+}
+.fanout .chip { border-style: dashed; }

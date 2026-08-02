@@ -127,3 +127,7 @@ CREATE INDEX IF NOT EXISTS recs_project_status ON recommendations (project_id, s
 -- so this applies cleanly to databases created before these columns existed.
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS category  TEXT NOT NULL DEFAULT 'business';
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS qualifier TEXT NOT NULL DEFAULT 'small business';
+
+-- The searches an engine actually ran to build its answer. Verified present in
+-- ChatGPT llm_responses payloads. This is the bridge between GEO and classic SEO.
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS fan_out_queries TEXT[] NOT NULL DEFAULT '{}';
