@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const state = { projectId: null, view: 'actions', overview: null, interval: 'month' };
+const state = { projectId: null, view: 'actions', overview: null, interval: null };
 
 const esc = (s) =>
   String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
@@ -574,6 +574,14 @@ $('siteSave').addEventListener('click', async () => {
 
 /* ---------- plan and usage ---------- */
 
+function renewLine(b) {
+  if (b.plan.id === 'free' || !b.currentPeriodEnd) return '';
+  const d = new Date(b.currentPeriodEnd);
+  if (Number.isNaN(d.getTime())) return '';
+  const when = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  return ` &middot; ${b.cancelAtPeriodEnd ? 'access until' : 'renews'} ${when}`;
+}
+
 async function viewBilling() {
   const [b, meta] = await Promise.all([api('/api/billing'), api('/api/plans')]);
   if (!b) return '';
@@ -583,19 +591,31 @@ async function viewBilling() {
   const barClass = u.percent >= 90 ? 'over' : u.percent >= 70 ? 'warn' : '';
   const spent = u.spend ? `$${Number(u.spend).toFixed(2)} of engine cost` : 'no spend recorded yet';
 
+  // Open on the interval the customer is actually paying for, not always monthly.
+  if (state.interval === null) state.interval = b.plan.id === 'free' ? 'month' : b.interval || 'month';
   const yearly = state.interval === 'year';
 
   const cards = meta.plans
     .map((p) => {
-      const current = p.id === b.plan.id && (p.id === 'free' || b.interval === state.interval);
+      const samePlan = p.id === b.plan.id;
+      const sameInterval = p.id === 'free' || b.interval === state.interval;
       const monthlyEquivalent = yearly && p.priceAnnual ? Math.round(p.priceAnnual / 12) : p.price;
-      const cta = current
-        ? `<button class="ghost" disabled>Current plan</button>`
-        : p.id === 'free'
-          ? `<button class="ghost" data-portal="1">Downgrade</button>`
-          : `<button data-buy="${p.id}">Choose ${esc(p.name)}</button>`;
+
+      let cta;
+      if (samePlan && sameInterval) {
+        cta = `<button class="ghost" disabled>Your plan</button>`;
+      } else if (samePlan) {
+        // Same plan, other billing period. Stripe's portal handles the swap.
+        cta = `<button class="ghost" data-portal="1">Switch to ${yearly ? 'yearly' : 'monthly'}</button>`;
+      } else if (p.id === 'free') {
+        cta = `<button class="ghost" data-portal="1">Downgrade</button>`;
+      } else {
+        cta = `<button data-buy="${p.id}">Choose ${esc(p.name)}</button>`;
+      }
+
       return `
-      <div class="plan ${current ? 'is-current' : ''} ${p.popular ? 'is-popular' : ''}">
+      <div class="plan ${samePlan ? 'is-current' : ''} ${p.popular && !samePlan ? 'is-popular' : ''}">
+        ${samePlan ? '<div class="plan-flag">Current</div>' : ''}
         <div class="plan-name">${esc(p.name)}</div>
         <div class="plan-price">${p.price ? '$' + monthlyEquivalent : 'Free'}<span>${p.price ? '/mo' : ''}</span></div>
         ${p.price && yearly ? `<div class="plan-annual">$${p.priceAnnual} billed yearly</div>` : ''}
@@ -615,19 +635,28 @@ async function viewBilling() {
   return `
   <div class="panel">
     <div class="panel-head">
-      <h2>This month</h2>
+      <h2>Your plan</h2>
       <div class="spacer"></div>
       ${b.hasStripeCustomer ? '<button class="ghost" data-portal="1">Manage billing</button>' : ''}
+    </div>
+
+    <div class="current-plan">
+      <div>
+        <div class="current-name">${esc(b.plan.name)}</div>
+        <div class="current-meta">
+          ${b.plan.id === 'free'
+            ? 'No card on file'
+            : `$${b.interval === 'year' ? b.plan.priceAnnual : b.plan.price} billed ${b.interval === 'year' ? 'yearly' : 'monthly'}`}
+          ${renewLine(b)}
+        </div>
+      </div>
+      ${b.cancelAtPeriodEnd ? '<div class="tag" style="background:#fbe9e7;color:var(--alert)">Cancels at period end</div>' : ''}
     </div>
 
     <div class="usage-top">
       <div>
         <div class="usage-big">${u.calls.toLocaleString()} <span>of ${u.limit.toLocaleString()}</span></div>
-        <div class="sub" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">answer checks used &middot; ${spent}</div>
-      </div>
-      <div class="usage-plan">
-        <div class="tag">${esc(b.plan.name)} plan${b.plan.id !== 'free' ? ' &middot; ' + (b.interval === 'year' ? 'yearly' : 'monthly') : ''}</div>
-        ${b.cancelAtPeriodEnd ? '<div class="tag" style="background:#fbe9e7;color:#9e2b25">Cancels at period end</div>' : ''}
+        <div class="sub" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">answer checks used this month &middot; ${spent}</div>
       </div>
     </div>
 
