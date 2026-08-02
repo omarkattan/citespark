@@ -347,3 +347,7 @@ footer { border-top: 1px solid var(--line); padding: 52px 0 40px; background: va
   .reveal { opacity: 1; transform: none; }
   html { scroll-behavior: auto; }
 }
+
+/* brand mention highlighted inside the answer, the way the app marks it */
+.a mark { background: rgba(53, 224, 138, 0.15); color: var(--spark); padding: 0 3px; border-radius: 2px; }
+.verdict-you.hit { color: var(--spark); }

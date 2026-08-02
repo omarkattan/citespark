@@ -1,8 +1,8 @@
-# Cited
+# CiteSpark
 
-Answer engine visibility tracking that tells you what to do, not just where you stand.
+Answer engine visibility tracking that tells you what to do, not just where you stand. A Sandstorm Digital production.
 
-Cited asks the questions your buyers actually type into ChatGPT, Gemini and Perplexity, reads every answer, records whether you were named and in what position, captures which domains the engines cited instead, joins that to your GA4 AI Assistant traffic, and then writes a prioritised action list from the gaps it finds.
+CiteSpark asks the questions your buyers actually type into ChatGPT, Gemini and Perplexity, reads every answer, records whether you were named and in what position, captures which domains the engines cited instead, joins that to your GA4 AI Assistant traffic, and then writes a prioritised action list from the gaps it finds.
 
 The action list is the product. The dashboard is how you check its working.
 
@@ -11,7 +11,7 @@ The action list is the product. The dashboard is how you check its working.
 ## Quick start (10 minutes, no API spend)
 
 ```bash
-git clone <your-repo> cited && cd cited
+git clone <your-repo> citespark && cd citespark
 npm install
 cp .env.example .env      # set DATABASE_URL and SESSION_SECRET, leave MOCK_MODE=true
 npm run migrate
@@ -36,7 +36,7 @@ To switch to live data, set `MOCK_MODE=false` and add your DataForSEO credential
 
 ### Connecting a subdomain
 
-In Render, open the web service, go to **Settings > Custom Domains**, add `cited.sandstormdigital.com`. Render gives you a CNAME target. Add that CNAME at your DNS provider and Render issues the TLS certificate automatically, usually within a few minutes. Use a subdomain rather than the apex so you avoid ALIAS record faff.
+In Render, open the web service, go to **Settings > Custom Domains**, add `citespark.sandstormdigital.com`. Render gives you a CNAME target. Add that CNAME at your DNS provider and Render issues the TLS certificate automatically, usually within a few minutes. Use a subdomain rather than the apex so you avoid ALIAS record faff.
 
 ---
 

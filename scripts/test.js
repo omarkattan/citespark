@@ -138,6 +138,54 @@ await test('competitor_comparison fires on a clear lead', () => {
   assert.equal(r.evidence.competitor_rate, 100);
 });
 
+await test('one comparison action per rival, however many questions they win', () => {
+  const stats = [];
+  for (let i = 1; i <= 5; i++) {
+    stats.push(stat({ prompt_id: i, text: `q${i}`, ai_search_volume: i * 100, hits: 0 }));
+    stats.push(stat({ prompt_id: i, text: `q${i}`, ai_search_volume: i * 100, entity_id: 2, name: 'Impression', kind: 'competitor', hits: 3 }));
+  }
+  const recs = evaluateRules({ project, stats });
+  const comps = recs.filter((x) => x.type === 'competitor_comparison');
+  assert.equal(comps.length, 1, 'rolled up, not one per question');
+  assert.equal(comps[0].evidence.questions.length, 5);
+  assert.ok(comps[0].title.includes('5 questions'));
+});
+
+await test('priorities spread even when every volume estimate is high', () => {
+  const stats = [];
+  const volumes = [5000, 4800, 4600, 4400, 4200];
+  volumes.forEach((v, i) => stats.push(stat({ prompt_id: i + 1, text: `q${i}`, ai_search_volume: v, hits: 0 })));
+  const recs = evaluateRules({ project, stats });
+  const priorities = new Set(recs.map((r) => r.priority));
+  assert.ok(priorities.size >= 4, `expected a spread, got ${[...priorities].join(', ')}`);
+  assert.ok(Math.max(...priorities) > Math.min(...priorities) * 2, 'top action clearly outranks the bottom');
+});
+
+await test('no more than two actions per question', () => {
+  const stats = [
+    stat({ hits: 1, avg_ordinal: 4.5, negatives: 1, snippet: 'mixed reviews' }),
+    stat({ entity_id: 2, name: 'Impression', kind: 'competitor', hits: 3 })
+  ];
+  const recs = evaluateRules({
+    project, stats,
+    priorRates: new Map([[1, 0.9]]),
+    fanOutByPrompt: new Map([[1, [{ query: 'test query', n: 3 }]]])
+  });
+  const forPrompt1 = recs.filter((r) => r.evidence.prompt_id === 1);
+  assert.ok(forPrompt1.length <= 2, `got ${forPrompt1.length} actions for one question`);
+});
+
+await test('content gap absorbs the fan-out query instead of duplicating it', () => {
+  const recs = evaluateRules({
+    project,
+    stats: [stat({ hits: 0 })],
+    fanOutByPrompt: new Map([[1, [{ query: 'best seo agency dubai 2024', n: 3 }]]])
+  });
+  const gap = recs.find((x) => x.type === 'content_gap');
+  assert.ok(gap.action.includes('best seo agency dubai 2024'), 'query folded into the gap action');
+  assert.equal(recs.find((x) => x.type === 'fanout_target'), undefined, 'no separate duplicate action');
+});
+
 await test('engine_gap fires when one engine is blind to you', () => {
   const recs = evaluateRules({
     project,
@@ -224,10 +272,11 @@ await test('output is sorted by priority and every rec is actionable', () => {
     'higher volume question outranks lower volume one');
 });
 
-await test('fanout_target fires and quotes the real search', () => {
+await test('fanout_target stands alone when partly visible', () => {
   const recs = evaluateRules({
     project,
-    stats: [stat({ hits: 0 })],
+    stats: [stat({ hits: 1 })],
+    ownCitedByPrompt: new Map([[1, 2]]),
     fanOutByPrompt: new Map([[1, [{ query: 'best SEO agency for UK ecommerce brand 2024', n: 3 }]]])
   });
   const r = recs.find((x) => x.type === 'fanout_target');
