@@ -197,7 +197,7 @@ async function renderFigures() {
 async function render() {
   const view = state.view;
   $('view').innerHTML = '<div class="empty">Loading</div>';
-  const fn = { actions: viewActions, questions: viewQuestions, rivals: viewRivals, sources: viewSources, traffic: viewTraffic }[view];
+  const fn = { actions: viewActions, questions: viewQuestions, rivals: viewRivals, sources: viewSources, traffic: viewTraffic, setup: viewSetup }[view];
   $('view').innerHTML = await fn();
 }
 
@@ -214,18 +214,29 @@ async function loadProject(id) {
   await render();
 }
 
+async function loadProjectList(selectId) {
+  const projects = await api('/api/projects');
+  if (!projects?.length) {
+    $('projectPicker').innerHTML = '';
+    $('brandTitle').textContent = 'No sites yet';
+    $('brandDek').textContent = 'Add your first site to start measuring what the answer engines say about it.';
+    $('figures').innerHTML = '';
+    $('view').innerHTML = `<div class="empty"><h2>Nothing tracked yet</h2><p>Press <b>Add site</b> in the top bar. Give us the domain, what the business does and who it sells to, and we will write the question set for you.</p></div>`;
+    return false;
+  }
+  const chosen = selectId && projects.some((p) => p.id === selectId) ? selectId : projects[0].id;
+  $('projectPicker').innerHTML = projects
+    .map((p) => `<option value="${p.id}" ${p.id === chosen ? 'selected' : ''}>${esc(p.name)}</option>`)
+    .join('');
+  await loadProject(chosen);
+  return true;
+}
+
 async function boot() {
   const me = await api('/api/me');
   if (!me?.signedIn) { window.location.href = '/login'; return; }
   if (me.mock) $('mockNotice').hidden = false;
-
-  const projects = await api('/api/projects');
-  if (!projects?.length) {
-    $('view').innerHTML = `<div class="empty"><h2>No projects yet</h2><p>Run <code>npm run seed</code> to create one.</p></div>`;
-    return;
-  }
-  $('projectPicker').innerHTML = projects.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
-  await loadProject(projects[0].id);
+  await loadProjectList();
 }
 
 document.querySelectorAll('.tab').forEach((tab) => {
@@ -263,6 +274,230 @@ document.addEventListener('click', async (e) => {
     body: JSON.stringify({ status: btn.dataset.status })
   });
   await render();
+});
+
+/* ---------- setup ---------- */
+
+async function viewSetup() {
+  const data = await api(`/api/projects/${state.projectId}/setup`);
+  if (!data) return '';
+  const p = data.project;
+  const rivals = data.entities.filter((e) => e.kind === 'competitor');
+  const active = data.prompts.filter((q) => q.active).length;
+
+  const rivalRows = rivals.length
+    ? rivals
+        .map(
+          (e) => `<div class="row">
+            <div class="grow"><div class="name">${esc(e.name)}</div><div class="sub">${esc(e.domain || 'no domain set')}</div></div>
+            <button class="ghost" data-del-entity="${e.id}">Remove</button>
+          </div>`
+        )
+        .join('')
+    : `<p class="sub" style="font-family:var(--mono);font-size:12px;color:var(--ink-3)">No competitors yet. Add the ones you actually lose pitches to.</p>`;
+
+  const promptRows = data.prompts
+    .map(
+      (q) => `<div class="row ${q.active ? '' : 'off'}">
+        <div class="grow">
+          <div class="name">${esc(q.text)}</div>
+          <div class="sub">${esc(q.cluster)} &middot; ${esc(q.intent)} &middot; volume ${q.ai_search_volume}</div>
+        </div>
+        <button class="ghost" data-toggle-prompt="${q.id}" data-active="${q.active}">${q.active ? 'Pause' : 'Resume'}</button>
+        <button class="ghost" data-del-prompt="${q.id}">Delete</button>
+      </div>`
+    )
+    .join('');
+
+  const cost = active * 3 * (p.runs_per_cycle || 3);
+
+  return `
+  <div class="setup-grid">
+    <div>
+      <div class="panel">
+        <div class="panel-head"><h2>This site</h2></div>
+        <div class="field"><label for="s_name">Project name</label><input id="s_name" value="${esc(p.name)}" /></div>
+        <div class="field"><label for="s_brand">Brand name</label><input id="s_brand" value="${esc(p.brand_name)}" /></div>
+        <div class="field"><label for="s_aliases">Also known as, comma separated</label><input id="s_aliases" value="${esc((p.aliases || []).join(', '))}" placeholder="Sandstorm, Sandstorm Digital Ltd" /></div>
+        <div class="field"><label for="s_category">What the business does</label><input id="s_category" value="${esc(p.category || '')}" /></div>
+        <div class="field"><label for="s_qualifier">Who the customer is</label><input id="s_qualifier" value="${esc(p.qualifier || '')}" /></div>
+        <div class="field"><label for="s_runs">Runs per question, per engine</label><input id="s_runs" type="number" min="1" max="10" value="${p.runs_per_cycle}" /></div>
+        <p class="sub" style="font-family:var(--mono);font-size:11px;color:var(--ink-3);margin:0 0 14px">
+          ${active} active questions &times; 3 engines &times; ${p.runs_per_cycle} runs = ${cost} calls per cycle.
+          More runs means a more trustworthy percentage. More questions means broader coverage. Runs usually win.
+        </p>
+        <button id="s_save">Save changes</button>
+        <span id="s_saved" class="sub" style="font-family:var(--mono);font-size:11px;color:var(--good);margin-left:10px"></span>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Competitors</h2></div>
+        ${rivalRows}
+        <div class="inline-form">
+          <input id="r_name" placeholder="Name" />
+          <input id="r_domain" placeholder="domain.com" />
+          <button id="r_add">Add</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Danger zone</h2></div>
+        <p class="dek" style="margin:0 0 14px;font-size:13.5px">Deleting a site removes its questions, every answer recorded against it, and its action list. There is no undo.</p>
+        <button class="ghost danger" id="s_delete">Delete this site</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Questions</h2>
+        <div class="spacer"></div>
+        <button class="ghost" id="q_generate">Suggest 10 more</button>
+      </div>
+      <p class="dek" style="margin:0 0 4px;font-size:13px">Write these the way a customer types them, never with the brand name in. Paused questions stay in the record but are not asked.</p>
+      ${promptRows}
+      <div class="inline-form">
+        <input id="q_text" placeholder="Which SEO agency is best for a UK ecommerce brand?" />
+        <button id="q_add">Add</button>
+      </div>
+      <p class="error" id="setupError" role="alert"></p>
+    </div>
+  </div>`;
+}
+
+/* ---------- setup handlers ---------- */
+
+const setupErr = (msg) => { const el = $('setupError'); if (el) el.textContent = msg || ''; };
+
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+
+  if (t.id === 's_save') {
+    t.disabled = true;
+    await fetch(`/api/projects/${state.projectId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: $('s_name').value,
+        brandName: $('s_brand').value,
+        aliases: $('s_aliases').value.split(',').map((x) => x.trim()).filter(Boolean),
+        category: $('s_category').value,
+        qualifier: $('s_qualifier').value,
+        runsPerCycle: Number($('s_runs').value)
+      })
+    });
+    $('s_saved').textContent = 'Saved';
+    t.disabled = false;
+    await loadProjectList();
+    setTimeout(() => { const el = $('s_saved'); if (el) el.textContent = ''; }, 2500);
+  }
+
+  if (t.id === 'r_add') {
+    const res = await fetch(`/api/projects/${state.projectId}/entities`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: $('r_name').value, domain: $('r_domain').value })
+    });
+    const json = await res.json();
+    if (!res.ok) return setupErr(json.error);
+    await render();
+  }
+
+  if (t.dataset.delEntity) {
+    await fetch(`/api/entities/${t.dataset.delEntity}`, { method: 'DELETE' });
+    await render();
+  }
+
+  if (t.id === 'q_add') {
+    const res = await fetch(`/api/projects/${state.projectId}/prompts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: $('q_text').value })
+    });
+    const json = await res.json();
+    if (!res.ok) return setupErr(json.error);
+    await render();
+  }
+
+  if (t.dataset.delPrompt) {
+    await fetch(`/api/prompts/${t.dataset.delPrompt}`, { method: 'DELETE' });
+    await render();
+  }
+
+  if (t.dataset.togglePrompt) {
+    await fetch(`/api/prompts/${t.dataset.togglePrompt}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: t.dataset.active !== 'true' })
+    });
+    await render();
+  }
+
+  if (t.id === 'q_generate') {
+    t.disabled = true;
+    t.textContent = 'Writing';
+    const res = await fetch(`/api/projects/${state.projectId}/generate-prompts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ count: 10 })
+    });
+    const json = await res.json();
+    await render();
+    if (json.added === 0) setupErr('Nothing new to add. Every suggestion was already on the list.');
+  }
+
+  if (t.id === 's_delete') {
+    if (!confirm('Delete this site and everything measured against it?')) return;
+    await fetch(`/api/projects/${state.projectId}`, { method: 'DELETE' });
+    window.location.reload();
+  }
+});
+
+/* ---------- add site ---------- */
+
+function parseRivals(text) {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [name, domain] = line.split(',').map((x) => (x || '').trim());
+      return { name, domain };
+    })
+    .filter((r) => r.name);
+}
+
+$('addSiteBtn').addEventListener('click', () => $('siteDialog').showModal());
+$('siteCancel').addEventListener('click', () => $('siteDialog').close());
+
+$('siteSave').addEventListener('click', async () => {
+  const btn = $('siteSave');
+  $('siteError').textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Writing questions';
+  try {
+    const res = await fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        brandName: $('f_brand').value,
+        domain: $('f_domain').value,
+        category: $('f_category').value,
+        qualifier: $('f_qualifier').value,
+        market: $('f_market').value,
+        competitors: parseRivals($('f_rivals').value)
+      })
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Could not create the site');
+    $('siteDialog').close();
+    await loadProjectList(json.project.id);
+    document.querySelector('.tab[data-view="setup"]').click();
+  } catch (err) {
+    $('siteError').textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create and write questions';
+  }
 });
 
 boot();

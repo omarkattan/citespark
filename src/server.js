@@ -8,6 +8,7 @@ import { many, one, query } from './db/index.js';
 import { runCycleForProject } from './jobs/runCycle.js';
 import { buildRecommendations, persistRecommendations } from './lib/recommend.js';
 import { syncGa4 } from './lib/ga4.js';
+import { generatePrompts } from './lib/prompts.js';
 import { MOCK } from './lib/dataforseo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -235,11 +236,12 @@ app.patch('/api/recommendations/:recId', requireAuth, wrap(async (req, res) => {
   if (!['open', 'doing', 'done', 'dismissed'].includes(status)) {
     return res.status(400).json({ error: 'Unknown status' });
   }
-  await query(
+  const result = await query(
     `UPDATE recommendations SET status = $1, updated_at = now()
      WHERE id = $2 AND project_id IN (SELECT id FROM projects WHERE org_id = $3)`,
     [status, Number(req.params.recId), req.session.orgId]
   );
+  if (!result.rowCount) return res.status(404).json({ error: 'Action not found' });
   res.json({ ok: true });
 }));
 
@@ -273,6 +275,220 @@ app.get('/api/projects/:id/traffic', requireAuth, wrap(async (req, res) => {
     [project.id]
   );
   res.json(rows);
+}));
+
+/* ---------------- setup: projects, competitors, questions ---------------- */
+
+app.post('/api/projects', requireAuth, wrap(async (req, res) => {
+  const { name, domain, brandName, category, market, qualifier, competitors, generate } = req.body || {};
+
+  const cleanDomain = String(domain || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/\/.*$/, '');
+
+  if (!cleanDomain.includes('.')) return res.status(400).json({ error: 'Enter a domain, for example sandstormdigital.com' });
+  if (!brandName?.trim()) return res.status(400).json({ error: 'Enter the brand name as customers would say it' });
+
+  const existing = await one('SELECT id FROM projects WHERE org_id = $1 AND domain = $2', [req.session.orgId, cleanDomain]);
+  if (existing) return res.status(409).json({ error: 'You are already tracking that domain' });
+
+  const project = await one(
+    `INSERT INTO projects (org_id, name, domain, brand_name, aliases, market, language, category, qualifier)
+     VALUES ($1,$2,$3,$4,$5,$6,'en',$7,$8) RETURNING *`,
+    [
+      req.session.orgId,
+      (name || brandName).trim(),
+      cleanDomain,
+      brandName.trim(),
+      [],
+      (market || 'GB').toUpperCase(),
+      (category || 'business').trim(),
+      (qualifier || 'small business').trim()
+    ]
+  );
+
+  await query(
+    `INSERT INTO entities (project_id, name, domain, kind) VALUES ($1,$2,$3,'owned')
+     ON CONFLICT (project_id, name) DO NOTHING`,
+    [project.id, project.brand_name, project.domain]
+  );
+
+  for (const c of Array.isArray(competitors) ? competitors.slice(0, 20) : []) {
+    const cName = String(c.name || '').trim();
+    if (!cName) continue;
+    await query(
+      `INSERT INTO entities (project_id, name, domain, kind) VALUES ($1,$2,$3,'competitor')
+       ON CONFLICT (project_id, name) DO NOTHING`,
+      [project.id, cName, String(c.domain || '').trim().replace(/^https?:\/\//, '').replace(/^www\./, '') || null]
+    );
+  }
+
+  let added = 0;
+  if (generate !== false) {
+    const prompts = await generatePrompts({
+      brand: project.brand_name,
+      domain: project.domain,
+      category: project.category,
+      market: project.market === 'GB' ? 'the UK' : project.market,
+      qualifier: project.qualifier,
+      count: 20
+    });
+    for (const p of prompts) {
+      await query(
+        `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume)
+         VALUES ($1,$2,$3,$4,$5) ON CONFLICT (project_id, text) DO NOTHING`,
+        [project.id, p.text, p.cluster, p.intent, p.ai_search_volume]
+      );
+      added++;
+    }
+  }
+
+  res.json({ ok: true, project, promptsAdded: added });
+}));
+
+app.patch('/api/projects/:id', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  const { name, brandName, aliases, category, qualifier, market, runsPerCycle } = req.body || {};
+  await query(
+    `UPDATE projects SET
+       name = COALESCE($2, name),
+       brand_name = COALESCE($3, brand_name),
+       aliases = COALESCE($4, aliases),
+       category = COALESCE($5, category),
+       qualifier = COALESCE($6, qualifier),
+       market = COALESCE($7, market),
+       runs_per_cycle = COALESCE($8, runs_per_cycle)
+     WHERE id = $1`,
+    [
+      project.id,
+      name?.trim() || null,
+      brandName?.trim() || null,
+      Array.isArray(aliases) ? aliases.map((a) => String(a).trim()).filter(Boolean) : null,
+      category?.trim() || null,
+      qualifier?.trim() || null,
+      market?.toUpperCase() || null,
+      Number.isInteger(runsPerCycle) ? Math.min(10, Math.max(1, runsPerCycle)) : null
+    ]
+  );
+  // Keep the owned entity in step with the brand name.
+  if (brandName?.trim() || aliases) {
+    await query(
+      `UPDATE entities SET name = COALESCE($2, name), aliases = COALESCE($3, aliases)
+       WHERE project_id = $1 AND kind = 'owned'`,
+      [project.id, brandName?.trim() || null, Array.isArray(aliases) ? aliases : null]
+    );
+  }
+  res.json({ ok: true });
+}));
+
+app.delete('/api/projects/:id', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  await query('DELETE FROM projects WHERE id = $1', [project.id]);
+  res.json({ ok: true });
+}));
+
+app.get('/api/projects/:id/setup', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  const entities = await many('SELECT id, name, domain, kind, aliases FROM entities WHERE project_id = $1 ORDER BY kind, name', [project.id]);
+  const prompts = await many(
+    'SELECT id, text, cluster, intent, ai_search_volume, active FROM prompts WHERE project_id = $1 ORDER BY active DESC, ai_search_volume DESC, id',
+    [project.id]
+  );
+  res.json({ project, entities, prompts });
+}));
+
+app.post('/api/projects/:id/entities', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Enter the competitor name' });
+  const domain = String(req.body?.domain || '').trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
+  const row = await one(
+    `INSERT INTO entities (project_id, name, domain, kind) VALUES ($1,$2,$3,'competitor')
+     ON CONFLICT (project_id, name) DO NOTHING RETURNING *`,
+    [project.id, name, domain || null]
+  );
+  if (!row) return res.status(409).json({ error: 'That name is already tracked' });
+  res.json(row);
+}));
+
+app.delete('/api/entities/:entityId', requireAuth, wrap(async (req, res) => {
+  const result = await query(
+    `DELETE FROM entities WHERE id = $1 AND kind = 'competitor'
+       AND project_id IN (SELECT id FROM projects WHERE org_id = $2)`,
+    [Number(req.params.entityId), req.session.orgId]
+  );
+  if (!result.rowCount) return res.status(404).json({ error: 'Competitor not found' });
+  res.json({ ok: true });
+}));
+
+app.post('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  const text = String(req.body?.text || '').trim();
+  if (text.length < 10) return res.status(400).json({ error: 'Write the question as a customer would type it' });
+  if (text.length > 500) return res.status(400).json({ error: 'Questions are capped at 500 characters by the engines' });
+  const row = await one(
+    `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume, source)
+     VALUES ($1,$2,$3,$4,$5,'custom') ON CONFLICT (project_id, text) DO NOTHING RETURNING *`,
+    [
+      project.id,
+      text,
+      String(req.body?.cluster || 'custom').toLowerCase(),
+      ['discovery', 'comparison', 'commercial', 'problem'].includes(req.body?.intent) ? req.body.intent : 'commercial',
+      Number.isFinite(Number(req.body?.volume)) ? Math.max(0, Math.round(Number(req.body.volume))) : 100
+    ]
+  );
+  if (!row) return res.status(409).json({ error: 'That question is already tracked' });
+  res.json(row);
+}));
+
+app.patch('/api/prompts/:promptId', requireAuth, wrap(async (req, res) => {
+  const result = await query(
+    `UPDATE prompts SET active = COALESCE($2, active)
+     WHERE id = $1 AND project_id IN (SELECT id FROM projects WHERE org_id = $3)`,
+    [Number(req.params.promptId), typeof req.body?.active === 'boolean' ? req.body.active : null, req.session.orgId]
+  );
+  if (!result.rowCount) return res.status(404).json({ error: 'Question not found' });
+  res.json({ ok: true });
+}));
+
+app.delete('/api/prompts/:promptId', requireAuth, wrap(async (req, res) => {
+  const result = await query(
+    'DELETE FROM prompts WHERE id = $1 AND project_id IN (SELECT id FROM projects WHERE org_id = $2)',
+    [Number(req.params.promptId), req.session.orgId]
+  );
+  if (!result.rowCount) return res.status(404).json({ error: 'Question not found' });
+  res.json({ ok: true });
+}));
+
+app.post('/api/projects/:id/generate-prompts', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  const prompts = await generatePrompts({
+    brand: project.brand_name,
+    domain: project.domain,
+    category: project.category,
+    market: project.market === 'GB' ? 'the UK' : project.market,
+    qualifier: project.qualifier,
+    count: Math.min(30, Math.max(5, Number(req.body?.count) || 10))
+  });
+  let added = 0;
+  for (const p of prompts) {
+    const row = await one(
+      `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume)
+       VALUES ($1,$2,$3,$4,$5) ON CONFLICT (project_id, text) DO NOTHING RETURNING id`,
+      [project.id, p.text, p.cluster, p.intent, p.ai_search_volume]
+    );
+    if (row) added++;
+  }
+  res.json({ ok: true, added, suggested: prompts.length });
 }));
 
 /* ---------------- actions ---------------- */

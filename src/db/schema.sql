@@ -122,3 +122,8 @@ CREATE TABLE IF NOT EXISTS recommendations (
   UNIQUE (project_id, fingerprint)
 );
 CREATE INDEX IF NOT EXISTS recs_project_status ON recommendations (project_id, status, priority DESC);
+
+-- Added for in-app project setup. ALTER ... IF NOT EXISTS is idempotent,
+-- so this applies cleanly to databases created before these columns existed.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS category  TEXT NOT NULL DEFAULT 'business';
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS qualifier TEXT NOT NULL DEFAULT 'small business';

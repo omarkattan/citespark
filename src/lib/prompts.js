@@ -20,14 +20,14 @@ Rules:
 - No preamble, no markdown fences.`;
 
 const TEMPLATES = [
-  { t: 'What is the best {category} for a {qualifier}?', cluster: 'best-of', intent: 'commercial' },
+  { t: 'What is the best {category} for {qualifier}?', cluster: 'best-of', intent: 'commercial' },
   { t: 'Which {category} companies are worth considering in {market}?', cluster: 'discovery', intent: 'discovery' },
   { t: 'How do I choose a {category} provider without getting burned?', cluster: 'selection', intent: 'problem' },
   { t: 'What should a {category} cost per month for a small business?', cluster: 'pricing', intent: 'commercial' },
   { t: 'Who are the top rated {category} specialists in {market}?', cluster: 'best-of', intent: 'discovery' },
-  { t: 'What questions should I ask before hiring a {category} agency?', cluster: 'selection', intent: 'problem' },
-  { t: 'Which {category} firms have the strongest case studies?', cluster: 'proof', intent: 'comparison' },
-  { t: 'Is it better to hire a {category} agency or build the team in house?', cluster: 'comparison', intent: 'comparison' },
+  { t: 'What questions should I ask before hiring a {category}?', cluster: 'selection', intent: 'problem' },
+  { t: 'Which {category} businesses have the strongest track record?', cluster: 'proof', intent: 'comparison' },
+  { t: 'Is it better to hire a {category} or build the team in house?', cluster: 'comparison', intent: 'comparison' },
   { t: 'What does a good {category} report actually include?', cluster: 'process', intent: 'problem' },
   { t: 'How long does {category} take to show results?', cluster: 'process', intent: 'problem' }
 ];

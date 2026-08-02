@@ -397,3 +397,55 @@ select, input {
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ---------- setup sheet + editable lists ---------- */
+
+.sheet {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 28px;
+  max-width: 520px;
+  width: calc(100% - 32px);
+  background: var(--panel);
+  color: var(--ink);
+}
+.sheet::backdrop { background: rgba(20, 22, 26, 0.45); }
+.sheet h2 { margin-bottom: 4px; }
+.sheet-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+textarea {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink);
+  width: 100%;
+  resize: vertical;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line-2);
+}
+.row:first-of-type { border-top: none; }
+.row .grow { flex: 1; min-width: 0; }
+.row .name { font-size: 14px; }
+.row .sub { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+.row.off .name, .row.off .sub { opacity: 0.45; }
+.row button { padding: 5px 9px; font-size: 10px; }
+
+.inline-form { display: flex; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.inline-form input { flex: 1; }
+.inline-form button { white-space: nowrap; }
+
+.setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+@media (max-width: 860px) { .setup-grid { grid-template-columns: 1fr; } }
+
+.danger { border-color: var(--alert); color: var(--alert); }
+.danger:hover { background: var(--alert); color: var(--paper); }

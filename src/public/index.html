@@ -17,6 +17,7 @@
     <div class="meta" id="cycleMeta"></div>
     <div class="spacer"></div>
     <select id="projectPicker" style="width:auto;min-width:200px"></select>
+    <button class="ghost" id="addSiteBtn">Add site</button>
     <button class="ghost" id="runBtn">Run cycle</button>
     <button class="ghost" id="signOut">Sign out</button>
   </div>
@@ -37,10 +38,34 @@
     <button class="tab" role="tab" aria-selected="false" data-view="rivals">Share of voice</button>
     <button class="tab" role="tab" aria-selected="false" data-view="sources">Sources</button>
     <button class="tab" role="tab" aria-selected="false" data-view="traffic">Traffic</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="setup">Setup</button>
   </div>
 
   <section id="view"></section>
 </main>
+
+<dialog id="siteDialog" class="sheet">
+  <form method="dialog" id="siteForm">
+    <h2>Add a site</h2>
+    <p class="dek" style="margin:8px 0 20px;font-size:13.5px">We generate the question set from this, so the category and customer description matter more than the name.</p>
+
+    <div class="field"><label for="f_brand">Brand name as customers say it</label><input id="f_brand" placeholder="Sandstorm Digital" /></div>
+    <div class="field"><label for="f_domain">Domain</label><input id="f_domain" placeholder="sandstormdigital.com" /></div>
+    <div class="field"><label for="f_category">What the business does</label><input id="f_category" placeholder="SEO and digital marketing agency" /></div>
+    <div class="field"><label for="f_qualifier">Who the customer is</label><input id="f_qualifier" placeholder="UK ecommerce brands turning over 1m to 20m" /></div>
+    <div class="field"><label for="f_market">Market</label><input id="f_market" value="GB" maxlength="2" style="width:90px" /></div>
+    <div class="field">
+      <label for="f_rivals">Competitors, one per line, name then comma then domain</label>
+      <textarea id="f_rivals" rows="5" placeholder="Impression, impression.co.uk&#10;Rise at Seven, riseatseven.com"></textarea>
+    </div>
+
+    <p class="error" id="siteError" role="alert"></p>
+    <div class="sheet-foot">
+      <button type="button" class="ghost" id="siteCancel">Cancel</button>
+      <button type="button" id="siteSave">Create and write questions</button>
+    </div>
+  </form>
+</dialog>
 
 <script src="/app.js"></script>
 </body>
