@@ -522,6 +522,23 @@ async function loadProject(id) {
   await render();
 }
 
+/**
+ * Which site is open lives in the URL, so it survives a reload, the back
+ * button, and the round trip out to Google and back. Previously it lived
+ * only in memory and any refresh of the list silently reset it to the first
+ * project, which quietly moved you off whatever you were working on.
+ */
+function rememberProject(id) {
+  const url = new URL(location.href);
+  url.searchParams.set('site', String(id));
+  history.replaceState({}, '', url);
+}
+
+function projectFromUrl() {
+  const n = Number(new URLSearchParams(location.search).get('site'));
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 async function loadProjectList(selectId) {
   const projects = await api('/api/projects');
   if (!projects?.length) {
@@ -532,10 +549,16 @@ async function loadProjectList(selectId) {
     $('view').innerHTML = `<div class="empty"><h2>Nothing tracked yet</h2><p>Press <b>Add site</b> in the top bar. Give us the domain, what the business does and who it sells to, and we will write the question set for you.</p></div>`;
     return false;
   }
-  const chosen = selectId && projects.some((p) => p.id === selectId) ? selectId : projects[0].id;
+  // Prefer, in order: an explicit choice, whatever is already open, the URL,
+  // then the first project. Falling straight to the first was the bug.
+  const wanted = [selectId, state.projectId, projectFromUrl()].find(
+    (id) => id && projects.some((p) => p.id === Number(id))
+  );
+  const chosen = Number(wanted) || projects[0].id;
   $('projectPicker').innerHTML = projects
     .map((p) => `<option value="${p.id}" ${p.id === chosen ? 'selected' : ''}>${esc(p.name)}</option>`)
     .join('');
+  rememberProject(chosen);
   await loadProject(chosen);
   return true;
 }
@@ -544,7 +567,11 @@ function handleGa4Return() {
   const params = new URLSearchParams(location.search);
   const status = params.get('ga4');
   if (!status) return null;
-  history.replaceState({}, '', '/app');
+
+  // Keep ?site so we return to the project that started the connection.
+  const site = params.get('site');
+  history.replaceState({}, '', site ? `/app?site=${encodeURIComponent(site)}` : '/app');
+
   return status === 'connected'
     ? { ok: true }
     : { ok: false, message: params.get('message') || 'Could not connect Google Analytics' };
@@ -585,7 +612,11 @@ document.querySelectorAll('.tab').forEach((tab) => {
   });
 });
 
-$('projectPicker').addEventListener('change', (e) => loadProject(Number(e.target.value)));
+$('projectPicker').addEventListener('change', (e) => {
+  const id = Number(e.target.value);
+  rememberProject(id);
+  loadProject(id);
+});
 
 $('signOut').addEventListener('click', async () => {
   await fetch('/api/logout', { method: 'POST' });
@@ -1361,7 +1392,12 @@ document.addEventListener('click', async (e) => {
   if (t.id === 's_delete') {
     if (!confirm('Delete this site and everything measured against it?')) return;
     await fetch(`/api/projects/${state.projectId}`, { method: 'DELETE' });
-    window.location.reload();
+    state.projectId = null;
+    const url = new URL(location.href);
+    url.searchParams.delete('site');
+    history.replaceState({}, '', url);
+    await loadProjectList();
+    await refreshUsagePill();
   }
 });
 

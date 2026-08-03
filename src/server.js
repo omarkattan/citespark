@@ -1053,11 +1053,15 @@ app.get('/api/projects/:id/ga4/connect', requireAuth, wrap(async (req, res) => {
 
 // Google sends the visitor back here after the consent screen.
 app.get('/api/ga4/callback', wrap(async (req, res) => {
-  const fail = (msg) => res.redirect(`/app?ga4=error&message=${encodeURIComponent(msg)}`);
+  // The project id rides along so the person lands back where they started
+  // rather than on whichever site happens to be first.
+  const early = readState(req.query.state);
+  const site = early?.p ? `&site=${early.p}` : '';
+  const fail = (msg) => res.redirect(`/app?ga4=error&message=${encodeURIComponent(msg)}${site}`);
 
   if (req.query.error) return fail(String(req.query.error));
-  const state = readState(req.query.state);
-  if (!state) return fail('That authorisation link expired. Try connecting again.');
+  const state = early;
+  if (!state) return res.redirect(`/app?ga4=error&message=${encodeURIComponent('That authorisation link expired. Try connecting again.')}`);
   if (!req.session?.orgId || req.session.orgId !== state.o) return fail('Sign in and try connecting again.');
 
   const project = await one('SELECT id FROM projects WHERE id = $1 AND org_id = $2', [state.p, state.o]);
@@ -1066,7 +1070,7 @@ app.get('/api/ga4/callback', wrap(async (req, res) => {
   try {
     const creds = await exchangeCode({ code: String(req.query.code || ''), redirectUri: ga4Redirect(req) });
     await storeConnection(project.id, creds);
-    res.redirect('/app?ga4=connected');
+    res.redirect(`/app?ga4=connected&site=${project.id}`);
   } catch (err) {
     fail(err.message);
   }
@@ -1203,7 +1207,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project']
   });
 });
 
