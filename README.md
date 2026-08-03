@@ -136,6 +136,19 @@ That second string is an ordinary Google query, which means classic SEO applies 
 
 No competitor tool surfaces this. It is the bridge between GEO and the SEO work you already do.
 
+## Reading a customer's site
+
+The scan escalates only as far as it needs to:
+
+1. **A polite identified request** as `CitedBot`, which most sites allow.
+2. **The same request with normal browser headers**, for sites that reject anything self-identifying as a bot.
+3. **DataForSEO's OnPage `instant_pages` endpoint**, which renders JavaScript and comes from addresses sites do not block. No extra vendor, since you already have the credentials, and it costs a fraction of a cent per page.
+4. **A headless browser**, only if `BROWSERLESS_URL` is set. Rarely needed after step three.
+
+If all four fail, the scan returns `manual: true` and the interface tells the person to fill the fields in by hand. Everything downstream works identically; the scan is a convenience, not a dependency.
+
+The route taken is returned as `via`, and shown in the interface when it was not the direct one, so a customer understands why a scan took longer.
+
 ## Model names
 
 `model_name` is **required** on every LLM Responses call. DataForSEO reports a missing required field as `Invalid Field: 'model_name'`, which reads like the field is not allowed. It is, and omitting it fails every LLM engine at once.

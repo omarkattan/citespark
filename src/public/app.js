@@ -1416,13 +1416,17 @@ $('f_scan').addEventListener('click', async () => {
       $('f_rivals').value = d.competitors.map((c) => `${c.name}${c.domain ? ', ' + c.domain : ''}`).join('\n');
     }
 
+    const how = { dataforseo: ' Read through our renderer, since the site blocks direct requests.',
+                  browserless: ' Read with a headless browser.' }[d.via] || '';
     note.className = d.confident ? 'hint good' : 'hint warn';
-    note.textContent = d.confident
+    note.textContent = (d.confident
       ? 'Filled in from the homepage. Check every field, especially who the customer is.'
-      : 'Read the page but could not infer much. Fill the fields in yourself.';
+      : 'Read the page but could not infer much. Fill the fields in yourself.') + how;
   } catch (err) {
+    // A failed scan must not be a dead end. Every field can be typed.
     note.className = 'hint warn';
-    note.textContent = err.message;
+    note.textContent = `${err.message} Fill the fields in below and carry on.`;
+    $('f_brand').focus();
   } finally {
     btn.disabled = false;
     btn.textContent = 'Scan site';

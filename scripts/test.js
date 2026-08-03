@@ -369,6 +369,44 @@ await test('strips scripts, nav and footer from the body text', () => {
   assert.ok(s.body.includes('UK retailers'));
 });
 
+await test('escalates to the renderer when a site blocks direct requests', async () => {
+  process.env.DATAFORSEO_LOGIN = 'x';
+  process.env.DATAFORSEO_PASSWORD = 'y';
+  const realFetch = global.fetch;
+  const seen = [];
+  global.fetch = async (url) => {
+    seen.push(url);
+    if (String(url).includes('instant_pages')) {
+      return { ok: true, json: async () => ({ tasks: [{ result: [{ items: [{
+        url: 'https://blocked.com',
+        meta: { title: 'Marina Smile Studio | Clear Aligners Dubai', description: 'Orthodontic clinic.',
+                htags: { h1: ['Straighten your teeth'], h2: ['Pricing'] } }
+      }] }] }] }) };
+    }
+    return { ok: false, status: 403 };
+  };
+  const { discoverSite } = await import('../src/lib/discover.js?blocked=1');
+  const r = await discoverSite('blocked.com');
+  global.fetch = realFetch;
+
+  assert.equal(r.ok, true, 'a blocked site must still be readable');
+  assert.equal(r.via, 'dataforseo');
+  assert.ok(r.brandName.includes('Marina Smile'), `got ${r.brandName}`);
+  assert.ok(seen.some((u) => String(u).includes('instant_pages')), 'the renderer must be tried');
+});
+
+await test('a site that cannot be read at all offers manual entry', async () => {
+  const realFetch = global.fetch;
+  global.fetch = async () => ({ ok: false, status: 403 });
+  const { discoverSite } = await import('../src/lib/discover.js?dead=1');
+  const r = await discoverSite('impossible.com');
+  global.fetch = realFetch;
+
+  assert.equal(r.ok, false);
+  assert.equal(r.manual, true, 'the caller needs to know it can fall back to a form');
+  assert.ok(/by hand/i.test(r.error), 'the message must tell the person what to do next');
+});
+
 await test('survives malformed JSON-LD without throwing', () => {
   const s = readSignals('<html><script type="application/ld+json">{broken,,}</script><title>Fine</title></html>');
   assert.equal(s.title, 'Fine');
