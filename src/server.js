@@ -702,7 +702,7 @@ app.get('/api/version', (_req, res) => {
   res.json({
     startedAt: STARTED_AT,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles']
   });
 });
 

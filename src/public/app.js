@@ -361,7 +361,7 @@ async function viewSetup() {
         <div class="field"><label for="s_market">Market</label><select id="s_market">${window.countryOptions(p.market)}</select></div>
         <div class="field"><label for="s_runs">Runs per question, per engine</label><input id="s_runs" type="number" min="1" max="10" value="${p.runs_per_cycle}" /></div>
         <p class="sub" data-active-count="${active}" data-surfaces="${chosen.length}" data-runs="${p.runs_per_cycle}" style="font-family:var(--mono);font-size:11px;color:var(--ink-3);margin:0 0 14px">
-          <span data-n>${active}</span> active questions &times; ${chosen.length} surface${chosen.length === 1 ? '' : 's'} &times; ${p.runs_per_cycle} runs = <b data-calls>${cost}</b> answer checks per cycle.
+          <span data-n>${active}</span> active questions &times; <span data-surfaces-n>${chosen.length}</span> <span data-surfaces-word>${chosen.length === 1 ? 'surface' : 'surfaces'}</span> &times; ${p.runs_per_cycle} runs = <b data-calls>${cost}</b> answer checks per cycle.
           More runs means a more trustworthy percentage. More questions means broader coverage. Runs usually win.
         </p>
         <button id="s_save">Save changes</button>
@@ -372,7 +372,7 @@ async function viewSetup() {
         <div class="panel-head">
           <h2>Where we look</h2>
           <div class="spacer"></div>
-          <span class="sub" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">${chosen.length} of ${allowed} allowed</span>
+          <span class="sub" data-engine-allowance="${allowed}" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">${chosen.length} of ${allowed} allowed</span>
         </div>
         ${engineRows}
         <p class="hint" style="margin-top:12px">
@@ -426,26 +426,70 @@ function bumpActiveCount(delta) {
   if (!el) return;
   const next = Math.max(0, Number(el.dataset.activeCount) + delta);
   el.dataset.activeCount = String(next);
-  const surfaces = Number(el.dataset.surfaces);
-  const runs = Number(el.dataset.runs);
   el.querySelector('[data-n]').textContent = next;
-  el.querySelector('[data-calls]').textContent = next * surfaces * runs;
+  el.querySelector('[data-calls]').textContent =
+    next * Number(el.dataset.surfaces) * Number(el.dataset.runs);
+}
+
+/**
+ * Redraw only the parts that depend on the engine selection: the allowance
+ * counter, the cost line, and which unchecked boxes are still reachable.
+ * Re-rendering the whole tab for a checkbox threw away scroll position and
+ * felt like a page load.
+ */
+function syncEngineUi() {
+  const boxes = [...document.querySelectorAll('input[data-engine]')];
+  const chosen = boxes.filter((b) => b.checked);
+  const allowed = Number(document.querySelector('[data-engine-allowance]')?.dataset.engineAllowance || 1);
+  const atLimit = chosen.length >= allowed;
+
+  for (const b of boxes) {
+    const blocked = !b.checked && atLimit;
+    b.disabled = blocked;
+    b.closest('.row')?.classList.toggle('off', blocked);
+  }
+
+  const counter = document.querySelector('[data-engine-allowance]');
+  if (counter) counter.textContent = `${chosen.length} of ${allowed} allowed`;
+
+  const cost = document.querySelector('[data-active-count]');
+  if (cost) {
+    cost.dataset.surfaces = String(chosen.length);
+    const n = Number(cost.dataset.activeCount);
+    cost.querySelector('[data-surfaces-n]').textContent = chosen.length;
+    cost.querySelector('[data-surfaces-word]').textContent = chosen.length === 1 ? 'surface' : 'surfaces';
+    cost.querySelector('[data-calls]').textContent = n * chosen.length * Number(cost.dataset.runs);
+  }
 }
 
 document.addEventListener('change', async (e) => {
   const box = e.target.closest('input[data-engine]');
   if (!box) return;
-  const chosen = [...document.querySelectorAll('input[data-engine]:checked')].map((b) => b.dataset.engine);
-  if (!chosen.length) { box.checked = true; return; }
 
-  await fetch(`/api/projects/${state.projectId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ engines: chosen })
-  });
-  const note = $('e_saved');
-  if (note) { note.textContent = 'Saved'; setTimeout(() => { note.textContent = ''; }, 2000); }
-  await render();
+  const chosen = [...document.querySelectorAll('input[data-engine]:checked')].map((b) => b.dataset.engine);
+  if (!chosen.length) {
+    box.checked = true;
+    setupErr('Keep at least one surface switched on.');
+    return;
+  }
+
+  setupErr('');
+  syncEngineUi();
+
+  try {
+    const res = await fetch(`/api/projects/${state.projectId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ engines: chosen })
+    });
+    if (!res.ok) throw new Error('save failed');
+    const note = $('e_saved');
+    if (note) { note.textContent = 'Saved'; setTimeout(() => { note.textContent = ''; }, 1800); }
+  } catch {
+    box.checked = !box.checked;
+    syncEngineUi();
+    setupErr('Could not save that. Check your connection and try again.');
+  }
 });
 
 document.addEventListener('click', async (e) => {
