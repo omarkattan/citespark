@@ -26,14 +26,8 @@ const CONFIG = {
     runsPerCycle: 3
   },
 
-  // Swap these for the agencies you actually lose pitches to.
-  competitors: [
-    { name: 'Impression', domain: 'impression.co.uk' },
-    { name: 'Rise at Seven', domain: 'riseatseven.com' },
-    { name: 'Builtvisible', domain: 'builtvisible.com' },
-    { name: 'Aira', domain: 'aira.net' },
-    { name: 'Blue Array', domain: 'bluearray.co.uk' }
-  ]
+  // Swap these for the businesses you actually lose deals to.
+  competitors: []
 };
 
 async function main() {

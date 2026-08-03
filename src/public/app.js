@@ -335,7 +335,7 @@ async function viewSetup() {
         <div class="panel-head"><h2>This site</h2></div>
         <div class="field"><label for="s_name">Project name</label><input id="s_name" value="${esc(p.name)}" /></div>
         <div class="field"><label for="s_brand">Brand name</label><input id="s_brand" value="${esc(p.brand_name)}" /></div>
-        <div class="field"><label for="s_aliases">Also known as, comma separated</label><input id="s_aliases" value="${esc((p.aliases || []).join(', '))}" placeholder="Sandstorm, Sandstorm Digital Ltd" /></div>
+        <div class="field"><label for="s_aliases">Also known as, comma separated</label><input id="s_aliases" value="${esc((p.aliases || []).join(', '))}" placeholder="Marina Smile, Marina Smile Studio LLC" /></div>
         <div class="field"><label for="s_category">What the business does</label><input id="s_category" value="${esc(p.category || '')}" /></div>
         <div class="field"><label for="s_qualifier">Who the customer is</label><input id="s_qualifier" value="${esc(p.qualifier || '')}" /></div>
         <div class="field"><label for="s_market">Market</label><select id="s_market">${window.countryOptions(p.market)}</select></div>
@@ -374,7 +374,7 @@ async function viewSetup() {
       <p class="dek" style="margin:0 0 4px;font-size:13px">Write these the way a customer types them, never with the brand name in. Paused questions stay in the record but are not asked.</p>
       ${promptRows}
       <div class="inline-form">
-        <input id="q_text" placeholder="Which SEO agency is best for a UK ecommerce brand?" />
+        <input id="q_text" placeholder="Which clinic in Dubai is best for clear aligners?" />
         <button id="q_add">Add</button>
       </div>
       <p class="error" id="setupError" role="alert"></p>
