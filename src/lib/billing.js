@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { one, many, query } from '../db/index.js';
-import { PLANS, planFor, stripePriceId, COST_PER_CALL } from './plans.js';
+import { PLANS, planFor, stripePriceId, WORST_CASE_CALL } from './plans.js';
+import { ENGINE_IDS } from './dataforseo.js';
 
 /**
  * Billing.
@@ -76,6 +77,7 @@ export async function getEntitlements(orgId) {
   );
 
   const remaining = Math.max(0, plan.monthlyCalls - usage.calls);
+  const budgetLeft = Math.max(0, (plan.monthlyBudgetUsd ?? Infinity) - usage.spend);
   return {
     plan,
     status: sub.status,
@@ -88,7 +90,12 @@ export async function getEntitlements(orgId) {
       remaining,
       limit: plan.monthlyCalls,
       spend: usage.spend,
-      percent: plan.monthlyCalls ? Math.min(100, Math.round((usage.calls / plan.monthlyCalls) * 100)) : 0
+      budget: plan.monthlyBudgetUsd ?? null,
+      budgetLeft,
+      percent: plan.monthlyCalls ? Math.min(100, Math.round((usage.calls / plan.monthlyCalls) * 100)) : 0,
+      budgetPercent: plan.monthlyBudgetUsd
+        ? Math.min(100, Math.round((usage.spend / plan.monthlyBudgetUsd) * 100))
+        : 0
     },
     counts: { sites: counts.sites, questions: counts.questions }
   };
@@ -126,6 +133,30 @@ export async function checkCanAddQuestions(orgId, projectId, adding = 1) {
   return null;
 }
 
+const DEFAULT_COST = {
+  chatgpt: 0.03, gemini: 0.02, claude: 0.025, perplexity: 0.02,
+  ai_overview: 0.002, ai_mode: 0.002
+};
+
+/**
+ * What each surface has actually cost this account. Falls back to
+ * conservative defaults until a surface has run enough times to be
+ * worth trusting, so a new account is never under-charged by accident.
+ */
+export async function engineCosts(orgId) {
+  const rows = await many(
+    `SELECT r.engine, AVG(r.cost_usd)::float AS avg_cost, COUNT(*)::int AS n
+     FROM runs r JOIN projects p ON p.id = r.project_id
+     WHERE p.org_id = $1 AND r.cost_usd > 0
+     GROUP BY r.engine`,
+    [orgId]
+  );
+  const measured = Object.fromEntries(rows.filter((r) => r.n >= 3).map((r) => [r.engine, Number(r.avg_cost)]));
+  const costs = {};
+  for (const id of ENGINE_IDS) costs[id] = measured[id] ?? DEFAULT_COST[id] ?? 0.02;
+  return { costs, measured: Object.keys(measured) };
+}
+
 /** Called before a cycle. Returns the shape the cycle is allowed to run at. */
 export async function budgetForCycle(orgId, { questions, engines, runs }) {
   const e = await getEntitlements(orgId);
@@ -136,21 +167,48 @@ export async function budgetForCycle(orgId, { questions, engines, runs }) {
   if (e.usage.remaining <= 0) {
     return {
       ok: false,
-      reason: `You have used all ${e.plan.monthlyCalls} answer checks on the ${e.plan.name} plan this month. The allowance resets on the 1st, or you can upgrade now.`,
+      reason: `You have used all ${e.plan.monthlyCalls.toLocaleString()} answer checks on the ${e.plan.name} plan this month. The allowance resets on the 1st, or you can upgrade now.`,
       entitlements: e
     };
   }
 
-  // Rather than refusing outright, run what the remaining budget covers and
-  // say so. A partial cycle is more useful than none.
-  const trimmed = wanted > e.usage.remaining;
+  if (e.usage.budgetLeft <= 0) {
+    return {
+      ok: false,
+      reason: `This month's usage limit has been reached on the ${e.plan.name} plan. It resets on the 1st, or you can upgrade now.`,
+      entitlements: e
+    };
+  }
+
+  // Cost varies by an order of magnitude between surfaces, so the spend
+  // ceiling is checked against the actual mix rather than a flat rate.
+  // Whichever ceiling binds first decides how much of the cycle runs.
+  const { costs } = await engineCosts(orgId);
+  const perQuestionSet = allowedEngines.reduce((sum, id) => sum + (costs[id] ?? WORST_CASE_CALL), 0) * allowedRuns;
+  const avgCall = allowedEngines.length ? perQuestionSet / (allowedEngines.length * allowedRuns) : WORST_CASE_CALL;
+  const callsAffordable = avgCall > 0 ? Math.floor(e.usage.budgetLeft / avgCall) : wanted;
+
+  const maxCalls = Math.max(0, Math.min(wanted, e.usage.remaining, callsAffordable));
+  const boundBy = maxCalls === wanted ? null : callsAffordable < e.usage.remaining ? 'spend' : 'checks';
+
+  if (maxCalls === 0) {
+    return {
+      ok: false,
+      reason: `This month's usage limit has been reached on the ${e.plan.name} plan. It resets on the 1st, or you can upgrade now.`,
+      entitlements: e
+    };
+  }
+
+  // A partial cycle beats none, so trim rather than refuse.
   return {
     ok: true,
-    trimmed,
+    trimmed: maxCalls < wanted,
+    boundBy,
     engines: allowedEngines,
     runs: allowedRuns,
-    maxCalls: Math.min(wanted, e.usage.remaining),
-    estimateUsd: Math.round(Math.min(wanted, e.usage.remaining) * COST_PER_CALL * 100) / 100,
+    maxCalls,
+    avgCall: Math.round(avgCall * 10000) / 10000,
+    estimateUsd: Math.round(maxCalls * avgCall * 100) / 100,
     entitlements: e
   };
 }

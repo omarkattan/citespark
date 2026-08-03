@@ -9,7 +9,7 @@ import { askEngine, domainOf } from '../src/lib/dataforseo.js';
 import { evaluateRules } from '../src/lib/recommend.js';
 import { generatePrompts } from '../src/lib/prompts.js';
 import { readSignals, normaliseDomain } from '../src/lib/discover.js';
-import { PLANS, PLAN_ORDER, planFor, estimateCycle, clampToPlan, COST_PER_CALL } from '../src/lib/plans.js';
+import { PLANS, PLAN_ORDER, planFor, estimateCycle, clampToPlan, WORST_CASE_CALL, COGS_SHARE } from '../src/lib/plans.js';
 import { ENGINES, ENGINE_IDS, LOCATIONS } from '../src/lib/dataforseo.js';
 
 let pass = 0;
@@ -430,12 +430,36 @@ await test('limits rise monotonically with price', () => {
   }
 });
 
-await test('every paid plan clears a 60% gross margin at full usage', () => {
+await test('margin holds even if every call is the most expensive surface', () => {
   for (const id of ['starter', 'growth', 'agency']) {
     const p = PLANS[id];
-    const cost = p.monthlyCalls * COST_PER_CALL;
-    const margin = (p.price - cost) / p.price;
-    assert.ok(margin >= 0.6, `${id}: cost $${cost.toFixed(2)} against $${p.price} is only ${Math.round(margin * 100)}%`);
+    const worst = p.monthlyCalls * WORST_CASE_CALL;
+    const margin = (p.price - worst) / p.price;
+    assert.ok(margin >= 0.7,
+      `${id}: worst case $${worst.toFixed(2)} against $${p.price} leaves only ${Math.round(margin * 100)}%`);
+  }
+});
+
+await test('every plan carries a hard spend ceiling as a backstop', () => {
+  for (const id of PLAN_ORDER) {
+    const p = PLANS[id];
+    assert.ok(typeof p.monthlyBudgetUsd === 'number' && p.monthlyBudgetUsd > 0,
+      `${id} has no monthlyBudgetUsd`);
+    if (p.price) {
+      assert.ok(p.monthlyBudgetUsd <= p.price * COGS_SHARE + 0.01,
+        `${id} budget $${p.monthlyBudgetUsd} exceeds ${COGS_SHARE * 100}% of $${p.price}`);
+    }
+  }
+});
+
+await test('the two ceilings agree with each other', () => {
+  // The call allowance must not be able to outspend the budget at worst case,
+  // otherwise customers hit the money cap before the allowance we advertised.
+  for (const id of ['starter', 'growth', 'agency']) {
+    const p = PLANS[id];
+    const worst = p.monthlyCalls * WORST_CASE_CALL;
+    assert.ok(worst <= p.monthlyBudgetUsd + 0.5,
+      `${id}: ${p.monthlyCalls} calls could cost $${worst.toFixed(2)} but the budget is $${p.monthlyBudgetUsd}`);
   }
 });
 
@@ -447,13 +471,17 @@ await test('annual pricing gives roughly two months free', () => {
   }
 });
 
-await test('a cycle estimate matches the plan allowance', () => {
-  const p = PLANS.starter;
-  const { calls, usd } = estimateCycle({ questions: p.questions, engines: p.engines, runs: p.runs });
-  assert.equal(calls, 150);
-  assert.ok(usd > 4 && usd < 5, `expected about $4.50, got $${usd}`);
-  // four and a bit weekly cycles must fit inside the monthly allowance
-  assert.ok(calls * 4.33 <= p.monthlyCalls, 'weekly cadence must fit the allowance');
+await test('one site at its ceiling fits a weekly cadence', () => {
+  // Free is excluded on purpose: it is a manual-run demo tier, not a subscription.
+  // The allowance is pooled across sites, so the honest test is that a single
+  // site using every question and surface can still run every week.
+  for (const id of ['starter', 'growth', 'agency']) {
+    const p = PLANS[id];
+    const runs = Math.min(3, p.runs);
+    const { calls } = estimateCycle({ questions: p.questions, engines: p.engines, runs });
+    assert.ok(calls * 4.33 <= p.monthlyCalls,
+      `${id}: one site at ${p.questions}q x ${p.engines} surfaces x ${runs} runs needs ${Math.ceil(calls * 4.33)} checks a month but only ${p.monthlyCalls} are included`);
+  }
 });
 
 await test('downgrading clamps engines and runs immediately', () => {

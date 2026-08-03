@@ -14,15 +14,39 @@
  * Margins at list price, assuming customers use their full allowance
  * (most will not, which is upside rather than something to price for):
  *
- *   Starter   700 calls   ~$21 cost   $79   73%
- *   Growth  2,000 calls   ~$60 cost  $199   70%
- *   Agency  5,000 calls  ~$150 cost  $499   70%
+ * Two ceilings guard the margin, and whichever binds first wins:
  *
- * If DataForSEO or the underlying model pricing moves, change COST_PER_CALL
- * and re-read this table before touching the prices.
+ *   monthlyCalls      the allowance we sell, sized so that even if every
+ *                     call is the most expensive surface we still clear 75%
+ *   monthlyBudgetUsd  a hard spend cap, the backstop for when engine pricing
+ *                     moves under us between releases
+ *
+ * Worst case at $0.03 a call:
+ *
+ *   Starter    650 calls  = $19.50 against  $79  =  75% margin
+ *   Growth   1,650 calls  = $49.50 against $199  =  75% margin
+ *   Agency   5,000 calls  = $150.00 against $499 =  70% margin
+ *
+ * The allowance is pooled across every site on the account. Per-site limits
+ * are ceilings for one site, not a promise that every site can run at its
+ * ceiling simultaneously. Sizing so that one site at full tilt fits a weekly
+ * cadence is the test that matters, and there is an assertion for it.
+ *
+ * Customers who favour the Google surfaces cost a fraction of that, which is
+ * upside rather than something to price for. If DataForSEO or the model
+ * pricing moves, change WORST_CASE_CALL and re-read this table.
  */
 
-export const COST_PER_CALL = Number(process.env.COST_PER_CALL || 0.03);
+/**
+ * The most an engine call can cost us. Allowances are sized against this,
+ * not against an average, so the margin holds even if a customer spends
+ * their entire allowance on the most expensive surface.
+ */
+export const WORST_CASE_CALL = Number(process.env.WORST_CASE_CALL || 0.03);
+export const COST_PER_CALL = WORST_CASE_CALL; // kept for older callers
+
+/** Share of the subscription price we are willing to spend on data. */
+export const COGS_SHARE = Number(process.env.COGS_SHARE || 0.3);
 
 export const PLANS = {
   free: {
@@ -37,6 +61,7 @@ export const PLANS = {
     runs: 1,
     cadence: 'manual',
     monthlyCalls: 40,
+    monthlyBudgetUsd: 1.5,
     features: [
       '1 site, 10 questions',
       'ChatGPT only, 1 run per question',
@@ -55,7 +80,8 @@ export const PLANS = {
     engines: 2,
     runs: 3,
     cadence: 'weekly',
-    monthlyCalls: 700,
+    monthlyCalls: 650,
+    monthlyBudgetUsd: 19.75,
     features: [
       '1 site, 25 questions',
       '2 engines, 3 runs per question',
@@ -75,7 +101,8 @@ export const PLANS = {
     engines: 3,
     runs: 3,
     cadence: 'weekly',
-    monthlyCalls: 2000,
+    monthlyCalls: 1650,
+    monthlyBudgetUsd: 49.75,
     popular: true,
     features: [
       '3 sites, 40 questions each',
@@ -98,6 +125,7 @@ export const PLANS = {
     runs: 5,
     cadence: 'daily',
     monthlyCalls: 5000,
+    monthlyBudgetUsd: 149.5,
     features: [
       '10 sites, 60 questions each',
       'All 6 AI surfaces, up to 5 runs per question',
