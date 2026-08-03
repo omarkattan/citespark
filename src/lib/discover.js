@@ -63,10 +63,11 @@ async function tryFetch(url, headers, timeoutMs = 15000) {
  * addresses sites do not block, and we are already paying for it, so this is
  * cheaper and simpler than adding a separate rendering vendor.
  */
-async function fetchViaDataForSeo(domain) {
+async function fetchViaDataForSeo(target, { fullUrl = false } = {}) {
   const login = process.env.DATAFORSEO_LOGIN;
   const password = process.env.DATAFORSEO_PASSWORD;
   if (!login || !password) return null;
+  const url = fullUrl ? target : `https://${target}`;
 
   try {
     const res = await fetch('https://api.dataforseo.com/v3/on_page/instant_pages', {
@@ -77,7 +78,7 @@ async function fetchViaDataForSeo(domain) {
       },
       body: JSON.stringify([
         {
-          url: `https://${domain}`,
+          url,
           enable_javascript: true,
           enable_browser_rendering: true,
           load_resources: false,
@@ -93,16 +94,22 @@ async function fetchViaDataForSeo(domain) {
     // Structured metadata is enough on its own, and is more reliable than
     // trying to reconstruct HTML we were never given.
     const meta = item.meta || {};
+    const checks = item.checks || {};
     return {
       structured: {
         title: meta.title || null,
         description: meta.description || null,
         h1: (meta.htags?.h1 || [])[0] || null,
-        h2s: (meta.htags?.h2 || []).slice(0, 8),
+        h2s: (meta.htags?.h2 || []).slice(0, 20),
+        h3s: (meta.htags?.h3 || []).slice(0, 20),
+        // The renderer does not hand back raw HTML, but it does report
+        // whether structured data is present and how big the page is.
+        hasMicromarkup: Boolean(checks.has_micromarkup),
+        wordCount: meta.content?.plain_text_word_count || null,
         body: [meta.title, meta.description, ...(meta.htags?.h1 || []), ...(meta.htags?.h2 || []),
                ...(meta.htags?.h3 || [])].filter(Boolean).join('. ').slice(0, 3000)
       },
-      finalUrl: item.url || `https://${domain}`
+      finalUrl: item.url || url
     };
   } catch {
     return null;
@@ -153,6 +160,11 @@ export async function fetchPage(url) {
 
   const browser = await tryFetch(clean, BROWSER_HEADERS, 15000);
   if (browser.html) return { ...browser, via: 'browser-headers' };
+
+  // The renderer is the fallback that actually works on blocked pages, and
+  // leaving it out of this path was why most teardowns failed to read.
+  const dfs = await fetchViaDataForSeo(clean, { fullUrl: true });
+  if (dfs) return { ...dfs, via: 'dataforseo' };
 
   const bl = await fetchViaBrowserless(clean.replace(/^https?:\/\//, ''));
   if (bl) return { ...bl, via: 'browserless' };

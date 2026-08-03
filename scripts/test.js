@@ -494,6 +494,54 @@ await test('the structural read finds what plausibly earned a citation', () => {
   assert.ok(st.publishedOrUpdated.startsWith('2026-07-28'));
 });
 
+await test('the explanation parser accepts whatever shape the model returns', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../src/lib/teardown.js', import.meta.url), 'utf8');
+  const parse = new Function('raw', src.match(/function parseExplanation\(raw\)[\s\S]*?\n\}/)[0] + '; return parseExplanation(raw);');
+
+  // A bare object is at least as common as an array, and demanding one shape
+  // was throwing away valid answers.
+  assert.ok(parse('[{"why":["a"],"actions":[{"do":"x"}]}]'), 'array');
+  assert.ok(parse('{"why":["a"],"actions":[{"do":"x"}]}'), 'bare object');
+  assert.ok(parse('```json\n{"why":["a"],"actions":[{"do":"x"}]}\n```'), 'fenced');
+  assert.ok(parse('Here it is:\n{"why":["a"],"actions":[{"do":"x"}]}'), 'with preamble');
+
+  const strings = parse('{"why":["a"],"actions":["do this"]}');
+  assert.equal(strings.actions[0].do, 'do this', 'actions given as plain strings');
+
+  const alt = parse('{"why":["a"],"actions":[{"action":"x","why":"y"}]}');
+  assert.equal(alt.actions[0].do, 'x', 'alternative key names');
+
+  assert.equal(parse('I could not analyse this page.'), null);
+  assert.equal(parse(''), null);
+});
+
+await test('a teardown produces real advice with no model at all', async () => {
+  const html = `<html><head><title>Best SEO Agencies in Dubai 2026</title>
+    <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[]}</script>
+    <meta property="article:modified_time" content="2026-07-28T10:00:00Z"></head><body>
+    <h2>Which SEO agency is best for an ecommerce brand in the UAE?</h2>
+    <p>Retainers run AED 8,000 to AED 25,000, 45% higher than 2024, with 30% charging more.</p>
+    <table><tr><td>a</td></tr></table></body></html>`;
+  const q = 'Which SEO agency is best for an ecommerce brand in the UAE?';
+
+  const st = td.readStructure(html, q);
+  const d = td.deterministicExplanation(st, 'competitor');
+
+  assert.ok(d.why.length >= 3, 'must explain itself without a model');
+  assert.ok(d.actions.length >= 3, 'must still give actions');
+  assert.ok(d.why.some((w) => /heading/i.test(w)));
+  assert.ok(d.actions.some((a) => /FAQPage schema/i.test(a.do)));
+  assert.ok(d.actions.some((a) => /table/i.test(a.do)));
+
+  // And a page with nothing notable must say so rather than invent a reason.
+  const bare = td.readStructure('<html><head><title>Home</title></head><body><p>We are a company.</p></body></html>', q);
+  const d2 = td.deterministicExplanation(bare, 'competitor');
+  assert.ok(/no obvious structural advantage/i.test(d2.why[0]));
+  assert.equal(d2.confidence, 'low');
+  assert.ok(d2.actions.length >= 1, 'even then, say what to do instead');
+});
+
 console.log('\nstored credentials');
 
 const tok = await import('../src/lib/tokens.js');

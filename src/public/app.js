@@ -117,7 +117,8 @@ function renderTeardown(d) {
     ${ex?.actions?.length ? `<p class="teardown-label">What to do on your page</p>
       <ul class="teardown-list actions">${ex.actions.map((a) => `<li><b>${esc(a.do)}</b><span>${esc(a.because)}</span></li>`).join('')}</ul>` : ''}
 
-    ${!ex ? '<p class="hint">The page was read but could not be interpreted. The signals above are still worth comparing against your own page.</p>' : ''}`;
+    ${st.partial ? '<p class="hint">Read through our renderer because the page blocks direct requests, so schema and table detection were unavailable.</p>' : ''}
+    ${ex?.source === 'structural' ? '<p class="hint">Derived from the page structure directly.</p>' : ''}`;
 }
 
 function dueLabel(t) {
