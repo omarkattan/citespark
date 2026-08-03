@@ -174,3 +174,28 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS engines TEXT[] NOT NULL DEFAULT '{
 -- Per-site scheduling. An agency rarely wants every client on the same
 -- cadence, and a paused site should stop costing money without being deleted.
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS auto_cycle BOOLEAN NOT NULL DEFAULT true;
+
+-- Public demo. Every run costs real money with no account behind it, so each
+-- one is recorded for rate limiting, for a global daily spend cap, and so an
+-- identical request inside the cache window is served for free.
+CREATE TABLE IF NOT EXISTS demo_runs (
+  id         SERIAL PRIMARY KEY,
+  ip_hash    TEXT NOT NULL,
+  domain     TEXT NOT NULL,
+  question   TEXT NOT NULL,
+  result     JSONB,
+  cost_usd   NUMERIC(10,6) NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS demo_ip_time ON demo_runs (ip_hash, created_at DESC);
+CREATE INDEX IF NOT EXISTS demo_cache ON demo_runs (domain, question, created_at DESC);
+CREATE INDEX IF NOT EXISTS demo_time ON demo_runs (created_at DESC);
+
+-- Emails captured from the demo, before anyone creates an account.
+CREATE TABLE IF NOT EXISTS demo_leads (
+  id         SERIAL PRIMARY KEY,
+  email      TEXT NOT NULL,
+  domain     TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (email, domain)
+);

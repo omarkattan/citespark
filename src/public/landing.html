@@ -52,6 +52,7 @@
       <span class="logo-text">Cit<em>ed</em></span>
     </a>
     <div class="spacer"></div>
+    <a class="nav-link" href="#try">Try it</a>
     <a class="nav-link hide-sm" href="#how">How it works</a>
     <a class="nav-link hide-sm" href="#actions">What you get</a>
     <a class="nav-link hide-sm" href="#pricing">Pricing</a>
@@ -71,7 +72,7 @@
       </p>
       <div class="hero-cta">
         <a class="btn" href="/app">Open Cited</a>
-        <a class="btn ghost" href="#how">See how it works</a>
+        <a class="btn ghost" href="#try">Try it on your site</a>
       </div>
       <p class="hero-meta">Built by Sandstorm Digital. Google Partner since 2013, Dubai, Cairo and DC Metro.</p>
     </div>
@@ -97,6 +98,40 @@
     </div>
   </div>
 </header>
+
+
+<section id="try">
+  <div class="wrap">
+    <p class="eyebrow">Try it now</p>
+    <h2>Ask ChatGPT about your own business.</h2>
+    <p class="note">
+      Give us a domain. We read the site, work out what the business does, and write the questions its buyers would
+      actually type. Then we ask ChatGPT and show you whether your name comes back. No account, no card.
+    </p>
+
+    <div class="demo" id="demo">
+      <div class="demo-step" id="demoStep1">
+        <div class="demo-input">
+          <input id="demoDomain" placeholder="yourcompany.com" autocomplete="off" spellcheck="false" aria-label="Your domain" />
+          <button class="btn" id="demoScan">Read my site</button>
+        </div>
+        <p class="demo-note" id="demoNote">Takes about ten seconds.</p>
+      </div>
+
+      <div class="demo-step" id="demoStep2" hidden>
+        <div class="demo-read" id="demoRead"></div>
+        <p class="demo-label">Pick a question to ask</p>
+        <div class="demo-questions" id="demoQuestions"></div>
+      </div>
+
+      <div class="demo-step" id="demoStep3" hidden>
+        <div class="demo-working"><span class="dot"></span> <span id="demoWorking">Asking ChatGPT</span></div>
+      </div>
+
+      <div class="demo-step" id="demoResult" hidden></div>
+    </div>
+  </div>
+</section>
 
 <section>
   <div class="wrap">
@@ -458,6 +493,7 @@
         <span class="logo-text">Cit<em>ed</em></span>
       </a>
       <div class="foot-links">
+        <a href="#try">Try it</a>
         <a href="#how">How it works</a>
         <a href="#actions">What you get</a>
         <a href="#pricing">Pricing</a>
@@ -476,6 +512,7 @@
   </div>
 </footer>
 
+<script src="/demo.js"></script>
 <script>
   document.getElementById('year').textContent = new Date().getFullYear();
 

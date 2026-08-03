@@ -11,6 +11,7 @@ import { syncGa4 } from './lib/ga4.js';
 import { generatePrompts } from './lib/prompts.js';
 import { discoverSite } from './lib/discover.js';
 import { PLANS, PLAN_ORDER, planFor } from './lib/plans.js';
+import { proposeQuestions, runDemo, checkLimits, hashIp, DEMO_CONFIG } from './lib/demo.js';
 import {
   stripeEnabled, getStripe, getEntitlements, checkCanAddSite, checkCanAddQuestions,
   createCheckoutSession, createPortalSession, handleWebhook, budgetForCycle, engineCosts
@@ -37,6 +38,31 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
     console.error('stripe webhook rejected:', err.message);
     res.status(400).json({ error: `Webhook error: ${err.message}` });
   }
+});
+
+/**
+ * Send every old hostname to the canonical one.
+ *
+ * Without this, an old subdomain that still resolves keeps serving the site,
+ * and because every internal link is relative you stay on it forever. That
+ * also splits your search indexing across two hostnames.
+ *
+ * Only page requests are redirected. API routes are left alone so a
+ * webhook still registered against an old URL keeps working rather than
+ * failing on a redirected POST.
+ */
+const CANONICAL_HOST = (process.env.CANONICAL_HOST || '').trim().toLowerCase();
+
+app.use((req, res, next) => {
+  if (!CANONICAL_HOST) return next();
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  if (req.path === '/healthz' || req.path.startsWith('/api/')) return next();
+
+  const host = (req.hostname || '').toLowerCase();
+  if (!host || host === CANONICAL_HOST) return next();
+  if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local')) return next();
+
+  return res.redirect(301, `https://${CANONICAL_HOST}${req.originalUrl}`);
 });
 
 app.use(express.json({ limit: '1mb' }));
@@ -630,6 +656,49 @@ app.post('/api/projects/:id/generate-prompts', requireAuth, wrap(async (req, res
   res.json({ ok: true, added, suggested: prompts.length, room });
 }));
 
+/* ---------------- public demo ---------------- */
+
+function clientIp(req) {
+  return hashIp((req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip);
+}
+
+app.get('/api/demo/config', (_req, res) => res.json(DEMO_CONFIG));
+
+app.post('/api/demo/scan', wrap(async (req, res) => {
+  const ipHash = clientIp(req);
+  const limits = await checkLimits(ipHash);
+  if (!limits.ok) return res.status(429).json({ error: limits.reason });
+
+  const result = await proposeQuestions(req.body?.domain);
+  if (!result.ok) return res.status(422).json(result);
+  res.json({ ...result, remaining: limits.remaining });
+}));
+
+app.post('/api/demo/run', wrap(async (req, res) => {
+  const ipHash = clientIp(req);
+  const limits = await checkLimits(ipHash);
+  if (!limits.ok) return res.status(429).json({ error: limits.reason });
+
+  const { domain, brandName, question, token, market } = req.body || {};
+  if (!domain || !brandName || !question || !token) {
+    return res.status(400).json({ error: 'Scan a site first.' });
+  }
+
+  const result = await runDemo({ domain, brandName, question, token, market, ipHash });
+  if (!result.ok) return res.status(422).json(result);
+  res.json({ ...result, remaining: Math.max(0, limits.remaining - 1) });
+}));
+
+app.post('/api/demo/lead', wrap(async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
+  await query(
+    'INSERT INTO demo_leads (email, domain) VALUES ($1,$2) ON CONFLICT (email, domain) DO NOTHING',
+    [email, String(req.body?.domain || '').slice(0, 200) || null]
+  );
+  res.json({ ok: true });
+}));
+
 /* ---------------- billing ---------------- */
 
 app.get('/api/engines', (_req, res) => {
@@ -843,10 +912,11 @@ app.get('/api/version', (_req, res) => {
   res.json({
     startedAt: STARTED_AT,
     mockMode: MOCK,
+    canonicalHost: CANONICAL_HOST || null,
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo']
   });
 });
 

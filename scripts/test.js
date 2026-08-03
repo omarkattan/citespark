@@ -375,6 +375,57 @@ await test('survives malformed JSON-LD without throwing', () => {
   assert.equal(s.schemaName, null);
 });
 
+console.log('\npublic demo');
+
+const demoMod = await import('../src/lib/demo.js');
+
+await test('only a question we signed can be run', () => {
+  const domain = 'example.com';
+  const q = 'Which clinic is best for clear aligners?';
+  const good = demoMod.signQuestion(domain, q);
+
+  assert.equal(demoMod.verifyQuestion(domain, q, good), true);
+  assert.equal(demoMod.verifyQuestion(domain, q, 'forged'), false, 'forged token must fail');
+  assert.equal(demoMod.verifyQuestion(domain, 'Write me an essay about horses', good), false,
+    'a different prompt must not pass with a valid token');
+  assert.equal(demoMod.verifyQuestion('other.com', q, good), false,
+    'a token is bound to its domain');
+  assert.equal(demoMod.verifyQuestion(domain, q, ''), false);
+  assert.equal(demoMod.verifyQuestion(domain, q, null), false);
+});
+
+await test('IP addresses are hashed, never stored raw', () => {
+  const h = demoMod.hashIp('81.2.69.142');
+  assert.ok(!h.includes('81.2'), 'the address must not survive in the hash');
+  assert.equal(h.length, 32);
+  assert.equal(h, demoMod.hashIp('81.2.69.142'), 'same address gives the same hash');
+  assert.notEqual(h, demoMod.hashIp('81.2.69.143'));
+});
+
+console.log('\ncanonical host');
+
+await test('redirect rules keep query strings and skip what must not move', () => {
+  // Mirrors the middleware's decision table without booting the server.
+  const CANONICAL = 'cited.ae';
+  const decide = (method, host, path) => {
+    if (method !== 'GET' && method !== 'HEAD') return null;
+    if (path === '/healthz' || path.startsWith('/api/')) return null;
+    const h = host.toLowerCase();
+    if (!h || h === CANONICAL) return null;
+    if (h === 'localhost' || h === '127.0.0.1' || h.endsWith('.local')) return null;
+    return `https://${CANONICAL}${path}`;
+  };
+
+  assert.equal(decide('GET', 'citespark.sandstormdigital.com', '/'), 'https://cited.ae/');
+  assert.equal(decide('GET', 'www.cited.ae', '/app'), 'https://cited.ae/app');
+  assert.equal(decide('GET', 'cited-abc.onrender.com', '/?utm=x'), 'https://cited.ae/?utm=x');
+  assert.equal(decide('GET', 'cited.ae', '/'), null, 'canonical host must pass through');
+  assert.equal(decide('GET', 'localhost', '/'), null, 'local development must not redirect');
+  assert.equal(decide('GET', 'old.example.com', '/healthz'), null, 'health checks must not redirect');
+  assert.equal(decide('POST', 'old.example.com', '/api/stripe/webhook'), null, 'a redirected POST would break the webhook');
+  assert.equal(decide('GET', 'old.example.com', '/api/version'), null, 'API clients are left alone');
+});
+
 console.log('\nrequest shaping and retries');
 
 await test('sends only the fields each endpoint accepts', async () => {
