@@ -16,6 +16,7 @@ import { generatePrompts } from './lib/prompts.js';
 import { discoverSite } from './lib/discover.js';
 import { PLANS, PLAN_ORDER, planFor } from './lib/plans.js';
 import { proposeQuestions, runDemo, checkLimits, hashIp, DEMO_CONFIG } from './lib/demo.js';
+import { teardown } from './lib/teardown.js';
 import {
   stripeEnabled, getStripe, getEntitlements, checkCanAddSite, checkCanAddQuestions,
   createCheckoutSession, createPortalSession, handleWebhook, budgetForCycle, engineCosts
@@ -437,6 +438,35 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
     counts,
     people: [...new Set([...members.map((m) => m.email), ...people.map((p) => p.assignee)])]
   });
+}));
+
+/**
+ * Read the page that was actually cited and explain why. This is the answer
+ * to "why them and not me", which no amount of generic advice can give.
+ */
+app.post('/api/projects/:id/teardown', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+
+  const url = String(req.body?.url || '').trim();
+  const question = String(req.body?.question || '').trim();
+  if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'That action has no page to analyse' });
+  if (!question) return res.status(400).json({ error: 'No question is attached to that action' });
+
+  const competitors = await many("SELECT domain FROM entities WHERE project_id = $1 AND kind = 'competitor'", [project.id]);
+  const { classifySource } = await import('./lib/teardown.js');
+  const { kind } = classifySource(new URL(url).hostname, {
+    ownDomain: project.domain,
+    competitorDomains: competitors.map((c) => c.domain)
+  });
+
+  try {
+    const result = await teardown({ url, question, kind, ownBrand: project.brand_name });
+    if (!result.ok) return res.status(422).json(result);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: String(err.message || err) });
+  }
 }));
 
 app.patch('/api/recommendations/:recId', requireAuth, wrap(async (req, res) => {
@@ -1207,7 +1237,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown']
   });
 });
 

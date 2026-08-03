@@ -882,3 +882,49 @@ select { appearance: auto; }
   color: var(--ink-3);
   margin: 14px 0 4px;
 }
+
+/* ---------- page teardown ---------- */
+
+.teardown {
+  border-top: 1px solid var(--line-2);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+.teardown-head { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.teardown-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 16px 0 7px;
+}
+.teardown .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.teardown .chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  padding: 3px 9px;
+  color: var(--ink-2);
+}
+.teardown .chip.dashed { border-style: dashed; border-color: var(--you); color: var(--you); }
+
+.teardown-list { list-style: none; margin: 0; padding: 0; }
+.teardown-list li {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  padding: 7px 0 7px 20px;
+  position: relative;
+}
+.teardown-list li::before {
+  content: '';
+  position: absolute; left: 2px; top: 15px;
+  width: 6px; height: 6px;
+  background: var(--ink-3);
+  transform: rotate(45deg);
+}
+.teardown-list.actions li::before { background: var(--you); }
+.teardown-list.actions b { display: block; color: var(--ink); font-weight: 600; margin-bottom: 2px; }
+.teardown-list.actions span { display: block; font-size: 13px; color: var(--ink-3); }

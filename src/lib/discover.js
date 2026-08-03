@@ -140,6 +140,26 @@ async function fetchViaBrowserless(domain) {
  *   3. DataForSEO's renderer, which handles JavaScript and bot blocking
  *   4. a headless browser, if BROWSERLESS_URL is set
  */
+/**
+ * Fetch any URL with the same escalating strategy, for callers that need a
+ * specific page rather than a homepage.
+ */
+export async function fetchPage(url) {
+  const clean = String(url || '').trim();
+  if (!/^https?:\/\//i.test(clean)) return null;
+
+  const polite = await tryFetch(clean, { 'User-Agent': UA, Accept: 'text/html' }, 12000);
+  if (polite.html) return { ...polite, via: 'direct' };
+
+  const browser = await tryFetch(clean, BROWSER_HEADERS, 15000);
+  if (browser.html) return { ...browser, via: 'browser-headers' };
+
+  const bl = await fetchViaBrowserless(clean.replace(/^https?:\/\//, ''));
+  if (bl) return { ...bl, via: 'browserless' };
+
+  return null;
+}
+
 async function fetchHtml(domain) {
   const forms = [`https://${domain}`, `https://www.${domain}`, `http://${domain}`];
 

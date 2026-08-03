@@ -217,3 +217,14 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS ga4_property_name TEXT;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS ga4_account_email TEXT;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS ga4_connected_at  TIMESTAMPTZ;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS ga4_synced_at     TIMESTAMPTZ;
+
+-- Cached analysis of why a particular page was cited for a particular
+-- question. Expensive to produce, and rarely changes inside a month.
+CREATE TABLE IF NOT EXISTS page_teardowns (
+  id         SERIAL PRIMARY KEY,
+  url        TEXT NOT NULL,
+  question   TEXT NOT NULL,
+  result     JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS teardown_lookup ON page_teardowns (url, question, created_at DESC);

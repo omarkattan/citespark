@@ -84,6 +84,42 @@ async function viewActions() {
 
 const STATUS_LABEL = { open: 'To do', doing: 'In progress', done: 'Done', dismissed: 'Dismissed' };
 
+function renderTeardown(d) {
+  const st = d.structure || {};
+  const signals = [
+    st.headingsMatchingQuestion?.length ? `${st.headingsMatchingQuestion.length} heading${st.headingsMatchingQuestion.length === 1 ? '' : 's'} mirror the question` : null,
+    st.hasFaqSchema ? 'FAQ schema' : null,
+    st.hasReviewSchema ? 'Review schema' : null,
+    st.hasOrganisationSchema ? 'Organisation schema' : null,
+    st.hasAuthor ? 'named author' : null,
+    st.tables ? `${st.tables} table${st.tables === 1 ? '' : 's'}` : null,
+    st.statMentions ? `${st.statMentions} figures or prices` : null,
+    st.publishedOrUpdated ? `updated ${String(st.publishedOrUpdated).slice(0, 10)}` : null,
+    st.wordCount ? `${st.wordCount.toLocaleString()} words` : null
+  ].filter(Boolean);
+
+  const ex = d.explanation;
+  return `
+    <div class="teardown-head">
+      <span class="tag">${esc(d.kind)}</span>
+      ${d.cached ? '<span class="tag">from cache</span>' : ''}
+      ${ex?.confidence ? `<span class="tag">${esc(ex.confidence)} confidence</span>` : ''}
+      <a class="tag" href="${esc(d.url)}" target="_blank" rel="noopener">open page</a>
+    </div>
+
+    ${signals.length ? `<p class="teardown-label">What the page has</p><div class="chips">${signals.map((s) => `<span class="chip">${esc(s)}</span>`).join('')}</div>` : ''}
+    ${st.headingsMatchingQuestion?.length ? `<p class="teardown-label">Headings that answer the question</p>
+      <div class="chips">${st.headingsMatchingQuestion.map((h) => `<span class="chip dashed">${esc(h)}</span>`).join('')}</div>` : ''}
+
+    ${ex?.why?.length ? `<p class="teardown-label">Why it was probably cited</p>
+      <ul class="teardown-list">${ex.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+
+    ${ex?.actions?.length ? `<p class="teardown-label">What to do on your page</p>
+      <ul class="teardown-list actions">${ex.actions.map((a) => `<li><b>${esc(a.do)}</b><span>${esc(a.because)}</span></li>`).join('')}</ul>` : ''}
+
+    ${!ex ? '<p class="hint">The page was read but could not be interpreted. The signals above are still worth comparing against your own page.</p>' : ''}`;
+}
+
 function dueLabel(t) {
   if (!t.due_date) return '';
   const d = new Date(t.due_date);
@@ -138,9 +174,14 @@ function taskCard(t) {
       ${bits.join('')}
       ${t.target_url ? `<a class="tag" href="${esc(t.target_url)}" target="_blank" rel="noopener">open source</a>` : ''}
       <span style="flex:1"></span>
+      ${ev.analysable && ev.url && ev.question
+        ? `<button class="ghost" data-teardown="${t.id}" data-url="${esc(ev.url)}" data-question="${esc(ev.question)}">Why were they cited?</button>`
+        : ''}
       <button class="ghost" data-task-edit="${t.id}">${t.assignee || t.due_date || t.notes ? 'Edit' : 'Assign'}</button>
       ${buttons.map(([st, label]) => `<button class="ghost" data-rec="${t.id}" data-status="${st}">${label}</button>`).join('')}
     </div>
+
+    <div class="teardown" id="teardown-${t.id}" hidden></div>
 
     <div class="task-edit" id="edit-${t.id}" hidden>
       <div class="task-edit-row">
@@ -854,6 +895,27 @@ document.addEventListener('click', async (e) => {
   if (tf) {
     state.taskFilter = tf.dataset.taskFilter;
     await render();
+    return;
+  }
+
+  const td = e.target.closest('[data-teardown]');
+  if (td) {
+    const id = td.dataset.teardown;
+    const box = $(`teardown-${id}`);
+    box.hidden = false;
+    box.innerHTML = '<p class="hint">Reading the page and working out why it was chosen</p>';
+    td.disabled = true;
+
+    const res = await fetch(`/api/projects/${state.projectId}/teardown`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: td.dataset.url, question: td.dataset.question })
+    });
+    const d = await res.json();
+    td.disabled = false;
+
+    if (!res.ok) { box.innerHTML = `<p class="error">${esc(d.error)}</p>`; return; }
+    box.innerHTML = renderTeardown(d);
     return;
   }
 

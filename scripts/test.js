@@ -413,6 +413,87 @@ await test('survives malformed JSON-LD without throwing', () => {
   assert.equal(s.schemaName, null);
 });
 
+console.log('\nsource classification and teardown');
+
+const td = await import('../src/lib/teardown.js');
+
+await test('a source you cannot appear on is classified as such', () => {
+  const ctx = { ownDomain: 'sandstormdigital.com', competitorDomains: ['digitalgravity.ae', 'nexa.ae'] };
+  const k = (d) => td.classifySource(d, ctx);
+
+  assert.equal(k('sandstormdigital.com').kind, 'own');
+  assert.equal(k('www.digitalgravity.ae').kind, 'competitor');
+  assert.equal(k('digitalgravity.ae').reachable, false, 'you can never get listed on a competitor site');
+  assert.equal(k('clutch.co').kind, 'directory');
+  assert.equal(k('reddit.com').kind, 'community');
+  assert.equal(k('en.wikipedia.org').reachable, false);
+  assert.equal(k('medium.com').kind, 'publisher');
+  assert.equal(k('someblog.co.uk').kind, 'editorial');
+});
+
+await test('advice differs by source, and never says to pitch a competitor', () => {
+  const project = { id: 1, brand_name: 'Sandstorm Digital', domain: 'sandstormdigital.com' };
+  const q = 'Which SEO agency is best for an ecommerce brand in the UAE?';
+  const base = { prompt_id: 1, text: q, cluster: 'best-of', ai_search_volume: 2400, engine: 'chatgpt',
+    entity_id: 1, name: 'Sandstorm Digital', kind: 'owned', domain: 'sandstormdigital.com',
+    runs: 3, hits: 1, avg_ordinal: 3, negatives: 0, snippet: null, sample_run: 1 };
+
+  const recs = evaluateRules({
+    project,
+    stats: [base, { ...base, entity_id: 2, name: 'Digital Gravity', kind: 'competitor', domain: 'digitalgravity.ae', hits: 3 }],
+    ownCitedByPrompt: new Map([[1, 1]]),
+    sourceRows: [
+      { domain: 'digitalgravity.ae', n: 9, prompts: 4, sample_url: 'https://digitalgravity.ae/seo', sample_question: q },
+      { domain: 'clutch.co', n: 8, prompts: 4, sample_url: 'https://clutch.co/ae', sample_question: q },
+      { domain: 'reddit.com', n: 6, prompts: 3, sample_url: 'https://reddit.com/r/dubai', sample_question: q }
+    ]
+  });
+
+  const byDomain = Object.fromEntries(
+    recs.filter((r) => r.evidence.domain).map((r) => [r.evidence.domain, r])
+  );
+
+  assert.equal(byDomain['digitalgravity.ae'].type, 'competitor_page');
+  assert.ok(!/pitch|contribut|request inclusion|get listed on it\b/i.test(byDomain['digitalgravity.ae'].action.replace('there is no version of this where you get listed on it', '')),
+    'must not suggest getting onto a competitor site');
+  assert.ok(/teardown|why that page/i.test(byDomain['digitalgravity.ae'].action));
+
+  assert.ok(/claim/i.test(byDomain['clutch.co'].action), 'a directory should say claim the profile');
+  assert.ok(/downvoted|honestly|real account/i.test(byDomain['reddit.com'].action), 'community advice must warn against planting');
+
+  // Things you can act on should outrank things you cannot.
+  assert.ok(byDomain['clutch.co'].priority > byDomain['digitalgravity.ae'].priority);
+
+  // Every source action carries what the teardown needs.
+  for (const r of recs.filter((x) => x.evidence.domain)) {
+    assert.ok(r.evidence.sourceKind, 'source kind must be recorded');
+    assert.ok(r.evidence.url && r.evidence.question, 'the teardown needs a page and a question');
+  }
+});
+
+await test('the structural read finds what plausibly earned a citation', () => {
+  const html = `<html><head>
+    <title>Best SEO Agencies in Dubai 2026</title>
+    <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"x"}]}</script>
+    <meta property="article:modified_time" content="2026-07-28T10:00:00Z">
+    </head><body>
+    <h1>Best SEO Agencies in Dubai</h1>
+    <h2>Which SEO agency is best for an ecommerce brand in the UAE?</h2>
+    <p>For UAE ecommerce, look for Arabic capability and regional case studies.</p>
+    <h2>How much does SEO cost in Dubai?</h2>
+    <p>Retainers run AED 8,000 to AED 25,000, about 45% higher than 2024.</p>
+    <table><tr><td>a</td></tr></table><ul><li>b</li></ul>
+    <div rel="author">By Sara N</div></body></html>`;
+
+  const st = td.readStructure(html, 'Which SEO agency is best for an ecommerce brand in the UAE?');
+  assert.equal(st.headingsMatchingQuestion.length, 1, 'should spot the heading mirroring the question');
+  assert.equal(st.hasFaqSchema, true);
+  assert.equal(st.hasAuthor, true);
+  assert.equal(st.tables, 1);
+  assert.ok(st.statMentions >= 2, 'should count prices and percentages');
+  assert.ok(st.publishedOrUpdated.startsWith('2026-07-28'));
+});
+
 console.log('\nstored credentials');
 
 const tok = await import('../src/lib/tokens.js');
