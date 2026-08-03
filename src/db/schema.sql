@@ -228,3 +228,7 @@ CREATE TABLE IF NOT EXISTS page_teardowns (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS teardown_lookup ON page_teardowns (url, question, created_at DESC);
+
+-- Search Console property, chosen per project alongside the GA4 one. Both
+-- ride on the same Google authorisation.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS gsc_site_url TEXT;

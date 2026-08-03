@@ -46,7 +46,15 @@ export function classifySource(source) {
   return null;
 }
 
-export const OAUTH_SCOPES = ['https://www.googleapis.com/auth/analytics.readonly', 'openid', 'email'];
+export const OAUTH_SCOPES = [
+  'https://www.googleapis.com/auth/analytics.readonly',
+  // Search Console rides on the same authorisation, so a customer approves
+  // once rather than twice. Existing connections predate this and will need
+  // reconnecting before the import screen works.
+  'https://www.googleapis.com/auth/webmasters.readonly',
+  'openid',
+  'email'
+];
 export const oauthConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 
 /** The consent screen URL. state carries the project and a signature. */

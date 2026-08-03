@@ -17,6 +17,7 @@ import { discoverSite } from './lib/discover.js';
 import { PLANS, PLAN_ORDER, planFor } from './lib/plans.js';
 import { proposeQuestions, runDemo, checkLimits, hashIp, DEMO_CONFIG } from './lib/demo.js';
 import { teardown } from './lib/teardown.js';
+import { listSites as listGscSites, candidates as gscCandidates, importQuestions } from './lib/gsc.js';
 import {
   stripeEnabled, getStripe, getEntitlements, checkCanAddSite, checkCanAddQuestions,
   createCheckoutSession, createPortalSession, handleWebhook, budgetForCycle, engineCosts
@@ -1050,6 +1051,68 @@ app.post('/api/projects/:id/rebuild', requireAuth, wrap(async (req, res) => {
   res.json({ ok: true, count: recs.length });
 }));
 
+/* ---------------- Search Console ---------------- */
+
+app.get('/api/projects/:id/gsc', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  res.json({
+    connected: Boolean(project.ga4_refresh_token) || Boolean(process.env.GOOGLE_REFRESH_TOKEN),
+    email: project.ga4_account_email,
+    siteUrl: project.gsc_site_url
+  });
+}));
+
+app.get('/api/projects/:id/gsc/sites', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  try {
+    res.json({ sites: await listGscSites(project) });
+  } catch (err) {
+    res.status(400).json({ error: String(err.message || err), reconnect: /reconnect/i.test(String(err.message)) });
+  }
+}));
+
+app.post('/api/projects/:id/gsc/site', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  const url = String(req.body?.siteUrl || '').trim();
+  if (!url) return res.status(400).json({ error: 'Choose a property' });
+  await query('UPDATE projects SET gsc_site_url = $2 WHERE id = $1', [project.id, url]);
+  res.json({ ok: true });
+}));
+
+app.get('/api/projects/:id/gsc/candidates', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  try {
+    res.json(await gscCandidates(project.id, { days: Math.min(180, Number(req.query.days) || 90) }));
+  } catch (err) {
+    res.status(400).json({ error: String(err.message || err) });
+  }
+}));
+
+app.post('/api/projects/:id/gsc/import', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+
+  const chosen = Array.isArray(req.body?.questions) ? req.body.questions : [];
+  if (!chosen.length) return res.status(400).json({ error: 'Choose at least one question' });
+
+  const ent = await getEntitlements(req.session.orgId);
+  const active = await one('SELECT COUNT(*)::int AS n FROM prompts WHERE project_id = $1 AND active', [project.id]);
+  const room = ent.plan.questions - active.n;
+  if (room <= 0) {
+    return res.status(402).json({
+      error: `The ${ent.plan.name} plan allows ${ent.plan.questions} active questions per site. Pause one or upgrade to import more.`,
+      upgrade: true
+    });
+  }
+
+  const added = await importQuestions(project.id, chosen.slice(0, room));
+  res.json({ ok: true, added, skipped: Math.max(0, chosen.length - room), room });
+}));
+
 /* ---------------- Google Analytics ---------------- */
 
 const ga4Redirect = (req) => `${req.protocol}://${req.get('host')}/api/ga4/callback`;
@@ -1237,7 +1300,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import']
   });
 });
 

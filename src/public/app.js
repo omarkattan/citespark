@@ -1164,6 +1164,125 @@ async function viewSetup() {
   </div>`;
 }
 
+/* ---------- search console import ---------- */
+
+function gscCandidateRow(c, i) {
+  const pos = c.avgPosition ? c.avgPosition.toFixed(1) : '-';
+  return `<div class="row ${c.alreadyTracked ? 'off' : ''}">
+    <label class="grow eng">
+      <input type="checkbox" data-gsc="${i}" ${c.alreadyTracked ? 'disabled' : 'checked'} />
+      <span>
+        <span class="name">${esc(c.text)}</span>
+        <span class="sub">
+          ${c.impressions.toLocaleString()} impressions &middot; ${c.clicks} clicks &middot; position ${pos}
+          ${c.variants > 1 ? ` &middot; ${c.variants} variations` : ''}
+          ${c.alreadyTracked ? ' &middot; already tracked' : ''}
+        </span>
+        <span class="sub gsc-examples">from: ${esc(c.examples.slice(0, 3).join(', '))}</span>
+      </span>
+    </label>
+  </div>`;
+}
+
+async function loadGscCandidates() {
+  const body = $('gscBody');
+  body.innerHTML = '<p class="hint">Reading the last 90 days from Search Console</p>';
+
+  const res = await fetch(`/api/projects/${state.projectId}/gsc/candidates`);
+  const d = await res.json();
+
+  if (!res.ok) {
+    if (/property/i.test(d.error || '')) return loadGscSites();
+    body.innerHTML = `<p class="error">${esc(d.error)}</p>` +
+      (d.reconnect ? `<button class="ghost" id="ga4Reconnect">Reconnect Google</button>` : '');
+    return;
+  }
+  if (!d.candidates.length) {
+    body.innerHTML = `<p class="hint">Search Console returned ${d.rows} queries but none made a sensible buyer question. That usually means the site is new or the traffic is mostly branded.</p>`;
+    return;
+  }
+
+  state.gscCandidates = d.candidates;
+  const available = d.candidates.filter((c) => !c.alreadyTracked).length;
+
+  body.innerHTML = `
+    <div class="gsc-summary">
+      <span class="tag">${d.rows.toLocaleString()} queries read</span>
+      <span class="tag">${d.totalImpressions.toLocaleString()} impressions</span>
+      <span class="tag">${d.clusters} intent clusters</span>
+      <span class="tag ok">${available} worth tracking</span>
+    </div>
+    ${d.candidates.map(gscCandidateRow).join('')}
+    <div class="inline-form">
+      <button id="gscImport">Add selected questions</button>
+      <button class="ghost" id="gscNone">Clear selection</button>
+      <span class="hint" id="gscNote" style="margin:0"></span>
+    </div>`;
+}
+
+async function loadGscSites() {
+  const body = $('gscBody');
+  body.innerHTML = '<p class="hint">Loading your Search Console properties</p>';
+  const res = await fetch(`/api/projects/${state.projectId}/gsc/sites`);
+  const d = await res.json();
+
+  if (!res.ok) {
+    body.innerHTML = `<p class="error">${esc(d.error)}</p>` +
+      (d.reconnect ? ` <button class="ghost" id="ga4Reconnect">Reconnect Google</button>` : '');
+    return;
+  }
+  if (!d.sites.length) {
+    body.innerHTML = '<p class="hint">That Google account cannot see any Search Console properties.</p>';
+    return;
+  }
+  body.innerHTML = `<p class="teardown-label">Which property</p>` +
+    d.sites
+      .map(
+        (s) => `<div class="row">
+          <div class="grow"><div class="name">${esc(s.url)}</div><div class="sub">${esc(s.permission)}</div></div>
+          <button class="ghost" data-gsc-site="${esc(s.url)}">Use this</button>
+        </div>`
+      )
+      .join('');
+}
+
+document.addEventListener('click', async (e) => {
+  if (e.target.id === 'gscLoad') { e.target.disabled = true; await loadGscCandidates(); e.target.disabled = false; }
+
+  const site = e.target.closest('[data-gsc-site]');
+  if (site) {
+    site.disabled = true;
+    await fetch(`/api/projects/${state.projectId}/gsc/site`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteUrl: site.dataset.gscSite })
+    });
+    await loadGscCandidates();
+  }
+
+  if (e.target.id === 'gscNone') {
+    document.querySelectorAll('input[data-gsc]').forEach((b) => { if (!b.disabled) b.checked = false; });
+  }
+
+  if (e.target.id === 'gscImport') {
+    const picked = [...document.querySelectorAll('input[data-gsc]:checked')].map(
+      (b) => state.gscCandidates[Number(b.dataset.gsc)]
+    );
+    if (!picked.length) { $('gscNote').textContent = 'Nothing selected.'; return; }
+
+    e.target.disabled = true;
+    const res = await fetch(`/api/projects/${state.projectId}/gsc/import`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ questions: picked })
+    });
+    const d = await res.json();
+    e.target.disabled = false;
+
+    if (!res.ok) { $('gscNote').textContent = d.error; return; }
+    $('gscNote').textContent = `Added ${d.added}${d.skipped ? `, ${d.skipped} skipped for want of room on your plan` : ''}.`;
+    setTimeout(() => render(), 1200);
+  }
+});
+
 /* ---------- setup handlers ---------- */
 
 const setupErr = (msg) => { const el = $('setupError'); if (el) el.textContent = msg || ''; };

@@ -928,3 +928,7 @@ select { appearance: auto; }
 .teardown-list.actions li::before { background: var(--you); }
 .teardown-list.actions b { display: block; color: var(--ink); font-weight: 600; margin-bottom: 2px; }
 .teardown-list.actions span { display: block; font-size: 13px; color: var(--ink-3); }
+
+.gsc-summary { display: flex; gap: 6px; flex-wrap: wrap; margin: 14px 0 6px; }
+.gsc-examples { color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; margin-top: 3px; }
+#gscPanel .row { align-items: flex-start; }
