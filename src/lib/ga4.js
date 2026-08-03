@@ -108,7 +108,11 @@ export async function exchangeCode({ code, redirectUri }) {
   } catch {
     // Not essential, only used to show which account is connected.
   }
-  return { refreshToken: json.refresh_token, email };
+
+  // Record what was actually granted. Google silently returns fewer scopes
+  // than requested when one is not registered on the consent screen, and
+  // without this we cannot tell that apart from a disabled API.
+  return { refreshToken: json.refresh_token, email, scopes: json.scope || '' };
 }
 
 /**
@@ -130,13 +134,22 @@ async function accessTokenFor(project) {
 }
 
 /** Save an authorisation against a project. */
-export async function storeConnection(projectId, { refreshToken, email }) {
+export async function storeConnection(projectId, { refreshToken, email, scopes }) {
   await query(
     `UPDATE projects SET ga4_refresh_token = $2, ga4_account_email = $3, ga4_connected_at = now(),
-                         ga4_property_id = NULL, ga4_property_name = NULL
+                         ga4_property_id = NULL, ga4_property_name = NULL, google_scopes = $4
      WHERE id = $1`,
-    [projectId, encrypt(refreshToken), email]
+    [projectId, encrypt(refreshToken), email, scopes || null]
   );
+}
+
+export const SEARCH_CONSOLE_SCOPE = 'https://www.googleapis.com/auth/webmasters.readonly';
+
+export function hasSearchConsoleScope(project) {
+  // Older connections predate the scope and have nothing recorded, so we
+  // cannot rule it out. Let the API call decide in that case.
+  if (!project?.google_scopes) return null;
+  return project.google_scopes.includes('webmasters');
 }
 
 export async function disconnect(projectId) {

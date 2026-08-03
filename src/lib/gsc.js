@@ -60,17 +60,57 @@ async function accessTokenFor(project) {
   return json.access_token;
 }
 
-/** Properties the connected account can read. */
+/**
+ * Properties the connected account can read.
+ *
+ * A 403 here has three quite different causes and they need different fixes,
+ * so read what Google actually said rather than assuming the common one.
+ */
 export async function listSites(project) {
   const token = await accessTokenFor(project);
   const res = await fetch(`${API}/sites`, { headers: { Authorization: `Bearer ${token}` } });
 
-  if (res.status === 403) {
-    throw new Error(
-      'This Google connection does not include Search Console. Reconnect the account to grant it, which takes one click.'
-    );
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const body = await res.json();
+      detail = body?.error?.message || '';
+    } catch {
+      // no JSON body, fall back to the status alone
+    }
+
+    if (/has not been used in project|is disabled|SERVICE_DISABLED|accessNotConfigured/i.test(detail)) {
+      const m = detail.match(/project\s+(\d{6,})/);
+      throw Object.assign(
+        new Error(
+          'The Search Console API is not enabled in your Google Cloud project. Enable it, wait a minute, then try again. ' +
+            'Reconnecting will not help until it is on.'
+        ),
+        {
+          fix: 'enable-api',
+          link: m
+            ? `https://console.developers.google.com/apis/api/searchconsole.googleapis.com/overview?project=${m[1]}`
+            : 'https://console.cloud.google.com/apis/library/searchconsole.googleapis.com',
+          detail
+        }
+      );
+    }
+
+    if (res.status === 403 || /insufficient|scope|permission/i.test(detail)) {
+      throw Object.assign(
+        new Error(
+          'This Google connection does not include Search Console. Add the webmasters.readonly scope on your OAuth consent screen first, then reconnect.'
+        ),
+        { fix: 'reconnect', detail }
+      );
+    }
+
+    if (res.status === 401) {
+      throw Object.assign(new Error('That Google authorisation has expired. Reconnect the account.'), { fix: 'reconnect' });
+    }
+
+    throw new Error(detail || `Could not list Search Console properties: ${res.status}`);
   }
-  if (!res.ok) throw new Error(`Could not list Search Console properties: ${res.status}`);
 
   const json = await res.json();
   return (json.siteEntry || [])

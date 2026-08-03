@@ -413,6 +413,56 @@ await test('survives malformed JSON-LD without throwing', () => {
   assert.equal(s.schemaName, null);
 });
 
+console.log('\nsearch console diagnostics');
+
+await test('each Google failure is diagnosed separately', async () => {
+  process.env.GOOGLE_CLIENT_ID = 'x';
+  process.env.GOOGLE_CLIENT_SECRET = 'y';
+  process.env.GOOGLE_REFRESH_TOKEN = 'fake';
+  const { listSites } = await import('../src/lib/gsc.js?diag=1');
+  const realFetch = global.fetch;
+
+  const run = async (status, message) => {
+    global.fetch = async (url) => {
+      if (String(url).includes('oauth2')) return { ok: true, json: async () => ({ access_token: 'a' }) };
+      return { ok: false, status, json: async () => ({ error: { message } }) };
+    };
+    try {
+      await listSites({});
+      return null;
+    } catch (e) {
+      return e;
+    }
+  };
+
+  // A disabled API and a missing scope both come back as 403, and offering
+  // "reconnect" for both is what sent people round in circles.
+  const disabled = await run(403, 'Google Search Console API has not been used in project 123456789012 before or it is disabled.');
+  assert.equal(disabled.fix, 'enable-api');
+  assert.ok(disabled.link.includes('123456789012'), 'link straight to the right project');
+  assert.ok(/not enabled/i.test(disabled.message));
+  assert.ok(/Reconnecting will not help/i.test(disabled.message), 'must say what will not help');
+
+  const scope = await run(403, 'Request had insufficient authentication scopes.');
+  assert.equal(scope.fix, 'reconnect');
+  assert.ok(/consent screen/i.test(scope.message), 'must mention registering the scope first');
+
+  const expired = await run(401, 'Invalid Credentials');
+  assert.equal(expired.fix, 'reconnect');
+
+  const other = await run(500, 'Backend error');
+  assert.equal(other.fix, undefined, 'unknown failures must not claim a fix');
+
+  global.fetch = realFetch;
+});
+
+await test('a connection made before the scope existed is spotted without an API call', async () => {
+  const { hasSearchConsoleScope } = await import('../src/lib/ga4.js?scopes=1');
+  assert.equal(hasSearchConsoleScope({ google_scopes: 'openid email https://www.googleapis.com/auth/analytics.readonly' }), false);
+  assert.equal(hasSearchConsoleScope({ google_scopes: 'https://www.googleapis.com/auth/webmasters.readonly' }), true);
+  assert.equal(hasSearchConsoleScope({ google_scopes: null }), null, 'unknown means let the API decide');
+});
+
 console.log('\nsearch console import');
 
 const gsc = await import('../src/lib/gsc.js');

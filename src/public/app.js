@@ -1250,6 +1250,36 @@ function gscCandidateRow(c, i) {
   </div>`;
 }
 
+/**
+ * A 403 from Google means several different things and each needs a different
+ * fix. Offering "reconnect" for all of them sent people round in circles.
+ */
+function gscError(d) {
+  const detail = d.detail ? `<p class="hint" style="margin-top:8px">Google said: ${esc(d.detail)}</p>` : '';
+
+  if (d.fix === 'enable-api') {
+    return `<p class="error">${esc(d.error)}</p>
+      <div class="inline-form" style="margin-top:10px">
+        <a class="btn ghost" href="${esc(d.link || 'https://console.cloud.google.com/apis/library/searchconsole.googleapis.com')}" target="_blank" rel="noopener">Enable the Search Console API</a>
+        <button class="ghost" id="gscLoad">Try again</button>
+      </div>${detail}`;
+  }
+
+  if (d.fix === 'reconnect') {
+    return `<p class="error">${esc(d.error)}</p>
+      <p class="hint" style="margin-top:8px">
+        Add <code>https://www.googleapis.com/auth/webmasters.readonly</code> on your OAuth consent screen first,
+        or Google will grant the connection without it and this will keep asking.
+      </p>
+      <div class="inline-form" style="margin-top:10px">
+        <a class="btn ghost" href="https://console.cloud.google.com/auth/scopes" target="_blank" rel="noopener">Open consent screen</a>
+        <button class="ghost" id="ga4Reconnect">Reconnect Google</button>
+      </div>${detail}`;
+  }
+
+  return `<p class="error">${esc(d.error)}</p>${detail}`;
+}
+
 async function loadGscCandidates() {
   const body = $('gscBody');
   body.innerHTML = '<p class="hint">Reading the last 90 days from Search Console</p>';
@@ -1259,8 +1289,7 @@ async function loadGscCandidates() {
 
   if (!res.ok) {
     if (/property/i.test(d.error || '')) return loadGscSites();
-    body.innerHTML = `<p class="error">${esc(d.error)}</p>` +
-      (d.reconnect ? `<button class="ghost" id="ga4Reconnect">Reconnect Google</button>` : '');
+    body.innerHTML = gscError(d);
     return;
   }
   if (!d.candidates.length) {
@@ -1297,11 +1326,7 @@ async function loadGscSites() {
   const res = await fetch(`/api/projects/${state.projectId}/gsc/sites`);
   const d = await res.json();
 
-  if (!res.ok) {
-    body.innerHTML = `<p class="error">${esc(d.error)}</p>` +
-      (d.reconnect ? ` <button class="ghost" id="ga4Reconnect">Reconnect Google</button>` : '');
-    return;
-  }
+  if (!res.ok) { body.innerHTML = gscError(d); return; }
   if (!d.sites.length) {
     body.innerHTML = '<p class="hint">That Google account cannot see any Search Console properties.</p>';
     return;
