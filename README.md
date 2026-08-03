@@ -122,6 +122,20 @@ That second string is an ordinary Google query, which means classic SEO applies 
 
 No competitor tool surfaces this. It is the bridge between GEO and the SEO work you already do.
 
+## Model names
+
+`model_name` is **required** on every LLM Responses call. DataForSEO reports a missing required field as `Invalid Field: 'model_name'`, which reads like the field is not allowed. It is, and omitting it fails every LLM engine at once.
+
+Rather than hard-coding names that go stale, the client asks DataForSEO which models exist, using their free per-engine models endpoint, and caches the answer for six hours. Selection prefers, in order: web search supported (no web search means no citations, which is the whole product), non-reasoning (cheaper, no better here), a stable alias over a dated snapshot, and a cheap tier such as mini, flash, haiku or sonar.
+
+To see what is available and what would be chosen:
+
+```bash
+npm run models
+```
+
+Free to run, and the fastest way to diagnose a model failure. To pin one yourself, set `MODEL_CHATGPT`, `MODEL_GEMINI`, `MODEL_CLAUDE` or `MODEL_PERPLEXITY`; an explicit value always wins over the resolver. Only do that if you have a reason, since a pinned name will eventually be retired.
+
 ## Verify the response parser once
 
 `src/lib/dataforseo.js` walks the response tree rather than hard-coding a path, because DataForSEO's payload shape moves. On your first live run, log one raw payload and confirm the text and citation extraction is catching everything:

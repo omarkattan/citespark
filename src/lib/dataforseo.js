@@ -90,6 +90,76 @@ export const MOCK = String(process.env.MOCK_MODE || '').toLowerCase() === 'true'
 /** Transient upstream failures get this many extra attempts. */
 const RETRIES = Number(process.env.ENGINE_RETRIES || 2);
 
+/**
+ * model_name is REQUIRED on every LLM Responses call, and DataForSEO reports
+ * a missing required field as "Invalid Field", which is easy to misread as
+ * "this field is not allowed". Omitting it breaks every engine at once.
+ *
+ * Rather than hard-coding names that go stale, ask DataForSEO which models
+ * exist. That endpoint is free (cost: 0) and returns web_search_supported
+ * per model, which matters because a model without web search returns no
+ * citations, and citations are the product.
+ */
+const MODEL_CACHE_MS = Number(process.env.MODEL_CACHE_MS || 6 * 60 * 60 * 1000);
+const modelCache = new Map(); // engine -> { model, list, at }
+
+/** Last-resort names if the models endpoint is unreachable. */
+const FALLBACK_MODEL = {
+  chatgpt: 'gpt-4.1-mini',
+  perplexity: 'sonar',
+  claude: 'claude-sonnet-4-0',
+  gemini: 'gemini-2.5-flash'
+};
+
+/**
+ * Prefer a model that can search the web, is not a reasoning model (those
+ * cost more and answer no better for this), and carries a stable alias
+ * rather than a dated snapshot that will be retired.
+ */
+function scoreModel(m) {
+  let score = 0;
+  if (m.web_search_supported) score += 100;
+  if (!m.reasoning) score += 20;
+  if (!/\d{4}-\d{2}-\d{2}|\d{8}/.test(m.model_name)) score += 10;
+  if (/mini|flash|haiku|small|sonar$/.test(m.model_name)) score += 8;
+  return score;
+}
+
+export async function listModels(engine) {
+  const cfg = ENGINES[engine];
+  if (!cfg || cfg.kind !== 'llm') return [];
+  const res = await fetch(`${BASE}/ai_optimization/${cfg.path}/llm_responses/models`, {
+    headers: { Authorization: authHeader() }
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+  const list = json?.tasks?.[0]?.result || [];
+  if (!Array.isArray(list) || !list.length) throw new Error('No models returned');
+  return list;
+}
+
+async function resolveModel(engine, cfg) {
+  if (cfg.model) return cfg.model; // explicit env override always wins
+
+  const cached = modelCache.get(engine);
+  if (cached && Date.now() - cached.at < MODEL_CACHE_MS) return cached.model;
+
+  try {
+    const list = await listModels(engine);
+    const best = [...list].sort((a, b) => scoreModel(b) - scoreModel(a))[0];
+    const model = best?.model_name || FALLBACK_MODEL[engine];
+    modelCache.set(engine, { model, list, at: Date.now() });
+    console.log(`Resolved ${engine} model: ${model} (from ${list.length} available)`);
+    return model;
+  } catch (err) {
+    const model = FALLBACK_MODEL[engine];
+    // Cache the fallback briefly so a broken endpoint is not hit on every call.
+    modelCache.set(engine, { model, list: [], at: Date.now() - MODEL_CACHE_MS + 60000 });
+    console.warn(`Could not list ${engine} models (${err.message}), falling back to ${model}`);
+    return model;
+  }
+}
+
 function authHeader() {
   const login = process.env.DATAFORSEO_LOGIN;
   const password = process.env.DATAFORSEO_PASSWORD;
@@ -259,13 +329,15 @@ export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 700
   // Only send fields this endpoint accepts. Anything extra is rejected
   // outright rather than ignored, which is how a whole engine silently
   // produced zero answers for a full cycle.
+  const modelName = await resolveModel(engine, cfg);
+
   const payload = {
     user_prompt: prompt.slice(0, 500), // API caps prompt length at 500 chars
+    model_name: modelName,             // required, not optional
     max_output_tokens: maxTokens,
     temperature: 0.3,
     web_search: true
   };
-  if (cfg.model) payload.model_name = cfg.model;
   if (cfg.supportsCountry !== false) payload.web_search_country_iso_code = market;
 
   const body = [payload];
@@ -322,7 +394,7 @@ export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 700
       citations: dedupeCitations(citationSource),
       fanOut,
       costUsd: Number(json?.cost ?? taskData?.cost ?? 0),
-      model: taskData?.result?.[0]?.model_name || cfg.model || cfg.label,
+      model: taskData?.result?.[0]?.model_name || modelName,
       error: text.length ? null : 'Empty response'
     };
   } catch (err) {

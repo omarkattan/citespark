@@ -428,6 +428,63 @@ await test('redirect rules keep query strings and skip what must not move', () =
 
 console.log('\nrequest shaping and retries');
 
+await test('model_name is always sent, because the API requires it', async () => {
+  process.env.MOCK_MODE = 'false';
+  process.env.DATAFORSEO_LOGIN = 'x';
+  process.env.DATAFORSEO_PASSWORD = 'y';
+  const { askEngine: live } = await import('../src/lib/dataforseo.js?models=1');
+
+  const MODELS = {
+    chat_gpt: [
+      { model_name: 'o4-mini', reasoning: true, web_search_supported: true },
+      { model_name: 'gpt-4.1-nosearch', reasoning: false, web_search_supported: false },
+      { model_name: 'gpt-4.1-mini', reasoning: false, web_search_supported: true }
+    ],
+    perplexity: [
+      { model_name: 'sonar-reasoning-pro', reasoning: true, web_search_supported: true },
+      { model_name: 'sonar', reasoning: false, web_search_supported: true }
+    ]
+  };
+
+  const sent = {};
+  const realFetch = global.fetch;
+  global.fetch = async (url, opts) => {
+    const se = url.split('/ai_optimization/')[1].split('/')[0];
+    if (url.endsWith('/models')) return { ok: true, json: async () => ({ tasks: [{ result: MODELS[se] }] }) };
+    sent[se] = JSON.parse(opts.body)[0];
+    return { ok: true, json: async () => ({ tasks: [{ status_code: 20000, result: [{ items: [{ sections: [{ text: 'ok' }] }] }] }] }) };
+  };
+
+  await live({ engine: 'chatgpt', prompt: 'test', market: 'AE' });
+  await live({ engine: 'perplexity', prompt: 'test', market: 'AE' });
+  global.fetch = realFetch;
+
+  assert.ok(sent.chat_gpt.model_name, 'model_name must always be sent');
+  assert.ok(sent.perplexity.model_name, 'model_name must always be sent');
+
+  // A model without web search returns no citations, which is the product.
+  assert.notEqual(sent.chat_gpt.model_name, 'gpt-4.1-nosearch');
+  assert.equal(sent.chat_gpt.model_name, 'gpt-4.1-mini', 'prefer non-reasoning with web search');
+  assert.equal(sent.perplexity.model_name, 'sonar');
+});
+
+await test('a broken models endpoint falls back rather than failing', async () => {
+  process.env.MOCK_MODE = 'false';
+  const { askEngine: live } = await import('../src/lib/dataforseo.js?fallback=1');
+  let sent = null;
+  const realFetch = global.fetch;
+  global.fetch = async (url, opts) => {
+    if (url.endsWith('/models')) return { ok: false, status: 500 };
+    sent = JSON.parse(opts.body)[0];
+    return { ok: true, json: async () => ({ tasks: [{ status_code: 20000, result: [{ items: [{ sections: [{ text: 'ok' }] }] }] }] }) };
+  };
+  const r = await live({ engine: 'chatgpt', prompt: 'test' });
+  global.fetch = realFetch;
+
+  assert.equal(r.ok, true, 'a listing failure must not break the call');
+  assert.ok(sent.model_name, 'a fallback model must still be sent');
+});
+
 await test('sends only the fields each endpoint accepts', async () => {
   process.env.MOCK_MODE = 'false';
   process.env.DATAFORSEO_LOGIN = 'x';
@@ -449,10 +506,9 @@ await test('sends only the fields each endpoint accepts', async () => {
     'claude must not be sent web_search_country_iso_code');
   assert.equal(sent.chat_gpt.web_search_country_iso_code, 'AE');
 
-  // model_name is omitted unless explicitly configured, because a wrong
-  // value is rejected rather than ignored.
+  // model_name is required on every call.
   for (const k of Object.keys(sent)) {
-    assert.equal(sent[k].model_name, undefined, `${k} should not send model_name by default`);
+    assert.ok(sent[k].model_name, `${k} must send model_name`);
   }
 });
 
