@@ -199,3 +199,12 @@ CREATE TABLE IF NOT EXISTS demo_leads (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (email, domain)
 );
+
+-- Actions become tasks: someone owns them, they are due by a date, and the
+-- notes are where the person doing the work records what they actually did.
+ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS assignee     TEXT;
+ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS due_date     DATE;
+ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS notes        TEXT;
+ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS started_at   TIMESTAMPTZ;
+ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS recs_due ON recommendations (project_id, due_date) WHERE status IN ('open','doing');

@@ -292,29 +292,183 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
   res.json(out);
 }));
 
+/**
+ * Everything needed to show movement over time. One endpoint rather than
+ * several, because every chart on the page shares the same cycle axis.
+ */
+app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+
+  const cycles = await many(
+    `SELECT r.cycle_date AS date,
+            COUNT(*)::int AS runs,
+            SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate,
+            AVG(m.ordinal)::float AS avg_ordinal
+     FROM runs r
+     JOIN mentions m ON m.run_id = r.id
+     JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
+     WHERE r.project_id = $1 AND r.ok
+     GROUP BY r.cycle_date
+     ORDER BY r.cycle_date`,
+    [project.id]
+  );
+
+  const byEngine = await many(
+    `SELECT r.cycle_date AS date, r.engine,
+            SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
+     FROM runs r
+     JOIN mentions m ON m.run_id = r.id
+     JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
+     WHERE r.project_id = $1 AND r.ok
+     GROUP BY r.cycle_date, r.engine
+     ORDER BY r.cycle_date`,
+    [project.id]
+  );
+
+  const byEntity = await many(
+    `SELECT r.cycle_date AS date, e.name, e.kind,
+            SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
+     FROM runs r
+     JOIN mentions m ON m.run_id = r.id
+     JOIN entities e ON e.id = m.entity_id
+     WHERE r.project_id = $1 AND r.ok
+     GROUP BY r.cycle_date, e.id
+     ORDER BY r.cycle_date`,
+    [project.id]
+  );
+
+  const spend = await many(
+    `SELECT cycle_date AS date, COALESCE(SUM(cost_usd),0)::float AS cost, COUNT(*)::int AS calls
+     FROM runs WHERE project_id = $1 GROUP BY cycle_date ORDER BY cycle_date`,
+    [project.id]
+  );
+
+  // Question-level movement between the two most recent cycles, which is
+  // where a client's "what changed and why" question actually gets answered.
+  let movers = [];
+  if (cycles.length >= 2) {
+    const latest = cycles[cycles.length - 1].date;
+    const prior = cycles[cycles.length - 2].date;
+    movers = await many(
+      `WITH per AS (
+         SELECT p.id, p.text, r.cycle_date,
+                SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
+         FROM runs r
+         JOIN prompts p ON p.id = r.prompt_id
+         JOIN mentions m ON m.run_id = r.id
+         JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
+         WHERE r.project_id = $1 AND r.ok AND r.cycle_date IN ($2, $3)
+         GROUP BY p.id, r.cycle_date
+       )
+       SELECT a.id, a.text,
+              b.rate AS before, a.rate AS after, (a.rate - b.rate) AS delta
+       FROM per a JOIN per b ON b.id = a.id AND b.cycle_date = $3
+       WHERE a.cycle_date = $2 AND a.rate IS DISTINCT FROM b.rate
+       ORDER BY ABS(a.rate - b.rate) DESC
+       LIMIT 8`,
+      [project.id, latest, prior]
+    );
+  }
+
+  res.json({
+    project: { name: project.name, brand_name: project.brand_name },
+    cycles: cycles.map((c) => ({ ...c, rate: Number(c.rate), avg_ordinal: c.avg_ordinal })),
+    byEngine: byEngine.map((r) => ({ ...r, rate: Number(r.rate) })),
+    byEntity: byEntity.map((r) => ({ ...r, rate: Number(r.rate) })),
+    spend,
+    movers: movers.map((m) => ({ ...m, before: Number(m.before), after: Number(m.after), delta: Number(m.delta) }))
+  });
+}));
+
 app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
-  const status = req.query.status || 'open';
+
+  const status = String(req.query.status || 'open');
+  const valid = ['open', 'doing', 'done', 'dismissed', 'all', 'active'];
+  if (!valid.includes(status)) return res.status(400).json({ error: 'Unknown status filter' });
+
+  // Sort by what needs attention: anything overdue first, then by due date,
+  // then by priority. A task with a date beats an unowned one with a higher score.
+  const where =
+    status === 'all' ? '' :
+    status === 'active' ? "AND status IN ('open','doing')" :
+    'AND status = $2';
+  const params = ['all', 'active'].includes(status) ? [project.id] : [project.id, status];
+
   const rows = await many(
-    'SELECT * FROM recommendations WHERE project_id = $1 AND status = $2 ORDER BY priority DESC LIMIT 60',
-    [project.id, status]
+    `SELECT * FROM recommendations
+     WHERE project_id = $1 ${where}
+     ORDER BY
+       CASE WHEN due_date IS NOT NULL AND due_date < CURRENT_DATE AND status IN ('open','doing') THEN 0 ELSE 1 END,
+       due_date NULLS LAST,
+       priority DESC
+     LIMIT 100`,
+    params
   );
-  res.json(rows);
+
+  const counts = await one(
+    `SELECT
+       COUNT(*) FILTER (WHERE status = 'open')::int      AS open,
+       COUNT(*) FILTER (WHERE status = 'doing')::int     AS doing,
+       COUNT(*) FILTER (WHERE status = 'done')::int      AS done,
+       COUNT(*) FILTER (WHERE status = 'dismissed')::int AS dismissed,
+       COUNT(*) FILTER (WHERE due_date < CURRENT_DATE AND status IN ('open','doing'))::int AS overdue,
+       COUNT(*)::int AS total
+     FROM recommendations WHERE project_id = $1`,
+    [project.id]
+  );
+
+  const people = await many(
+    `SELECT DISTINCT assignee FROM recommendations
+     WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1) AND assignee IS NOT NULL AND assignee <> ''
+     ORDER BY assignee`,
+    [req.session.orgId]
+  );
+  const members = await many('SELECT email FROM users WHERE org_id = $1 ORDER BY email', [req.session.orgId]);
+
+  res.json({
+    tasks: rows,
+    counts,
+    people: [...new Set([...members.map((m) => m.email), ...people.map((p) => p.assignee)])]
+  });
 }));
 
 app.patch('/api/recommendations/:recId', requireAuth, wrap(async (req, res) => {
-  const { status } = req.body || {};
-  if (!['open', 'doing', 'done', 'dismissed'].includes(status)) {
+  const { status, assignee, dueDate, notes } = req.body || {};
+
+  if (status !== undefined && !['open', 'doing', 'done', 'dismissed'].includes(status)) {
     return res.status(400).json({ error: 'Unknown status' });
   }
-  const result = await query(
-    `UPDATE recommendations SET status = $1, updated_at = now()
-     WHERE id = $2 AND project_id IN (SELECT id FROM projects WHERE org_id = $3)`,
-    [status, Number(req.params.recId), req.session.orgId]
+  if (dueDate !== undefined && dueDate !== null && dueDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
+    return res.status(400).json({ error: 'Use a date in YYYY-MM-DD form' });
+  }
+
+  const row = await one(
+    `UPDATE recommendations SET
+       status       = COALESCE($2, status),
+       assignee     = CASE WHEN $3::text IS NULL THEN assignee ELSE NULLIF(trim($3), '') END,
+       due_date     = CASE WHEN $4::text IS NULL THEN due_date ELSE NULLIF($4, '')::date END,
+       notes        = CASE WHEN $5::text IS NULL THEN notes ELSE NULLIF(trim($5), '') END,
+       started_at   = CASE WHEN $2 = 'doing' AND started_at IS NULL THEN now() ELSE started_at END,
+       completed_at = CASE WHEN $2 = 'done' THEN now()
+                           WHEN $2 IN ('open','doing') THEN NULL
+                           ELSE completed_at END,
+       updated_at   = now()
+     WHERE id = $1 AND project_id IN (SELECT id FROM projects WHERE org_id = $6)
+     RETURNING *`,
+    [
+      Number(req.params.recId),
+      status ?? null,
+      assignee === undefined ? null : String(assignee),
+      dueDate === undefined ? null : String(dueDate ?? ''),
+      notes === undefined ? null : String(notes),
+      req.session.orgId
+    ]
   );
-  if (!result.rowCount) return res.status(404).json({ error: 'Action not found' });
-  res.json({ ok: true });
+  if (!row) return res.status(404).json({ error: 'Action not found' });
+  res.json(row);
 }));
 
 app.get('/api/projects/:id/sources', requireAuth, wrap(async (req, res) => {
@@ -916,7 +1070,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board']
   });
 });
 

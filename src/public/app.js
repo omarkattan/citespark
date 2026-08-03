@@ -50,39 +50,120 @@ function rateClass(rate) {
 }
 
 async function viewActions() {
-  const recs = await api(`/api/projects/${state.projectId}/recommendations`);
-  if (!recs?.length) {
-    return `<div class="empty"><h2>No open actions</h2><p>Run a cycle to measure visibility, then the engine writes the action list from what it finds.</p></div>`;
+  const filter = state.taskFilter || 'active';
+  const data = await api(`/api/projects/${state.projectId}/recommendations?status=${filter}`);
+  if (!data) return '';
+  state.people = data.people || [];
+
+  const c = data.counts;
+  const tab = (id, label, n) =>
+    `<button class="tfilter ${filter === id ? 'is-on' : ''}" data-task-filter="${id}">${label}${n !== null ? ` <span>${n}</span>` : ''}</button>`;
+
+  const bar = `<div class="taskbar">
+      ${tab('active', 'To do', c.open + c.doing)}
+      ${tab('doing', 'In progress', c.doing)}
+      ${tab('done', 'Done', c.done)}
+      ${tab('dismissed', 'Dismissed', c.dismissed)}
+      ${tab('all', 'Everything', c.total)}
+      <span class="spacer"></span>
+      ${c.overdue ? `<span class="tag overdue">${c.overdue} overdue</span>` : ''}
+    </div>`;
+
+  if (!data.tasks.length) {
+    return bar + `<div class="empty"><h2>${
+      filter === 'done' ? 'Nothing finished yet' : filter === 'dismissed' ? 'Nothing dismissed' : 'Nothing to do here'
+    }</h2><p>${
+      filter === 'active'
+        ? 'Run a cycle and the engine writes the task list from what it finds.'
+        : 'Try another filter.'
+    }</p></div>`;
   }
-  return recs
-    .map((r) => {
-      const ev = r.evidence || {};
-      const bits = [];
-      if (ev.own_rate !== undefined) bits.push(`<span class="tag">you ${ev.own_rate}%</span>`);
-      if (ev.competitor_rate !== undefined) bits.push(`<span class="tag">${esc(ev.competitor)} ${ev.competitor_rate}%</span>`);
-      if (ev.citations !== undefined) bits.push(`<span class="tag">${ev.citations} citations</span>`);
-      if (ev.sessions !== undefined) bits.push(`<span class="tag">${ev.sessions} sessions</span>`);
-      if (ev.queries) bits.push(...ev.queries.slice(0, 3).map((q) => `<span class="tag">${esc(q)}</span>`));
-      return `
-      <article class="rec" data-type="${esc(r.type)}">
-        <div class="rec-top">
-          <div class="rec-title">${esc(r.title)}</div>
-          <div class="rec-pri">priority ${Number(r.priority).toFixed(1)} &middot; effort ${Number(r.effort)}/5</div>
+
+  return bar + data.tasks.map(taskCard).join('');
+}
+
+const STATUS_LABEL = { open: 'To do', doing: 'In progress', done: 'Done', dismissed: 'Dismissed' };
+
+function dueLabel(t) {
+  if (!t.due_date) return '';
+  const d = new Date(t.due_date);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((d - today) / 86400000);
+  const when = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  const live = t.status === 'open' || t.status === 'doing';
+
+  if (!live) return `<span class="tag">due ${when}</span>`;
+  if (days < 0) return `<span class="tag overdue">${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} overdue</span>`;
+  if (days === 0) return `<span class="tag soon">due today</span>`;
+  if (days <= 3) return `<span class="tag soon">due in ${days} day${days === 1 ? '' : 's'}</span>`;
+  return `<span class="tag">due ${when}</span>`;
+}
+
+function taskCard(t) {
+  const ev = t.evidence || {};
+  const bits = [];
+  if (ev.own_rate !== undefined) bits.push(`<span class="tag">you ${ev.own_rate}%</span>`);
+  if (ev.competitor_rate !== undefined) bits.push(`<span class="tag">${esc(ev.competitor)} ${ev.competitor_rate}%</span>`);
+  if (ev.citations !== undefined) bits.push(`<span class="tag">${ev.citations} citations</span>`);
+  if (ev.sessions !== undefined) bits.push(`<span class="tag">${ev.sessions} sessions</span>`);
+  if (ev.queries) bits.push(...ev.queries.slice(0, 2).map((q) => `<span class="tag">${esc(q)}</span>`));
+
+  const buttons = {
+    open: [['doing', 'Start'], ['done', 'Done'], ['dismissed', 'Dismiss']],
+    doing: [['done', 'Mark done'], ['open', 'Back to to-do']],
+    done: [['open', 'Reopen']],
+    dismissed: [['open', 'Restore']]
+  }[t.status] || [];
+
+  return `
+  <article class="rec ${t.status}" data-type="${esc(t.type)}" data-task="${t.id}">
+    <div class="rec-top">
+      <div class="rec-title">${esc(t.title)}</div>
+      <div class="rec-pri">priority ${Number(t.priority).toFixed(1)} &middot; effort ${Number(t.effort)}/5</div>
+    </div>
+
+    <div class="task-meta">
+      <span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span>
+      ${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}
+      ${dueLabel(t)}
+      ${t.notes ? '<span class="tag">has notes</span>' : ''}
+    </div>
+
+    <p class="rec-action">${esc(t.action)}</p>
+    ${ev.snippet ? `<div class="excerpt">${highlight(ev.snippet, state.overview?.project?.brand_name)}</div>` : ''}
+
+    <div class="rec-foot">
+      <span class="tag">${esc(t.type.replace(/_/g, ' '))}</span>
+      ${bits.join('')}
+      ${t.target_url ? `<a class="tag" href="${esc(t.target_url)}" target="_blank" rel="noopener">open source</a>` : ''}
+      <span style="flex:1"></span>
+      <button class="ghost" data-task-edit="${t.id}">${t.assignee || t.due_date || t.notes ? 'Edit' : 'Assign'}</button>
+      ${buttons.map(([st, label]) => `<button class="ghost" data-rec="${t.id}" data-status="${st}">${label}</button>`).join('')}
+    </div>
+
+    <div class="task-edit" id="edit-${t.id}" hidden>
+      <div class="task-edit-row">
+        <div class="field">
+          <label for="a-${t.id}">Who is doing it</label>
+          <input id="a-${t.id}" list="people-list" value="${esc(t.assignee || '')}" placeholder="Name or email" />
         </div>
-        <p class="rec-action">${esc(r.action)}</p>
-        ${ev.snippet ? `<div class="excerpt">${highlight(ev.snippet, state.overview?.project?.brand_name)}</div>` : ''}
-        <div class="rec-foot">
-          <span class="tag">${esc(r.type.replace(/_/g, ' '))}</span>
-          ${bits.join('')}
-          ${r.target_url ? `<a class="tag" href="${esc(r.target_url)}" target="_blank" rel="noopener">open source</a>` : ''}
-          <span style="flex:1"></span>
-          <button class="ghost" data-rec="${r.id}" data-status="doing">Start</button>
-          <button class="ghost" data-rec="${r.id}" data-status="done">Done</button>
-          <button class="ghost" data-rec="${r.id}" data-status="dismissed">Dismiss</button>
+        <div class="field">
+          <label for="d-${t.id}">Due by</label>
+          <input id="d-${t.id}" type="date" value="${t.due_date ? String(t.due_date).slice(0, 10) : ''}" />
         </div>
-      </article>`;
-    })
-    .join('');
+      </div>
+      <div class="field">
+        <label for="n-${t.id}">Notes</label>
+        <textarea id="n-${t.id}" rows="3" placeholder="What was changed, what is blocking it, links to the work">${esc(t.notes || '')}</textarea>
+      </div>
+      <div class="task-edit-foot">
+        <button data-task-save="${t.id}">Save</button>
+        <button class="ghost" data-task-cancel="${t.id}">Cancel</button>
+        <span class="hint" id="saved-${t.id}"></span>
+      </div>
+    </div>
+  </article>`;
 }
 
 async function viewQuestions() {
@@ -199,9 +280,15 @@ async function renderFigures() {
 async function render() {
   const view = state.view;
   $('view').innerHTML = '<div class="empty">Loading</div>';
-  const fn = { actions: viewActions, questions: viewQuestions, rivals: viewRivals, sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling }[view];
+  const fn = { actions: viewActions, questions: viewQuestions, rivals: viewRivals, sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling, trends: viewTrends }[view];
   $('view').innerHTML = await fn();
   if (view === 'setup') recalcEstimate();
+  if (view === 'actions' && state.people?.length) {
+    const dl = document.createElement('datalist');
+    dl.id = 'people-list';
+    dl.innerHTML = state.people.map((p) => `<option value="${esc(p)}"></option>`).join('');
+    $('view').appendChild(dl);
+  }
 }
 
 async function loadProject(id) {
@@ -501,15 +588,105 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('click', async (e) => {
+  const tf = e.target.closest('[data-task-filter]');
+  if (tf) {
+    state.taskFilter = tf.dataset.taskFilter;
+    await render();
+    return;
+  }
+
+  const edit = e.target.closest('[data-task-edit]');
+  if (edit) {
+    const box = $(`edit-${edit.dataset.taskEdit}`);
+    box.hidden = !box.hidden;
+    if (!box.hidden) box.querySelector('input')?.focus();
+    return;
+  }
+
+  const cancel = e.target.closest('[data-task-cancel]');
+  if (cancel) { $(`edit-${cancel.dataset.taskCancel}`).hidden = true; return; }
+
+  const save = e.target.closest('[data-task-save]');
+  if (save) {
+    const id = save.dataset.taskSave;
+    save.disabled = true;
+    const res = await fetch(`/api/recommendations/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        assignee: $(`a-${id}`).value,
+        dueDate: $(`d-${id}`).value,
+        notes: $(`n-${id}`).value
+      })
+    });
+    save.disabled = false;
+    if (res.ok) {
+      const updated = await res.json();
+      replaceCard(id, updated);
+    } else {
+      const j = await res.json();
+      $(`saved-${id}`).textContent = j.error || 'Could not save';
+    }
+    return;
+  }
+
   const btn = e.target.closest('button[data-rec]');
   if (!btn) return;
-  await fetch(`/api/recommendations/${btn.dataset.rec}`, {
+
+  btn.disabled = true;
+  const res = await fetch(`/api/recommendations/${btn.dataset.rec}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status: btn.dataset.status })
   });
-  await render();
+  btn.disabled = false;
+  if (!res.ok) return;
+
+  const updated = await res.json();
+  const filter = state.taskFilter || 'active';
+  const stillVisible =
+    filter === 'all' ||
+    (filter === 'active' && ['open', 'doing'].includes(updated.status)) ||
+    filter === updated.status;
+
+  // Moving a task out of the current filter should say so rather than
+  // having it vanish with no explanation.
+  if (stillVisible) replaceCard(btn.dataset.rec, updated);
+  else {
+    const card = document.querySelector(`[data-task="${btn.dataset.rec}"]`);
+    if (card) {
+      card.classList.add('leaving');
+      card.innerHTML = `<p class="rec-action">Moved to <b>${STATUS_LABEL[updated.status]}</b>. <button class="ghost" data-task-filter="${updated.status}">Show ${STATUS_LABEL[updated.status].toLowerCase()}</button></p>`;
+      setTimeout(() => card.remove(), 4000);
+    }
+    await refreshTaskCounts();
+  }
 });
+
+/** Swap one card without re-rendering the list and losing scroll position. */
+function replaceCard(id, task) {
+  const card = document.querySelector(`[data-task="${id}"]`);
+  if (!card) return;
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = taskCard(task);
+  card.replaceWith(wrapper.firstElementChild);
+  refreshTaskCounts();
+}
+
+async function refreshTaskCounts() {
+  const data = await api(`/api/projects/${state.projectId}/recommendations?status=${state.taskFilter || 'active'}`);
+  if (!data) return;
+  const c = data.counts;
+  const set = (id, n) => {
+    const el = document.querySelector(`[data-task-filter="${id}"] span`);
+    if (el) el.textContent = n;
+  };
+  set('active', c.open + c.doing);
+  set('doing', c.doing);
+  set('done', c.done);
+  set('dismissed', c.dismissed);
+  set('all', c.total);
+}
 
 /* ---------- setup ---------- */
 
@@ -1233,6 +1410,175 @@ async function refreshUsagePill() {
   pill.hidden = false;
   pill.textContent = `${b.plan.name} \u00b7 ${b.usage.calls}/${b.usage.limit}`;
   pill.className = 'pill' + (b.usage.percent >= 90 ? ' over' : b.usage.percent >= 70 ? ' warn' : '');
+}
+
+/* ---------- trend ---------- */
+
+const DATE_FMT = { day: 'numeric', month: 'short' };
+const shortDate = (d) => new Date(d).toLocaleDateString(undefined, DATE_FMT);
+
+/**
+ * Hand-rolled SVG rather than a charting library. The data is a handful of
+ * points on a shared date axis, and a dependency would cost more than it
+ * saves while fighting the design tokens.
+ */
+function lineChart(series, { height = 220, showAxis = true } = {}) {
+  const dates = [...new Set(series.flatMap((s) => s.points.map((p) => p.date)))].sort();
+  if (dates.length < 2) return null;
+
+  const W = 760;
+  const H = height;
+  const pad = { l: 38, r: 12, t: 14, b: 26 };
+  const x = (d) => pad.l + (dates.indexOf(d) / (dates.length - 1)) * (W - pad.l - pad.r);
+  const y = (v) => pad.t + (1 - v) * (H - pad.t - pad.b);
+
+  const grid = [0, 0.25, 0.5, 0.75, 1]
+    .map(
+      (v) => `<line x1="${pad.l}" y1="${y(v)}" x2="${W - pad.r}" y2="${y(v)}" class="gridline" />
+              ${showAxis ? `<text x="${pad.l - 8}" y="${y(v) + 4}" class="axis" text-anchor="end">${Math.round(v * 100)}%</text>` : ''}`
+    )
+    .join('');
+
+  const xLabels = dates
+    .filter((_, i) => dates.length <= 6 || i % Math.ceil(dates.length / 6) === 0 || i === dates.length - 1)
+    .map((d) => `<text x="${x(d)}" y="${H - 6}" class="axis" text-anchor="middle">${shortDate(d)}</text>`)
+    .join('');
+
+  const lines = series
+    .map((s) => {
+      const pts = s.points.filter((p) => p.value !== null && p.value !== undefined).sort((a, b) => (a.date < b.date ? -1 : 1));
+      if (!pts.length) return '';
+      const path = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.date).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
+      const dots = pts
+        .map(
+          (p) => `<circle cx="${x(p.date).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="${s.own ? 4 : 3}" class="dot" style="fill:${s.colour}">
+                    <title>${esc(s.label)} &middot; ${shortDate(p.date)} &middot; ${Math.round(p.value * 100)}%</title>
+                  </circle>`
+        )
+        .join('');
+      return `<path d="${path}" class="line ${s.own ? 'own' : ''}" style="stroke:${s.colour}" />${dots}`;
+    })
+    .join('');
+
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Visibility over time">
+    ${grid}${xLabels}${lines}
+  </svg>`;
+}
+
+function legend(series) {
+  return `<div class="legend">${series
+    .map((s) => `<span class="legend-item"><i style="background:${s.colour}"></i>${esc(s.label)}</span>`)
+    .join('')}</div>`;
+}
+
+const RIVAL_COLOURS = ['#a8601b', '#7b5ea8', '#1f7a8c', '#8a6d3b', '#6b7280'];
+
+async function viewTrends() {
+  const h = await api(`/api/projects/${state.projectId}/history`);
+  if (!h) return '';
+
+  if (h.cycles.length === 0) {
+    return `<div class="empty"><h2>Nothing measured yet</h2><p>Run a cycle and the trend starts here.</p></div>`;
+  }
+  if (h.cycles.length === 1) {
+    const c = h.cycles[0];
+    return `<div class="empty">
+      <h2>One cycle so far</h2>
+      <p>You were named in <b>${Math.round(c.rate * 100)}%</b> of ${c.runs} answers on ${esc(shortDate(c.date))}.
+      Movement needs a second cycle to compare against, so this page fills in from the next run.</p>
+    </div>`;
+  }
+
+  const first = h.cycles[0];
+  const last = h.cycles[h.cycles.length - 1];
+  const change = last.rate - first.rate;
+  const best = h.cycles.reduce((a, b) => (b.rate > a.rate ? b : a));
+
+  /* headline: you against your competitors */
+  const byName = new Map();
+  for (const row of h.byEntity) {
+    if (!byName.has(row.name)) byName.set(row.name, { label: row.name, kind: row.kind, points: [] });
+    byName.get(row.name).points.push({ date: row.date, value: row.rate });
+  }
+  const own = [...byName.values()].find((s) => s.kind === 'owned');
+  const rivals = [...byName.values()]
+    .filter((s) => s.kind !== 'owned')
+    .sort((a, b) => b.points[b.points.length - 1].value - a.points[a.points.length - 1].value)
+    .slice(0, 5);
+
+  const series = [
+    { ...own, colour: 'var(--you)', own: true },
+    ...rivals.map((r, i) => ({ ...r, colour: RIVAL_COLOURS[i % RIVAL_COLOURS.length] }))
+  ].filter(Boolean);
+
+  /* per engine */
+  const engineMap = new Map();
+  for (const row of h.byEngine) {
+    if (!engineMap.has(row.engine)) engineMap.set(row.engine, { label: row.engine, points: [] });
+    engineMap.get(row.engine).points.push({ date: row.date, value: row.rate });
+  }
+  const engineSeries = [...engineMap.values()].map((s, i) => ({ ...s, colour: RIVAL_COLOURS[i % RIVAL_COLOURS.length] }));
+
+  const moversRows = h.movers.length
+    ? h.movers
+        .map((m) => {
+          const pts = Math.round(m.delta * 100);
+          return `<div class="mover">
+            <div class="mover-q">${esc(m.text)}</div>
+            <div class="mover-delta ${pts > 0 ? 'up' : 'down'}">${pts > 0 ? '+' : ''}${pts} pts</div>
+            <div class="mover-nums">${Math.round(m.before * 100)}% &rarr; ${Math.round(m.after * 100)}%</div>
+          </div>`;
+        })
+        .join('')
+    : `<p class="hint">No question changed between the last two cycles.</p>`;
+
+  const totalSpend = h.spend.reduce((n, s) => n + Number(s.cost), 0);
+
+  return `
+  <div class="figures">
+    <div class="figure">
+      <div class="label">Since ${esc(shortDate(first.date))}</div>
+      <div class="value ${change > 0 ? 'up' : change < 0 ? 'down' : 'dim'}">${change > 0 ? '+' : ''}${Math.round(change * 100)}<span style="font-size:16px"> pts</span></div>
+      <div class="sub">was ${Math.round(first.rate * 100)}%</div>
+    </div>
+    <div class="figure">
+      <div class="label">Best cycle</div>
+      <div class="value">${Math.round(best.rate * 100)}%</div>
+      <div class="sub">${esc(shortDate(best.date))}</div>
+    </div>
+    <div class="figure">
+      <div class="label">Position in answer</div>
+      <div class="value">${last.avg_ordinal ? Number(last.avg_ordinal).toFixed(1) : '-'}</div>
+      <div class="sub">${first.avg_ordinal ? `was ${Number(first.avg_ordinal).toFixed(1)}` : 'no earlier reading'}</div>
+    </div>
+    <div class="figure">
+      <div class="label">Cycles run</div>
+      <div class="value">${h.cycles.length}</div>
+      <div class="sub">$${totalSpend.toFixed(2)} all in</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>You against the field</h2></div>
+    ${lineChart(series) || '<p class="hint">Not enough cycles yet.</p>'}
+    ${legend(series)}
+    <p class="hint" style="margin-top:12px">Share of answers each brand was named in, cycle by cycle. Hover a point for the exact figure.</p>
+  </div>
+
+  <div class="setup-grid">
+    <div class="panel">
+      <div class="panel-head"><h2>By surface</h2></div>
+      ${lineChart(engineSeries, { height: 190 }) || '<p class="hint">Not enough cycles yet.</p>'}
+      ${legend(engineSeries)}
+      <p class="hint" style="margin-top:12px">A surface that moves alone usually points at a crawler or freshness problem rather than your content.</p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>What moved</h2></div>
+      ${moversRows}
+      <p class="hint" style="margin-top:12px">Biggest changes between the last two cycles, per question.</p>
+    </div>
+  </div>`;
 }
 
 boot();
