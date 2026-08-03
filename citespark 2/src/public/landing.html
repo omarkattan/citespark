@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CiteSpark | See what AI says about your brand, and change it</title>
+<meta name="description" content="CiteSpark puts your buyers' real questions to ChatGPT, Gemini and Perplexity, records whether you were named, and turns the gaps into a ranked list of fixes. Built by Sandstorm Digital." />
+<meta property="og:title" content="CiteSpark | Answer engine visibility" />
+<meta property="og:description" content="When buyers ask AI, someone gets named. Make it you." />
+<meta property="og:type" content="website" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='8' fill='%2308120d'/%3E%3Cpath d='M15 8H9v24h6M25 8h6v24h-6' stroke='%23e9e3d5' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M20 11l2.6 6.4L29 20l-6.4 2.6L20 29l-2.6-6.4L11 20l6.4-2.6z' fill='%2335e08a'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/landing.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-in">
+    <a class="logo" href="/" aria-label="CiteSpark home">
+      <svg width="30" height="30" viewBox="0 0 40 40" role="img" aria-hidden="true">
+        <path d="M15 8H9v24h6M25 8h6v24h-6" stroke="var(--sand)" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M20 11l2.6 6.4L29 20l-6.4 2.6L20 29l-2.6-6.4L11 20l6.4-2.6z" fill="var(--spark)"/>
+      </svg>
+      <span class="logo-text">Cite<em>Spark</em></span>
+    </a>
+    <div class="spacer"></div>
+    <a class="nav-link hide-sm" href="#how">How it works</a>
+    <a class="nav-link hide-sm" href="#actions">What you get</a>
+    <a class="nav-link hide-sm" href="#pricing">Pricing</a>
+    <a class="nav-link" href="#faqs">FAQs</a>
+    <a class="btn" href="/app">Sign in</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <p class="eyebrow">Answer engine visibility</p>
+      <h1>When buyers ask AI, someone gets named. Make it <em>you</em>.</h1>
+      <p class="lede">
+        CiteSpark puts your buyers' real questions to ChatGPT, Gemini and Perplexity, reads every answer,
+        and turns what it finds into a ranked list of things to fix. Not another dashboard. A to-do list.
+      </p>
+      <div class="hero-cta">
+        <a class="btn" href="/app">Open CiteSpark</a>
+        <a class="btn ghost" href="#how">See how it works</a>
+      </div>
+      <p class="hero-meta">Built by Sandstorm Digital. Google Partner since 2013, Dubai, Cairo and DC Metro.</p>
+    </div>
+
+    <div class="answer reveal" style="animation-delay:0.15s">
+      <div class="answer-head"><span class="dot"></span> ChatGPT &middot; example answer</div>
+      <p class="q">"Which clinic in Dubai is best for clear aligners?"</p>
+      <p class="a">
+        A few clinics worth considering:<br /><br />
+        <strong>1. Marina Smile Studio</strong> &mdash; large orthodontic team, strong reviews.<br />
+        <strong>2. Jumeirah Dental Care</strong> &mdash; long established, several locations.<br />
+        <strong>3. The Aligner Clinic</strong> &mdash; specialists, transparent pricing.<br />
+        <strong>4. <mark>Your clinic</mark></strong> &mdash; named, but fourth, and only sometimes.
+      </p>
+      <div class="verdict">
+        <span class="verdict-you hit">Named &middot; position 4</span>
+        <div class="ticks" role="img" aria-label="Named in three of eight answers">
+          <span class="tick hit"></span><span class="tick"></span><span class="tick hit"></span><span class="tick"></span>
+          <span class="tick"></span><span class="tick hit"></span><span class="tick"></span><span class="tick"></span>
+        </div>
+        <span class="action-pri">3 of 8 answers</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow dune">The problem</p>
+    <h2>Ranking first is no use if the answer never mentions you.</h2>
+    <p class="note">
+      A growing share of buying research now happens inside a chat window. The model reads a handful of sources,
+      writes one answer, and names three or four companies. There is no page two. You are either in that answer or
+      you are invisible, and nothing in Google Search Console will tell you which.
+    </p>
+
+    <div class="modes">
+      <div class="mode">
+        <div class="mode-k">Failure one</div>
+        <h3>Never named</h3>
+        <p>The engine answers the question and lists your competitors. You are not in the candidate set it read from.</p>
+      </div>
+      <div class="mode">
+        <div class="mode-k">Failure two</div>
+        <h3>Named, never cited</h3>
+        <p>It mentions you but sources the detail elsewhere. No click, no control of how you are described.</p>
+      </div>
+      <div class="mode">
+        <div class="mode-k">Failure three</div>
+        <h3>Named last</h3>
+        <p>You appear fourth in a list nobody reads to the end. Position is earned through corroboration, not copy.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <p class="eyebrow">How it works</p>
+    <h2>Four steps, run every week, entirely on your behalf.</h2>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-n">01</div>
+        <h3>Scan the site</h3>
+        <p>Give us a domain. CiteSpark reads it, works out what the business does and who it sells to, and writes the question set.</p>
+      </div>
+      <div class="step">
+        <div class="step-n">02</div>
+        <h3>Ask, repeatedly</h3>
+        <p>Every question goes to each engine several times, because models are not deterministic. One run is noise.</p>
+      </div>
+      <div class="step">
+        <div class="step-n">03</div>
+        <h3>Read every answer</h3>
+        <p>Were you named, in what position, in what tone, and which domains did the engine cite instead of yours.</p>
+      </div>
+      <div class="step">
+        <div class="step-n">04</div>
+        <h3>Hand you the work</h3>
+        <p>Each gap becomes a specific action, ranked by impact over effort, with the evidence attached.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="actions">
+  <div class="wrap two">
+    <div>
+      <p class="eyebrow">What you get</p>
+      <h2>Findings you can put straight on a sprint board.</h2>
+      <p class="note">
+        Every tracker in this category will show you a chart proving a competitor is winning. Almost none will tell you
+        what to do on Monday morning. CiteSpark writes the instruction, names the page, and shows the evidence behind it.
+      </p>
+    </div>
+
+    <div>
+      <div class="action-card">
+        <div class="action-top">
+          <div class="action-title">Invisible for: "Who does commercial office fit-out in Dubai for a 40 person team?"</div>
+          <div class="action-pri">priority 25.0 &middot; effort 4/5</div>
+        </div>
+        <p class="action-body">
+          Not named once across 3 answers, while two competitors were. The engine got there by searching
+          <mark>"office fit-out companies Dubai commercial"</mark>, so start by checking your rank for that.
+          If you are off page one you are not even in the candidate set, and no amount of rewriting fixes that. On the page
+          itself: answer the question in the first 40 to 60 words before any preamble, use the question as an H2, and include
+          a sentence that names you plainly so the model has something to attribute.
+        </p>
+        <div class="tags">
+          <span class="tag">content gap</span>
+          <span class="tag">you 0%</span>
+          <span class="tag">competitor 100%</span>
+        </div>
+      </div>
+      <p class="note" style="margin-top:16px;font-size:14px">The real output format, with an example business in place of a client name.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap two">
+    <div>
+      <p class="eyebrow dune">The part nobody else shows you</p>
+      <h2>The search the engine actually ran.</h2>
+    </div>
+    <div>
+      <p class="note" style="max-width:none">
+        Before an engine writes an answer, it runs its own searches. Those queries come back in the data, and they are
+        ordinary Google queries. That single fact connects answer engine visibility to the SEO work you already do:
+        if you do not rank for the query the model searched, you were never a candidate for the answer.
+      </p>
+      <p class="note" style="margin-top:16px;max-width:none">
+        CiteSpark captures every one of them and folds them into your actions as keyword targets. It turns an abstract
+        new discipline into a list your existing team already knows how to work.
+      </p>
+    </div>
+  </div>
+</section>
+
+
+<section id="pricing">
+  <div class="wrap">
+    <p class="eyebrow">Pricing</p>
+    <h2>Priced on what it actually costs to ask.</h2>
+    <p class="note">
+      Every answer we read costs real money, because the engines charge for the web search that makes citations possible.
+      So plans are sized in answer checks rather than vague tiers, and you can see exactly what you have used at any point.
+      No setup fee, no minimum term, cancel from inside the app.
+    </p>
+
+    <div class="toggle" role="group" aria-label="Billing period">
+      <button class="toggle-b is-on" data-interval="month">Monthly</button>
+      <button class="toggle-b" data-interval="year">Yearly <span class="save">2 months free</span></button>
+    </div>
+
+    <div class="tiers">
+      <div class="tier">
+        <div class="tier-name">Free</div>
+        <div class="tier-price"><span class="amt" data-m="0" data-y="0">$0</span><span class="per">forever</span></div>
+        <p class="tier-blurb">See where you stand on one domain.</p>
+        <a class="btn ghost full" href="/login">Start free</a>
+        <ul class="tier-list">
+          <li>1 site, 10 questions</li>
+          <li>ChatGPT only, 1 run per question</li>
+          <li>Run by hand whenever you like</li>
+          <li>40 answer checks a month</li>
+          <li>Full action list, nothing held back</li>
+        </ul>
+      </div>
+
+      <div class="tier">
+        <div class="tier-name">Starter</div>
+        <div class="tier-price"><span class="amt" data-m="79" data-y="66">$79</span><span class="per">per month</span></div>
+        <p class="tier-blurb">For one brand you want to win.</p>
+        <a class="btn ghost full" href="/login">Choose Starter</a>
+        <ul class="tier-list">
+          <li>1 site, 25 questions</li>
+          <li>2 engines, 3 runs per question</li>
+          <li>Automatic weekly cycle</li>
+          <li>700 answer checks a month</li>
+          <li>5 competitors tracked</li>
+          <li>GA4 traffic and revenue join</li>
+        </ul>
+      </div>
+
+      <div class="tier is-popular">
+        <div class="tier-flag">Most chosen</div>
+        <div class="tier-name">Growth</div>
+        <div class="tier-price"><span class="amt" data-m="199" data-y="166">$199</span><span class="per">per month</span></div>
+        <p class="tier-blurb">For a brand portfolio or a small client list.</p>
+        <a class="btn full" href="/login">Choose Growth</a>
+        <ul class="tier-list">
+          <li>3 sites, 40 questions each</li>
+          <li>3 engines, 3 runs per question</li>
+          <li>Automatic weekly cycles</li>
+          <li>2,000 answer checks a month</li>
+          <li>15 competitors per site</li>
+          <li>Full citation and source analysis</li>
+        </ul>
+      </div>
+
+      <div class="tier">
+        <div class="tier-name">Agency</div>
+        <div class="tier-price"><span class="amt" data-m="499" data-y="416">$499</span><span class="per">per month</span></div>
+        <p class="tier-blurb">For agencies reporting to a roster of clients.</p>
+        <a class="btn ghost full" href="/login">Choose Agency</a>
+        <ul class="tier-list">
+          <li>10 sites, 60 questions each</li>
+          <li>4 engines, up to 5 runs per question</li>
+          <li>Daily cycles available</li>
+          <li>5,000 answer checks a month</li>
+          <li>Unlimited competitors</li>
+          <li>Priority support from the Sandstorm team</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:28px;font-size:13.5px">
+      An answer check is one question put to one engine once. Questions multiply by engines and by runs, which is why we ask
+      you to choose deliberately rather than switching everything on. Prices in USD, excluding VAT where it applies.
+    </p>
+  </div>
+</section>
+
+<section id="faqs">
+  <div class="wrap">
+    <p class="eyebrow">FAQs</p>
+    <h2>Questions worth asking before you trust any of this.</h2>
+    <div style="margin-top:40px">
+
+      <details class="faq">
+        <summary>What exactly is CiteSpark measuring?</summary>
+        <p class="faq-a">
+          Whether AI assistants name your brand when someone asks a buying question in your category, and where you appear
+          when they do. We ask each tracked question multiple times per engine and report the percentage of answers you
+          appeared in, along with your average position in the list and which domains the engine cited to build the answer.
+        </p>
+      </details>
+
+      <details class="faq">
+        <summary>Which engines do you track?</summary>
+        <p class="faq-a">
+          ChatGPT, Google Gemini, Perplexity and Claude, with Google AI Overviews alongside. You choose which to run,
+          because each one you add multiplies the cost of a cycle. Three is usually the right balance between coverage
+          and spend.
+        </p>
+      </details>
+
+      <details class="faq">
+        <summary>Why percentages instead of a rank?</summary>
+        <p class="faq-a">
+          Because AI answers are not deterministic. Ask the same question twice and you get different answers, sometimes
+          with different companies in them. Any tool that hands you a single position number is reporting one roll of the
+          dice as though it were a ranking.
+        </p>
+        <p class="faq-a">
+          CiteSpark asks each question several times per cycle and reports how often you appeared. On the questions screen
+          you can see each individual run as a tick mark, so the variance is visible rather than hidden behind an average.
+        </p>
+      </details>
+
+      <details class="faq">
+        <summary>How is this different from rank tracking?</summary>
+        <p class="faq-a">
+          Rank tracking tells you where a page sits in a list of ten blue links. There is no list here. There is one answer,
+          it names three or four companies, and there is no page two to be on. The mechanics of getting into that answer are
+          also different: corroboration across independent sources matters more than on-page optimisation, and being cited
+          as a source is separate from being named as a recommendation.
+        </p>
+      </details>
+
+      <details class="faq">
+        <summary>Does it tell me what to do, or just what is wrong?</summary>
+        <p class="faq-a">
+          It tells you what to do. Every finding becomes an action with a named target, ranked by impact over effort, with the
+          evidence attached so you can check the reasoning. Content gaps, citable assets, entity and schema fixes, comparison
+          pages, third-party sources to get listed on, engine-specific crawler problems, and pages that already convert AI
+          traffic and are worth copying.
+        </p>
+        <p class="faq-a">
+          You can mark actions as started, done or dismissed, and the status survives the next measurement cycle.
+        </p>
+      </details>
+
+      <details class="faq">
+        <summary>What are fan-out queries and why do they matter?</summary>
+        <p class="faq-a">
+          They are the searches an engine runs before writing its answer. Ask ChatGPT which clinic to use for clear aligners in
+          Dubai and it may search "orthodontic clinics Dubai clear aligners cost" first, then write from what it finds.
+        </p>
+        <p class="faq-a">
+          That is an ordinary Google query. If you do not rank for it, you were never a candidate, and rewriting your page for
+          the conversational question will not help. It is the most directly actionable signal in the whole dataset, and we
+          surface every one.
+        </p>
+      </details>
+
+      <details class="faq">
+        <summary>How often does it run?</summary>
+        <p class="faq-a">
+          Weekly by default, which suits the pace at which this actually moves. Daily is available and costs roughly seven
+          times as much, so it is worth it for a handful of high-stakes questions rather than an entire set. You can also
+          trigger a cycle by hand whenever you have shipped a change and want to see whether it landed.
+        </p>
+      </details>
+
+      <details class="faq">
+        <summary>Can I track competitors?</summary>
+        <p class="faq-a">
+          Yes, and you should. Share of voice against named rivals is often the number that gets a budget approved. When a
+          competitor consistently beats you, CiteSpark rolls it into a single comparison action rather than repeating itself
+          for every question they win.
+        </p>
+      </details>
+
+      <details class="faq">
+        <summary>Does it connect to Google Analytics?</summary>
+        <p class="faq-a">
+          Yes. GA4 added a native AI Assistant channel in 2026, and we read it, but we also run our own classification from
+          session source. That matters because the native channel is not retroactive, so on its own your history starts
+          mid-2026. Our version reaches back across your existing data.
+        </p>
+        <p class="faq-a">
+          Some AI referrals arrive with no referrer at all and land in Direct, so both numbers are a floor rather than a total.
+          We say so in the interface rather than quietly overstating the figure.
+        </p>
+      </details>
+
+      <details class="faq">
+        <summary>What is an answer check, and why price on them?</summary>
+        <p class="faq-a">
+          One answer check is one question put to one engine, once. Twenty-five questions across two engines with three runs
+          each is 150 checks per cycle, or roughly 650 a month at weekly cadence.
+        </p>
+        <p class="faq-a">
+          We price this way because it is what the product actually costs us. Every answer requires the engine to run a live
+          web search, and that search carries a real fee. Pretending otherwise would mean either quietly capping you or losing
+          money on heavy users. Your usage is visible in the app at all times, and a cycle trims itself to fit rather than
+          running you over a limit.
+        </p>
+      </details>
+
+      <details class="faq">
+        <summary>Can I change or cancel my plan?</summary>
+        <p class="faq-a">
+          Any time, from the billing screen inside the app. Upgrades apply immediately and are prorated. Cancellations run to
+          the end of the period you have paid for, then drop to the Free plan with your history intact. No contract, no notice
+          period, and nobody to email.
+        </p>
+      </details>
+
+      <details class="faq">
+        <summary>Who is behind it?</summary>
+        <p class="faq-a">
+          Sandstorm Digital, an award-winning digital marketing agency headquartered in Dubai Media City with teams in Cairo
+          and the DC Metro area, working in search since 2013. CiteSpark sits alongside our other tools including LinkStorm,
+          Landfall and the EEAT Auditor, and we run it on our own clients before we ask anyone else to rely on it.
+        </p>
+      </details>
+
+    </div>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <p class="eyebrow">Start with one domain</p>
+    <h2>Find out what the machines are saying about you.</h2>
+    <p class="lede">Add a site, let CiteSpark write the questions, and see your first action list within the hour.</p>
+    <a class="btn" href="/app">Open CiteSpark</a>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-top">
+      <a class="logo" href="/" aria-label="CiteSpark home">
+        <svg width="28" height="28" viewBox="0 0 40 40" role="img" aria-hidden="true">
+          <path d="M15 8H9v24h6M25 8h6v24h-6" stroke="var(--sand)" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M20 11l2.6 6.4L29 20l-6.4 2.6L20 29l-2.6-6.4L11 20l6.4-2.6z" fill="var(--spark)"/>
+        </svg>
+        <span class="logo-text">Cite<em>Spark</em></span>
+      </a>
+      <div class="foot-links">
+        <a href="#how">How it works</a>
+        <a href="#actions">What you get</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#faqs">FAQs</a>
+        <a href="/app">Sign in</a>
+        <a href="https://sandstormdigital.com/contact-us/" target="_blank" rel="noopener">Contact</a>
+      </div>
+    </div>
+
+    <div class="foot-base">
+      <p class="copyright">Copyright &copy; 2013-<span id="year">2026</span> Sandstorm Digital&reg;. All rights reserved.</p>
+      <p class="production">
+        Another <a href="https://sandstormdigital.com" target="_blank" rel="noopener">Sandstorm Digital</a> Production
+      </p>
+    </div>
+  </div>
+</footer>
+
+<script>
+  document.getElementById('year').textContent = new Date().getFullYear();
+
+  // Monthly / yearly toggle. Yearly shows the effective monthly rate, which is
+  // the number people actually compare, with the real annual total in the label.
+  document.querySelectorAll('.toggle-b').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const interval = btn.dataset.interval;
+      document.querySelectorAll('.toggle-b').forEach((b) => b.classList.toggle('is-on', b === btn));
+      document.querySelectorAll('.tier-price').forEach((row) => {
+        const amt = row.querySelector('.amt');
+        const per = row.querySelector('.per');
+        const monthly = Number(amt.dataset.m);
+        if (monthly === 0) return;
+        amt.textContent = '$' + (interval === 'year' ? amt.dataset.y : amt.dataset.m);
+        per.textContent = interval === 'year'
+          ? 'per month, billed yearly'
+          : 'per month';
+      });
+    });
+  });
+</script>
+</body>
+</html>
