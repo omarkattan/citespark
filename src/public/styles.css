@@ -33,6 +33,11 @@
 
 * { box-sizing: border-box; }
 
+/* An author rule like `.row { display: flex }` beats the user agent's
+   `[hidden] { display: none }`, so anything marked hidden kept rendering.
+   This makes the attribute mean what it says, everywhere. */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   padding: 0;
