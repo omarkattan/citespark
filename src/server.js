@@ -15,7 +15,7 @@ import {
   stripeEnabled, getStripe, getEntitlements, checkCanAddSite, checkCanAddQuestions,
   createCheckoutSession, createPortalSession, handleWebhook, budgetForCycle
 } from './lib/billing.js';
-import { MOCK } from './lib/dataforseo.js';
+import { MOCK, ENGINES, ENGINE_IDS } from './lib/dataforseo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -350,9 +350,11 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
   const blocked = await checkCanAddSite(req.session.orgId);
   if (blocked) return res.status(402).json({ error: blocked, upgrade: true });
 
+  const startingEngines = ENGINE_IDS.slice(0, (await getEntitlements(req.session.orgId)).plan.engines);
+
   const project = await one(
-    `INSERT INTO projects (org_id, name, domain, brand_name, aliases, market, language, category, qualifier)
-     VALUES ($1,$2,$3,$4,$5,$6,'en',$7,$8) RETURNING *`,
+    `INSERT INTO projects (org_id, name, domain, brand_name, aliases, market, language, category, qualifier, engines)
+     VALUES ($1,$2,$3,$4,$5,$6,'en',$7,$8,$9) RETURNING *`,
     [
       req.session.orgId,
       (name || brandName).trim(),
@@ -361,7 +363,8 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
       Array.isArray(aliases) ? aliases.map((a) => String(a).trim()).filter(Boolean).slice(0, 10) : [],
       (market || 'AE').toUpperCase(),
       (category || 'business').trim(),
-      (qualifier || 'small business').trim()
+      (qualifier || 'small business').trim(),
+      startingEngines
     ]
   );
 
@@ -408,7 +411,15 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
 app.patch('/api/projects/:id', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
-  const { name, brandName, aliases, category, qualifier, market, runsPerCycle } = req.body || {};
+  const { name, brandName, aliases, category, qualifier, market, runsPerCycle, engines } = req.body || {};
+
+  let engineList = null;
+  if (Array.isArray(engines)) {
+    const ent = await getEntitlements(req.session.orgId);
+    engineList = engines.filter((e) => ENGINE_IDS.includes(e)).slice(0, ent.plan.engines);
+    if (!engineList.length) engineList = ['chatgpt'];
+  }
+
   await query(
     `UPDATE projects SET
        name = COALESCE($2, name),
@@ -417,7 +428,8 @@ app.patch('/api/projects/:id', requireAuth, wrap(async (req, res) => {
        category = COALESCE($5, category),
        qualifier = COALESCE($6, qualifier),
        market = COALESCE($7, market),
-       runs_per_cycle = COALESCE($8, runs_per_cycle)
+       runs_per_cycle = COALESCE($8, runs_per_cycle),
+       engines = COALESCE($9, engines)
      WHERE id = $1`,
     [
       project.id,
@@ -427,7 +439,8 @@ app.patch('/api/projects/:id', requireAuth, wrap(async (req, res) => {
       category?.trim() || null,
       qualifier?.trim() || null,
       market?.toUpperCase() || null,
-      Number.isInteger(runsPerCycle) ? Math.min(10, Math.max(1, runsPerCycle)) : null
+      Number.isInteger(runsPerCycle) ? Math.min(10, Math.max(1, runsPerCycle)) : null,
+      engineList
     ]
   );
   // Keep the owned entity in step with the brand name.
@@ -562,6 +575,10 @@ app.post('/api/projects/:id/generate-prompts', requireAuth, wrap(async (req, res
 
 /* ---------------- billing ---------------- */
 
+app.get('/api/engines', (_req, res) => {
+  res.json(ENGINE_IDS.map((id) => ({ id, ...ENGINES[id], model: undefined, path: undefined })));
+});
+
 app.get('/api/plans', (_req, res) => {
   res.json({ plans: PLAN_ORDER.map((id) => PLANS[id]), stripeEnabled });
 });
@@ -610,7 +627,7 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
   const active = await one('SELECT COUNT(*)::int AS n FROM prompts WHERE project_id = $1 AND active', [project.id]);
   const budget = await budgetForCycle(req.session.orgId, {
     questions: active.n,
-    engines: (process.env.ENGINES || 'chatgpt,gemini,perplexity').split(',').map((s) => s.trim()),
+    engines: project.engines?.length ? project.engines : ['chatgpt'],
     runs: project.runs_per_cycle
   });
 
@@ -685,7 +702,7 @@ app.get('/api/version', (_req, res) => {
   res.json({
     startedAt: STARTED_AT,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces']
   });
 });
 

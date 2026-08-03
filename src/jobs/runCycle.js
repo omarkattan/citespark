@@ -6,7 +6,15 @@ import { buildRecommendations, persistRecommendations } from '../lib/recommend.j
 import { hasAnthropic } from '../lib/anthropic.js';
 import { budgetForCycle, recordUsage } from '../lib/billing.js';
 
-const ENGINE_LIST = (process.env.ENGINES || 'chatgpt,gemini,perplexity').split(',').map((s) => s.trim());
+import { ENGINE_IDS } from '../lib/dataforseo.js';
+
+/** Engines are chosen per project. The env var is only a fallback for old rows. */
+function enginesFor(project) {
+  const chosen = (project.engines?.length ? project.engines : (process.env.ENGINES || 'chatgpt').split(','))
+    .map((e) => e.trim())
+    .filter((e) => ENGINE_IDS.includes(e));
+  return chosen.length ? chosen : ['chatgpt'];
+}
 const CONCURRENCY = Number(process.env.CONCURRENCY || 4);
 
 async function pooled(items, worker, limit = CONCURRENCY) {
@@ -36,7 +44,7 @@ export async function runCycleForProject(projectId, { cycleDate } = {}) {
   // and stop entirely when the month's allowance is gone.
   const budget = await budgetForCycle(project.org_id, {
     questions: prompts.length,
-    engines: ENGINE_LIST,
+    engines: enginesFor(project),
     runs: project.runs_per_cycle
   });
 

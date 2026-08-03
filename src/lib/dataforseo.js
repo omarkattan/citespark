@@ -13,11 +13,68 @@ import 'dotenv/config';
 
 const BASE = 'https://api.dataforseo.com/v3';
 
+/**
+ * Every surface DataForSEO can reach, in the order most people should add them.
+ *
+ *   kind 'llm'  -> ai_optimization/{path}/llm_responses/live
+ *   kind 'serp' -> the SERP API, for Google's own AI surfaces
+ *
+ * Copilot, Grok, DeepSeek and Meta AI are not available through DataForSEO,
+ * so they are deliberately absent rather than stubbed.
+ */
 export const ENGINES = {
-  chatgpt: { path: 'chat_gpt', model: process.env.MODEL_CHATGPT || 'gpt-4.1-mini' },
-  gemini: { path: 'gemini', model: process.env.MODEL_GEMINI || 'gemini-2.0-flash' },
-  claude: { path: 'claude', model: process.env.MODEL_CLAUDE || 'claude-sonnet-4-5' },
-  perplexity: { path: 'perplexity', model: process.env.MODEL_PERPLEXITY || 'sonar' }
+  chatgpt: {
+    label: 'ChatGPT',
+    kind: 'llm',
+    path: 'chat_gpt',
+    model: process.env.MODEL_CHATGPT || 'gpt-4.1-mini',
+    note: 'The largest surface by usage. Start here.'
+  },
+  ai_overview: {
+    label: 'Google AI Overview',
+    kind: 'serp',
+    mode: 'overview',
+    note: 'The summary above Google results. Only appears for some queries, and an absence is itself a finding.'
+  },
+  ai_mode: {
+    label: 'Google AI Mode',
+    kind: 'serp',
+    mode: 'ai_mode',
+    note: 'Google\'s conversational search. Growing fast and largely unmeasured by other tools.'
+  },
+  perplexity: {
+    label: 'Perplexity',
+    kind: 'llm',
+    path: 'perplexity',
+    model: process.env.MODEL_PERPLEXITY || 'sonar',
+    note: 'Leans hardest on freshly crawled pages, so it moves first when you publish.'
+  },
+  gemini: {
+    label: 'Gemini',
+    kind: 'llm',
+    path: 'gemini',
+    model: process.env.MODEL_GEMINI || 'gemini-2.0-flash',
+    note: 'Favours Google surfaces, so your Business Profile and entity consistency matter here.'
+  },
+  claude: {
+    label: 'Claude',
+    kind: 'llm',
+    path: 'claude',
+    model: process.env.MODEL_CLAUDE || 'claude-sonnet-4-5',
+    note: 'Smaller reach, but heavily used in B2B and professional services.'
+  }
+};
+
+export const ENGINE_IDS = Object.keys(ENGINES);
+
+/** SERP calls want a location name, not an ISO code. */
+export const LOCATIONS = {
+  AE: 'United Arab Emirates', SA: 'Saudi Arabia', QA: 'Qatar', KW: 'Kuwait',
+  BH: 'Bahrain', OM: 'Oman', EG: 'Egypt', GB: 'United Kingdom', US: 'United States',
+  IN: 'India', DE: 'Germany', FR: 'France', ES: 'Spain', IT: 'Italy',
+  NL: 'Netherlands', CA: 'Canada', AU: 'Australia', IE: 'Ireland',
+  ZA: 'South Africa', SG: 'Singapore', PK: 'Pakistan', TR: 'Turkey',
+  MY: 'Malaysia', ID: 'Indonesia', PH: 'Philippines', NG: 'Nigeria', KE: 'Kenya'
 };
 
 export const MOCK = String(process.env.MOCK_MODE || '').toLowerCase() === 'true';
@@ -161,11 +218,12 @@ function dedupeCitations(items) {
  * Ask one engine one prompt.
  * Returns { ok, text, citations: [{url, domain, position}], costUsd, model, error }
  */
-export async function askEngine({ engine, prompt, market = 'GB', maxTokens = 700 }) {
+export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 700 }) {
   const cfg = ENGINES[engine];
   if (!cfg) return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, error: `Unknown engine ${engine}` };
 
-  if (MOCK) return mockAnswer({ engine, prompt, model: cfg.model });
+  if (MOCK) return mockAnswer({ engine, prompt, model: cfg.model || cfg.label });
+  if (cfg.kind === 'serp') return askGoogle({ cfg, prompt, market });
 
   const body = [
     {
@@ -229,6 +287,83 @@ export async function askEngine({ engine, prompt, market = 'GB', maxTokens = 700
     };
   } catch (err) {
     return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, model: cfg.model, error: String(err.message || err) };
+  }
+}
+
+/**
+ * Google's own AI surfaces come through the SERP API rather than the LLM
+ * endpoints, so they need their own request and parse.
+ *
+ * An AI Overview that does not appear is a legitimate result, not a failure:
+ * Google only shows one for some queries. We return ok with a flag so the
+ * cycle records the absence rather than logging an error.
+ */
+async function askGoogle({ cfg, prompt, market }) {
+  const isMode = cfg.mode === 'ai_mode';
+  const url = isMode
+    ? `${BASE}/serp/google/ai_mode/live/advanced`
+    : `${BASE}/serp/google/organic/live/advanced`;
+
+  const body = [
+    {
+      keyword: prompt.slice(0, 700),
+      location_name: LOCATIONS[market] || 'United Arab Emirates',
+      language_code: 'en',
+      device: 'desktop',
+      ...(isMode ? {} : { load_async_ai_overview: true, depth: 20 })
+    }
+  ];
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, model: cfg.label, error: `HTTP ${res.status}` };
+    }
+
+    const json = await res.json();
+    const task = json?.tasks?.[0];
+    if (!task || task.status_code >= 40000) {
+      return {
+        ok: false, text: '', citations: [], fanOut: [],
+        costUsd: Number(json?.cost || 0), model: cfg.label,
+        error: task?.status_message || 'Task failed'
+      };
+    }
+
+    const items = task.result?.[0]?.items || [];
+    // AI Mode returns its answer as the result; organic search nests the
+    // overview inside an ai_overview item alongside the blue links.
+    const block = isMode
+      ? { items }
+      : items.find((i) => i.type === 'ai_overview') || null;
+
+    if (!isMode && !block) {
+      return {
+        ok: true, absent: true, text: '', citations: [], fanOut: [],
+        costUsd: Number(json?.cost || 0), model: cfg.label,
+        error: null
+      };
+    }
+
+    const text = collectText(block).join('\n\n').trim();
+    const urls = [...collectUrls(block), ...urlsFromText(text)];
+
+    return {
+      ok: text.length > 0,
+      absent: text.length === 0,
+      text,
+      citations: dedupeCitations(urls),
+      fanOut: [],
+      costUsd: Number(json?.cost ?? task?.cost ?? 0),
+      model: cfg.label,
+      error: text.length ? null : 'No AI answer returned for this query'
+    };
+  } catch (err) {
+    return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, model: cfg.label, error: String(err.message || err) };
   }
 }
 

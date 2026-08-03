@@ -10,6 +10,7 @@ import { evaluateRules } from '../src/lib/recommend.js';
 import { generatePrompts } from '../src/lib/prompts.js';
 import { readSignals, normaliseDomain } from '../src/lib/discover.js';
 import { PLANS, PLAN_ORDER, planFor, estimateCycle, clampToPlan, COST_PER_CALL } from '../src/lib/plans.js';
+import { ENGINES, ENGINE_IDS, LOCATIONS } from '../src/lib/dataforseo.js';
 
 let pass = 0;
 const test = async (name, fn) => {
@@ -372,6 +373,39 @@ await test('survives malformed JSON-LD without throwing', () => {
   const s = readSignals('<html><script type="application/ld+json">{broken,,}</script><title>Fine</title></html>');
   assert.equal(s.title, 'Fine');
   assert.equal(s.schemaName, null);
+});
+
+console.log('\nengine catalogue');
+
+await test('covers every surface DataForSEO can reach, and nothing it cannot', () => {
+  assert.deepEqual(ENGINE_IDS.sort(), ['ai_mode','ai_overview','chatgpt','claude','gemini','perplexity'].sort());
+  for (const bogus of ['copilot','grok','deepseek','meta_ai']) {
+    assert.equal(ENGINES[bogus], undefined, `${bogus} is not available via DataForSEO and must not be offered`);
+  }
+});
+
+await test('each engine declares how it is fetched and explains itself', () => {
+  for (const id of ENGINE_IDS) {
+    const e = ENGINES[id];
+    assert.ok(['llm','serp'].includes(e.kind), `${id} has no kind`);
+    assert.ok(e.label && e.label.length > 2, `${id} has no label`);
+    assert.ok(e.note && e.note.length > 20, `${id} needs a note explaining when to use it`);
+    if (e.kind === 'llm') assert.ok(e.path && e.model, `${id} needs a path and model`);
+    if (e.kind === 'serp') assert.ok(e.mode, `${id} needs a serp mode`);
+  }
+});
+
+await test('the plan ceiling never exceeds what exists', () => {
+  for (const id of PLAN_ORDER) {
+    assert.ok(PLANS[id].engines <= ENGINE_IDS.length,
+      `${id} allows ${PLANS[id].engines} engines but only ${ENGINE_IDS.length} exist`);
+  }
+});
+
+await test('SERP engines have a location for the markets we default to', () => {
+  for (const code of ['AE','SA','GB','US','EG']) {
+    assert.ok(LOCATIONS[code], `no SERP location mapped for ${code}`);
+  }
 });
 
 console.log('\nplans and margins');

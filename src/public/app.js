@@ -296,8 +296,13 @@ document.addEventListener('click', async (e) => {
 /* ---------- setup ---------- */
 
 async function viewSetup() {
-  const data = await api(`/api/projects/${state.projectId}/setup`);
+  const [data, engines, billing] = await Promise.all([
+    api(`/api/projects/${state.projectId}/setup`),
+    state.engines ? Promise.resolve(state.engines) : api('/api/engines'),
+    api('/api/billing')
+  ]);
   if (!data) return '';
+  state.engines = engines;
   const p = data.project;
   const rivals = data.entities.filter((e) => e.kind === 'competitor');
   const active = data.prompts.filter((q) => q.active).length;
@@ -326,7 +331,22 @@ async function viewSetup() {
     )
     .join('');
 
-  const cost = active * 3 * (p.runs_per_cycle || 3);
+  const chosen = p.engines?.length ? p.engines : ['chatgpt'];
+  const allowed = billing?.plan?.engines ?? 1;
+  const cost = active * chosen.length * (p.runs_per_cycle || 3);
+
+  const engineRows = engines
+    .map((e) => {
+      const on = chosen.includes(e.id);
+      const blocked = !on && chosen.length >= allowed;
+      return `<div class="row ${blocked ? 'off' : ''}">
+        <label class="grow eng">
+          <input type="checkbox" data-engine="${e.id}" ${on ? 'checked' : ''} ${blocked ? 'disabled' : ''} />
+          <span><span class="name">${esc(e.label)}</span><span class="sub">${esc(e.note || '')}</span></span>
+        </label>
+      </div>`;
+    })
+    .join('');
 
   return `
   <div class="setup-grid">
@@ -340,12 +360,26 @@ async function viewSetup() {
         <div class="field"><label for="s_qualifier">Who the customer is</label><input id="s_qualifier" value="${esc(p.qualifier || '')}" /></div>
         <div class="field"><label for="s_market">Market</label><select id="s_market">${window.countryOptions(p.market)}</select></div>
         <div class="field"><label for="s_runs">Runs per question, per engine</label><input id="s_runs" type="number" min="1" max="10" value="${p.runs_per_cycle}" /></div>
-        <p class="sub" style="font-family:var(--mono);font-size:11px;color:var(--ink-3);margin:0 0 14px">
-          ${active} active questions &times; 3 engines &times; ${p.runs_per_cycle} runs = ${cost} calls per cycle.
+        <p class="sub" data-active-count="${active}" data-surfaces="${chosen.length}" data-runs="${p.runs_per_cycle}" style="font-family:var(--mono);font-size:11px;color:var(--ink-3);margin:0 0 14px">
+          <span data-n>${active}</span> active questions &times; ${chosen.length} surface${chosen.length === 1 ? '' : 's'} &times; ${p.runs_per_cycle} runs = <b data-calls>${cost}</b> answer checks per cycle.
           More runs means a more trustworthy percentage. More questions means broader coverage. Runs usually win.
         </p>
         <button id="s_save">Save changes</button>
         <span id="s_saved" class="sub" style="font-family:var(--mono);font-size:11px;color:var(--good);margin-left:10px"></span>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Where we look</h2>
+          <div class="spacer"></div>
+          <span class="sub" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">${chosen.length} of ${allowed} allowed</span>
+        </div>
+        ${engineRows}
+        <p class="hint" style="margin-top:12px">
+          Each surface you add multiplies the cost of every cycle. Two or three chosen deliberately beats all six switched on.
+          ${allowed < engines.length ? `Your plan allows ${allowed}. <button type="button" class="ghost" data-goto-billing="1" style="padding:3px 8px;font-size:10px">Upgrade</button>` : ''}
+        </p>
+        <span id="e_saved" class="sub" style="font-family:var(--mono);font-size:11px;color:var(--good)"></span>
       </div>
 
       <div class="panel">
@@ -385,6 +419,34 @@ async function viewSetup() {
 /* ---------- setup handlers ---------- */
 
 const setupErr = (msg) => { const el = $('setupError'); if (el) el.textContent = msg || ''; };
+
+/** Keep the "x active questions = y checks per cycle" line honest without a reload. */
+function bumpActiveCount(delta) {
+  const el = document.querySelector('[data-active-count]');
+  if (!el) return;
+  const next = Math.max(0, Number(el.dataset.activeCount) + delta);
+  el.dataset.activeCount = String(next);
+  const surfaces = Number(el.dataset.surfaces);
+  const runs = Number(el.dataset.runs);
+  el.querySelector('[data-n]').textContent = next;
+  el.querySelector('[data-calls]').textContent = next * surfaces * runs;
+}
+
+document.addEventListener('change', async (e) => {
+  const box = e.target.closest('input[data-engine]');
+  if (!box) return;
+  const chosen = [...document.querySelectorAll('input[data-engine]:checked')].map((b) => b.dataset.engine);
+  if (!chosen.length) { box.checked = true; return; }
+
+  await fetch(`/api/projects/${state.projectId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ engines: chosen })
+  });
+  const note = $('e_saved');
+  if (note) { note.textContent = 'Saved'; setTimeout(() => { note.textContent = ''; }, 2000); }
+  await render();
+});
 
 document.addEventListener('click', async (e) => {
   const t = e.target;
@@ -443,12 +505,34 @@ document.addEventListener('click', async (e) => {
   }
 
   if (t.dataset.togglePrompt) {
-    await fetch(`/api/prompts/${t.dataset.togglePrompt}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ active: t.dataset.active !== 'true' })
-    });
-    await render();
+    // Update the row immediately and let the request settle behind it.
+    // Re-rendering the whole tab for a one-field change felt broken.
+    const wasActive = t.dataset.active === 'true';
+    const next = !wasActive;
+    const row = t.closest('.row');
+
+    t.disabled = true;
+    row.classList.toggle('off', !next);
+    t.textContent = next ? 'Pause' : 'Resume';
+    t.dataset.active = String(next);
+
+    try {
+      const res = await fetch(`/api/prompts/${t.dataset.togglePrompt}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: next })
+      });
+      if (!res.ok) throw new Error('save failed');
+      bumpActiveCount(next ? 1 : -1);
+    } catch {
+      // Put it back the way it was rather than leaving a lie on screen.
+      row.classList.toggle('off', !wasActive);
+      t.textContent = wasActive ? 'Pause' : 'Resume';
+      t.dataset.active = String(wasActive);
+      setupErr('Could not save that. Check your connection and try again.');
+    } finally {
+      t.disabled = false;
+    }
   }
 
   if (t.id === 'q_generate') {

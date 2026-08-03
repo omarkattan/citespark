@@ -166,3 +166,7 @@ CREATE TABLE IF NOT EXISTS billing_events (
   type        TEXT NOT NULL,
   received_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Which AI surfaces this project is measured against. Chosen per project so a
+-- local clinic can skip Claude and a B2B brand can include it.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS engines TEXT[] NOT NULL DEFAULT '{chatgpt}';
