@@ -7,7 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { many, one, query } from './db/index.js';
 import { runCycleForProject } from './jobs/runCycle.js';
 import { buildRecommendations, persistRecommendations } from './lib/recommend.js';
-import { syncGa4 } from './lib/ga4.js';
+import {
+  syncGa4, authUrl, exchangeCode, storeConnection, disconnect as ga4Disconnect,
+  listProperties, oauthConfigured
+} from './lib/ga4.js';
+import { signState, readState } from './lib/tokens.js';
 import { generatePrompts } from './lib/prompts.js';
 import { discoverSite } from './lib/discover.js';
 import { PLANS, PLAN_ORDER, planFor } from './lib/plans.js';
@@ -1016,13 +1020,93 @@ app.post('/api/projects/:id/rebuild', requireAuth, wrap(async (req, res) => {
   res.json({ ok: true, count: recs.length });
 }));
 
+/* ---------------- Google Analytics ---------------- */
+
+const ga4Redirect = (req) => `${req.protocol}://${req.get('host')}/api/ga4/callback`;
+
+app.get('/api/projects/:id/ga4', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  res.json({
+    configured: oauthConfigured,
+    connected: Boolean(project.ga4_refresh_token) || Boolean(process.env.GOOGLE_REFRESH_TOKEN),
+    ownConnection: Boolean(project.ga4_refresh_token),
+    email: project.ga4_account_email,
+    propertyId: project.ga4_property_id || process.env.GA4_PROPERTY_ID || null,
+    propertyName: project.ga4_property_name,
+    connectedAt: project.ga4_connected_at,
+    syncedAt: project.ga4_synced_at
+  });
+}));
+
+app.get('/api/projects/:id/ga4/connect', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  if (!oauthConfigured) return res.status(503).json({ error: 'Google sign-in is not configured on this deployment' });
+  res.json({
+    url: authUrl({
+      redirectUri: ga4Redirect(req),
+      state: signState({ p: project.id, o: req.session.orgId })
+    })
+  });
+}));
+
+// Google sends the visitor back here after the consent screen.
+app.get('/api/ga4/callback', wrap(async (req, res) => {
+  const fail = (msg) => res.redirect(`/app?ga4=error&message=${encodeURIComponent(msg)}`);
+
+  if (req.query.error) return fail(String(req.query.error));
+  const state = readState(req.query.state);
+  if (!state) return fail('That authorisation link expired. Try connecting again.');
+  if (!req.session?.orgId || req.session.orgId !== state.o) return fail('Sign in and try connecting again.');
+
+  const project = await one('SELECT id FROM projects WHERE id = $1 AND org_id = $2', [state.p, state.o]);
+  if (!project) return fail('Site not found');
+
+  try {
+    const creds = await exchangeCode({ code: String(req.query.code || ''), redirectUri: ga4Redirect(req) });
+    await storeConnection(project.id, creds);
+    res.redirect('/app?ga4=connected');
+  } catch (err) {
+    fail(err.message);
+  }
+}));
+
+app.get('/api/projects/:id/ga4/properties', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  try {
+    res.json({ properties: await listProperties(project) });
+  } catch (err) {
+    res.status(400).json({ error: String(err.message || err) });
+  }
+}));
+
+app.post('/api/projects/:id/ga4/property', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  const id = String(req.body?.propertyId || '').replace(/\D/g, '');
+  if (!id) return res.status(400).json({ error: 'Choose a property' });
+  await query('UPDATE projects SET ga4_property_id = $2, ga4_property_name = $3 WHERE id = $1', [
+    project.id, id, String(req.body?.propertyName || '').slice(0, 200) || null
+  ]);
+  res.json({ ok: true });
+}));
+
+app.post('/api/projects/:id/ga4/disconnect', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  await ga4Disconnect(project.id);
+  res.json({ ok: true });
+}));
+
 app.post('/api/projects/:id/sync-ga4', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
   try {
     res.json(await syncGa4(project.id));
   } catch (err) {
-    res.status(500).json({ error: String(err.message || err) });
+    res.status(400).json({ error: String(err.message || err) });
   }
 }));
 
@@ -1070,7 +1154,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth']
   });
 });
 

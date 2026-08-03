@@ -208,3 +208,12 @@ ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS notes        TEXT;
 ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS started_at   TIMESTAMPTZ;
 ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS recs_due ON recommendations (project_id, due_date) WHERE status IN ('open','doing');
+
+-- GA4 is connected per project, so an agency can attach a different Google
+-- account to each client. The refresh token is encrypted at rest.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS ga4_refresh_token TEXT;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS ga4_property_id   TEXT;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS ga4_property_name TEXT;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS ga4_account_email TEXT;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS ga4_connected_at  TIMESTAMPTZ;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS ga4_synced_at     TIMESTAMPTZ;

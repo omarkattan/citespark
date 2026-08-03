@@ -229,23 +229,195 @@ async function viewSources() {
 }
 
 async function viewTraffic() {
-  const rows = await api(`/api/projects/${state.projectId}/traffic`);
-  if (!rows?.length) {
-    return `<div class="empty"><h2>GA4 is not connected</h2><p>Connect Google Analytics to pull the AI Assistant channel plus a source-derived series that reaches back before the channel existed.</p></div>`;
+  const [conn, rows] = await Promise.all([
+    api(`/api/projects/${state.projectId}/ga4`),
+    api(`/api/projects/${state.projectId}/traffic`)
+  ]);
+  if (!conn) return '';
+
+  /* not connected */
+  if (!conn.connected) {
+    return `<div class="panel connect-card">
+      <div class="connect-mark">
+        <svg width="34" height="34" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="15" y="3" width="5" height="18" rx="2.5" fill="var(--you)"/>
+          <rect x="9.5" y="8" width="5" height="13" rx="2.5" fill="var(--you)" opacity="0.65"/>
+          <rect x="4" y="13" width="5" height="8" rx="2.5" fill="var(--you)" opacity="0.4"/>
+        </svg>
+      </div>
+      <h2>Connect Google Analytics</h2>
+      <p class="dek" style="max-width:56ch">
+        This is where visibility turns into money. We read the AI Assistant channel Google added in 2026,
+        and run our own classification from session source so your history reaches back before that channel existed.
+      </p>
+      <ul class="connect-list">
+        <li>Sessions and conversions from ChatGPT, Perplexity, Gemini, Claude and Copilot</li>
+        <li>Which landing pages AI traffic actually converts on</li>
+        <li>Read-only access, and you can disconnect at any time</li>
+      </ul>
+      ${conn.configured
+        ? `<button id="ga4Connect">Connect Google Analytics</button>`
+        : `<p class="notice" style="margin:0">Google sign-in is not configured on this deployment. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</p>`}
+      <p class="error" id="ga4Error" role="alert"></p>
+    </div>`;
   }
-  const cells = rows
+
+  /* connected but no property chosen yet */
+  if (!conn.propertyId) {
+    return `<div class="panel">
+      <div class="panel-head">
+        <h2>Choose a property</h2>
+        <div class="spacer"></div>
+        <button class="ghost" id="ga4Disconnect">Disconnect</button>
+      </div>
+      <p class="dek" style="margin-bottom:16px">
+        Connected as <b>${esc(conn.email || 'your Google account')}</b>. Pick the property that measures ${esc(state.overview?.project?.domain || 'this site')}.
+      </p>
+      <div id="ga4Props"><p class="hint">Loading your properties</p></div>
+      <p class="error" id="ga4Error" role="alert"></p>
+    </div>`;
+  }
+
+  /* connected and configured */
+  const totals = (rows || []).reduce(
+    (acc, r) => {
+      if (r.classification_method === 'derived') {
+        acc.sessions += r.sessions;
+        acc.conversions += Number(r.conversions);
+        acc.revenue += Number(r.revenue);
+      }
+      return acc;
+    },
+    { sessions: 0, conversions: 0, revenue: 0 }
+  );
+  const cvr = totals.sessions ? (totals.conversions / totals.sessions) * 100 : 0;
+
+  const cells = (rows || [])
     .map((r) => {
-      const cvr = r.sessions ? (r.conversions / r.sessions) * 100 : 0;
+      const rate = r.sessions ? (r.conversions / r.sessions) * 100 : 0;
       return `<div class="figure">
         <div class="label">${esc(r.platform)} &middot; ${esc(r.classification_method)}</div>
         <div class="value">${r.sessions}</div>
-        <div class="sub">${cvr.toFixed(1)}% conversion &middot; ${r.revenue ? '£' + Math.round(r.revenue) : 'no revenue'}</div>
+        <div class="sub">${rate.toFixed(1)}% conversion${r.revenue ? ` &middot; ${Math.round(r.revenue)}` : ''}</div>
       </div>`;
     })
     .join('');
-  return `<div class="figures">${cells}</div>
-    <div class="panel"><p class="dek" style="margin:0;font-size:13.5px"><b>native</b> is Google's AI Assistant channel, accurate but only from mid-2026 onward. <b>derived</b> is our own classification from session source, which works on historical data and catches platforms Google has not yet recognised. Some AI traffic still arrives without a referrer and lands in Direct, so treat both as a floor.</p></div>`;
+
+  return `
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Google Analytics</h2>
+      <div class="spacer"></div>
+      <button class="ghost" id="ga4Sync">Sync now</button>
+      <button class="ghost" id="ga4Disconnect">Disconnect</button>
+    </div>
+    <div class="conn-status">
+      <span class="tag ok">Connected</span>
+      ${conn.email ? `<span class="tag">${esc(conn.email)}</span>` : ''}
+      <span class="tag">${esc(conn.propertyName || `property ${conn.propertyId}`)}</span>
+      ${conn.syncedAt ? `<span class="tag">synced ${esc(shortDate(conn.syncedAt))}</span>` : '<span class="tag soon">never synced</span>'}
+      <button class="ghost" id="ga4Change" style="padding:4px 9px;font-size:10px">Change property</button>
+    </div>
+    <p class="error" id="ga4Error" role="alert"></p>
+  </div>
+
+  ${rows?.length ? `
+  <div class="figures">
+    <div class="figure">
+      <div class="label">AI sessions, 30 days</div>
+      <div class="value">${totals.sessions.toLocaleString()}</div>
+      <div class="sub">${cvr.toFixed(1)}% conversion</div>
+    </div>
+    <div class="figure">
+      <div class="label">Conversions</div>
+      <div class="value">${Math.round(totals.conversions).toLocaleString()}</div>
+      <div class="sub">from AI referrals</div>
+    </div>
+    <div class="figure">
+      <div class="label">Revenue</div>
+      <div class="value">${totals.revenue ? Math.round(totals.revenue).toLocaleString() : '-'}</div>
+      <div class="sub">attributed, 30 days</div>
+    </div>
+  </div>
+  <div class="figures">${cells}</div>
+  <div class="panel"><p class="dek" style="margin:0;font-size:13.5px">
+    <b>native</b> is Google's AI Assistant channel, accurate but only from mid-2026 onward.
+    <b>derived</b> is our own classification from session source, which works on historical data and catches
+    platforms Google has not yet recognised. Some AI traffic arrives with no referrer and lands in Direct,
+    so treat both as a floor rather than a total.
+  </p></div>`
+    : `<div class="empty"><h2>No data yet</h2><p>Press <b>Sync now</b> to pull the last 18 months. It takes a minute the first time.</p></div>`}`;
 }
+
+async function loadGa4Properties() {
+  const box = $('ga4Props');
+  if (!box) return;
+  const res = await fetch(`/api/projects/${state.projectId}/ga4/properties`);
+  const d = await res.json();
+  if (!res.ok) { box.innerHTML = `<p class="error">${esc(d.error)}</p>`; return; }
+  if (!d.properties.length) {
+    box.innerHTML = `<p class="hint">That Google account cannot see any GA4 properties. Connect a different account, or ask for read access.</p>`;
+    return;
+  }
+  box.innerHTML = d.properties
+    .map(
+      (p) => `<div class="row">
+        <div class="grow"><div class="name">${esc(p.name)}</div><div class="sub">${esc(p.account)} &middot; ${esc(p.id)}</div></div>
+        <button class="ghost" data-ga4-pick="${esc(p.id)}" data-ga4-name="${esc(p.name)}">Use this</button>
+      </div>`
+    )
+    .join('');
+}
+
+document.addEventListener('click', async (e) => {
+  const err = (m) => { const el = $('ga4Error'); if (el) el.textContent = m || ''; };
+
+  if (e.target.id === 'ga4Connect') {
+    e.target.disabled = true;
+    const res = await fetch(`/api/projects/${state.projectId}/ga4/connect`);
+    const d = await res.json();
+    if (!res.ok) { err(d.error); e.target.disabled = false; return; }
+    window.location.href = d.url;
+  }
+
+  if (e.target.id === 'ga4Disconnect') {
+    if (!confirm('Disconnect Google Analytics from this site? Traffic data already pulled is kept.')) return;
+    await fetch(`/api/projects/${state.projectId}/ga4/disconnect`, { method: 'POST' });
+    await render();
+  }
+
+  if (e.target.id === 'ga4Change') {
+    await fetch(`/api/projects/${state.projectId}/ga4/property`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ propertyId: '' })
+    });
+    await render();
+    loadGa4Properties();
+  }
+
+  const pick = e.target.closest('[data-ga4-pick]');
+  if (pick) {
+    pick.disabled = true;
+    const res = await fetch(`/api/projects/${state.projectId}/ga4/property`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ propertyId: pick.dataset.ga4Pick, propertyName: pick.dataset.ga4Name })
+    });
+    if (!res.ok) { err((await res.json()).error); pick.disabled = false; return; }
+    await render();
+  }
+
+  if (e.target.id === 'ga4Sync') {
+    e.target.disabled = true;
+    e.target.textContent = 'Syncing';
+    const res = await fetch(`/api/projects/${state.projectId}/sync-ga4`, { method: 'POST' });
+    const d = await res.json();
+    e.target.disabled = false;
+    e.target.textContent = 'Sync now';
+    if (!res.ok) err(d.error);
+    else if (d.skipped) err(d.reason);
+    else await render();
+  }
+});
 
 /* ---------- render ---------- */
 
@@ -283,6 +455,7 @@ async function render() {
   const fn = { actions: viewActions, questions: viewQuestions, rivals: viewRivals, sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling, trends: viewTrends }[view];
   $('view').innerHTML = await fn();
   if (view === 'setup') recalcEstimate();
+  if (view === 'traffic' && $('ga4Props')) loadGa4Properties();
   if (view === 'actions' && state.people?.length) {
     const dl = document.createElement('datalist');
     dl.id = 'people-list';
@@ -325,12 +498,28 @@ async function loadProjectList(selectId) {
   return true;
 }
 
+function handleGa4Return() {
+  const params = new URLSearchParams(location.search);
+  const status = params.get('ga4');
+  if (!status) return null;
+  history.replaceState({}, '', '/app');
+  return status === 'connected'
+    ? { ok: true }
+    : { ok: false, message: params.get('message') || 'Could not connect Google Analytics' };
+}
+
 async function boot() {
+  const ga4 = handleGa4Return();
   const me = await api('/api/me');
   if (!me?.signedIn) { window.location.href = '/login'; return; }
   if (me.mock) $('mockNotice').hidden = false;
   await loadProjectList();
   await refreshUsagePill();
+
+  if (ga4) {
+    document.querySelector('.tab[data-view="traffic"]').click();
+    if (!ga4.ok) setTimeout(() => { const el = $('ga4Error'); if (el) el.textContent = ga4.message; }, 400);
+  }
 
   // Someone may have started a cycle then refreshed or switched device.
   const running = await api(`/api/projects/${state.projectId}/cycle-status`);

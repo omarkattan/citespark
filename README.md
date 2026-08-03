@@ -79,7 +79,21 @@ Add rules by appending to the array in `buildRecommendations`. Each recommendati
 
 ## GA4
 
-Two series are pulled deliberately:
+Connected per project through OAuth, so an agency can attach a different Google account to each client. Refresh tokens are encrypted at rest with AES-256-GCM using `TOKEN_KEY`.
+
+### Setting up the Google OAuth client
+
+1. Google Cloud Console, create or pick a project, and enable both the **Google Analytics Data API** and the **Google Analytics Admin API**.
+2. Create an OAuth client of type **Web application**.
+3. Add `https://cited.ae/api/ga4/callback` as an authorised redirect URI, plus `http://localhost:3000/api/ga4/callback` for local work.
+4. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+5. On the OAuth consent screen, add the scope `.../auth/analytics.readonly`. While the app is in Testing you must list each Google account as a test user; publishing needs Google verification, which takes weeks, so start it before you need it.
+
+The customer then presses Connect on the Traffic tab, approves read-only access, and picks which GA4 property measures the site.
+
+`GOOGLE_REFRESH_TOKEN` and `GA4_PROPERTY_ID` still work as a single-tenant fallback for any project without its own connection.
+
+### Two series are pulled deliberately:
 
 - **native** filters on `sessionMedium = 'ai-assistant'`, Google's AI Assistant channel added in May 2026. Accurate, but not retroactive: sessions processed before the rollout still sit in Referral.
 - **derived** classifies `sessionSource` against our own domain map in `src/lib/ga4.js`. This works on historical data, so a new customer gets a real trend line on day one instead of one starting mid-2026. It also catches platforms Google has not yet recognised.

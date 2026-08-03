@@ -375,6 +375,33 @@ await test('survives malformed JSON-LD without throwing', () => {
   assert.equal(s.schemaName, null);
 });
 
+console.log('\nstored credentials');
+
+const tok = await import('../src/lib/tokens.js');
+
+await test('refresh tokens are encrypted at rest', () => {
+  const secret = '1//0abcdefgHIJKLMNOP-refresh-token';
+  const enc = tok.encrypt(secret);
+  assert.ok(!enc.includes('refresh-token'), 'the token must not survive in the stored value');
+  assert.equal(tok.decrypt(enc), secret, 'must round trip');
+  assert.notEqual(tok.encrypt(secret), tok.encrypt(secret), 'a fresh IV every time');
+  assert.equal(tok.decrypt(enc.slice(0, -4) + 'AAAA'), null, 'tampering must fail, not throw');
+  assert.equal(tok.decrypt('garbage'), null);
+  assert.equal(tok.encrypt(null), null);
+  assert.equal(tok.decrypt(null), null);
+});
+
+await test('the OAuth state cannot be forged or replayed', () => {
+  const state = tok.signState({ p: 7, o: 3 });
+  const read = tok.readState(state);
+  assert.equal(read.p, 7);
+  assert.equal(read.o, 3);
+  assert.equal(tok.readState(state.split('.')[0] + '.forgedsignature'), null, 'a bad signature must be rejected');
+  assert.equal(tok.readState(state, -1), null, 'an expired state must be rejected');
+  assert.equal(tok.readState(''), null);
+  assert.equal(tok.readState(null), null);
+});
+
 console.log('\npublic demo');
 
 const demoMod = await import('../src/lib/demo.js');
