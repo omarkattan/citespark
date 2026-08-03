@@ -1143,6 +1143,20 @@ async function viewSetup() {
       </div>
     </div>
 
+    <div>
+    <div class="panel" id="gscPanel">
+      <div class="panel-head">
+        <h2>From Search Console</h2>
+        <div class="spacer"></div>
+        <button class="ghost" id="gscLoad">Find questions people already ask</button>
+      </div>
+      <p class="hint" style="margin:0">
+        Your own Search Console data shows what people search before they find you. We cluster it, turn the ones with
+        real demand into questions worth tracking, and use the impressions as the volume behind prioritisation.
+      </p>
+      <div id="gscBody"></div>
+    </div>
+
     <div class="panel">
       <div class="panel-head">
         <h2>Questions</h2>
@@ -1160,6 +1174,7 @@ async function viewSetup() {
         <button id="q_add">Add</button>
       </div>
       <p class="error" id="setupError" role="alert"></p>
+    </div>
     </div>
   </div>`;
 }
