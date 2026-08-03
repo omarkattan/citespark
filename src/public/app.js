@@ -526,7 +526,11 @@ async function viewSetup() {
         <div class="panel-head">
           <h2>Where we look</h2>
           <div class="spacer"></div>
-          <span class="sub" data-engine-allowance="${allowed}" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">${chosen.length} of ${allowed} allowed</span>
+          <div class="bulk">
+            <button class="ghost" data-bulk-engines="all">Use all ${Math.min(allowed, engines.length)}</button>
+            <button class="ghost" data-bulk-engines="min">Just ChatGPT</button>
+          </div>
+          <span class="sub" data-engine-allowance="${allowed}" style="font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-left:10px">${chosen.length} of ${allowed} allowed</span>
         </div>
         ${engineRows}
         <p class="hint" style="margin-top:12px">
@@ -557,6 +561,10 @@ async function viewSetup() {
       <div class="panel-head">
         <h2>Questions</h2>
         <div class="spacer"></div>
+        <div class="bulk">
+          <button class="ghost" data-bulk-prompts="true" ${active === data.prompts.length ? 'disabled' : ''}>Resume all</button>
+          <button class="ghost" data-bulk-prompts="false" ${active === 0 ? 'disabled' : ''}>Pause all</button>
+        </div>
         <button class="ghost" id="q_generate">Suggest 10 more</button>
       </div>
       <p class="dek" style="margin:0 0 4px;font-size:13px">Write these the way a customer types them, never with the brand name in. Paused questions stay in the record but are not asked.</p>
@@ -646,8 +654,80 @@ document.addEventListener('change', async (e) => {
   }
 });
 
+/** Repaint every question row from the server's answer, without a re-render. */
+function applyBulkPrompts(activeIds) {
+  const set = new Set(activeIds.map(String));
+  for (const btn of document.querySelectorAll('button[data-toggle-prompt]')) {
+    const on = set.has(String(btn.dataset.togglePrompt));
+    btn.dataset.active = String(on);
+    btn.textContent = on ? 'Pause' : 'Resume';
+    btn.closest('.row')?.classList.toggle('off', !on);
+  }
+  const cost = document.querySelector('[data-active-count]');
+  if (cost) {
+    cost.dataset.activeCount = String(set.size);
+    cost.querySelector('[data-n]').textContent = set.size;
+    cost.querySelector('[data-calls]').textContent =
+      set.size * Number(cost.dataset.surfaces) * Number(cost.dataset.runs);
+  }
+  const resumeBtn = document.querySelector('[data-bulk-prompts="true"]');
+  const pauseBtn = document.querySelector('[data-bulk-prompts="false"]');
+  const total = document.querySelectorAll('button[data-toggle-prompt]').length;
+  if (resumeBtn) resumeBtn.disabled = set.size === total;
+  if (pauseBtn) pauseBtn.disabled = set.size === 0;
+}
+
 document.addEventListener('click', async (e) => {
   const t = e.target;
+
+  const bulkP = t.closest('button[data-bulk-prompts]');
+  if (bulkP) {
+    const wantActive = bulkP.dataset.bulkPrompts === 'true';
+    bulkP.disabled = true;
+    setupErr('');
+    try {
+      const res = await fetch(`/api/projects/${state.projectId}/prompts/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: wantActive })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Could not update');
+
+      const fresh = await api(`/api/projects/${state.projectId}/setup`);
+      applyBulkPrompts(fresh.prompts.filter((q) => q.active).map((q) => q.id));
+      if (json.capped > 0) {
+        setupErr(`Resumed ${json.activeNow}, the most searched ones. The ${json.planName} plan allows ${json.limit} active questions, so ${json.capped} stayed paused.`);
+      }
+    } catch (err) {
+      setupErr(err.message);
+      bulkP.disabled = false;
+    }
+    return;
+  }
+
+  const bulkE = t.closest('button[data-bulk-engines]');
+  if (bulkE) {
+    const boxes = [...document.querySelectorAll('input[data-engine]')];
+    const allowed = Number(document.querySelector('[data-engine-allowance]')?.dataset.engineAllowance || 1);
+    const wanted = bulkE.dataset.bulkEngines === 'all'
+      ? boxes.slice(0, allowed).map((b) => b.dataset.engine)
+      : ['chatgpt'];
+
+    for (const b of boxes) b.checked = wanted.includes(b.dataset.engine);
+    syncEngineUi();
+    setupErr('');
+
+    const res = await fetch(`/api/projects/${state.projectId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ engines: wanted })
+    });
+    const note = $('e_saved');
+    if (res.ok && note) { note.textContent = 'Saved'; setTimeout(() => { note.textContent = ''; }, 1800); }
+    if (!res.ok) setupErr('Could not save that. Try again.');
+    return;
+  }
 
   if (t.id === 's_save') {
     t.disabled = true;

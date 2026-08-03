@@ -520,6 +520,52 @@ app.post('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
   res.json(row);
 }));
 
+/**
+ * Pause or resume every question on a site in one request.
+ *
+ * Resuming respects the plan: if there are more questions than the plan
+ * allows we resume the highest-volume ones up to the ceiling and say how
+ * many were left paused, rather than failing the whole thing.
+ */
+app.post('/api/projects/:id/prompts/bulk', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  const active = Boolean(req.body?.active);
+
+  if (!active) {
+    const r = await query('UPDATE prompts SET active = false WHERE project_id = $1 AND active', [project.id]);
+    return res.json({ ok: true, changed: r.rowCount, activeNow: 0, capped: 0 });
+  }
+
+  const ent = await getEntitlements(req.session.orgId);
+  const limit = ent.plan.questions;
+
+  // Highest estimated volume first, so the cap keeps the questions that matter.
+  await query(
+    `UPDATE prompts SET active = (id IN (
+       SELECT id FROM prompts WHERE project_id = $1
+       ORDER BY ai_search_volume DESC, id
+       LIMIT $2
+     )) WHERE project_id = $1`,
+    [project.id, limit]
+  );
+
+  const counts = await one(
+    `SELECT COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE active)::int AS active
+     FROM prompts WHERE project_id = $1`,
+    [project.id]
+  );
+
+  res.json({
+    ok: true,
+    activeNow: counts.active,
+    capped: counts.total - counts.active,
+    limit,
+    planName: ent.plan.name
+  });
+}));
+
 app.patch('/api/prompts/:promptId', requireAuth, wrap(async (req, res) => {
   const result = await query(
     `UPDATE prompts SET active = COALESCE($2, active)
@@ -734,7 +780,7 @@ app.get('/api/version', (_req, res) => {
   res.json({
     startedAt: STARTED_AT,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls']
   });
 });
 

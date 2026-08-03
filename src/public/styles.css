@@ -674,3 +674,6 @@ select { appearance: auto; }
 }
 .report-lede { font-size: 15px; color: var(--ink-2); margin: 0; line-height: 1.55; max-width: 70ch; }
 .report-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.bulk { display: inline-flex; gap: 4px; }
+.bulk button { padding: 5px 10px; font-size: 10px; }
