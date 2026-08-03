@@ -16,8 +16,12 @@ services:
         fromDatabase:
           name: cited-db
           property: connectionString
+      # Set in the dashboard, not here. A hardcoded value would be re-applied
+      # on every blueprint sync and silently switch a live service back to
+      # simulated answers. Leave unset for real data; set to "true" only for
+      # a demo environment.
       - key: MOCK_MODE
-        value: "true"
+        sync: false
       - key: ENGINES
         value: chatgpt,gemini,perplexity
       - key: MAX_OUTPUT_TOKENS
@@ -69,8 +73,12 @@ services:
         fromDatabase:
           name: cited-db
           property: connectionString
+      # Set in the dashboard, not here. A hardcoded value would be re-applied
+      # on every blueprint sync and silently switch a live service back to
+      # simulated answers. Leave unset for real data; set to "true" only for
+      # a demo environment.
       - key: MOCK_MODE
-        value: "true"
+        sync: false
       - key: ENGINES
         value: chatgpt,gemini,perplexity
       - key: MAX_OUTPUT_TOKENS

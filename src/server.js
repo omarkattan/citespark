@@ -842,8 +842,11 @@ app.get('/app', (req, res) => {
 app.get('/api/version', (_req, res) => {
   res.json({
     startedAt: STARTED_AT,
+    mockMode: MOCK,
+    dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
+    stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility']
   });
 });
 
@@ -858,5 +861,10 @@ process.on('unhandledRejection', (err) => console.error('unhandled rejection:', 
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`Cited listening on ${port}${MOCK ? ' [MOCK MODE]' : ''}`);
+  console.log(`Cited listening on ${port}`);
+  if (MOCK) {
+    console.warn('MOCK_MODE is on. Answers are simulated and no engine is being called.');
+  } else if (!process.env.DATAFORSEO_LOGIN) {
+    console.warn('MOCK_MODE is off but DATAFORSEO_LOGIN is not set. Every cycle will fail.');
+  }
 });
