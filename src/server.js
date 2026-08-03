@@ -461,6 +461,30 @@ app.delete('/api/projects/:id', requireAuth, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+/**
+ * Cost per call is not one number. The SERP surfaces (AI Overview, AI Mode)
+ * are a flat task fee, while the LLM surfaces carry the engine's own web
+ * search charge on top and vary by how much the model retrieves.
+ *
+ * So rather than quoting a flat rate, use what this account has actually
+ * been charged, falling back to conservative defaults until there is data.
+ */
+const DEFAULT_COST = { chatgpt: 0.03, gemini: 0.02, claude: 0.025, perplexity: 0.02, ai_overview: 0.002, ai_mode: 0.002 };
+
+async function engineCosts(orgId) {
+  const rows = await many(
+    `SELECT r.engine, AVG(r.cost_usd)::float AS avg_cost, COUNT(*)::int AS n
+     FROM runs r JOIN projects p ON p.id = r.project_id
+     WHERE p.org_id = $1 AND r.cost_usd > 0
+     GROUP BY r.engine`,
+    [orgId]
+  );
+  const measured = Object.fromEntries(rows.filter((r) => r.n >= 3).map((r) => [r.engine, Number(r.avg_cost)]));
+  const out = {};
+  for (const id of ENGINE_IDS) out[id] = measured[id] ?? DEFAULT_COST[id] ?? 0.02;
+  return { costs: out, measured: Object.keys(measured) };
+}
+
 app.get('/api/projects/:id/setup', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
@@ -469,7 +493,8 @@ app.get('/api/projects/:id/setup', requireAuth, wrap(async (req, res) => {
     'SELECT id, text, cluster, intent, ai_search_volume, active FROM prompts WHERE project_id = $1 ORDER BY active DESC, ai_search_volume DESC, id',
     [project.id]
   );
-  res.json({ project, entities, prompts });
+  const pricing = await engineCosts(req.session.orgId);
+  res.json({ project, entities, prompts, ...pricing });
 }));
 
 app.post('/api/projects/:id/entities', requireAuth, wrap(async (req, res) => {
@@ -780,7 +805,7 @@ app.get('/api/version', (_req, res) => {
   res.json({
     startedAt: STARTED_AT,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost']
   });
 });
 

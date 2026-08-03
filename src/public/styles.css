@@ -677,3 +677,18 @@ select { appearance: auto; }
 
 .bulk { display: inline-flex; gap: 4px; }
 .bulk button { padding: 5px 10px; font-size: 10px; }
+
+/* live cycle estimate */
+.estimate {
+  background: var(--line-2);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin: 0 0 16px;
+}
+.estimate-line { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); letter-spacing: 0.02em; }
+.estimate-line b { color: var(--ink); }
+.estimate-cost { display: flex; align-items: baseline; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.estimate-cost .amt { font-family: var(--display); font-size: 30px; line-height: 1; }
+.estimate-cost .per { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+.estimate-cost .month { font-family: var(--mono); font-size: 11px; color: var(--ink-3); margin-left: auto; }
+.estimate .hint { font-size: 11.5px; }

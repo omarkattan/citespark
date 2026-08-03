@@ -201,6 +201,7 @@ async function render() {
   $('view').innerHTML = '<div class="empty">Loading</div>';
   const fn = { actions: viewActions, questions: viewQuestions, rivals: viewRivals, sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling }[view];
   $('view').innerHTML = await fn();
+  if (view === 'setup') recalcEstimate();
 }
 
 async function loadProject(id) {
@@ -457,6 +458,8 @@ async function viewSetup() {
   ]);
   if (!data) return '';
   state.engines = engines;
+  state.costs = data.costs || {};
+  state.measured = data.measured || [];
   const p = data.project;
   const rivals = data.entities.filter((e) => e.kind === 'competitor');
   const active = data.prompts.filter((q) => q.active).length;
@@ -514,10 +517,20 @@ async function viewSetup() {
         <div class="field"><label for="s_qualifier">Who the customer is</label><input id="s_qualifier" value="${esc(p.qualifier || '')}" /></div>
         <div class="field"><label for="s_market">Market</label><select id="s_market">${window.countryOptions(p.market)}</select></div>
         <div class="field"><label for="s_runs">Runs per question, per engine</label><input id="s_runs" type="number" min="1" max="10" value="${p.runs_per_cycle}" /></div>
-        <p class="sub" data-active-count="${active}" data-surfaces="${chosen.length}" data-runs="${p.runs_per_cycle}" style="font-family:var(--mono);font-size:11px;color:var(--ink-3);margin:0 0 14px">
-          <span data-n>${active}</span> active questions &times; <span data-surfaces-n>${chosen.length}</span> <span data-surfaces-word>${chosen.length === 1 ? 'surface' : 'surfaces'}</span> &times; ${p.runs_per_cycle} runs = <b data-calls>${cost}</b> answer checks per cycle.
-          More runs means a more trustworthy percentage. More questions means broader coverage. Runs usually win.
-        </p>
+        <div class="estimate" data-active-count="${active}" data-runs="${p.runs_per_cycle}">
+          <div class="estimate-line">
+            <span data-n>${active}</span> questions &times;
+            <span data-surfaces-n>${chosen.length}</span> <span data-surfaces-word>${chosen.length === 1 ? 'surface' : 'surfaces'}</span> &times;
+            <span data-runs-n>${p.runs_per_cycle}</span> runs =
+            <b data-calls>${cost}</b> answer checks
+          </div>
+          <div class="estimate-cost">
+            <span class="amt" data-cycle-cost>-</span>
+            <span class="per">per cycle</span>
+            <span class="month" data-month-cost></span>
+          </div>
+          <p class="hint" data-cost-source style="margin-top:8px"></p>
+        </div>
         <button id="s_save">Save changes</button>
         <span id="s_saved" class="sub" style="font-family:var(--mono);font-size:11px;color:var(--good);margin-left:10px"></span>
       </div>
@@ -582,15 +595,49 @@ async function viewSetup() {
 
 const setupErr = (msg) => { const el = $('setupError'); if (el) el.textContent = msg || ''; };
 
+/**
+ * Recalculate the estimate from whatever is currently ticked.
+ * Priced per engine, because a SERP surface costs a fraction of an LLM call.
+ */
+function recalcEstimate() {
+  const box = document.querySelector('[data-active-count]');
+  if (!box) return;
+
+  const questions = Number(box.dataset.activeCount);
+  const runs = Number(box.dataset.runs);
+  const chosen = [...document.querySelectorAll('input[data-engine]:checked')].map((b) => b.dataset.engine);
+
+  const calls = questions * chosen.length * runs;
+  const perCycle = chosen.reduce((sum, id) => sum + questions * runs * (state.costs?.[id] ?? 0.02), 0);
+
+  box.querySelector('[data-n]').textContent = questions;
+  box.querySelector('[data-surfaces-n]').textContent = chosen.length;
+  box.querySelector('[data-surfaces-word]').textContent = chosen.length === 1 ? 'surface' : 'surfaces';
+  box.querySelector('[data-runs-n]').textContent = runs;
+  box.querySelector('[data-calls]').textContent = calls;
+  box.querySelector('[data-cycle-cost]').textContent = `$${perCycle.toFixed(2)}`;
+  box.querySelector('[data-month-cost]').textContent =
+    perCycle > 0 ? `about $${(perCycle * 4.33).toFixed(0)} a month at weekly cadence` : '';
+
+  const priced = chosen.filter((id) => state.measured?.includes(id));
+  const note = box.querySelector('[data-cost-source]');
+  if (!chosen.length) {
+    note.textContent = 'Pick at least one surface.';
+  } else if (priced.length === chosen.length) {
+    note.textContent = 'Based on what these surfaces have actually cost you, not an estimate.';
+  } else if (priced.length) {
+    note.textContent = `Measured for ${priced.length} of ${chosen.length} surfaces, estimated for the rest until they have run a few times.`;
+  } else {
+    note.textContent = 'Estimated. This becomes your own measured cost after a few cycles.';
+  }
+}
+
 /** Keep the "x active questions = y checks per cycle" line honest without a reload. */
 function bumpActiveCount(delta) {
   const el = document.querySelector('[data-active-count]');
   if (!el) return;
-  const next = Math.max(0, Number(el.dataset.activeCount) + delta);
-  el.dataset.activeCount = String(next);
-  el.querySelector('[data-n]').textContent = next;
-  el.querySelector('[data-calls]').textContent =
-    next * Number(el.dataset.surfaces) * Number(el.dataset.runs);
+  el.dataset.activeCount = String(Math.max(0, Number(el.dataset.activeCount) + delta));
+  recalcEstimate();
 }
 
 /**
@@ -614,15 +661,16 @@ function syncEngineUi() {
   const counter = document.querySelector('[data-engine-allowance]');
   if (counter) counter.textContent = `${chosen.length} of ${allowed} allowed`;
 
-  const cost = document.querySelector('[data-active-count]');
-  if (cost) {
-    cost.dataset.surfaces = String(chosen.length);
-    const n = Number(cost.dataset.activeCount);
-    cost.querySelector('[data-surfaces-n]').textContent = chosen.length;
-    cost.querySelector('[data-surfaces-word]').textContent = chosen.length === 1 ? 'surface' : 'surfaces';
-    cost.querySelector('[data-calls]').textContent = n * chosen.length * Number(cost.dataset.runs);
-  }
+  recalcEstimate();
 }
+
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 's_runs') return;
+  const box = document.querySelector('[data-active-count]');
+  if (!box) return;
+  box.dataset.runs = String(Math.min(10, Math.max(1, Number(e.target.value) || 1)));
+  recalcEstimate();
+});
 
 document.addEventListener('change', async (e) => {
   const box = e.target.closest('input[data-engine]');
@@ -666,9 +714,7 @@ function applyBulkPrompts(activeIds) {
   const cost = document.querySelector('[data-active-count]');
   if (cost) {
     cost.dataset.activeCount = String(set.size);
-    cost.querySelector('[data-n]').textContent = set.size;
-    cost.querySelector('[data-calls]').textContent =
-      set.size * Number(cost.dataset.surfaces) * Number(cost.dataset.runs);
+    recalcEstimate();
   }
   const resumeBtn = document.querySelector('[data-bulk-prompts="true"]');
   const pauseBtn = document.querySelector('[data-bulk-prompts="false"]');
