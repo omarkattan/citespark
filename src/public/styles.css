@@ -572,3 +572,7 @@ select { appearance: auto; }
   padding: 3px 8px;
   border-radius: 2px;
 }
+
+/* limit message inside the Add site sheet */
+.error .limit-msg { display: block; margin-bottom: 10px; line-height: 1.5; }
+.error button { margin-top: 2px; }

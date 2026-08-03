@@ -526,7 +526,7 @@ app.post('/api/projects/:id/generate-prompts', requireAuth, wrap(async (req, res
   const room = ent.plan.questions - active.n;
   if (room <= 0) {
     return res.status(402).json({
-      error: `The ${ent.plan.name} plan allows ${ent.plan.questions} active questions per site. Pause one or upgrade to add more.`,
+      error: `The ${ent.plan.name} plan allows ${ent.plan.questions} active question${ent.plan.questions === 1 ? '' : 's'} per site. Pause one or upgrade to add more.`,
       upgrade: true
     });
   }
@@ -677,7 +677,7 @@ app.get('/api/version', (_req, res) => {
   res.json({
     startedAt: STARTED_AT,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux']
   });
 });
 

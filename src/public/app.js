@@ -557,7 +557,9 @@ $('siteSave').addEventListener('click', async () => {
     });
     const json = await res.json();
     if (res.status === 402) {
-      $('siteError').innerHTML = `${esc(json.error)} <a href="#" data-goto-billing="1">See plans</a>`;
+      $('siteError').innerHTML =
+        `<span class="limit-msg">${esc(json.error)}</span>` +
+        `<button type="button" class="ghost" data-goto-billing="1">See plans</button>`;
       return;
     }
     if (!res.ok) throw new Error(json.error || 'Could not create the site');
@@ -722,8 +724,15 @@ document.addEventListener('click', async (e) => {
     state.interval = int.dataset.interval;
     await render();
   }
-  if (e.target.closest('[data-goto-billing]')) {
+  const goBilling = e.target.closest('[data-goto-billing]');
+  if (goBilling) {
+    e.preventDefault();
+    // Close the Add site sheet first, otherwise the Plan tab loads behind it
+    // and the person has to work out that they need to cancel.
+    const sheet = $('siteDialog');
+    if (sheet?.open) sheet.close();
     document.querySelector('.tab[data-view="billing"]').click();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 });
 

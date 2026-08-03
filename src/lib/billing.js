@@ -98,12 +98,18 @@ export async function getEntitlements(orgId) {
  * Limit checks. Each returns null when allowed, or a message written for the
  * person hitting the limit rather than for a log file.
  */
+/** "1 site" not "1 sites". Small thing, but it is the first sentence a
+ *  customer reads at the exact moment we are asking them for money. */
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
 export async function checkCanAddSite(orgId) {
   const e = await getEntitlements(orgId);
   if (e.counts.sites >= e.plan.sites) {
-    return e.plan.id === 'free'
-      ? `The Free plan covers one site. Upgrade to track more.`
-      : `The ${e.plan.name} plan covers ${e.plan.sites} sites and you are using all of them. Upgrade or remove one first.`;
+    return e.plan.sites === 1
+      ? `The ${e.plan.name} plan covers one site, and you are already tracking it. Upgrade to add another, or delete the current one from its Setup tab.`
+      : `The ${e.plan.name} plan covers ${plural(e.plan.sites, 'site')} and you are using all of them. Upgrade to add more, or remove one first.`;
   }
   return null;
 }
@@ -115,7 +121,7 @@ export async function checkCanAddQuestions(orgId, projectId, adding = 1) {
     [projectId]
   );
   if (row.n + adding > e.plan.questions) {
-    return `The ${e.plan.name} plan allows ${e.plan.questions} active questions per site. Pause or delete one, or upgrade for more.`;
+    return `The ${e.plan.name} plan allows ${plural(e.plan.questions, 'active question')} per site. Pause or delete one, or upgrade for more.`;
   }
   return null;
 }
@@ -151,18 +157,45 @@ export async function budgetForCycle(orgId, { questions, engines, runs }) {
 
 /* ---------------- Stripe ---------------- */
 
+/** True when Stripe says the object belongs to the other mode, or is gone. */
+function isMissingObject(err) {
+  const msg = String(err?.message || '');
+  return (
+    err?.code === 'resource_missing' ||
+    /No such customer|No such subscription|similar object exists in (test|live) mode/i.test(msg)
+  );
+}
+
+async function createCustomer(orgId, email) {
+  const s = await getStripe();
+  const customer = await s.customers.create({ email, metadata: { org_id: String(orgId) } });
+  await query(
+    `UPDATE subscriptions SET stripe_customer_id = $2, stripe_subscription_id = NULL, updated_at = now()
+     WHERE org_id = $1`,
+    [orgId, customer.id]
+  );
+  return customer.id;
+}
+
+/**
+ * Stored customer IDs are mode-specific. Switching between test and live keys,
+ * or restoring a backup, leaves an ID pointing at a customer the current key
+ * cannot see. Rather than dead-ending, verify it and mint a new one if needed.
+ */
 export async function ensureCustomer(orgId, email) {
   const s = await getStripe();
   if (!s) return null;
   const sub = await getSubscription(orgId);
-  if (sub.stripe_customer_id) return sub.stripe_customer_id;
+  if (!sub.stripe_customer_id) return createCustomer(orgId, email);
 
-  const customer = await s.customers.create({ email, metadata: { org_id: String(orgId) } });
-  await query('UPDATE subscriptions SET stripe_customer_id = $2, updated_at = now() WHERE org_id = $1', [
-    orgId,
-    customer.id
-  ]);
-  return customer.id;
+  try {
+    const existing = await s.customers.retrieve(sub.stripe_customer_id);
+    if (existing && !existing.deleted) return sub.stripe_customer_id;
+  } catch (err) {
+    if (!isMissingObject(err)) throw err;
+    console.warn(`Stripe customer ${sub.stripe_customer_id} not visible to this key, creating a new one for org ${orgId}`);
+  }
+  return createCustomer(orgId, email);
 }
 
 export async function createCheckoutSession({ orgId, email, planId, interval, origin }) {
@@ -190,10 +223,25 @@ export async function createPortalSession({ orgId, origin }) {
   if (!s) throw new Error('Billing is not configured on this deployment');
   const sub = await getSubscription(orgId);
   if (!sub.stripe_customer_id) throw new Error('No billing account yet. Choose a plan first.');
-  return s.billingPortal.sessions.create({
-    customer: sub.stripe_customer_id,
-    return_url: `${origin}/app`
-  });
+
+  try {
+    return await s.billingPortal.sessions.create({
+      customer: sub.stripe_customer_id,
+      return_url: `${origin}/app`
+    });
+  } catch (err) {
+    if (!isMissingObject(err)) throw err;
+    // The stored customer belongs to the other Stripe mode. Clear it and drop
+    // to free, so the account can start again cleanly rather than being stuck.
+    await query(
+      `UPDATE subscriptions SET plan = 'free', status = 'active',
+         stripe_customer_id = NULL, stripe_subscription_id = NULL,
+         current_period_end = NULL, cancel_at_period_end = false, updated_at = now()
+       WHERE org_id = $1`,
+      [orgId]
+    );
+    throw new Error('That billing account is no longer valid, so it has been reset. Choose a plan to start again.');
+  }
 }
 
 /** Map a Stripe price back to one of our plans. */
