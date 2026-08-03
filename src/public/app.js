@@ -240,6 +240,19 @@ async function boot() {
   if (me.mock) $('mockNotice').hidden = false;
   await loadProjectList();
   await refreshUsagePill();
+
+  // Someone may have started a cycle then refreshed or switched device.
+  const running = await api(`/api/projects/${state.projectId}/cycle-status`);
+  if (running && ['starting', 'asking', 'thinking'].includes(running.phase)) {
+    $('runBtn').disabled = true;
+    $('runBtn').textContent = 'Running';
+    const tick = async () => {
+      const finished = await pollCycle();
+      if (finished) { $('runBtn').disabled = false; $('runBtn').textContent = 'Run cycle'; }
+      else setTimeout(tick, 1500);
+    };
+    tick();
+  }
 }
 
 document.querySelectorAll('.tab').forEach((tab) => {
@@ -257,29 +270,170 @@ $('signOut').addEventListener('click', async () => {
   window.location.href = '/login';
 });
 
+/* ---------- running a cycle ---------- */
+
+const PHASE_LABEL = {
+  starting: 'Starting up',
+  asking: 'Asking the engines',
+  thinking: 'Reading answers and writing your actions',
+  done: 'Finished'
+};
+
+function showProgress(phase, done, total) {
+  $('cycleBar').hidden = false;
+  $('cycleLabel').textContent = PHASE_LABEL[phase] || 'Working';
+  $('cycleCount').textContent = total ? `${done} of ${total} answers` : '';
+  const pct = phase === 'thinking' ? 100 : total ? Math.round((done / total) * 100) : 5;
+  $('cycleFill').style.width = `${Math.max(3, pct)}%`;
+}
+
+function hideProgress() {
+  $('cycleBar').hidden = true;
+  $('cycleFill').style.width = '0%';
+}
+
+function deltaFig(s) {
+  if (s.delta === null || s.delta === undefined) {
+    return `<div class="report-fig"><div class="k">Change</div><div class="v">-</div><div class="n">first cycle, nothing to compare</div></div>`;
+  }
+  const pts = Math.round(s.delta * 100);
+  const dir = pts > 0 ? 'up' : pts < 0 ? 'down' : '';
+  return `<div class="report-fig">
+    <div class="k">Change</div>
+    <div class="v ${dir}">${pts > 0 ? '+' : ''}${pts}<span style="font-size:15px"> pts</span></div>
+    <div class="n">was ${Math.round(s.visibilityBefore * 100)}%</div>
+  </div>`;
+}
+
+function headline(s) {
+  if (s.visibility === 0) {
+    return `No engine named you in any of the ${s.runs} answers we read. Every action below exists to change that.`;
+  }
+  if (s.delta !== null && Math.round(s.delta * 100) <= -10) {
+    return `You slipped ${Math.abs(Math.round(s.delta * 100))} points since the last cycle. The decline actions below are worth reading first.`;
+  }
+  if (s.delta !== null && Math.round(s.delta * 100) >= 10) {
+    return `Up ${Math.round(s.delta * 100)} points since the last cycle. Whatever you shipped is working, so the actions below are about widening the lead.`;
+  }
+  if (s.topRival && s.topRival.rate > (s.visibility || 0) + 0.2) {
+    return `${esc(s.topRival.name)} is named in ${Math.round(s.topRival.rate * 100)}% of answers against your ${Math.round((s.visibility || 0) * 100)}%. Closing that gap is what the top actions are for.`;
+  }
+  return `You were named in ${Math.round((s.visibility || 0) * 100)}% of the ${s.runs} answers we read. Here is what to do about the rest.`;
+}
+
+function showReport(s) {
+  const sources = s.topSources?.length
+    ? `<p class="report-lede" style="margin-top:14px;font-size:13.5px;color:var(--ink-3)">
+         Most cited sources this cycle: ${s.topSources.map((x) => `<b>${esc(x.domain)}</b>`).join(', ')}.
+       </p>`
+    : '';
+
+  $('cycleReport').innerHTML = `
+    <div class="report">
+      <button class="report-close" aria-label="Dismiss" data-close-report>&times;</button>
+      <div class="report-top"><h2>Cycle finished</h2></div>
+      <p class="report-lede">${headline(s)}</p>
+
+      <div class="report-figures">
+        <div class="report-fig">
+          <div class="k">Visibility</div>
+          <div class="v">${Math.round((s.visibility || 0) * 100)}%</div>
+          <div class="n">${s.runs} answers read</div>
+        </div>
+        ${deltaFig(s)}
+        <div class="report-fig">
+          <div class="k">Open actions</div>
+          <div class="v">${s.openActions}</div>
+          <div class="n">${s.recommendations} refreshed this cycle</div>
+        </div>
+        <div class="report-fig">
+          <div class="k">Cost</div>
+          <div class="v">$${(s.spend || 0).toFixed(2)}</div>
+          <div class="n">${s.trimmed ? 'trimmed to your allowance' : 'this cycle'}</div>
+        </div>
+      </div>
+
+      ${s.topActions?.length ? `<ul class="report-list">${s.topActions.map((a) => `<li>${esc(a.title)}</li>`).join('')}</ul>` : ''}
+      ${sources}
+
+      <div class="report-actions" style="margin-top:16px">
+        <button data-report-goto="actions">See all ${s.openActions} actions</button>
+        <button class="ghost" data-report-goto="questions">Question by question</button>
+        <button class="ghost" data-report-goto="sources">Who gets cited</button>
+      </div>
+    </div>`;
+  $('cycleReport').hidden = false;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function pollCycle() {
+  const status = await api(`/api/projects/${state.projectId}/cycle-status`);
+  if (!status) return true;
+
+  if (status.phase === 'failed') {
+    hideProgress();
+    setupErr(status.error);
+    return true;
+  }
+  if (status.phase === 'done') {
+    hideProgress();
+    await loadProject(state.projectId);
+    await refreshUsagePill();
+    if (status.summary) showReport(status.summary);
+    return true;
+  }
+  if (status.phase === 'idle') {
+    hideProgress();
+    await loadProject(state.projectId);
+    return true;
+  }
+  showProgress(status.phase, status.done || 0, status.total || 0);
+  return false;
+}
+
 $('runBtn').addEventListener('click', async () => {
   const btn = $('runBtn');
   btn.disabled = true;
   btn.textContent = 'Starting';
+  $('cycleReport').hidden = true;
 
   const res = await fetch(`/api/projects/${state.projectId}/run`, { method: 'POST' });
   const json = await res.json();
 
-  if (res.status === 402) {
+  if (!res.ok) {
     btn.disabled = false;
     btn.textContent = 'Run cycle';
-    alert(`${json.error}`);
-    document.querySelector('.tab[data-view="billing"]').click();
+    if (res.status === 402) {
+      alert(json.error);
+      document.querySelector('.tab[data-view="billing"]').click();
+    } else {
+      alert(json.error || 'Could not start the cycle.');
+    }
     return;
   }
 
-  btn.textContent = json.trimmed ? `Running ${json.calls} (trimmed)` : `Running ${json.calls}`;
-  setTimeout(async () => {
-    await loadProject(state.projectId);
-    await refreshUsagePill();
-    btn.disabled = false;
-    btn.textContent = 'Run cycle';
-  }, 12000);
+  btn.textContent = 'Running';
+  showProgress('starting', 0, json.calls);
+
+  const tick = async () => {
+    const finished = await pollCycle();
+    if (finished) {
+      btn.disabled = false;
+      btn.textContent = 'Run cycle';
+    } else {
+      setTimeout(tick, 1500);
+    }
+  };
+  setTimeout(tick, 1200);
+});
+
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-close-report]')) $('cycleReport').hidden = true;
+  const goto = e.target.closest('[data-report-goto]');
+  if (goto) {
+    document.querySelector(`.tab[data-view="${goto.dataset.reportGoto}"]`).click();
+    document.querySelector('.tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 });
 
 document.addEventListener('click', async (e) => {

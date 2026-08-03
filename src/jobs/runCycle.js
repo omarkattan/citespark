@@ -32,7 +32,7 @@ async function pooled(items, worker, limit = CONCURRENCY) {
   await Promise.all(workers);
 }
 
-export async function runCycleForProject(projectId, { cycleDate } = {}) {
+export async function runCycleForProject(projectId, { cycleDate, onProgress } = {}) {
   const project = await one('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!project) throw new Error(`No project ${projectId}`);
 
@@ -71,6 +71,8 @@ export async function runCycleForProject(projectId, { cycleDate } = {}) {
 
   let spend = 0;
   let done = 0;
+  const report = (extra = {}) => onProgress?.({ done, total: jobs.length, spend, ...extra });
+  report({ phase: 'asking' });
 
   await pooled(jobs, async ({ prompt, engine, runIndex }) => {
     const answer = await askEngine({
@@ -126,16 +128,84 @@ export async function runCycleForProject(projectId, { cycleDate } = {}) {
     }
 
     done++;
+    report({ phase: 'asking' });
     if (done % 20 === 0) console.log(`  ${done}/${jobs.length} runs complete`);
   });
 
   await recordUsage(project.org_id, jobs.length, spend);
 
+  report({ phase: 'thinking' });
   const recs = await buildRecommendations(projectId);
   await persistRecommendations(projectId, recs);
 
+  const summary = await summarise(projectId, cycle, { runs: done, spend, recs, trimmed: budget.trimmed });
   console.log(`Done. ${done}/${jobs.length} usable runs, $${spend.toFixed(4)} spent, ${recs.length} recommendations.`);
-  return { runs: done, spend, recommendations: recs.length, cycle, trimmed: budget.trimmed };
+  report({ phase: 'done', summary });
+  return summary;
+}
+
+/**
+ * What actually changed this cycle, in the terms a person cares about:
+ * did visibility move, what is new to do, and what did it cost.
+ */
+async function summarise(projectId, cycle, { runs, spend, recs, trimmed }) {
+  const rate = async (cycleDate) => {
+    if (!cycleDate) return null;
+    const row = await one(
+      `SELECT SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS r
+       FROM runs cr
+       JOIN mentions m ON m.run_id = cr.id
+       JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
+       WHERE cr.project_id = $1 AND cr.cycle_date = $2 AND cr.ok`,
+      [projectId, cycleDate]
+    );
+    return row?.r === null || row?.r === undefined ? null : Number(row.r);
+  };
+
+  const prev = await one(
+    'SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok AND cycle_date < $2',
+    [projectId, cycle]
+  );
+
+  const now = await rate(cycle);
+  const before = await rate(prev?.d);
+
+  const topSources = await many(
+    `SELECT c.domain, COUNT(*)::int AS n
+     FROM citations c JOIN runs r ON r.id = c.run_id
+     WHERE r.project_id = $1 AND r.cycle_date = $2
+     GROUP BY c.domain ORDER BY n DESC LIMIT 3`,
+    [projectId, cycle]
+  );
+
+  const rivals = await many(
+    `SELECT e.name, SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
+     FROM runs r JOIN mentions m ON m.run_id = r.id
+     JOIN entities e ON e.id = m.entity_id AND e.kind = 'competitor'
+     WHERE r.project_id = $1 AND r.cycle_date = $2 AND r.ok
+     GROUP BY e.id ORDER BY rate DESC LIMIT 1`,
+    [projectId, cycle]
+  );
+
+  const openCount = await one(
+    "SELECT COUNT(*)::int AS n FROM recommendations WHERE project_id = $1 AND status = 'open'",
+    [projectId]
+  );
+
+  return {
+    cycle,
+    runs,
+    spend: Math.round(spend * 1000) / 1000,
+    trimmed,
+    recommendations: recs.length,
+    openActions: openCount.n,
+    visibility: now,
+    visibilityBefore: before,
+    delta: now !== null && before !== null ? now - before : null,
+    topActions: recs.slice(0, 3).map((r) => ({ type: r.type, title: r.title, priority: r.priority })),
+    topSources,
+    topRival: rivals[0] ? { name: rivals[0].name, rate: Number(rivals[0].rate) } : null
+  };
 }
 
 // Allow: npm run cycle  (all projects)  or  npm run cycle -- 1

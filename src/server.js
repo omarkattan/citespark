@@ -620,6 +620,19 @@ app.post('/api/billing/portal', requireAuth, wrap(async (req, res) => {
 
 /* ---------------- actions ---------------- */
 
+/**
+ * In-memory progress for a running cycle. Losing this on restart is fine:
+ * the run itself is recorded in the database, and the client falls back to
+ * simply reloading if the status disappears.
+ */
+const cycles = new Map();
+
+app.get('/api/projects/:id/cycle-status', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  res.json(cycles.get(project.id) || { phase: 'idle' });
+}));
+
 app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
@@ -633,6 +646,12 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
 
   if (!budget.ok) return res.status(402).json({ error: budget.reason, upgrade: true });
 
+  if (cycles.get(project.id)?.phase === 'asking' || cycles.get(project.id)?.phase === 'thinking') {
+    return res.status(409).json({ error: 'A cycle is already running for this site.' });
+  }
+
+  cycles.set(project.id, { phase: 'starting', done: 0, total: budget.maxCalls, startedAt: Date.now() });
+
   res.json({
     ok: true,
     started: true,
@@ -641,7 +660,20 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
     estimateUsd: budget.estimateUsd,
     trimmed: budget.trimmed
   });
-  runCycleForProject(project.id).catch((err) => console.error('cycle failed:', err));
+
+  runCycleForProject(project.id, {
+    onProgress: (p) => {
+      const prev = cycles.get(project.id) || {};
+      cycles.set(project.id, { ...prev, ...p, total: p.total ?? prev.total });
+    }
+  })
+    .then((summary) => {
+      cycles.set(project.id, { phase: 'done', done: summary.runs, total: summary.runs, summary, finishedAt: Date.now() });
+    })
+    .catch((err) => {
+      console.error('cycle failed:', err);
+      cycles.set(project.id, { phase: 'failed', error: 'The cycle did not finish. Try again in a moment.' });
+    });
 }));
 
 app.post('/api/projects/:id/rebuild', requireAuth, wrap(async (req, res) => {
@@ -702,7 +734,7 @@ app.get('/api/version', (_req, res) => {
   res.json({
     startedAt: STARTED_AT,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report']
   });
 });
 
