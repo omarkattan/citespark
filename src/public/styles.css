@@ -1,11 +1,11 @@
-/* CiteSpark: design tokens
+/* Cited: design tokens
    paper  cool neutral, deliberately not cream
    you    the tracked brand
    rival  competitors
    Type: Space Grotesk display / IBM Plex Sans body / IBM Plex Mono data */
 
 :root {
-  /* CiteSpark. Same palette as the landing page, lighter ground because
+  /* Cited. Same palette as the landing page, lighter ground because
      this is where people spend forty minutes at a time. Swap --you and
      --deep-ink for exact Sandstorm brand values and everything follows. */
   --ink: #0b1a12;
@@ -692,3 +692,40 @@ select { appearance: auto; }
 .estimate-cost .per { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
 .estimate-cost .month { font-family: var(--mono); font-size: 11px; color: var(--ink-3); margin-left: auto; }
 .estimate .hint { font-size: 11.5px; }
+
+/* split run button */
+.runwrap { position: relative; display: inline-flex; }
+.runwrap #runBtn { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.runmore {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: none;
+  padding: 8px 9px;
+}
+.runmenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+  z-index: 30;
+  min-width: 230px;
+  padding: 4px;
+}
+.runmenu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 13.5px;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 9px 10px;
+  border-radius: 2px;
+}
+.runmenu button:hover { background: var(--line-2); }

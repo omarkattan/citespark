@@ -213,6 +213,9 @@ async function loadProject(id) {
     ? `Measured across ${state.overview.runs} answers on ${state.overview.cycle}. Every action below is derived from that evidence.`
     : 'Nothing measured yet. Run a cycle to ask every tracked question across the engines.';
   $('cycleMeta').textContent = state.overview.cycle ? `cycle ${state.overview.cycle}` : 'no data';
+  const short = p.name.length > 18 ? p.name.slice(0, 17) + '\u2026' : p.name;
+  $('runBtn').textContent = `Run ${short}`;
+  $('runBtn').title = `Runs a cycle for ${p.name} only`;
   await renderFigures();
   await render();
 }
@@ -249,7 +252,7 @@ async function boot() {
     $('runBtn').textContent = 'Running';
     const tick = async () => {
       const finished = await pollCycle();
-      if (finished) { $('runBtn').disabled = false; $('runBtn').textContent = 'Run cycle'; }
+      if (finished) { $('runBtn').disabled = false; resetRunLabel(); }
       else setTimeout(tick, 1500);
     };
     tick();
@@ -272,6 +275,12 @@ $('signOut').addEventListener('click', async () => {
 });
 
 /* ---------- running a cycle ---------- */
+
+function resetRunLabel() {
+  const name = state.overview?.project?.name || 'cycle';
+  const short = name.length > 18 ? name.slice(0, 17) + '\u2026' : name;
+  $('runBtn').textContent = `Run ${short}`;
+}
 
 const PHASE_LABEL = {
   starting: 'Starting up',
@@ -403,7 +412,7 @@ $('runBtn').addEventListener('click', async () => {
 
   if (!res.ok) {
     btn.disabled = false;
-    btn.textContent = 'Run cycle';
+    resetRunLabel();
     if (res.status === 402) {
       alert(json.error);
       document.querySelector('.tab[data-view="billing"]').click();
@@ -420,12 +429,52 @@ $('runBtn').addEventListener('click', async () => {
     const finished = await pollCycle();
     if (finished) {
       btn.disabled = false;
-      btn.textContent = 'Run cycle';
+      resetRunLabel();
     } else {
       setTimeout(tick, 1500);
     }
   };
   setTimeout(tick, 1200);
+});
+
+$('runMoreBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const open = !$('runMenu').hidden;
+  $('runMenu').hidden = open;
+  $('runMoreBtn').setAttribute('aria-expanded', String(!open));
+});
+
+document.addEventListener('click', () => {
+  $('runMenu').hidden = true;
+  $('runMoreBtn').setAttribute('aria-expanded', 'false');
+});
+
+$('runAllBtn').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  $('runMenu').hidden = true;
+  const res = await fetch('/api/run-all', { method: 'POST' });
+  const json = await res.json();
+  if (!res.ok) { alert(json.error || 'Could not start.'); return; }
+
+  const lines = [];
+  if (json.started.length) {
+    lines.push(`Started ${json.started.length} site${json.started.length === 1 ? '' : 's'}: ${json.started.map((s) => s.name).join(', ')}.`);
+  }
+  if (json.skipped.length) {
+    lines.push(`Skipped ${json.skipped.map((s) => `${s.name} (${s.reason})`).join(', ')}.`);
+  }
+  alert(lines.join('\n\n') || 'Nothing to run.');
+
+  if (json.started.some((s) => s.id === state.projectId)) {
+    $('runBtn').disabled = true;
+    $('runBtn').textContent = 'Running';
+    const tick = async () => {
+      const finished = await pollCycle();
+      if (finished) { $('runBtn').disabled = false; resetRunLabel(); }
+      else setTimeout(tick, 1500);
+    };
+    setTimeout(tick, 1200);
+  }
 });
 
 document.addEventListener('click', (e) => {
@@ -517,6 +566,14 @@ async function viewSetup() {
         <div class="field"><label for="s_qualifier">Who the customer is</label><input id="s_qualifier" value="${esc(p.qualifier || '')}" /></div>
         <div class="field"><label for="s_market">Market</label><select id="s_market">${window.countryOptions(p.market)}</select></div>
         <div class="field"><label for="s_runs">Runs per question, per engine</label><input id="s_runs" type="number" min="1" max="10" value="${p.runs_per_cycle}" /></div>
+        <div class="field">
+          <label>Automatic weekly cycle</label>
+          <label class="eng" style="padding:4px 0">
+            <input type="checkbox" id="s_auto" ${p.auto_cycle ? 'checked' : ''} />
+            <span><span class="name">Run this site every week without being asked</span>
+            <span class="sub">Turn off to keep the site set up but stop it spending anything until you run it by hand.</span></span>
+          </label>
+        </div>
         <div class="estimate" data-active-count="${active}" data-runs="${p.runs_per_cycle}">
           <div class="estimate-line">
             <span data-n>${active}</span> questions &times;
@@ -787,7 +844,8 @@ document.addEventListener('click', async (e) => {
         category: $('s_category').value,
         qualifier: $('s_qualifier').value,
         market: $('s_market').value,
-        runsPerCycle: Number($('s_runs').value)
+        runsPerCycle: Number($('s_runs').value),
+        autoCycle: $('s_auto').checked
       })
     });
     $('s_saved').textContent = 'Saved';

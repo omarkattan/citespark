@@ -211,7 +211,11 @@ async function summarise(projectId, cycle, { runs, spend, recs, trimmed }) {
 // Allow: npm run cycle  (all projects)  or  npm run cycle -- 1
 if (import.meta.url === `file://${process.argv[1]}`) {
   const arg = process.argv[2];
-  const ids = arg ? [Number(arg)] : (await many('SELECT id FROM projects')).map((r) => r.id);
+  const ids = arg
+    ? [Number(arg)]
+    : (await many('SELECT id FROM projects WHERE auto_cycle')).map((r) => r.id);
+
+  if (!arg) console.log(`Scheduled run: ${ids.length} site${ids.length === 1 ? '' : 's'} with automatic cycles on.`);
   for (const id of ids) await runCycleForProject(id);
   await pool.end();
 }

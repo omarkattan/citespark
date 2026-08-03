@@ -1,8 +1,10 @@
-# CiteSpark
+# Cited
 
-Answer engine visibility tracking that tells you what to do, not just where you stand. A Sandstorm Digital production.
+Answer engine visibility tracking that tells you what to do, not just where you stand.
 
-CiteSpark asks the questions your buyers actually type into ChatGPT, Gemini and Perplexity, reads every answer, records whether you were named and in what position, captures which domains the engines cited instead, joins that to your GA4 AI Assistant traffic, and then writes a prioritised action list from the gaps it finds.
+Live at **https://cited.ae**. A Sandstorm Digital production.
+
+Cited asks the questions your buyers actually type into ChatGPT, Gemini and Perplexity, reads every answer, records whether you were named and in what position, captures which domains the engines cited instead, joins that to your GA4 AI Assistant traffic, and then writes a prioritised action list from the gaps it finds.
 
 The action list is the product. The dashboard is how you check its working.
 
@@ -11,7 +13,7 @@ The action list is the product. The dashboard is how you check its working.
 ## Quick start (10 minutes, no API spend)
 
 ```bash
-git clone <your-repo> citespark && cd citespark
+git clone <your-repo> cited && cd cited
 npm install
 cp .env.example .env      # set DATABASE_URL and SESSION_SECRET, leave MOCK_MODE=true
 npm run migrate
@@ -36,7 +38,11 @@ To switch to live data, set `MOCK_MODE=false` and add your DataForSEO credential
 
 ### Connecting a subdomain
 
-In Render, open the web service, go to **Settings > Custom Domains**, add `citespark.sandstormdigital.com`. Render gives you a CNAME target. Add that CNAME at your DNS provider and Render issues the TLS certificate automatically, usually within a few minutes. Use a subdomain rather than the apex so you avoid ALIAS record faff.
+Live at **https://cited.ae**.
+
+In Render, open the web service, go to **Settings > Custom Domains**, and add both `cited.ae` and `www.cited.ae`. Render gives you a target for each. The apex needs an ALIAS or ANAME record if your DNS provider supports one, or an A record to the address Render gives you; `www` takes a plain CNAME. Render issues the TLS certificate automatically once the records resolve.
+
+Set one as canonical and redirect the other, otherwise both versions get indexed. `www` to apex is the usual choice, and the canonical tag in `landing.html` already points at the apex.
 
 ---
 
@@ -177,7 +183,7 @@ STRIPE_PRICE_AGENCY=price_...
 STRIPE_PRICE_AGENCY_ANNUAL=price_...
 ```
 
-3. Add a webhook endpoint pointing at `https://your-domain/api/stripe/webhook`, subscribed to `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated` and `customer.subscription.deleted`. Copy its signing secret into `STRIPE_WEBHOOK_SECRET`.
+3. Add a webhook endpoint pointing at `https://cited.ae/api/stripe/webhook`, subscribed to `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated` and `customer.subscription.deleted`. Copy its signing secret into `STRIPE_WEBHOOK_SECRET`.
 4. Enable the Customer Portal in Stripe settings, which is what the Manage billing button opens.
 
 Test locally with `stripe listen --forward-to localhost:3000/api/stripe/webhook`, and card `4242 4242 4242 4242`.

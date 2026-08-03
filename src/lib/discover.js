@@ -10,7 +10,7 @@ import { complete, parseJsonArray } from './anthropic.js';
  * never written down anywhere but is what makes the questions good.
  */
 
-const UA = 'Mozilla/5.0 (compatible; CiteSparkBot/1.0; +https://citespark.app/bot)';
+const UA = 'Mozilla/5.0 (compatible; CitedBot/1.0; +https://cited.ae/bot)';
 
 export function normaliseDomain(input) {
   return String(input || '')
@@ -144,7 +144,7 @@ Rules:
 
 export async function discoverSite(domainInput) {
   const domain = normaliseDomain(domainInput);
-  if (!domain.includes('.')) return { ok: false, error: 'Enter a domain, for example sandstormdigital.com' };
+  if (!domain.includes('.')) return { ok: false, error: 'Enter a domain, for example yourcompany.com' };
 
   const fetched = await fetchHtml(domain);
   if (!fetched) {

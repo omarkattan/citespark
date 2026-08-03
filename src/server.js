@@ -42,7 +42,7 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
 app.use(express.json({ limit: '1mb' }));
 app.use(
   cookieSession({
-    name: 'citespark',
+    name: 'cited',
     keys: [process.env.SESSION_SECRET || 'change-me-in-env'],
     maxAge: 30 * 24 * 60 * 60 * 1000,
     sameSite: 'lax',
@@ -341,7 +341,7 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
     .replace(/^www\./, '')
     .replace(/\/.*$/, '');
 
-  if (!cleanDomain.includes('.')) return res.status(400).json({ error: 'Enter a domain, for example sandstormdigital.com' });
+  if (!cleanDomain.includes('.')) return res.status(400).json({ error: 'Enter a domain, for example yourcompany.com' });
   if (!brandName?.trim()) return res.status(400).json({ error: 'Enter the brand name as customers would say it' });
 
   const existing = await one('SELECT id FROM projects WHERE org_id = $1 AND domain = $2', [req.session.orgId, cleanDomain]);
@@ -411,7 +411,7 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
 app.patch('/api/projects/:id', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
-  const { name, brandName, aliases, category, qualifier, market, runsPerCycle, engines } = req.body || {};
+  const { name, brandName, aliases, category, qualifier, market, runsPerCycle, engines, autoCycle } = req.body || {};
 
   let engineList = null;
   if (Array.isArray(engines)) {
@@ -429,7 +429,8 @@ app.patch('/api/projects/:id', requireAuth, wrap(async (req, res) => {
        qualifier = COALESCE($6, qualifier),
        market = COALESCE($7, market),
        runs_per_cycle = COALESCE($8, runs_per_cycle),
-       engines = COALESCE($9, engines)
+       engines = COALESCE($9, engines),
+       auto_cycle = COALESCE($10, auto_cycle)
      WHERE id = $1`,
     [
       project.id,
@@ -440,7 +441,8 @@ app.patch('/api/projects/:id', requireAuth, wrap(async (req, res) => {
       qualifier?.trim() || null,
       market?.toUpperCase() || null,
       Number.isInteger(runsPerCycle) ? Math.min(10, Math.max(1, runsPerCycle)) : null,
-      engineList
+      engineList,
+      typeof autoCycle === 'boolean' ? autoCycle : null
     ]
   );
   // Keep the owned entity in step with the brand name.
@@ -731,6 +733,58 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
     });
 }));
 
+/**
+ * Run every site on the account. Sites already mid-cycle are skipped rather
+ * than queued twice, and each still passes its own plan and budget check.
+ */
+app.post('/api/run-all', requireAuth, wrap(async (req, res) => {
+  const projects = await many('SELECT id, name FROM projects WHERE org_id = $1 ORDER BY id', [req.session.orgId]);
+  const started = [];
+  const skipped = [];
+
+  for (const p of projects) {
+    const phase = cycles.get(p.id)?.phase;
+    if (phase === 'starting' || phase === 'asking' || phase === 'thinking') {
+      skipped.push({ name: p.name, reason: 'already running' });
+      continue;
+    }
+
+    const active = await one('SELECT COUNT(*)::int AS n FROM prompts WHERE project_id = $1 AND active', [p.id]);
+    if (!active.n) {
+      skipped.push({ name: p.name, reason: 'no active questions' });
+      continue;
+    }
+
+    const project = await one('SELECT * FROM projects WHERE id = $1', [p.id]);
+    const budget = await budgetForCycle(req.session.orgId, {
+      questions: active.n,
+      engines: project.engines?.length ? project.engines : ['chatgpt'],
+      runs: project.runs_per_cycle
+    });
+    if (!budget.ok) {
+      skipped.push({ name: p.name, reason: 'allowance used up' });
+      continue;
+    }
+
+    cycles.set(p.id, { phase: 'starting', done: 0, total: budget.maxCalls, startedAt: Date.now() });
+    started.push({ id: p.id, name: p.name, calls: budget.maxCalls });
+
+    runCycleForProject(p.id, {
+      onProgress: (pr) => {
+        const prev = cycles.get(p.id) || {};
+        cycles.set(p.id, { ...prev, ...pr, total: pr.total ?? prev.total });
+      }
+    })
+      .then((summary) => cycles.set(p.id, { phase: 'done', done: summary.runs, total: summary.runs, summary, finishedAt: Date.now() }))
+      .catch((err) => {
+        console.error('cycle failed:', err);
+        cycles.set(p.id, { phase: 'failed', error: 'The cycle did not finish.' });
+      });
+  }
+
+  res.json({ ok: true, started, skipped });
+}));
+
 app.post('/api/projects/:id/rebuild', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
@@ -789,7 +843,7 @@ app.get('/api/version', (_req, res) => {
   res.json({
     startedAt: STARTED_AT,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited']
   });
 });
 
@@ -804,5 +858,5 @@ process.on('unhandledRejection', (err) => console.error('unhandled rejection:', 
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`CiteSpark listening on ${port}${MOCK ? ' [MOCK MODE]' : ''}`);
+  console.log(`Cited listening on ${port}${MOCK ? ' [MOCK MODE]' : ''}`);
 });

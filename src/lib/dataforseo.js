@@ -427,7 +427,7 @@ function mockAnswer({ engine, prompt, model }) {
   const sourceCount = 2 + Math.floor(rand() * 3);
   const urls = MOCK_SOURCES.slice(0, sourceCount);
   if (picked.includes('Sandstorm Digital') && rand() > 0.6) {
-    urls.push('https://sandstormdigital.com/services/seo');
+    urls.push('https://example.com/services');
   }
 
   return {

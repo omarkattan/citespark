@@ -1,4 +1,4 @@
--- CiteSpark: schema
+-- Cited: schema
 -- Safe to run repeatedly.
 
 CREATE TABLE IF NOT EXISTS orgs (
@@ -170,3 +170,7 @@ CREATE TABLE IF NOT EXISTS billing_events (
 -- Which AI surfaces this project is measured against. Chosen per project so a
 -- local clinic can skip Claude and a B2B brand can include it.
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS engines TEXT[] NOT NULL DEFAULT '{chatgpt}';
+
+-- Per-site scheduling. An agency rarely wants every client on the same
+-- cadence, and a paused site should stop costing money without being deleted.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS auto_cycle BOOLEAN NOT NULL DEFAULT true;
