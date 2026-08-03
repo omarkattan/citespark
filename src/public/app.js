@@ -331,6 +331,15 @@ function headline(s) {
   return `You were named in ${Math.round((s.visibility || 0) * 100)}% of the ${s.runs} answers we read. Here is what to do about the rest.`;
 }
 
+function failureNote(s) {
+  if (!s.failed?.length) return '';
+  const total = s.failed.reduce((n, f) => n + f.count, 0);
+  const list = s.failed
+    .map((f) => `<b>${esc(f.engine)}</b> failed ${f.count} time${f.count === 1 ? '' : 's'}${f.error ? ` (${esc(f.error)})` : ''}`)
+    .join(', ');
+  return `<p class="report-warn">${total} of ${s.attempted} calls did not return an answer. ${list}. Those were not charged to your allowance, and the visibility figure above ignores them.</p>`;
+}
+
 function showReport(s) {
   const sources = s.topSources?.length
     ? `<p class="report-lede" style="margin-top:14px;font-size:13.5px;color:var(--ink-3)">
@@ -343,12 +352,13 @@ function showReport(s) {
       <button class="report-close" aria-label="Dismiss" data-close-report>&times;</button>
       <div class="report-top"><h2>Cycle finished</h2></div>
       <p class="report-lede">${headline(s)}</p>
+      ${failureNote(s)}
 
       <div class="report-figures">
         <div class="report-fig">
           <div class="k">Visibility</div>
           <div class="v">${Math.round((s.visibility || 0) * 100)}%</div>
-          <div class="n">${s.runs} answers read</div>
+          <div class="n">${s.runs} answers read${s.attempted && s.attempted !== s.runs ? ` of ${s.attempted}` : ''}</div>
         </div>
         ${deltaFig(s)}
         <div class="report-fig">
@@ -359,7 +369,11 @@ function showReport(s) {
         <div class="report-fig">
           <div class="k">Cost</div>
           <div class="v">$${(s.spend || 0).toFixed(2)}</div>
-          <div class="n">${s.trimmed ? 'trimmed to your allowance' : 'this cycle'}</div>
+          <div class="n">${
+            s.estimated && s.spend !== null && s.estimated > s.spend * 1.15
+              ? `estimated $${s.estimated.toFixed(2)}, came in under`
+              : s.trimmed ? 'trimmed to your allowance' : 'actual, this cycle'
+          }${s.billable !== undefined && s.billable !== s.attempted ? ` &middot; ${s.billable} checks used` : ''}</div>
         </div>
       </div>
 
@@ -583,7 +597,7 @@ async function viewSetup() {
           </div>
           <div class="estimate-cost">
             <span class="amt" data-cycle-cost>-</span>
-            <span class="per">per cycle</span>
+            <span class="per" data-cost-label>per cycle</span>
             <span class="month" data-month-cost></span>
           </div>
           <p class="hint" data-cost-source style="margin-top:8px"></p>
@@ -678,14 +692,20 @@ function recalcEstimate() {
 
   const priced = chosen.filter((id) => state.measured?.includes(id));
   const note = box.querySelector('[data-cost-source]');
+  const label = box.querySelector('[data-cost-label]');
+
   if (!chosen.length) {
     note.textContent = 'Pick at least one surface.';
+    if (label) label.textContent = 'per cycle';
   } else if (priced.length === chosen.length) {
-    note.textContent = 'Based on what these surfaces have actually cost you, not an estimate.';
+    note.textContent = 'Your own measured cost for these surfaces, averaged over previous runs.';
+    if (label) label.textContent = 'per cycle';
   } else if (priced.length) {
-    note.textContent = `Measured for ${priced.length} of ${chosen.length} surfaces, estimated for the rest until they have run a few times.`;
+    note.textContent = `Measured for ${priced.length} of ${chosen.length} surfaces. The rest use a deliberate over-estimate until they have run a few times, so the real figure is usually lower.`;
+    if (label) label.textContent = 'per cycle, at most';
   } else {
-    note.textContent = 'Estimated. This becomes your own measured cost after a few cycles.';
+    note.textContent = 'A ceiling, not a guess. Engines refund the unused part of each call, so your first few cycles usually come in well under this. It converges on your real cost after that.';
+    if (label) label.textContent = 'per cycle, at most';
   }
 }
 

@@ -188,6 +188,26 @@ STRIPE_PRICE_AGENCY_ANNUAL=price_...
 
 Test locally with `stripe listen --forward-to localhost:3000/api/stripe/webhook`, and card `4242 4242 4242 4242`.
 
+### Reconciling estimates against reality
+
+The estimate on the Setup tab uses per-surface costs measured from this account's own runs, falling back to deliberate ceilings until a surface has run at least three times. Ceilings run high on purpose, because DataForSEO takes a prepayment per LLM task and refunds the unused part, so a new account's first cycles come in well under the quote.
+
+To check the accounting against your actual prepaid balance:
+
+```sql
+SELECT cycle_date, engine, COUNT(*) AS calls,
+       ROUND(SUM(cost_usd)::numeric, 4) AS recorded,
+       ROUND(AVG(cost_usd)::numeric, 5) AS avg_each
+FROM runs
+WHERE cycle_date = CURRENT_DATE
+GROUP BY 1, 2
+ORDER BY recorded DESC;
+```
+
+Compare the recorded total with the drop in your DataForSEO balance. If they agree, only the forward estimate was high and it will converge on its own. If they disagree, the recording is wrong and the plan spend caps are running off a bad number, which needs fixing before it reaches customers.
+
+Once you have a few hundred real runs, set `WORST_CASE_CALL` in `plans.js` from the highest observed `avg_each` rather than the current $0.03. If ChatGPT really settles near $0.011, every allowance can roughly double at the same margin.
+
 ### How enforcement works
 
 The database is the source of truth for what an org may do, not Stripe. Webhooks write into `subscriptions`; every limit check reads from it. A Stripe outage therefore degrades to "nobody can change plan" rather than "nobody can work".

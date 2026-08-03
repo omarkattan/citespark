@@ -71,6 +71,8 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress } = 
 
   let spend = 0;
   let done = 0;
+  let billable = 0;          // what we charge the customer's allowance for
+  const failures = new Map(); // engine -> {n, error}
   const report = (extra = {}) => onProgress?.({ done, total: jobs.length, spend, ...extra });
   report({ phase: 'asking' });
 
@@ -83,6 +85,16 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress } = 
     });
 
     spend += answer.costUsd || 0;
+
+    // A call only costs the customer an allowance check if it either produced
+    // an answer or actually cost us money. Charging for a silent failure is
+    // both unfair and hides the failure.
+    if (answer.ok || (answer.costUsd || 0) > 0) billable++;
+    if (!answer.ok) {
+      const key = engine;
+      const prev = failures.get(key) || { n: 0, error: answer.error };
+      failures.set(key, { n: prev.n + 1, error: prev.error || answer.error });
+    }
 
     const run = await one(
       `INSERT INTO runs (prompt_id, project_id, engine, model, cycle_date, run_index, response_text, ok, error, cost_usd, fan_out_queries)
@@ -132,14 +144,26 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress } = 
     if (done % 20 === 0) console.log(`  ${done}/${jobs.length} runs complete`);
   });
 
-  await recordUsage(project.org_id, jobs.length, spend);
+  await recordUsage(project.org_id, billable, spend);
+
+  const failed = [...failures.entries()].map(([engine, f]) => ({ engine, count: f.n, error: f.error }));
+  if (failed.length) {
+    console.warn(
+      'Failures this cycle: ' + failed.map((f) => `${f.engine} x${f.count} (${f.error})`).join(', ')
+    );
+  }
 
   report({ phase: 'thinking' });
   const recs = await buildRecommendations(projectId);
   await persistRecommendations(projectId, recs);
 
-  const summary = await summarise(projectId, cycle, { runs: done, spend, recs, trimmed: budget.trimmed });
-  console.log(`Done. ${done}/${jobs.length} usable runs, $${spend.toFixed(4)} spent, ${recs.length} recommendations.`);
+  const summary = await summarise(projectId, cycle, {
+    runs: done, spend, recs, trimmed: budget.trimmed, estimated: budget.estimateUsd,
+    attempted: jobs.length, billable, failed
+  });
+  console.log(
+    `Done. ${done}/${jobs.length} usable runs (${billable} billed), $${spend.toFixed(4)} spent, ${recs.length} recommendations.`
+  );
   report({ phase: 'done', summary });
   return summary;
 }
@@ -148,7 +172,7 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress } = 
  * What actually changed this cycle, in the terms a person cares about:
  * did visibility move, what is new to do, and what did it cost.
  */
-async function summarise(projectId, cycle, { runs, spend, recs, trimmed }) {
+async function summarise(projectId, cycle, { runs, spend, recs, trimmed, estimated, attempted, billable, failed }) {
   const rate = async (cycleDate) => {
     if (!cycleDate) return null;
     const row = await one(
@@ -196,6 +220,10 @@ async function summarise(projectId, cycle, { runs, spend, recs, trimmed }) {
     cycle,
     runs,
     spend: Math.round(spend * 1000) / 1000,
+    estimated: estimated ?? null,
+    attempted: attempted ?? runs,
+    billable: billable ?? runs,
+    failed: failed || [],
     trimmed,
     recommendations: recs.length,
     openActions: openCount.n,

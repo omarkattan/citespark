@@ -27,7 +27,8 @@ export const ENGINES = {
     label: 'ChatGPT',
     kind: 'llm',
     path: 'chat_gpt',
-    model: process.env.MODEL_CHATGPT || 'gpt-4.1-mini',
+    model: process.env.MODEL_CHATGPT || null,
+    supportsCountry: true,
     note: 'The largest surface by usage. Start here.'
   },
   ai_overview: {
@@ -46,21 +47,28 @@ export const ENGINES = {
     label: 'Perplexity',
     kind: 'llm',
     path: 'perplexity',
-    model: process.env.MODEL_PERPLEXITY || 'sonar',
+    model: process.env.MODEL_PERPLEXITY || null,
+    supportsCountry: true,
     note: 'Leans hardest on freshly crawled pages, so it moves first when you publish.'
   },
   gemini: {
     label: 'Gemini',
     kind: 'llm',
     path: 'gemini',
-    model: process.env.MODEL_GEMINI || 'gemini-2.0-flash',
+    // Observed: DataForSEO rejects several plausible Gemini model strings with
+    // "Invalid Field: 'model_name'". Omitting it lets them pick a valid default,
+    // which is more durable than chasing their supported list.
+    model: process.env.MODEL_GEMINI || null,
+    supportsCountry: true,
     note: 'Favours Google surfaces, so your Business Profile and entity consistency matter here.'
   },
   claude: {
     label: 'Claude',
     kind: 'llm',
     path: 'claude',
-    model: process.env.MODEL_CLAUDE || 'claude-sonnet-4-5',
+    model: process.env.MODEL_CLAUDE || null,
+    // Observed: Claude's endpoint rejects web_search_country_iso_code outright.
+    supportsCountry: false,
     note: 'Smaller reach, but heavily used in B2B and professional services.'
   }
 };
@@ -78,6 +86,9 @@ export const LOCATIONS = {
 };
 
 export const MOCK = String(process.env.MOCK_MODE || '').toLowerCase() === 'true';
+
+/** Transient upstream failures get this many extra attempts. */
+const RETRIES = Number(process.env.ENGINE_RETRIES || 2);
 
 function authHeader() {
   const login = process.env.DATAFORSEO_LOGIN;
@@ -218,23 +229,50 @@ function dedupeCitations(items) {
  * Ask one engine one prompt.
  * Returns { ok, text, citations: [{url, domain, position}], costUsd, model, error }
  */
-export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 700 }) {
+/**
+ * Errors worth trying again. Upstream search failures and rate limits are
+ * transient; a rejected field or bad credentials will fail identically
+ * however many times we ask, so those are not retried.
+ */
+function isTransient(result) {
+  const e = String(result?.error || '');
+  if (!e) return false;
+  if (/Invalid Field|not authorized|40100|Unknown engine/i.test(e)) return false;
+  return /Internal SE Server Error|Task In Queue|HTTP 5\d\d|HTTP 429|timeout|ECONNRESET|fetch failed/i.test(e);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 700, attempt = 0 }) {
   const cfg = ENGINES[engine];
   if (!cfg) return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, error: `Unknown engine ${engine}` };
 
   if (MOCK) return mockAnswer({ engine, prompt, model: cfg.model || cfg.label });
-  if (cfg.kind === 'serp') return askGoogle({ cfg, prompt, market });
 
-  const body = [
-    {
-      user_prompt: prompt.slice(0, 500), // API caps prompt length at 500 chars
-      model_name: cfg.model,
-      max_output_tokens: maxTokens,
-      temperature: 0.3,
-      web_search: true,
-      web_search_country_iso_code: market
-    }
-  ];
+  if (cfg.kind === 'serp') {
+    const first = await askGoogle({ cfg, prompt, market });
+    if (!isTransient(first) || attempt >= RETRIES) return first;
+    await sleep(700 * (attempt + 1));
+    return askEngine({ engine, prompt, market, maxTokens, attempt: attempt + 1 });
+  }
+
+  // Only send fields this endpoint accepts. Anything extra is rejected
+  // outright rather than ignored, which is how a whole engine silently
+  // produced zero answers for a full cycle.
+  const payload = {
+    user_prompt: prompt.slice(0, 500), // API caps prompt length at 500 chars
+    max_output_tokens: maxTokens,
+    temperature: 0.3,
+    web_search: true
+  };
+  if (cfg.model) payload.model_name = cfg.model;
+  if (cfg.supportsCountry !== false) payload.web_search_country_iso_code = market;
+
+  const body = [payload];
+  const retry = async () => {
+    await sleep(700 * (attempt + 1));
+    return askEngine({ engine, prompt, market, maxTokens, attempt: attempt + 1 });
+  };
 
   try {
     const res = await fetch(`${BASE}/ai_optimization/${cfg.path}/llm_responses/live`, {
@@ -244,24 +282,26 @@ export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 700
     });
 
     if (!res.ok) {
-      return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, model: cfg.model, error: `HTTP ${res.status}` };
+      const httpFail = { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, model: cfg.label, error: `HTTP ${res.status}` };
+      return isTransient(httpFail) && attempt < RETRIES ? retry() : httpFail;
     }
 
     const json = await res.json();
-    const task = json?.tasks?.[0];
-    if (!task || task.status_code >= 40000) {
-      return {
+    const taskData = json?.tasks?.[0];
+    if (!taskData || taskData.status_code >= 40000) {
+      const taskFail = {
         ok: false,
         text: '',
         citations: [],
         fanOut: [],
         costUsd: Number(json?.cost || 0),
-        model: cfg.model,
-        error: task?.status_message || 'Task failed'
+        model: cfg.label,
+        error: taskData?.status_message || 'Task failed'
       };
+      return isTransient(taskFail) && attempt < RETRIES ? retry() : taskFail;
     }
 
-    const structured = parseStructured(task.result);
+    const structured = parseStructured(taskData.result);
     let text;
     let citationSource;
     let fanOut = [];
@@ -272,8 +312,8 @@ export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 700
       // Annotations are authoritative. Fall back to a text scan only if there are none.
       citationSource = structured.annotations.length ? structured.annotations : urlsFromText(text);
     } else {
-      text = collectText(task.result).join('\n\n').trim();
-      citationSource = [...collectUrls(task.result), ...urlsFromText(text)];
+      text = collectText(taskData.result).join('\n\n').trim();
+      citationSource = [...collectUrls(taskData.result), ...urlsFromText(text)];
     }
 
     return {
@@ -281,12 +321,13 @@ export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 700
       text,
       citations: dedupeCitations(citationSource),
       fanOut,
-      costUsd: Number(json?.cost ?? task?.cost ?? 0),
-      model: task?.result?.[0]?.model_name || cfg.model,
+      costUsd: Number(json?.cost ?? taskData?.cost ?? 0),
+      model: taskData?.result?.[0]?.model_name || cfg.model || cfg.label,
       error: text.length ? null : 'Empty response'
     };
   } catch (err) {
-    return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, model: cfg.model, error: String(err.message || err) };
+    const failure = { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, model: cfg.label, error: String(err.message || err) };
+    return isTransient(failure) && attempt < RETRIES ? retry() : failure;
   }
 }
 
@@ -358,7 +399,7 @@ async function askGoogle({ cfg, prompt, market }) {
       text,
       citations: dedupeCitations(urls),
       fanOut: [],
-      costUsd: Number(json?.cost ?? task?.cost ?? 0),
+      costUsd: Number(json?.cost ?? taskData?.cost ?? 0),
       model: cfg.label,
       error: text.length ? null : 'No AI answer returned for this query'
     };

@@ -729,3 +729,14 @@ select { appearance: auto; }
   border-radius: 2px;
 }
 .runmenu button:hover { background: var(--line-2); }
+
+.report-warn {
+  background: #fdf3e7;
+  border: 1px solid #e8c9a0;
+  color: #7a4d16;
+  border-radius: var(--radius);
+  padding: 11px 14px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  margin: 14px 0 0;
+}

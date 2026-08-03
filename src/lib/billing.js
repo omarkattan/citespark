@@ -133,10 +133,23 @@ export async function checkCanAddQuestions(orgId, projectId, adding = 1) {
   return null;
 }
 
+/**
+ * Used only until a surface has run enough times on this account to be
+ * measured. Deliberately a ceiling rather than a guess: it is better to
+ * over-reserve budget for a new account than to let one overspend.
+ *
+ * Observed in practice, August 2026: ChatGPT settled near $0.011 a call
+ * against this $0.02 ceiling, because DataForSEO takes a $0.01 prepayment
+ * per LLM task and refunds the unused part. So estimates for a brand new
+ * account run high and converge downwards after the first few cycles.
+ */
 const DEFAULT_COST = {
-  chatgpt: 0.03, gemini: 0.02, claude: 0.025, perplexity: 0.02,
+  chatgpt: 0.02, gemini: 0.015, claude: 0.018, perplexity: 0.015,
   ai_overview: 0.002, ai_mode: 0.002
 };
+
+/** How many runs before we trust this account's own average over the default. */
+const MEASURE_THRESHOLD = 3;
 
 /**
  * What each surface has actually cost this account. Falls back to
@@ -151,10 +164,12 @@ export async function engineCosts(orgId) {
      GROUP BY r.engine`,
     [orgId]
   );
-  const measured = Object.fromEntries(rows.filter((r) => r.n >= 3).map((r) => [r.engine, Number(r.avg_cost)]));
+  const measured = Object.fromEntries(
+    rows.filter((r) => r.n >= MEASURE_THRESHOLD).map((r) => [r.engine, Number(r.avg_cost)])
+  );
   const costs = {};
-  for (const id of ENGINE_IDS) costs[id] = measured[id] ?? DEFAULT_COST[id] ?? 0.02;
-  return { costs, measured: Object.keys(measured) };
+  for (const id of ENGINE_IDS) costs[id] = measured[id] ?? DEFAULT_COST[id] ?? 0.015;
+  return { costs, measured: Object.keys(measured), samples: Object.fromEntries(rows.map((r) => [r.engine, r.n])) };
 }
 
 /** Called before a cycle. Returns the shape the cycle is allowed to run at. */

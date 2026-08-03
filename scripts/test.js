@@ -375,6 +375,64 @@ await test('survives malformed JSON-LD without throwing', () => {
   assert.equal(s.schemaName, null);
 });
 
+console.log('\nrequest shaping and retries');
+
+await test('sends only the fields each endpoint accepts', async () => {
+  process.env.MOCK_MODE = 'false';
+  process.env.DATAFORSEO_LOGIN = 'x';
+  process.env.DATAFORSEO_PASSWORD = 'y';
+  const { askEngine: live } = await import('../src/lib/dataforseo.js?fields=1');
+  const sent = {};
+  const realFetch = global.fetch;
+  global.fetch = async (url, opts) => {
+    sent[url.split('/').slice(-3)[0]] = JSON.parse(opts.body)[0];
+    return { ok: true, json: async () => ({ tasks: [{ status_code: 20000, result: [{ items: [{ sections: [{ text: 'ok' }] }] }] }] }) };
+  };
+  for (const e of ['chatgpt', 'gemini', 'claude', 'perplexity']) {
+    await live({ engine: e, prompt: 'test', market: 'AE' });
+  }
+  global.fetch = realFetch;
+
+  // Claude rejects this field outright, which silently killed a whole engine.
+  assert.equal(sent.claude.web_search_country_iso_code, undefined,
+    'claude must not be sent web_search_country_iso_code');
+  assert.equal(sent.chat_gpt.web_search_country_iso_code, 'AE');
+
+  // model_name is omitted unless explicitly configured, because a wrong
+  // value is rejected rather than ignored.
+  for (const k of Object.keys(sent)) {
+    assert.equal(sent[k].model_name, undefined, `${k} should not send model_name by default`);
+  }
+});
+
+await test('retries transient failures but not permanent ones', async () => {
+  process.env.MOCK_MODE = 'false';
+  process.env.ENGINE_RETRIES = '2';
+  const { askEngine: live } = await import('../src/lib/dataforseo.js?retry=1');
+  const realFetch = global.fetch;
+
+  const run = async (responder) => {
+    let calls = 0;
+    global.fetch = async () => { calls++; return responder(); };
+    await live({ engine: 'chatgpt', prompt: 'x' });
+    return calls;
+  };
+
+  const transient = await run(() => ({ ok: true, json: async () => ({ tasks: [{ status_code: 50000, status_message: 'Internal SE Server Error.' }] }) }));
+  assert.equal(transient, 3, 'transient failures get 1 attempt plus 2 retries');
+
+  const permanent = await run(() => ({ ok: true, json: async () => ({ tasks: [{ status_code: 40501, status_message: "Invalid Field: 'model_name'." }] }) }));
+  assert.equal(permanent, 1, 'a rejected field will fail identically every time, so do not retry');
+
+  const unauthorised = await run(() => ({ ok: false, status: 401 }));
+  assert.equal(unauthorised, 1, 'bad credentials must not be retried');
+
+  const serverError = await run(() => ({ ok: false, status: 503 }));
+  assert.equal(serverError, 3, 'upstream 5xx is worth retrying');
+
+  global.fetch = realFetch;
+});
+
 console.log('\nengine catalogue');
 
 await test('covers every surface DataForSEO can reach, and nothing it cannot', () => {
