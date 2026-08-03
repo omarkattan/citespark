@@ -932,3 +932,25 @@ select { appearance: auto; }
 .gsc-summary { display: flex; gap: 6px; flex-wrap: wrap; margin: 14px 0 6px; }
 .gsc-examples { color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; margin-top: 3px; }
 #gscPanel .row { align-items: flex-start; }
+
+/* ---------- inline list filters ---------- */
+
+.searchrow { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; }
+.searchrow input[type='search'] {
+  flex: 1;
+  font-size: 13.5px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink);
+}
+.searchrow input[type='search']::placeholder { color: var(--ink-3); }
+.searchcount {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  min-width: 62px;
+  text-align: right;
+}

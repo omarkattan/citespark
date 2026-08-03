@@ -220,7 +220,7 @@ async function viewQuestions() {
         .map((c) => `<span class="chip ${c.domain === state.overview?.project?.domain?.replace(/^www\./, '') ? 'own' : ''}">${esc(c.domain)}</span>`)
         .join('');
       return `
-      <div class="prompt">
+      <div class="prompt" data-filter-text="${esc(`${p.text} ${p.cluster} ${p.intent} ${p.citations.map((c) => c.domain).join(' ')}`.toLowerCase())}">
         <div>
           <p class="prompt-q">${esc(p.text)}</p>
           <div class="prompt-tags">${esc(p.cluster)} &middot; ${esc(p.intent)} &middot; est. AI volume <b>${p.volume}</b></div>
@@ -233,7 +233,18 @@ async function viewQuestions() {
       </div>`;
     })
     .join('');
-  return `<div class="panel"><div class="panel-head"><h2>Every tracked question</h2><div class="spacer"></div><span class="meta" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">filled tick = you were named</span></div>${rows}</div>`;
+  return `<div class="panel">
+    <div class="panel-head">
+      <h2>Every tracked question</h2>
+      <div class="spacer"></div>
+      <span class="meta" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">filled tick = you were named</span>
+    </div>
+    ${prompts.length > 8 ? searchBox('promptFilter', 'Filter by question, cluster or cited domain', 'promptFilterCount') : ''}
+    <div id="promptList">
+      ${rows}
+      <p class="hint" data-filter-empty hidden>No question matches that.</p>
+    </div>
+  </div>`;
 }
 
 async function viewRivals() {
@@ -422,14 +433,18 @@ async function loadGa4Properties() {
     box.innerHTML = `<p class="hint">That Google account cannot see any GA4 properties. Connect a different account, or ask for read access.</p>`;
     return;
   }
-  box.innerHTML = d.properties
-    .map(
-      (p) => `<div class="row">
-        <div class="grow"><div class="name">${esc(p.name)}</div><div class="sub">${esc(p.account)} &middot; ${esc(p.id)}</div></div>
-        <button class="ghost" data-ga4-pick="${esc(p.id)}" data-ga4-name="${esc(p.name)}">Use this</button>
-      </div>`
-    )
-    .join('');
+  box.innerHTML =
+    (d.properties.length > 6 ? searchBox('ga4Filter', 'Filter by property or account name', 'ga4FilterCount') : '') +
+    `<div id="ga4List">` +
+    d.properties
+      .map(
+        (p) => `<div class="row" data-filter-text="${esc(`${p.name} ${p.account} ${p.id}`.toLowerCase())}">
+          <div class="grow"><div class="name">${esc(p.name)}</div><div class="sub">${esc(p.account)} &middot; ${esc(p.id)}</div></div>
+          <button class="ghost" data-ga4-pick="${esc(p.id)}" data-ga4-name="${esc(p.name)}">Use this</button>
+        </div>`
+      )
+      .join('') +
+    `<p class="hint" data-filter-empty hidden>No property matches that.</p></div>`;
 }
 
 document.addEventListener('click', async (e) => {
@@ -1042,7 +1057,7 @@ async function viewSetup() {
 
   const promptRows = data.prompts
     .map(
-      (q) => `<div class="row ${q.active ? '' : 'off'}">
+      (q) => `<div class="row ${q.active ? '' : 'off'}" data-filter-text="${esc(`${q.text} ${q.cluster} ${q.intent}`.toLowerCase())}">
         <div class="grow">
           <div class="name">${esc(q.text)}</div>
           <div class="sub">${esc(q.cluster)} &middot; ${esc(q.intent)} &middot; volume ${q.ai_search_volume}</div>
@@ -1168,7 +1183,11 @@ async function viewSetup() {
         <button class="ghost" id="q_generate">Suggest 10 more</button>
       </div>
       <p class="dek" style="margin:0 0 4px;font-size:13px">Write these the way a customer types them, never with the brand name in. Paused questions stay in the record but are not asked.</p>
-      ${promptRows}
+      ${data.prompts.length > 8 ? searchBox('qFilter', 'Filter questions', 'qFilterCount') : ''}
+      <div id="qList">
+        ${promptRows}
+        <p class="hint" data-filter-empty hidden>No question matches that.</p>
+      </div>
       <div class="inline-form">
         <input id="q_text" placeholder="Write it exactly as a customer would type it, without your brand name" />
         <button id="q_add">Add</button>
@@ -1179,11 +1198,43 @@ async function viewSetup() {
   </div>`;
 }
 
+/**
+ * Filter a list of rows in place. Lists here get long (a GA4 account can hold
+ * hundreds of properties, and a site can track sixty questions), so filtering
+ * happens client-side against text already on the page rather than round
+ * tripping to the server.
+ */
+function filterRows(containerId, term, countId) {
+  const box = $(containerId);
+  if (!box) return;
+  const needle = term.trim().toLowerCase();
+  let shown = 0;
+
+  for (const row of box.querySelectorAll('[data-filter-text]')) {
+    const hit = !needle || row.dataset.filterText.includes(needle);
+    row.hidden = !hit;
+    if (hit) shown++;
+  }
+
+  const empty = box.querySelector('[data-filter-empty]');
+  if (empty) empty.hidden = shown > 0;
+  const counter = countId && $(countId);
+  if (counter) counter.textContent = needle ? `${shown} of ${box.querySelectorAll('[data-filter-text]').length}` : '';
+}
+
+function searchBox(id, placeholder, countId) {
+  return `<div class="searchrow">
+    <input type="search" id="${id}" placeholder="${placeholder}" autocomplete="off" spellcheck="false" />
+    ${countId ? `<span class="searchcount" id="${countId}"></span>` : ''}
+  </div>`;
+}
+
 /* ---------- search console import ---------- */
 
 function gscCandidateRow(c, i) {
   const pos = c.avgPosition ? c.avgPosition.toFixed(1) : '-';
-  return `<div class="row ${c.alreadyTracked ? 'off' : ''}">
+  const haystack = `${c.text} ${c.examples.join(' ')} ${c.cluster || ''}`.toLowerCase();
+  return `<div class="row ${c.alreadyTracked ? 'off' : ''}" data-filter-text="${esc(haystack)}">
     <label class="grow eng">
       <input type="checkbox" data-gsc="${i}" ${c.alreadyTracked ? 'disabled' : 'checked'} />
       <span>
@@ -1227,9 +1278,14 @@ async function loadGscCandidates() {
       <span class="tag">${d.clusters} intent clusters</span>
       <span class="tag ok">${available} worth tracking</span>
     </div>
-    ${d.candidates.map(gscCandidateRow).join('')}
+    ${searchBox('gscFilter', 'Filter these questions', 'gscFilterCount')}
+    <div id="gscList">
+      ${d.candidates.map(gscCandidateRow).join('')}
+      <p class="hint" data-filter-empty hidden>Nothing matches that.</p>
+    </div>
     <div class="inline-form">
       <button id="gscImport">Add selected questions</button>
+      <button class="ghost" id="gscAll">Select shown</button>
       <button class="ghost" id="gscNone">Clear selection</button>
       <span class="hint" id="gscNote" style="margin:0"></span>
     </div>`;
@@ -1251,14 +1307,17 @@ async function loadGscSites() {
     return;
   }
   body.innerHTML = `<p class="teardown-label">Which property</p>` +
+    (d.sites.length > 6 ? searchBox('gscSiteFilter', 'Filter properties', 'gscSiteCount') : '') +
+    `<div id="gscSiteList">` +
     d.sites
       .map(
-        (s) => `<div class="row">
+        (s) => `<div class="row" data-filter-text="${esc(s.url.toLowerCase())}">
           <div class="grow"><div class="name">${esc(s.url)}</div><div class="sub">${esc(s.permission)}</div></div>
           <button class="ghost" data-gsc-site="${esc(s.url)}">Use this</button>
         </div>`
       )
-      .join('');
+      .join('') +
+    `<p class="hint" data-filter-empty hidden>No property matches that.</p></div>`;
 }
 
 document.addEventListener('click', async (e) => {
@@ -1276,6 +1335,13 @@ document.addEventListener('click', async (e) => {
 
   if (e.target.id === 'gscNone') {
     document.querySelectorAll('input[data-gsc]').forEach((b) => { if (!b.disabled) b.checked = false; });
+  }
+
+  if (e.target.id === 'gscAll') {
+    // Only what is currently visible, so it works with the filter.
+    document.querySelectorAll('#gscList .row:not([hidden]) input[data-gsc]').forEach((b) => {
+      if (!b.disabled) b.checked = true;
+    });
   }
 
   if (e.target.id === 'gscImport') {
@@ -1376,6 +1442,19 @@ function syncEngineUi() {
 
   recalcEstimate();
 }
+
+const FILTERS = {
+  gscFilter: ['gscList', 'gscFilterCount'],
+  gscSiteFilter: ['gscSiteList', 'gscSiteCount'],
+  ga4Filter: ['ga4List', 'ga4FilterCount'],
+  qFilter: ['qList', 'qFilterCount'],
+  promptFilter: ['promptList', 'promptFilterCount']
+};
+
+document.addEventListener('input', (e) => {
+  const target = FILTERS[e.target.id];
+  if (target) { filterRows(target[0], e.target.value, target[1]); return; }
+});
 
 document.addEventListener('input', (e) => {
   if (e.target.id !== 's_runs') return;
