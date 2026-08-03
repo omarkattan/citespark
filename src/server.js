@@ -1072,6 +1072,46 @@ app.get('/api/ga4/callback', wrap(async (req, res) => {
   }
 }));
 
+/**
+ * Google accounts already connected elsewhere on this org. An agency running
+ * twenty clients off one Google login should not repeat OAuth twenty times.
+ */
+app.get('/api/ga4/connections', requireAuth, wrap(async (req, res) => {
+  const rows = await many(
+    `SELECT ga4_account_email AS email,
+            COUNT(*)::int AS sites,
+            MIN(id)::int AS source_project_id
+     FROM projects
+     WHERE org_id = $1 AND ga4_refresh_token IS NOT NULL AND ga4_account_email IS NOT NULL
+     GROUP BY ga4_account_email
+     ORDER BY sites DESC`,
+    [req.session.orgId]
+  );
+  res.json({ connections: rows });
+}));
+
+/** Copy an existing authorisation onto another site in the same org. */
+app.post('/api/projects/:id/ga4/reuse', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+
+  const source = await one(
+    `SELECT ga4_refresh_token, ga4_account_email FROM projects
+     WHERE org_id = $1 AND ga4_account_email = $2 AND ga4_refresh_token IS NOT NULL
+     LIMIT 1`,
+    [req.session.orgId, String(req.body?.email || '')]
+  );
+  if (!source) return res.status(404).json({ error: 'That Google account is not connected on this account' });
+
+  await query(
+    `UPDATE projects SET ga4_refresh_token = $2, ga4_account_email = $3, ga4_connected_at = now(),
+                         ga4_property_id = NULL, ga4_property_name = NULL
+     WHERE id = $1`,
+    [project.id, source.ga4_refresh_token, source.ga4_account_email]
+  );
+  res.json({ ok: true });
+}));
+
 app.get('/api/projects/:id/ga4/properties', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
@@ -1163,7 +1203,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account']
   });
 });
 

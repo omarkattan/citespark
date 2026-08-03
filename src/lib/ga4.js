@@ -57,7 +57,11 @@ export function authUrl({ redirectUri, state }) {
     response_type: 'code',
     scope: OAUTH_SCOPES.join(' '),
     access_type: 'offline',
-    prompt: 'consent', // force a refresh token even on a repeat authorisation
+    // select_account matters as much as consent: without it Google silently
+    // reuses whichever account the browser is already signed into, so an
+    // agency connecting a second client never gets the chance to pick a
+    // different one. consent forces a refresh token on repeat authorisations.
+    prompt: 'select_account consent',
     include_granted_scopes: 'true',
     state
   });

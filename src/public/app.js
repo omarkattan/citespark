@@ -237,6 +237,22 @@ async function viewTraffic() {
 
   /* not connected */
   if (!conn.connected) {
+    const others = (await api('/api/ga4/connections'))?.connections || [];
+    const reuse = others.length
+      ? `<div class="reuse">
+          <p class="reuse-label">Already connected on this account</p>
+          ${others
+            .map(
+              (o) => `<div class="row">
+                <div class="grow"><div class="name">${esc(o.email)}</div><div class="sub">used on ${o.sites} site${o.sites === 1 ? '' : 's'}</div></div>
+                <button class="ghost" data-ga4-reuse="${esc(o.email)}">Use here too</button>
+              </div>`
+            )
+            .join('')}
+          <p class="hint" style="margin-top:10px">Or connect a different Google account below.</p>
+        </div>`
+      : '';
+
     return `<div class="panel connect-card">
       <div class="connect-mark">
         <svg width="34" height="34" viewBox="0 0 24 24" aria-hidden="true">
@@ -255,8 +271,9 @@ async function viewTraffic() {
         <li>Which landing pages AI traffic actually converts on</li>
         <li>Read-only access, and you can disconnect at any time</li>
       </ul>
+      ${reuse}
       ${conn.configured
-        ? `<button id="ga4Connect">Connect Google Analytics</button>`
+        ? `<button id="ga4Connect">${others.length ? 'Connect a different Google account' : 'Connect Google Analytics'}</button>`
         : `<p class="notice" style="margin:0">Google sign-in is not configured on this deployment. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</p>`}
       <p class="error" id="ga4Error" role="alert"></p>
     </div>`;
@@ -274,6 +291,9 @@ async function viewTraffic() {
         Connected as <b>${esc(conn.email || 'your Google account')}</b>. Pick the property that measures ${esc(state.overview?.project?.domain || 'this site')}.
       </p>
       <div id="ga4Props"><p class="hint">Loading your properties</p></div>
+      <p class="hint" style="margin-top:14px">
+        Wrong account? <button type="button" class="ghost" id="ga4Reconnect" style="padding:4px 9px;font-size:10px">Connect a different one</button>
+      </p>
       <p class="error" id="ga4Error" role="alert"></p>
     </div>`;
   }
@@ -309,6 +329,7 @@ async function viewTraffic() {
       <h2>Google Analytics</h2>
       <div class="spacer"></div>
       <button class="ghost" id="ga4Sync">Sync now</button>
+      <button class="ghost" id="ga4Reconnect">Change account</button>
       <button class="ghost" id="ga4Disconnect">Disconnect</button>
     </div>
     <div class="conn-status">
@@ -384,6 +405,27 @@ document.addEventListener('click', async (e) => {
     if (!confirm('Disconnect Google Analytics from this site? Traffic data already pulled is kept.')) return;
     await fetch(`/api/projects/${state.projectId}/ga4/disconnect`, { method: 'POST' });
     await render();
+  }
+
+  if (e.target.id === 'ga4Reconnect') {
+    e.target.disabled = true;
+    const res = await fetch(`/api/projects/${state.projectId}/ga4/connect`);
+    const d = await res.json();
+    if (!res.ok) { err(d.error); e.target.disabled = false; return; }
+    window.location.href = d.url;
+  }
+
+  const reuse = e.target.closest('[data-ga4-reuse]');
+  if (reuse) {
+    reuse.disabled = true;
+    const res = await fetch(`/api/projects/${state.projectId}/ga4/reuse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: reuse.dataset.ga4Reuse })
+    });
+    if (!res.ok) { err((await res.json()).error); reuse.disabled = false; return; }
+    await render();
+    loadGa4Properties();
   }
 
   if (e.target.id === 'ga4Change') {

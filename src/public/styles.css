@@ -865,3 +865,20 @@ select { appearance: auto; }
 
 .conn-status { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .tag.ok { background: #e6f4ec; color: var(--good); border: 1px solid var(--good); }
+
+.reuse {
+  text-align: left;
+  max-width: 480px;
+  margin: 0 auto 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 16px 14px;
+}
+.reuse-label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 14px 0 4px;
+}
