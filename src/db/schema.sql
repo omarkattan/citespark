@@ -236,3 +236,15 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS gsc_site_url TEXT;
 -- What the customer actually granted. Without this we cannot tell a missing
 -- scope from a disabled API, and the interface guesses wrong.
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS google_scopes TEXT;
+
+-- Snapshots behind the public visibility index. Refreshed on a schedule, so a
+-- visitor never triggers an API call and the page costs nothing to promote.
+CREATE TABLE IF NOT EXISTS index_snapshots (
+  id          SERIAL PRIMARY KEY,
+  slug        TEXT NOT NULL,
+  market      TEXT NOT NULL DEFAULT 'AE',
+  data        JSONB NOT NULL,
+  cost_usd    NUMERIC(10,6) NOT NULL DEFAULT 0,
+  captured_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS index_latest ON index_snapshots (market, slug, captured_at DESC);
