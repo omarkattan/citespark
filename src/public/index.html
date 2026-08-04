@@ -17,7 +17,7 @@
     <a class="wordmark" href="/" title="Cited home"><svg width="26" height="26" viewBox="0 0 40 40" role="img" aria-hidden="true">
         <path d="M15 8H9v24h6M25 8h6v24h-6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M20 11l2.6 6.4L29 20l-6.4 2.6L20 29l-2.6-6.4L11 20l6.4-2.6z" fill="var(--you)"/>
-      </svg><span class="wordmark-text">Cit<em>ed</em></span></a>
+      </svg><span class="wordmark-text">Cit<em>ed</em></span><span class="beta" title="Cited is in beta. Things will change, and your feedback shapes what changes.">beta</span></a>
     <div class="meta" id="cycleMeta"></div>
     <div class="spacer"></div>
     <select id="projectPicker" style="width:auto;min-width:200px"></select>
@@ -68,6 +68,43 @@
 
   <section id="view"></section>
 </main>
+
+<button id="feedbackBtn" class="feedback-launch" title="Tell us what is wrong or missing">Feedback</button>
+
+<dialog id="feedbackDialog" class="sheet">
+  <form method="dialog">
+    <h2>What would you change?</h2>
+    <p class="dek" style="margin:8px 0 18px;font-size:13.5px">
+      Cited is in beta and we read everything. We will attach which screen you were on so you do not have to explain.
+    </p>
+
+    <div class="field">
+      <label>What kind of thing is it</label>
+      <div class="kinds">
+        <button type="button" class="kind is-on" data-kind="bug">Something broke</button>
+        <button type="button" class="kind" data-kind="confusing">Confusing</button>
+        <button type="button" class="kind" data-kind="idea">Idea</button>
+        <button type="button" class="kind" data-kind="praise">Worked well</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="fbMessage">Tell us</label>
+      <textarea id="fbMessage" rows="5" placeholder="What happened, or what you expected instead"></textarea>
+    </div>
+
+    <div class="field">
+      <label for="fbEmail">Email, if you want a reply</label>
+      <input id="fbEmail" type="email" placeholder="Optional" />
+    </div>
+
+    <p class="error" id="fbError" role="alert"></p>
+    <div class="sheet-foot">
+      <button type="button" class="ghost" id="fbCancel">Cancel</button>
+      <button type="button" id="fbSend">Send</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="siteDialog" class="sheet">
   <form method="dialog" id="siteForm">

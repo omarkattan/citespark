@@ -1052,6 +1052,56 @@ app.post('/api/projects/:id/rebuild', requireAuth, wrap(async (req, res) => {
   res.json({ ok: true, count: recs.length });
 }));
 
+/* ---------------- feedback ---------------- */
+
+const FEEDBACK_KINDS = ['bug', 'idea', 'confusing', 'praise', 'other'];
+
+/**
+ * Open to signed-out visitors as well, because the public demo is where the
+ * first impression forms and that is exactly the feedback worth having.
+ */
+app.post('/api/feedback', wrap(async (req, res) => {
+  const message = String(req.body?.message || '').trim();
+  if (message.length < 4) return res.status(400).json({ error: 'Tell us a little more than that' });
+  if (message.length > 4000) return res.status(400).json({ error: 'That is longer than we can store. Trim it a little.' });
+
+  const kind = FEEDBACK_KINDS.includes(req.body?.kind) ? req.body.kind : 'other';
+  const email =
+    String(req.body?.email || '').trim().toLowerCase() ||
+    (req.session?.userId ? (await one('SELECT email FROM users WHERE id = $1', [req.session.userId]))?.email : null);
+
+  // Whatever the browser can tell us, so a report is actionable without a
+  // follow-up conversation.
+  const context = {
+    view: String(req.body?.view || '').slice(0, 40),
+    projectId: Number(req.body?.projectId) || null,
+    path: String(req.body?.path || '').slice(0, 200),
+    userAgent: String(req.headers['user-agent'] || '').slice(0, 300),
+    viewport: String(req.body?.viewport || '').slice(0, 20),
+    startedAt: STARTED_AT
+  };
+
+  const row = await one(
+    'INSERT INTO feedback (org_id, user_email, kind, message, context) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+    [req.session?.orgId || null, email, kind, message, JSON.stringify(context)]
+  );
+
+  console.log(`Feedback #${row.id} [${kind}] from ${email || 'anonymous'}: ${message.slice(0, 120)}`);
+  res.json({ ok: true, id: row.id });
+}));
+
+/** Read the queue from the shell: npm run feedback */
+app.get('/api/feedback', requireAuth, wrap(async (req, res) => {
+  // Only the org that owns the deployment should see everything, so this is
+  // scoped to the caller's own organisation.
+  const rows = await many(
+    `SELECT id, kind, message, user_email, context, status, created_at
+     FROM feedback WHERE org_id = $1 ORDER BY created_at DESC LIMIT 100`,
+    [req.session.orgId]
+  );
+  res.json(rows);
+}));
+
 /* ---------------- category landscape ---------------- */
 
 /**
@@ -1385,7 +1435,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback']
   });
 });
 

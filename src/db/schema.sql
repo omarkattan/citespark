@@ -248,3 +248,17 @@ CREATE TABLE IF NOT EXISTS index_snapshots (
   captured_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS index_latest ON index_snapshots (market, slug, captured_at DESC);
+
+-- Feedback from inside the product. Context is captured automatically because
+-- "it broke" without a page or a project is almost impossible to action.
+CREATE TABLE IF NOT EXISTS feedback (
+  id          SERIAL PRIMARY KEY,
+  org_id      INTEGER REFERENCES orgs(id) ON DELETE SET NULL,
+  user_email  TEXT,
+  kind        TEXT NOT NULL DEFAULT 'other',
+  message     TEXT NOT NULL,
+  context     JSONB NOT NULL DEFAULT '{}',
+  status      TEXT NOT NULL DEFAULT 'new',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS feedback_new ON feedback (status, created_at DESC);

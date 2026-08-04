@@ -16,7 +16,8 @@
     "cycle": "node src/jobs/runCycle.js",
     "models": "node scripts/models.js",
     "index": "node scripts/refresh-index.js",
-    "probe": "node scripts/probe-mentions.js"
+    "probe": "node scripts/probe-mentions.js",
+    "feedback": "node scripts/feedback.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

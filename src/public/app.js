@@ -1734,6 +1734,70 @@ function parseRivals(text) {
     .filter((r) => r.name);
 }
 
+/* ---------- feedback ---------- */
+
+let feedbackKind = 'bug';
+
+$('feedbackBtn').addEventListener('click', () => {
+  $('fbError').textContent = '';
+  $('feedbackDialog').showModal();
+  $('fbMessage').focus();
+});
+
+$('fbCancel').addEventListener('click', () => $('feedbackDialog').close());
+
+document.addEventListener('click', (e) => {
+  const k = e.target.closest('.kind');
+  if (!k) return;
+  feedbackKind = k.dataset.kind;
+  document.querySelectorAll('.kind').forEach((b) => b.classList.toggle('is-on', b === k));
+});
+
+$('fbSend').addEventListener('click', async () => {
+  const message = $('fbMessage').value.trim();
+  if (message.length < 4) { $('fbError').textContent = 'Tell us a little more than that.'; return; }
+
+  $('fbSend').disabled = true;
+  $('fbSend').textContent = 'Sending';
+
+  try {
+    // Attach the context so nobody has to describe where they were.
+    const res = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: feedbackKind,
+        message,
+        email: $('fbEmail').value.trim(),
+        view: state.view,
+        projectId: state.projectId,
+        path: location.pathname + location.search,
+        viewport: `${window.innerWidth}x${window.innerHeight}`
+      })
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Could not send that');
+
+    $('feedbackDialog').querySelector('form').innerHTML = `
+      <div class="fb-thanks">
+        <h2>Thank you</h2>
+        <p class="dek" style="margin:0 auto 20px;max-width:40ch">
+          Read by a person, not a queue. If you left an email we will come back to you.
+        </p>
+        <button type="button" id="fbClose">Close</button>
+      </div>`;
+    setTimeout(() => $('feedbackDialog').close(), 2600);
+  } catch (err) {
+    $('fbError').textContent = err.message;
+    $('fbSend').disabled = false;
+    $('fbSend').textContent = 'Send';
+  }
+});
+
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'fbClose') $('feedbackDialog').close();
+});
+
 $('addSiteBtn').addEventListener('click', () => {
   $('f_market').innerHTML = window.countryOptions(window.DEFAULT_COUNTRY);
   $('siteDialog').showModal();
