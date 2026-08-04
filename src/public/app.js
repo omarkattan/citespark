@@ -2255,9 +2255,13 @@ async function viewLandscape() {
   const brand = (d.brand || '').toLowerCase();
   const ownDomain = (d.ownDomain || '').replace(/^www\./, '');
 
+  const market = state.overview?.project?.market || 'AE';
   const toggle = `<div class="switch-int" role="group" aria-label="Platform">
       <button class="int-b ${platform === 'google' ? 'is-on' : ''}" data-landscape="google">Google AI Overview</button>
-      <button class="int-b ${platform === 'chat_gpt' ? 'is-on' : ''}" data-landscape="chat_gpt">ChatGPT</button>
+      <button class="int-b ${platform === 'chat_gpt' ? 'is-on' : ''}" data-landscape="chat_gpt"
+        title="${market === 'US' ? 'Covers the United States' : 'This dataset covers the United States only'}">
+        ChatGPT${market === 'US' ? '' : ' <em>US only</em>'}
+      </button>
     </div>`;
 
   const panel = (title, rows, render, note, err) => `

@@ -1020,3 +1020,5 @@ select { appearance: auto; }
 @media (max-width: 560px) {
   .feedback-launch { right: 12px; bottom: 12px; padding: 9px 13px; }
 }
+
+.int-b em { font-style: normal; opacity: 0.6; font-size: 9px; letter-spacing: 0.08em; margin-left: 4px; }

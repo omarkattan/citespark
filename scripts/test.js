@@ -1081,6 +1081,30 @@ await test('refuses to query with no usable keyword', async () => {
   await assert.rejects(() => m.landscape({ keywords: ['x'], market: 'AE' }), /No usable category keyword/);
 });
 
+await test('each platform gets the parameters it accepts', async () => {
+  process.env.DATAFORSEO_LOGIN = 'x';
+  process.env.DATAFORSEO_PASSWORD = 'y';
+  const m = await import('../src/lib/mentions.js?params=1');
+  const realFetch = global.fetch;
+  let sent = null;
+  global.fetch = async (url, opts) => {
+    sent = JSON.parse(opts.body)[0];
+    return { ok: true, json: async () => ({ cost: 0.2, tasks: [{ status_code: 20000, result: [{ aggregated_metrics: { sources_domain: [] }, items: [] }] }] }) };
+  };
+
+  await m.landscape({ keywords: ['banks uae'], market: 'AE', platform: 'google' });
+  assert.equal(sent.location_name, 'United Arab Emirates', 'Google needs a location, that is the point');
+
+  // "Invalid Field: 'location_name'." The ChatGPT corpus covers one market,
+  // so there is no location to choose and sending one is rejected.
+  await m.landscape({ keywords: ['banks uae'], market: 'AE', platform: 'chat_gpt' });
+  assert.equal(sent.location_name, undefined, 'ChatGPT rejects location_name outright');
+  assert.equal(sent.platform, 'chat_gpt');
+  assert.equal(sent.language_code, 'en');
+
+  global.fetch = realFetch;
+});
+
 await test('warns when the platform does not cover the market', async () => {
   const m = await import('../src/lib/mentions.js?cov=1');
   const realFetch = global.fetch;
@@ -1090,9 +1114,11 @@ await test('warns when the platform does not cover the market', async () => {
   // if the customer is anywhere else.
   const uae = await m.landscape({ keywords: ['banks uae'], market: 'AE', platform: 'chat_gpt' });
   assert.ok(/United States only/i.test(uae.coverageWarning));
+  assert.ok(/United Arab Emirates/i.test(uae.coverageWarning), 'name the market it does not cover');
 
+  // In the US the same dataset is exactly right, so say so rather than warn.
   const us = await m.landscape({ keywords: ['banks usa'], market: 'US', platform: 'chat_gpt' });
-  assert.equal(us.coverageWarning, null);
+  assert.ok(/matches your market/i.test(us.coverageWarning));
 
   const google = await m.landscape({ keywords: ['banks uae'], market: 'AE', platform: 'google' });
   assert.equal(google.coverageWarning, null, 'Google covers all locations');

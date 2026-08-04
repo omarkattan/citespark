@@ -102,11 +102,21 @@ function rowsOf(result) {
   return Array.isArray(result) ? result : [];
 }
 
-const baseParams = ({ market, platform }) => ({
-  platform: PLATFORMS[platform] ? platform : 'google',
-  location_name: LOCATIONS[market] || 'United States',
-  language_code: 'en'
-});
+/**
+ * ChatGPT and Google take different parameters here.
+ *
+ * The ChatGPT corpus is United States only, so it rejects location_name
+ * outright with "Invalid Field: 'location_name'". Google accepts a location
+ * and needs one, since that is the whole point of a UAE index.
+ */
+const baseParams = ({ market, platform }) => {
+  const p = PLATFORMS[platform] ? platform : 'google';
+  if (!PLATFORMS[p].allLocations) {
+    // No location to choose: the dataset covers one market.
+    return { platform: p, language_code: 'en' };
+  }
+  return { platform: p, location_name: LOCATIONS[market] || 'United States', language_code: 'en' };
+};
 
 /**
  * Every endpoint takes `target`, an array of objects. A plain string is
@@ -387,10 +397,11 @@ export async function landscape({ keywords, market = 'AE', platform = 'google' }
     platform,
     platformLabel: PLATFORMS[platform]?.label || platform,
     market,
-    coverageWarning:
-      platform === 'chat_gpt' && market !== 'US'
-        ? 'This dataset covers ChatGPT in the United States only, so these figures do not describe your market. Use Google AI Overview instead.'
-        : null,
+    coverageWarning: PLATFORMS[platform]?.allLocations
+      ? null
+      : market === 'US'
+        ? 'This dataset covers ChatGPT in the United States only, which matches your market.'
+        : `This dataset covers ChatGPT in the United States only. These figures describe the American conversation, not ${LOCATIONS[market] || 'your market'}. For local data use Google AI Overview.`,
     brands: [...brands.values()].sort((a, b) => b.mentions - a.mentions),
     domains: [...domains.values()].sort((a, b) => b.mentions - a.mentions),
     totalMentions: Math.max(...ok.map((r) => r.totalMentions), 0),
