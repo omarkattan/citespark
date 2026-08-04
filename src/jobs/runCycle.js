@@ -146,7 +146,22 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress } = 
 
   await recordUsage(project.org_id, billable, spend);
 
-  const failed = [...failures.entries()].map(([engine, f]) => ({ engine, count: f.n, error: f.error }));
+  const attemptsPerEngine = new Map();
+  for (const j of jobs) attemptsPerEngine.set(j.engine, (attemptsPerEngine.get(j.engine) || 0) + 1);
+
+  const failed = [...failures.entries()].map(([engine, f]) => {
+    const tried = attemptsPerEngine.get(engine) || f.n;
+    return {
+      engine,
+      count: f.n,
+      attempted: tried,
+      rate: tried ? f.n / tried : 0,
+      error: f.error,
+      // A surface failing most of the time is costing you nothing but is also
+      // telling you nothing, and it should be switched off rather than endured.
+      mostlyBroken: tried >= 5 && f.n / tried >= 0.6
+    };
+  });
   if (failed.length) {
     console.warn(
       'Failures this cycle: ' + failed.map((f) => `${f.engine} x${f.count} (${f.error})`).join(', ')

@@ -959,3 +959,6 @@ select { appearance: auto; }
   min-width: 62px;
   text-align: right;
 }
+
+.landscape-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.landscape-head .spacer { flex: 1; }

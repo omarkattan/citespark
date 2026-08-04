@@ -841,6 +841,118 @@ await test('retries transient failures but not permanent ones', async () => {
   global.fetch = realFetch;
 });
 
+console.log('\ncategory landscape');
+
+await test('parses every endpoint shape and survives one failing', async () => {
+  process.env.DATAFORSEO_LOGIN = 'x';
+  process.env.DATAFORSEO_PASSWORD = 'y';
+  const m = await import('../src/lib/mentions.js?land=1');
+  const realFetch = global.fetch;
+
+  // The endpoints nest their rows under different keys and have already been
+  // renamed once, so binding to one shape would break on the next rename.
+  const shapes = {
+    top_mentioned_brands: { items: [{ brand: 'Digital Gravity', mentions_count: 412 }, { name: 'Sandstorm Digital', count: 96 }] },
+    top_mentioned_domains: { domains: [{ domain: 'clutch.co', mentions_count: 900 }, { target: 'reddit.com', mentions: 640 }] },
+    top_mentioned_pages: { items: [{ url: 'https://clutch.co/ae', citations_count: 220 }, { page: 'https://digitalgravity.ae/seo', mentions: 140 }] },
+    multi_target_metrics: { items: [{ target: 'Sandstorm Digital', mentions_count: 96 }] }
+  };
+  global.fetch = async (url) => {
+    const path = String(url).split('/llm_mentions/')[1].split('/')[0];
+    return { ok: true, json: async () => ({ cost: 0.0012, tasks: [{ status_code: 20000, result: [shapes[path]] }] }) };
+  };
+
+  const d = await m.landscape({ keywords: ['seo agency'], targets: ['Sandstorm Digital'], market: 'AE', platform: 'google' });
+  assert.equal(d.brands.rows.length, 2);
+  assert.equal(d.brands.rows[0].name, 'Digital Gravity');
+  assert.equal(d.domains.rows[1].domain, 'reddit.com', 'alternative key names must resolve');
+  assert.equal(d.pages.rows[1].domain, 'digitalgravity.ae', 'domain derived from the url when absent');
+  assert.ok(d.cost > 0, 'cost must be reported');
+
+  // A single unsupported endpoint should degrade one panel, not the screen.
+  global.fetch = async (url) =>
+    String(url).includes('top_mentioned_brands')
+      ? { ok: false, status: 404, json: async () => ({ status_message: 'Not found' }) }
+      : { ok: true, json: async () => ({ cost: 0, tasks: [{ status_code: 20000, result: [{ items: [] }] }] }) };
+  const partial = await m.landscape({ keywords: ['x'], market: 'AE', platform: 'google' });
+  assert.ok(Array.isArray(partial.domains.rows), 'the rest of the page must still render');
+  assert.ok(partial.brands.error, 'the failing panel must say why');
+
+  global.fetch = realFetch;
+});
+
+await test('warns when the platform does not cover the market', async () => {
+  const m = await import('../src/lib/mentions.js?cov=1');
+  const realFetch = global.fetch;
+  global.fetch = async () => ({ ok: true, json: async () => ({ tasks: [{ status_code: 20000, result: [{ items: [] }] }] }) });
+
+  // ChatGPT is United States only in this dataset, which matters a great deal
+  // if the customer is anywhere else.
+  const uae = await m.landscape({ keywords: ['x'], market: 'AE', platform: 'chat_gpt' });
+  assert.ok(/United States only/i.test(uae.coverageWarning));
+
+  const us = await m.landscape({ keywords: ['x'], market: 'US', platform: 'chat_gpt' });
+  assert.equal(us.coverageWarning, null);
+
+  const google = await m.landscape({ keywords: ['x'], market: 'AE', platform: 'google' });
+  assert.equal(google.coverageWarning, null, 'Google covers all locations');
+
+  global.fetch = realFetch;
+});
+
+console.log('\ngoogle ai surfaces');
+
+await test('AI Overview parses, and an absent overview is not an error', async () => {
+  process.env.MOCK_MODE = 'false';
+  process.env.DATAFORSEO_LOGIN = 'x';
+  process.env.DATAFORSEO_PASSWORD = 'y';
+  const { askEngine: live } = await import('../src/lib/dataforseo.js?serp=1');
+  const realFetch = global.fetch;
+  const respond = (items) => ({
+    ok: true,
+    json: async () => ({ cost: 0.002, tasks: [{ status_code: 20000, cost: 0.002, result: [{ items }] }] })
+  });
+
+  global.fetch = async () => respond([
+    { type: 'organic', title: 'x' },
+    { type: 'ai_overview', text: 'Clear aligners in Dubai cost AED 12,000 to AED 20,000.',
+      references: [{ url: 'https://marinasmile.ae/pricing' }, { url: 'https://clinicb.ae/x' }] }
+  ]);
+  const present = await live({ engine: 'ai_overview', prompt: 'aligner cost dubai', market: 'AE' });
+  assert.equal(present.ok, true, 'a present overview must parse');
+  assert.ok(present.text.includes('AED 12,000'));
+  assert.deepEqual(present.citations.map((c) => c.domain), ['marinasmile.ae', 'clinicb.ae']);
+  assert.equal(present.costUsd, 0.002, 'cost must be recorded, not dropped');
+
+  // Google only shows an overview for some queries. That is a finding.
+  global.fetch = async () => respond([{ type: 'organic', title: 'x' }]);
+  const absent = await live({ engine: 'ai_overview', prompt: 'q', market: 'AE' });
+  assert.equal(absent.ok, true);
+  assert.equal(absent.absent, true);
+  assert.equal(absent.error, null, 'no overview is not a failure');
+
+  global.fetch = realFetch;
+});
+
+await test('the async overview flag is off unless asked for', async () => {
+  process.env.MOCK_MODE = 'false';
+  delete process.env.AI_OVERVIEW_ASYNC;
+  const { askEngine: live } = await import('../src/lib/dataforseo.js?flag=1');
+  const realFetch = global.fetch;
+  let sent = null;
+  global.fetch = async (url, opts) => {
+    sent = JSON.parse(opts.body)[0];
+    return { ok: true, json: async () => ({ tasks: [{ status_code: 20000, result: [{ items: [{ type: 'ai_overview', text: 'x' }] }] }] }) };
+  };
+  await live({ engine: 'ai_overview', prompt: 'q', market: 'AE' });
+  global.fetch = realFetch;
+
+  // This flag makes DataForSEO do a second fetch, and that second fetch is
+  // where "Internal SE Server Error" was coming from.
+  assert.equal(sent.load_async_ai_overview, undefined, 'must be off by default');
+  assert.equal(sent.location_name, 'United Arab Emirates');
+});
+
 console.log('\nengine catalogue');
 
 await test('covers every surface DataForSEO can reach, and nothing it cannot', () => {

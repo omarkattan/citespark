@@ -551,7 +551,7 @@ async function renderFigures() {
 async function render() {
   const view = state.view;
   $('view').innerHTML = '<div class="empty">Loading</div>';
-  const fn = { actions: viewActions, questions: viewQuestions, rivals: viewRivals, sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling, trends: viewTrends }[view];
+  const fn = { actions: viewActions, questions: viewQuestions, rivals: viewRivals, sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling, trends: viewTrends, landscape: viewLandscape }[view];
   $('view').innerHTML = await fn();
   if (view === 'setup') recalcEstimate();
   if (view === 'traffic' && $('ga4Props')) loadGa4Properties();
@@ -740,10 +740,22 @@ function headline(s) {
 function failureNote(s) {
   if (!s.failed?.length) return '';
   const total = s.failed.reduce((n, f) => n + f.count, 0);
+  const broken = s.failed.filter((f) => f.mostlyBroken);
+
   const list = s.failed
-    .map((f) => `<b>${esc(f.engine)}</b> failed ${f.count} time${f.count === 1 ? '' : 's'}${f.error ? ` (${esc(f.error)})` : ''}`)
-    .join(', ');
-  return `<p class="report-warn">${total} of ${s.attempted} calls did not return an answer. ${list}. Those were not charged to your allowance, and the visibility figure above ignores them.</p>`;
+    .map((f) => {
+      const pct = f.rate ? ` (${Math.round(f.rate * 100)}% of its calls)` : '';
+      return `<b>${esc(f.engine)}</b> failed ${f.count} time${f.count === 1 ? '' : 's'}${pct}${f.error ? `, ${esc(f.error)}` : ''}`;
+    })
+    .join('; ');
+
+  const advice = broken.length
+    ? `<br /><br /><b>${broken.map((b) => esc(b.engine)).join(' and ')}</b> ${broken.length === 1 ? 'is' : 'are'} failing most of the time, so ${broken.length === 1 ? 'it is' : 'they are'} adding nothing to your numbers.
+       Switch ${broken.length === 1 ? 'it' : 'them'} off under <b>Where we look</b> until the provider is reliable again, and your remaining surfaces will run faster.
+       <button class="ghost" data-goto-setup="1" style="margin-left:6px;padding:4px 9px;font-size:10px">Open Setup</button>`
+    : '';
+
+  return `<p class="report-warn">${total} of ${s.attempted} calls did not return an answer. ${list}. Those were not charged to your allowance, and the visibility figure above ignores them.${advice}</p>`;
 }
 
 function showReport(s) {
@@ -897,8 +909,14 @@ $('runAllBtn').addEventListener('click', async (e) => {
   }
 });
 
+document.addEventListener('click', async (e) => {
+  const lp = e.target.closest('[data-landscape]');
+  if (lp) { state.landscapePlatform = lp.dataset.landscape; await render(); return; }
+});
+
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-close-report]')) $('cycleReport').hidden = true;
+  if (e.target.closest('[data-goto-setup]')) document.querySelector('.tab[data-view="setup"]').click();
   const goto = e.target.closest('[data-report-goto]');
   if (goto) {
     document.querySelector(`.tab[data-view="${goto.dataset.reportGoto}"]`).click();
@@ -2151,6 +2169,88 @@ async function viewTrends() {
       <p class="hint" style="margin-top:12px">Biggest changes between the last two cycles, per question.</p>
     </div>
   </div>`;
+}
+
+/* ---------- category landscape ---------- */
+
+function barRow(label, value, max, { own = false, suffix = '' } = {}) {
+  const width = max > 0 ? Math.max(2, (value / max) * 100) : 0;
+  return `<div class="sov-row">
+    <div class="sov-name ${own ? 'own' : ''}">${esc(label)}${own ? ' (you)' : ''}</div>
+    <div class="sov-track"><div class="sov-fill ${own ? 'own' : ''}" style="width:${width}%"></div></div>
+    <div class="sov-val">${value.toLocaleString()}${suffix}</div>
+  </div>`;
+}
+
+async function viewLandscape() {
+  const platform = state.landscapePlatform || 'google';
+  const d = await api(`/api/projects/${state.projectId}/landscape?platform=${platform}`);
+  if (!d) return '';
+  if (d.error) return `<div class="empty"><h2>Could not read the landscape</h2><p>${esc(d.error)}</p></div>`;
+
+  const brand = (d.brand || '').toLowerCase();
+  const ownDomain = (d.ownDomain || '').replace(/^www\./, '');
+
+  const toggle = `<div class="switch-int" role="group" aria-label="Platform">
+      <button class="int-b ${platform === 'google' ? 'is-on' : ''}" data-landscape="google">Google AI Overview</button>
+      <button class="int-b ${platform === 'chat_gpt' ? 'is-on' : ''}" data-landscape="chat_gpt">ChatGPT</button>
+    </div>`;
+
+  const panel = (title, rows, render, note, err) => `
+    <div class="panel">
+      <div class="panel-head"><h2>${title}</h2></div>
+      ${err ? `<p class="error">${esc(err)}</p>` : rows.length ? render : '<p class="hint">Nothing returned for this category.</p>'}
+      ${note ? `<p class="hint" style="margin-top:12px">${note}</p>` : ''}
+    </div>`;
+
+  const brandsMax = Math.max(...d.brands.rows.map((r) => r.mentions), 1);
+  const domainsMax = Math.max(...d.domains.rows.map((r) => r.mentions || r.citations), 1);
+  const compMax = Math.max(...d.comparison.rows.map((r) => r.mentions), 1);
+
+  return `
+  <div class="landscape-head">
+    ${toggle}
+    <span class="spacer"></span>
+    <span class="tag">${esc(d.keywords.join(' | '))}</span>
+    <span class="tag">${d.cost ? '$' + d.cost.toFixed(4) : 'free'}${d.cached ? ' &middot; cached' : ''}</span>
+  </div>
+
+  ${d.coverageWarning ? `<p class="report-warn">${esc(d.coverageWarning)}</p>` : ''}
+
+  <p class="dek" style="margin:16px 0 20px;max-width:70ch">
+    This reads what AI answers already say across your whole category, from a harvested corpus rather than by asking
+    your tracked questions. It costs a fraction of a cycle and shows you brands you never thought to track.
+  </p>
+
+  ${panel('Who owns the conversation',
+    d.brands.rows,
+    d.brands.rows.map((r) => barRow(r.name, r.mentions, brandsMax, { own: r.name.toLowerCase().includes(brand) })).join(''),
+    'Brands named most often across this category. Anyone above you here is worth adding as a tracked competitor.',
+    d.brands.error)}
+
+  ${d.comparison.rows.length ? panel('You against your tracked competitors',
+    d.comparison.rows,
+    d.comparison.rows.map((r) => barRow(r.target, r.mentions, compMax, { own: r.target.toLowerCase().includes(brand) })).join(''),
+    'The same measure, limited to the brands you already track.',
+    d.comparison.error) : ''}
+
+  ${panel('What the models read',
+    d.domains.rows,
+    d.domains.rows.map((r) => barRow(r.domain, r.mentions || r.citations, domainsMax, { own: r.domain === ownDomain })).join(''),
+    'The domains shaping answers in this category. Absence from the top of this list is the gap worth closing.',
+    d.domains.error)}
+
+  ${panel('The exact pages being cited',
+    d.pages.rows,
+    d.pages.rows.slice(0, 20).map((r) => `<div class="row">
+        <div class="grow">
+          <div class="name"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url.replace(/^https?:\/\//, '').slice(0, 90))}</a></div>
+          <div class="sub">${esc(r.domain || '')}</div>
+        </div>
+        <span class="tag">${(r.citations || r.mentions).toLocaleString()}</span>
+      </div>`).join(''),
+    'Individual pages the models quote. These are your benchmarking targets, and where a teardown pays off most.',
+    d.pages.error)}`;
 }
 
 boot();

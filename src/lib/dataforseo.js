@@ -322,7 +322,9 @@ export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 700
   if (cfg.kind === 'serp') {
     const first = await askGoogle({ cfg, prompt, market });
     if (!isTransient(first) || attempt >= RETRIES) return first;
-    await sleep(700 * (attempt + 1));
+    // Google-side failures clear more slowly than an LLM hiccup, so back off
+    // further rather than hammering the same second.
+    await sleep(1500 * (attempt + 1));
     return askEngine({ engine, prompt, market, maxTokens, attempt: attempt + 1 });
   }
 
@@ -417,13 +419,19 @@ async function askGoogle({ cfg, prompt, market }) {
     ? `${BASE}/serp/google/ai_mode/live/advanced`
     : `${BASE}/serp/google/organic/live/advanced`;
 
+  // load_async_ai_overview makes DataForSEO fetch the expanded overview in a
+  // second request, and that is where "Internal SE Server Error" comes from.
+  // The overview block is present in the standard response without it, so it
+  // is off by default. Turn it on only if you need the expanded references.
+  const wantAsync = String(process.env.AI_OVERVIEW_ASYNC || '').toLowerCase() === 'true';
+
   const body = [
     {
       keyword: prompt.slice(0, 700),
       location_name: LOCATIONS[market] || 'United Arab Emirates',
       language_code: 'en',
       device: 'desktop',
-      ...(isMode ? {} : { load_async_ai_overview: true, depth: 20 })
+      ...(isMode ? {} : { depth: 10, ...(wantAsync ? { load_async_ai_overview: true } : {}) })
     }
   ];
 
@@ -471,7 +479,7 @@ async function askGoogle({ cfg, prompt, market }) {
       text,
       citations: dedupeCitations(urls),
       fanOut: [],
-      costUsd: Number(json?.cost ?? taskData?.cost ?? 0),
+      costUsd: Number(json?.cost ?? task?.cost ?? 0),
       model: cfg.label,
       error: text.length ? null : 'No AI answer returned for this query'
     };

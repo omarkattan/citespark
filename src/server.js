@@ -18,6 +18,7 @@ import { PLANS, PLAN_ORDER, planFor } from './lib/plans.js';
 import { proposeQuestions, runDemo, checkLimits, hashIp, DEMO_CONFIG } from './lib/demo.js';
 import { teardown } from './lib/teardown.js';
 import { listSites as listGscSites, candidates as gscCandidates, importQuestions } from './lib/gsc.js';
+import { landscape, PLATFORMS, mentionsConfigured } from './lib/mentions.js';
 import {
   stripeEnabled, getStripe, getEntitlements, checkCanAddSite, checkCanAddQuestions,
   createCheckoutSession, createPortalSession, handleWebhook, budgetForCycle, engineCosts
@@ -1051,6 +1052,58 @@ app.post('/api/projects/:id/rebuild', requireAuth, wrap(async (req, res) => {
   res.json({ ok: true, count: recs.length });
 }));
 
+/* ---------------- category landscape ---------------- */
+
+/**
+ * Reads a pre-built corpus rather than asking questions live, so it costs
+ * pennies and does not touch the customer's cycle allowance. Cached briefly
+ * because the underlying data moves slowly and clicking about should be free.
+ */
+const landscapeCache = new Map();
+
+app.get('/api/projects/:id/landscape', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  if (!mentionsConfigured) return res.status(503).json({ error: 'DataForSEO credentials are not set on this deployment' });
+
+  const platform = PLATFORMS[req.query.platform] ? req.query.platform : 'google';
+  const key = `${project.id}:${platform}`;
+  const hit = landscapeCache.get(key);
+  if (hit && Date.now() - hit.at < 30 * 60 * 1000) return res.json({ ...hit.data, cached: true });
+
+  // The category, not the brand: what someone would search to find a business
+  // like this one. Competitors are compared separately.
+  const keywords = [project.category, `${project.category} ${project.qualifier}`]
+    .map((k) => String(k || '').trim())
+    .filter((k) => k.length > 2)
+    .slice(0, 5);
+
+  if (!keywords.length) {
+    return res.status(400).json({ error: 'Fill in what the business does on the Setup tab first' });
+  }
+
+  const rivals = await many(
+    "SELECT name, domain FROM entities WHERE project_id = $1 ORDER BY kind DESC, name",
+    [project.id]
+  );
+
+  try {
+    const data = await landscape({
+      keywords,
+      targets: [project.brand_name, ...rivals.map((r) => r.name)].filter(Boolean).slice(0, 10),
+      market: project.market,
+      platform
+    });
+    const payload = { ...data, keywords, brand: project.brand_name, ownDomain: project.domain };
+    landscapeCache.set(key, { at: Date.now(), data: payload });
+    res.json(payload);
+  } catch (err) {
+    res.status(400).json({ error: String(err.message || err) });
+  }
+}));
+
+app.get('/api/landscape/platforms', (_req, res) => res.json(PLATFORMS));
+
 /* ---------------- Search Console ---------------- */
 
 app.get('/api/projects/:id/gsc', requireAuth, wrap(async (req, res) => {
@@ -1315,7 +1368,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape']
   });
 });
 
