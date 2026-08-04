@@ -80,10 +80,25 @@ const baseParams = ({ market, platform }) => ({
 });
 
 /**
- * Every endpoint takes `target`, and it must be an array. It accepts keywords
- * or domains, so a category phrase and a domain are both valid entries.
+ * Every endpoint takes `target`, an array of objects. A plain string is
+ * rejected with "Each 'target' item must be an object", and a missing array
+ * with "Field 'target' is missing or has an invalid type".
+ *
+ * Anything that looks like a hostname is sent as a domain, everything else as
+ * a keyword. TARGET_KEY exists because the exact property name is not pinned
+ * down in the docs; run `npm run probe` to confirm it against your account.
  */
-const asTarget = (v) => (Array.isArray(v) ? v : [v]).map((t) => String(t || '').trim()).filter(Boolean).slice(0, 20);
+const KEYWORD_KEY = process.env.MENTIONS_KEYWORD_KEY || 'keyword';
+const DOMAIN_KEY = process.env.MENTIONS_DOMAIN_KEY || 'domain';
+
+const looksLikeDomain = (s) => /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(s) && !s.includes(' ');
+
+const asTarget = (v) =>
+  (Array.isArray(v) ? v : [v])
+    .map((t) => String(t || '').trim())
+    .filter(Boolean)
+    .slice(0, 20)
+    .map((t) => (looksLikeDomain(t) ? { [DOMAIN_KEY]: t } : { [KEYWORD_KEY]: t }));
 
 /**
  * A description of a business is not a keyword. "full-service digital
@@ -200,8 +215,11 @@ function safeDomain(url) {
  * unsupported endpoint degrades that panel rather than the whole page.
  */
 export async function landscape({ keywords, targets, market = 'AE', platform = 'google' }) {
-  // Guard against a caller passing a sentence rather than a search term.
-  keywords = asTarget(keywords).map((k) => (k.split(' ').length > 6 ? toKeyword(k) : k)).filter(Boolean);
+  // Tidy the strings before they are wrapped into target objects.
+  keywords = (Array.isArray(keywords) ? keywords : [keywords])
+    .map((k) => String(k || '').trim())
+    .map((k) => (k.split(' ').length > 6 ? toKeyword(k) : k))
+    .filter((k) => k.length > 2);
   if (!keywords.length) throw new Error('No usable category keyword. Fill in what the business does on the Setup tab.');
 
   const settled = await Promise.allSettled([

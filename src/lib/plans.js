@@ -25,7 +25,7 @@
  *
  *   Starter    650 calls  = $19.50 against  $79  =  75% margin
  *   Growth   1,650 calls  = $49.50 against $199  =  75% margin
- *   Agency   5,000 calls  = $150.00 against $499 =  70% margin
+ *   Agency   4,900 calls  = $147.00 against $499 =  71% margin
  *
  * The allowance is pooled across every site on the account. Per-site limits
  * are ceilings for one site, not a promise that every site can run at its
@@ -124,8 +124,8 @@ export const PLANS = {
     engines: 6,
     runs: 5,
     cadence: 'daily',
-    monthlyCalls: 5000,
-    monthlyBudgetUsd: 149.5,
+    monthlyCalls: 4900,
+    monthlyBudgetUsd: 147,
     features: [
       '10 sites, 60 questions each',
       'All 6 AI surfaces, up to 5 runs per question',

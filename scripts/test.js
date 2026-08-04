@@ -819,9 +819,15 @@ await test('retries transient failures but not permanent ones', async () => {
   const { askEngine: live } = await import('../src/lib/dataforseo.js?retry=1');
   const realFetch = global.fetch;
 
+  // Resolving the model list is a separate request, so count only the calls
+  // to the endpoint under test.
   const run = async (responder) => {
     let calls = 0;
-    global.fetch = async () => { calls++; return responder(); };
+    global.fetch = async (url) => {
+      if (String(url).endsWith('/models')) return { ok: false, status: 500 };
+      calls++;
+      return responder();
+    };
     await live({ engine: 'chatgpt', prompt: 'x' });
     return calls;
   };
@@ -874,7 +880,7 @@ await test('parses every endpoint shape and survives one failing', async () => {
     String(url).includes('top_mentioned_brands')
       ? { ok: false, status: 404, json: async () => ({ status_message: 'Not found' }) }
       : { ok: true, json: async () => ({ cost: 0, tasks: [{ status_code: 20000, result: [{ items: [] }] }] }) };
-  const partial = await m.landscape({ keywords: ['x'], market: 'AE', platform: 'google' });
+  const partial = await m.landscape({ keywords: ['banks uae'], market: 'AE', platform: 'google' });
   assert.ok(Array.isArray(partial.domains.rows), 'the rest of the page must still render');
   assert.ok(partial.brands.error, 'the failing panel must say why');
 
@@ -910,12 +916,23 @@ await test('every request sends target as an array, which the API requires', asy
   await m.landscape({ keywords: ['digital marketing agency'], targets: ['a.com', 'b.com'], market: 'AE', platform: 'google' });
   global.fetch = realFetch;
 
-  // "Invalid Field: 'target' is missing or has an invalid type (expected array)"
+  // The API rejects a bare array with "Field 'target' is missing or has an
+  // invalid type", and an array of strings with "Each 'target' item must be
+  // an object". Both were real responses.
   for (const [path, body] of Object.entries(sent)) {
     assert.ok(Array.isArray(body.target), `${path} must send target as an array`);
+    assert.ok(body.target.every((t) => t && typeof t === 'object'), `${path} must send target items as objects`);
     assert.equal(body.keywords, undefined, `${path} must not send a keywords field`);
   }
-  assert.deepEqual(sent.multi_target_metrics.target, ['a.com', 'b.com']);
+  // Anything hostname-shaped goes as a domain, everything else as a keyword.
+  assert.deepEqual(sent.multi_target_metrics.target, [{ domain: 'a.com' }, { domain: 'b.com' }]);
+  assert.deepEqual(sent.top_mentioned_brands.target, [{ keyword: 'digital marketing agency' }]);
+});
+
+await test('refuses to query with no usable keyword', async () => {
+  const m = await import('../src/lib/mentions.js?empty=1');
+  await assert.rejects(() => m.landscape({ keywords: [''], market: 'AE' }), /No usable category keyword/);
+  await assert.rejects(() => m.landscape({ keywords: ['x'], market: 'AE' }), /No usable category keyword/);
 });
 
 await test('warns when the platform does not cover the market', async () => {
@@ -925,13 +942,13 @@ await test('warns when the platform does not cover the market', async () => {
 
   // ChatGPT is United States only in this dataset, which matters a great deal
   // if the customer is anywhere else.
-  const uae = await m.landscape({ keywords: ['x'], market: 'AE', platform: 'chat_gpt' });
+  const uae = await m.landscape({ keywords: ['banks uae'], market: 'AE', platform: 'chat_gpt' });
   assert.ok(/United States only/i.test(uae.coverageWarning));
 
-  const us = await m.landscape({ keywords: ['x'], market: 'US', platform: 'chat_gpt' });
+  const us = await m.landscape({ keywords: ['banks usa'], market: 'US', platform: 'chat_gpt' });
   assert.equal(us.coverageWarning, null);
 
-  const google = await m.landscape({ keywords: ['x'], market: 'AE', platform: 'google' });
+  const google = await m.landscape({ keywords: ['banks uae'], market: 'AE', platform: 'google' });
   assert.equal(google.coverageWarning, null, 'Google covers all locations');
 
   global.fetch = realFetch;
@@ -1005,7 +1022,9 @@ await test('each engine declares how it is fetched and explains itself', () => {
     assert.ok(['llm','serp'].includes(e.kind), `${id} has no kind`);
     assert.ok(e.label && e.label.length > 2, `${id} has no label`);
     assert.ok(e.note && e.note.length > 20, `${id} needs a note explaining when to use it`);
-    if (e.kind === 'llm') assert.ok(e.path && e.model, `${id} needs a path and model`);
+    // model_name is resolved from DataForSEO's own list at call time rather
+    // than hard-coded here, so the catalogue only needs the path.
+    if (e.kind === 'llm') assert.ok(e.path, `${id} needs a path`);
     if (e.kind === 'serp') assert.ok(e.mode, `${id} needs a serp mode`);
   }
 });
