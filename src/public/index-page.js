@@ -8,18 +8,30 @@ const esc = (s) =>
 
 let INDEX = null;
 
+const KIND_LABEL = {
+  candidate: 'Possible companies, not on our list',
+  portal: 'Portals and marketplaces',
+  news: 'News and media',
+  platform: 'Platforms',
+  government: 'Government and official',
+  reference: 'Reference'
+};
+const KIND_ORDER = ['candidate', 'portal', 'news', 'platform', 'government', 'reference'];
+
 function sectorCard(s) {
   const all = s.brands || [];
   const max = Math.max(...all.map((b) => b.mentions), 1);
-  const rows = all.slice(0, 12);
-  const silent = all.filter((b) => b.known && !b.mentions);
+  const silent = all.filter((b) => !b.mentions);
+  const others = s.others || [];
 
-  const bars = rows.length
-    ? rows
+  // The ranking contains only this sector's companies, so the card answers
+  // the question its heading asks.
+  const bars = all.length
+    ? all
         .map(
-          (b, i) => `<div class="brand-row ${b.mentions ? '' : 'silent'} ${b.known ? '' : 'found'}">
+          (b, i) => `<div class="brand-row ${b.mentions ? '' : 'silent'}">
             <span class="rank">${b.mentions ? i + 1 : '&mdash;'}</span>
-            <span class="brand">${esc(b.name)}${b.known ? '' : '<i title="Found in the data, not on our list">found</i>'}</span>
+            <span class="brand">${esc(b.name)}</span>
             <span class="track"><span class="fill" style="width:${b.mentions ? Math.max(3, (b.mentions / max) * 100) : 0}%"></span></span>
             <span class="val">${b.mentions ? b.mentions.toLocaleString() : 'not named'}</span>
           </div>`
@@ -27,22 +39,39 @@ function sectorCard(s) {
         .join('')
     : `<p class="index-empty">No data returned for this category yet.</p>`;
 
-  const sources = (s.domains || []).slice(0, 4);
-  const haystack = `${s.name} ${s.blurb} ${(s.brands || []).map((b) => b.name).join(' ')} ${(s.domains || []).map((d) => d.domain).join(' ')}`.toLowerCase();
+  // Everything else the data surfaced, grouped by what it actually is.
+  const grouped = new Map();
+  for (const o of others) {
+    if (!grouped.has(o.kind)) grouped.set(o.kind, []);
+    grouped.get(o.kind).push(o);
+  }
+  const sourceBlocks = KIND_ORDER.filter((k) => grouped.has(k))
+    .map(
+      (k) => `<div class="others-group ${k === 'candidate' ? 'is-candidate' : ''}">
+        <span class="k">${esc(KIND_LABEL[k])}</span>
+        ${grouped.get(k).map((o) => `<span class="chip" title="${o.mentions.toLocaleString()} mentions">${esc(o.domain)}</span>`).join('')}
+      </div>`
+    )
+    .join('');
+
+  const haystack = `${s.name} ${s.blurb} ${all.map((b) => b.name).join(' ')} ${others.map((o) => o.domain).join(' ')}`.toLowerCase();
 
   return `<article class="sector" data-filter-text="${esc(haystack)}" id="${esc(s.slug)}">
     <div class="sector-head">
       <h3>${esc(s.name)}</h3>
       <span class="spacer"></span>
-      <span class="tag">${(s.brands || []).length} brands</span>
+      <span class="tag">${all.filter((b) => b.mentions).length} of ${all.length} named</span>
     </div>
     <p class="sector-blurb">${esc(s.blurb)}</p>
     ${bars}
-    ${silent.length ? `<p class="sector-note">${silent.length} of the sector's major companies ${silent.length === 1 ? 'is' : 'are'} not named at all in these answers.</p>` : ''}
-    ${sources.length ? `<div class="sector-sources">
-      <span class="k">Most cited sources</span>
-      ${sources.map((d) => `<span class="chip">${esc(d.domain)}</span>`).join('')}
-    </div>` : ''}
+    ${silent.length ? `<p class="sector-note">${silent.length} of ${all.length} major companies in this sector ${silent.length === 1 ? 'is' : 'are'} not named at all.</p>` : ''}
+
+    ${sourceBlocks ? `<details class="others">
+      <summary>What else AI cited here <span>${others.length}</span></summary>
+      <p class="others-intro">These are not companies competing in this sector. They are the sites AI read to answer, which is a different and equally useful thing.</p>
+      ${sourceBlocks}
+    </details>` : ''}
+
     <div class="sector-foot">
       <span class="q">${(s.keywords || []).map((k) => `"${esc(k)}"`).join(', ')}</span>
     </div>
@@ -81,6 +110,7 @@ function render() {
     <span class="tag">${INDEX.totals.sectors} sectors</span>
     <span class="tag">${INDEX.totals.brands} brands ranked</span>
     ${INDEX.totals.silent ? `<span class="tag">${INDEX.totals.silent} major companies not named</span>` : ''}
+    ${INDEX.totals.candidates ? `<span class="tag">${INDEX.totals.candidates} possible companies we did not list</span>` : ''}
     <span class="tag">Google AI Overview</span>
     <span class="tag">United Arab Emirates</span>
     ${INDEX.updatedAt ? `<span class="tag">updated ${new Date(INDEX.updatedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}</span>` : ''}`;

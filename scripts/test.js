@@ -851,6 +851,50 @@ console.log('\nsector index');
 
 const sec = await import('../src/lib/sectors.js');
 
+await test('non-companies are kept out of the ranking', () => {
+  const banking = sec.SECTORS.find((s) => s.slug === 'banking');
+
+  // A news site or a portal in a "who AI recommends in Banking" list makes
+  // the card read as broken even though the number behind it is correct.
+  const measured = [
+    { domain: 'emiratesnbd.com', name: 'Emirates NBD', mentions: 17229 },
+    { domain: 'youtube.com', mentions: 13742 },
+    { domain: 'gulfnews.com', mentions: 9000 },
+    { domain: 'hsbc.ae', name: 'HSBC UAE', mentions: 7909 },
+    { domain: 'centralbank.ae', mentions: 4000 }
+  ];
+  const { brands, others } = sec.mergeKnown(banking.members, measured);
+
+  assert.equal(brands.length, banking.members.length, 'the ranking is exactly the sector list');
+  for (const b of brands) assert.equal(b.known, true, `${b.name} should not be in the ranking`);
+  assert.ok(!brands.some((b) => /youtube|gulfnews|centralbank/.test(b.domain)));
+
+  // But they are not discarded: which sources shape a sector is useful.
+  const kinds = Object.fromEntries(others.map((o) => [o.domain, o.kind]));
+  assert.equal(kinds['youtube.com'], 'platform');
+  assert.equal(kinds['gulfnews.com'], 'news');
+  assert.equal(kinds['centralbank.ae'], 'government');
+
+  // Anything that looks like a real company gets flagged for review rather
+  // than silently ranked or silently dropped.
+  assert.equal(kinds['hsbc.ae'], 'candidate');
+});
+
+await test('domains are classified into the right buckets', () => {
+  const k = (d) => sec.classifyDomain(d).kind;
+  assert.equal(k('gulfnews.com'), 'news');
+  assert.equal(k('khaleejtimes.com'), 'news');
+  assert.equal(k('bayut.com'), 'portal');
+  assert.equal(k('propertyfinder.ae'), 'portal');
+  assert.equal(k('talabat.com'), 'portal');
+  assert.equal(k('youtube.com'), 'platform');
+  assert.equal(k('en.wikipedia.org'), 'reference');
+  assert.equal(k('u.ae'), 'government');
+  assert.equal(k('centralbank.ae'), 'government');
+  // Not obviously a publisher or platform, so it may be a company we missed.
+  assert.equal(k('someuaefirm.ae'), 'candidate');
+});
+
 await test('every named company appears, measured or not', () => {
   const banking = sec.SECTORS.find((s) => s.slug === 'banking');
   assert.equal(banking.members.length, 5, 'the list is the floor');
@@ -859,26 +903,23 @@ await test('every named company appears, measured or not', () => {
     { domain: 'www.emiratesnbd.com', name: 'Emirates NBD', mentions: 17229 },
     { domain: 'hsbc.ae', name: 'HSBC UAE', mentions: 7909 }
   ];
-  const merged = sec.mergeKnown(banking.members, measured);
+  const { brands, others } = sec.mergeKnown(banking.members, measured);
 
   // A household name the machines never mention is the most useful row on the
   // page, so it must survive rather than being dropped for having no data.
   for (const m of banking.members) {
-    assert.ok(merged.some((b) => b.name === m.name), `${m.name} must appear`);
+    assert.ok(brands.some((b) => b.name === m.name), `${m.name} must appear`);
   }
-  const fab = merged.find((b) => /First Abu Dhabi/.test(b.name));
+  const fab = brands.find((b) => /First Abu Dhabi/.test(b.name));
   assert.equal(fab.mentions, 0);
   assert.equal(fab.measured, false, 'and be marked as not measured');
-  assert.equal(fab.known, true);
 
-  // Anything the data found that is not on the list is kept and flagged.
-  const hsbc = merged.find((b) => b.domain === 'hsbc.ae');
-  assert.equal(hsbc.known, false, 'discovered brands are marked as such');
-  assert.equal(hsbc.measured, true);
+  // Anything found that is not on the list goes to the sources list.
+  assert.ok(others.some((o) => o.domain === 'hsbc.ae'));
 
-  // Measured brands rank above silent ones.
-  assert.equal(merged[0].domain, 'emiratesnbd.com');
-  assert.ok(merged.findIndex((b) => b.mentions === 0) > merged.findIndex((b) => b.mentions > 0));
+  // Measured companies rank above silent ones.
+  assert.equal(brands[0].domain, 'emiratesnbd.com');
+  assert.ok(brands.findIndex((b) => b.mentions === 0) > brands.findIndex((b) => b.mentions > 0));
 });
 
 await test('the sector list is complete and well formed', () => {

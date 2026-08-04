@@ -128,3 +128,41 @@
   border-top: 1px solid var(--line-2);
   line-height: 1.5;
 }
+
+/* other cited sources, kept out of the ranking */
+.others {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-2);
+}
+.others summary {
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.others summary::-webkit-details-marker { display: none; }
+.others summary::before { content: '+ '; color: var(--dune); }
+.others[open] summary::before { content: '\2212 '; }
+.others summary:hover { color: var(--sand-2); }
+.others summary span {
+  color: var(--dune);
+  margin-left: 4px;
+}
+.others-intro { font-size: 12.5px; color: var(--mute); margin: 12px 0 4px; line-height: 1.55; }
+
+.others-group { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.others-group .k {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--mute);
+  width: 100%;
+  margin-bottom: 2px;
+}
+.others-group.is-candidate .k { color: var(--dune); }
+.others-group.is-candidate .chip { border-color: var(--dune); color: var(--dune); }

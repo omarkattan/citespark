@@ -800,20 +800,56 @@ export const bySlug = (slug) => SECTORS.find((s) => s.slug === slug) || null;
 const strip = (d) => String(d || '').replace(/^www\./, '').toLowerCase();
 
 /**
- * Every named company appears, whether the data found it or not.
+ * What kind of domain is this, if it is not one of the sector's companies?
  *
- * A major bank with zero mentions is the most interesting row on the page:
- * it says the machines do not name them. Dropping it because the API
- * returned nothing would hide exactly the finding worth publishing.
+ * The ranking is meant to answer "who does AI recommend in this sector".
+ * A news site or a property portal appearing in it makes the whole card read
+ * as broken, even though the data is correct. They belong in a separate list
+ * headed by what they actually are.
+ */
+const DOMAIN_KINDS = [
+  { kind: 'platform', label: 'Platforms',
+    test: /^(youtube|google|facebook|instagram|linkedin|twitter|x|tiktok|reddit|quora|wikipedia|wikiwand|medium|pinterest|snapchat|telegram|whatsapp)\./i },
+  { kind: 'news', label: 'News and media',
+    test: /(gulfnews|khaleejtimes|thenationalnews|arabianbusiness|zawya|gulfbusiness|emiratesnews|wam\.ae|reuters|bloomberg|forbes|cnn|bbc|ft\.com|economist|thenational\.ae|timeoutdubai|whatson\.ae|arabnews|aljazeera)/i },
+  { kind: 'portal', label: 'Portals and marketplaces',
+    test: /(bayut|propertyfinder|dubizzle|property-finder|houza|yallacompare|souqalmal|policybazaar|compareit4me|booking\.com|agoda|expedia|tripadvisor|skyscanner|kayak|talabat|deliveroo|noon\.com|opensooq|yellowpages|clutch\.co|designrush|sortlist|trustpilot|glassdoor|indeed|bayt\.com|naukrigulf)/i },
+  { kind: 'government', label: 'Government and official',
+    test: /(\.gov\.ae$|\.gov$|^u\.ae$|\.gov\.|dubai\.ae|mohap\.gov|dha\.gov|moec\.gov|mohre\.gov|centralbank\.ae|sca\.gov|adafsa|dld\.gov)/i },
+  { kind: 'reference', label: 'Reference',
+    test: /(wikipedia|britannica|statista|investopedia|\.edu$|\.ac\.|scholar\.)/i }
+];
+
+export function classifyDomain(domain) {
+  const d = strip(domain);
+  for (const c of DOMAIN_KINDS) {
+    if (c.test.test(d)) return { kind: c.kind, label: c.label };
+  }
+  // Not obviously a publisher, portal or platform, so it may well be a real
+  // company in this sector that is missing from the list. Flag rather than rank.
+  return { kind: 'candidate', label: 'Possible companies, not on our list' };
+}
+
+export const DOMAIN_KIND_ORDER = ['candidate', 'portal', 'news', 'platform', 'government', 'reference'];
+
+/**
+ * Split the measured data into the sector's companies and everything else.
  *
- * Anything the data surfaces that is not on the list is kept too, marked as
- * discovered, because those are the brands nobody thought to track.
+ * The ranking contains only the named companies for that sector, so a card
+ * headed "who AI recommends in Banking" contains banks. Everything else the
+ * data surfaced is returned separately and grouped by what it is, because a
+ * news site in a brand ranking makes the card read as broken even when the
+ * underlying number is right.
+ *
+ * Companies with no mentions stay in the ranking. A household name the
+ * machines never mention is the most useful row on the page, and dropping it
+ * would hide the finding.
  */
 export function mergeKnown(members, measured) {
   const found = new Map(measured.map((m) => [strip(m.domain), m]));
   const claimed = new Set();
 
-  const known = members.map((m) => {
+  const brands = members.map((m) => {
     const hit = found.get(strip(m.domain));
     if (hit) claimed.add(strip(m.domain));
     return {
@@ -826,23 +862,27 @@ export function mergeKnown(members, measured) {
     };
   });
 
-  const discovered = measured
-    .filter((m) => !claimed.has(strip(m.domain)))
-    .slice(0, 8)
-    .map((m) => ({
-      ...m,
-      name: m.name || brandFromDomain(m.domain),
-      domain: strip(m.domain),
-      known: false,
-      measured: true
-    }));
-
-  const all = [...known, ...discovered];
-  const total = all.reduce((n, b) => n + b.mentions, 0) || 1;
-
-  return all
+  const total = brands.reduce((n, b) => n + b.mentions, 0) || 1;
+  const ranked = brands
     .map((b) => ({ ...b, share: Math.round((b.mentions / total) * 1000) / 10 }))
-    .sort((a, b) => b.mentions - a.mentions || Number(b.known) - Number(a.known));
+    .sort((a, b) => b.mentions - a.mentions);
+
+  const others = measured
+    .filter((m) => !claimed.has(strip(m.domain)) && m.mentions > 0)
+    .map((m) => {
+      const { kind, label } = classifyDomain(m.domain);
+      return {
+        name: m.name || brandFromDomain(m.domain),
+        domain: strip(m.domain),
+        mentions: m.mentions,
+        kind,
+        label
+      };
+    })
+    .sort((a, b) => b.mentions - a.mentions)
+    .slice(0, 12);
+
+  return { brands: ranked, others };
 }
 
 /**
@@ -858,7 +898,7 @@ export async function refreshSector(sector, { market = 'AE' } = {}) {
     name: sector.name,
     blurb: sector.blurb,
     keywords: data.keywordsUsed || sector.keywords,
-    brands: mergeKnown(sector.members || [], data.brands),
+    ...mergeKnown(sector.members || [], data.brands),
     domains: data.domains.slice(0, 12),
     totalMentions: data.totalMentions,
     totalCount: data.totalCount,
@@ -904,11 +944,13 @@ export async function refreshAll({ market = 'AE', only = null } = {}) {
             ? 'no data and nothing billed, so the request matched nothing. Run: npm run probe'
             : 'no data for these keywords'
         : '';
-      const known = snap.brands.filter((b) => b.known);
-      const seen = known.filter((b) => b.measured).length;
+      const seen = snap.brands.filter((b) => b.measured).length;
+      const candidates = (snap.others || []).filter((o) => o.kind === 'candidate').length;
       console.log(
-        `  ${sector.name.padEnd(44)} ${String(seen).padStart(2)}/${known.length} known found, ` +
-          `${snap.brands.filter((b) => !b.known).length} discovered${why ? `  <- ${why}` : ''}`
+        `  ${sector.name.padEnd(44)} ${String(seen).padStart(2)}/${snap.brands.length} named, ` +
+          `${(snap.others || []).length} other sources` +
+          `${candidates ? `, ${candidates} possible missing compan${candidates === 1 ? 'y' : 'ies'}` : ''}` +
+          `${why ? `  <- ${why}` : ''}`
       );
     } catch (err) {
       console.warn(`  ${sector.name.padEnd(24)} failed: ${err.message}`);
@@ -955,6 +997,7 @@ export async function readIndex({ market = 'AE' } = {}) {
     totals: {
       sectors: sectors.length,
       brands: sectors.reduce((n, s) => n + (s.brands || []).filter((b) => b.mentions).length, 0),
+      candidates: sectors.reduce((n, s) => n + (s.others || []).filter((o) => o.kind === 'candidate').length, 0),
       // The most publishable number on the page: named companies the
       // machines never mention.
       silent: sectors.reduce((n, s) => n + (s.brands || []).filter((b) => b.known && !b.mentions).length, 0)
