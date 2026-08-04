@@ -79,11 +79,43 @@ const baseParams = ({ market, platform }) => ({
   language_code: 'en'
 });
 
+/**
+ * Every endpoint takes `target`, and it must be an array. It accepts keywords
+ * or domains, so a category phrase and a domain are both valid entries.
+ */
+const asTarget = (v) => (Array.isArray(v) ? v : [v]).map((t) => String(t || '').trim()).filter(Boolean).slice(0, 20);
+
+/**
+ * A description of a business is not a keyword. "full-service digital
+ * marketing agency businesses in gulf, uae, saudi..." returns nothing,
+ * so reduce it to the few words someone would actually search.
+ */
+export function toKeyword(text, { words = 4 } = {}) {
+  // These fields often repeat themselves around a separator, so take the
+  // first segment and drop duplicate words rather than emitting
+  // "digital marketing agency digital".
+  const first = String(text || '').split(/[|\u2013\u2014;]/)[0];
+
+  const cleaned = first
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .replace(/\b(full service|full-service|leading|award winning|award-winning|specialist|specialising|specializing|businesses|companies|services|solutions|provider|providers|seeking|looking for|based in|that|which|and|the|for|with|in|of|to)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const seen = new Set();
+  const unique = cleaned.split(' ').filter((w) => {
+    if (!w || seen.has(w)) return false;
+    seen.add(w);
+    return true;
+  });
+  return unique.slice(0, words).join(' ');
+}
+
 /** Which brands own the conversation for a topic. */
 export async function topBrands({ keywords, market, platform, limit = 25 }) {
   const { result, cost } = await call('top_mentioned_brands', {
     ...baseParams({ market, platform }),
-    keywords,
+    target: asTarget(keywords),
     limit
   });
 
@@ -102,7 +134,7 @@ export async function topBrands({ keywords, market, platform, limit = 25 }) {
 export async function topDomains({ keywords, market, platform, limit = 25 }) {
   const { result, cost } = await call('top_mentioned_domains', {
     ...baseParams({ market, platform }),
-    keywords,
+    target: asTarget(keywords),
     limit
   });
 
@@ -121,7 +153,7 @@ export async function topDomains({ keywords, market, platform, limit = 25 }) {
 export async function topPages({ keywords, market, platform, limit = 25 }) {
   const { result, cost } = await call('top_mentioned_pages', {
     ...baseParams({ market, platform }),
-    keywords,
+    target: asTarget(keywords),
     limit
   });
 
@@ -140,7 +172,7 @@ export async function topPages({ keywords, market, platform, limit = 25 }) {
 export async function compareTargets({ targets, market, platform }) {
   const { result, cost } = await call('multi_target_metrics', {
     ...baseParams({ market, platform }),
-    targets
+    target: asTarget(targets)
   });
 
   return {
@@ -168,6 +200,10 @@ function safeDomain(url) {
  * unsupported endpoint degrades that panel rather than the whole page.
  */
 export async function landscape({ keywords, targets, market = 'AE', platform = 'google' }) {
+  // Guard against a caller passing a sentence rather than a search term.
+  keywords = asTarget(keywords).map((k) => (k.split(' ').length > 6 ? toKeyword(k) : k)).filter(Boolean);
+  if (!keywords.length) throw new Error('No usable category keyword. Fill in what the business does on the Setup tab.');
+
   const settled = await Promise.allSettled([
     topBrands({ keywords, market, platform }),
     topDomains({ keywords, market, platform }),
@@ -180,6 +216,7 @@ export async function landscape({ keywords, targets, market = 'AE', platform = '
   );
 
   return {
+    keywordsUsed: keywords,
     platform,
     platformLabel: PLATFORMS[platform]?.label || platform,
     market,

@@ -881,6 +881,43 @@ await test('parses every endpoint shape and survives one failing', async () => {
   global.fetch = realFetch;
 });
 
+await test('a business description is reduced to a usable keyword', async () => {
+  const m = await import('../src/lib/mentions.js?kw=1');
+
+  // The Setup fields hold prose written for a person. Sending it raw returns
+  // nothing, and the repetition around a separator produced duplicate words.
+  const long = 'full-service digital marketing agency | full-service digital marketing agency businesses in gulf, uae, saudi seeking seo, ppc and ecommerce marketing';
+  const kw = m.toKeyword(long);
+  assert.ok(kw.split(' ').length <= 4, `too long: ${kw}`);
+  assert.equal(new Set(kw.split(' ')).size, kw.split(' ').length, `duplicate words: ${kw}`);
+  assert.ok(/digital marketing agency/.test(kw), `lost the meaning: ${kw}`);
+
+  assert.equal(m.toKeyword('orthodontic clinic'), 'orthodontic clinic');
+  assert.equal(m.toKeyword('personal and corporate banking services'), 'personal corporate banking');
+});
+
+await test('every request sends target as an array, which the API requires', async () => {
+  process.env.DATAFORSEO_LOGIN = 'x';
+  process.env.DATAFORSEO_PASSWORD = 'y';
+  const m = await import('../src/lib/mentions.js?tgt=1');
+  const realFetch = global.fetch;
+  const sent = {};
+  global.fetch = async (url, opts) => {
+    sent[String(url).split('/llm_mentions/')[1].split('/')[0]] = JSON.parse(opts.body)[0];
+    return { ok: true, json: async () => ({ cost: 0.001, tasks: [{ status_code: 20000, result: [{ items: [] }] }] }) };
+  };
+
+  await m.landscape({ keywords: ['digital marketing agency'], targets: ['a.com', 'b.com'], market: 'AE', platform: 'google' });
+  global.fetch = realFetch;
+
+  // "Invalid Field: 'target' is missing or has an invalid type (expected array)"
+  for (const [path, body] of Object.entries(sent)) {
+    assert.ok(Array.isArray(body.target), `${path} must send target as an array`);
+    assert.equal(body.keywords, undefined, `${path} must not send a keywords field`);
+  }
+  assert.deepEqual(sent.multi_target_metrics.target, ['a.com', 'b.com']);
+});
+
 await test('warns when the platform does not cover the market', async () => {
   const m = await import('../src/lib/mentions.js?cov=1');
   const realFetch = global.fetch;

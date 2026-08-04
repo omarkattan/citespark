@@ -1071,15 +1071,17 @@ app.get('/api/projects/:id/landscape', requireAuth, wrap(async (req, res) => {
   const hit = landscapeCache.get(key);
   if (hit && Date.now() - hit.at < 30 * 60 * 1000) return res.json({ ...hit.data, cached: true });
 
-  // The category, not the brand: what someone would search to find a business
-  // like this one. Competitors are compared separately.
-  const keywords = [project.category, `${project.category} ${project.qualifier}`]
-    .map((k) => String(k || '').trim())
-    .filter((k) => k.length > 2)
-    .slice(0, 5);
+  // The category, not the brand. These fields hold prose written for a person,
+  // and a thirty-word description is not a search term, so reduce it first.
+  const { toKeyword } = await import('./lib/mentions.js');
+  const keywords = [...new Set([
+    toKeyword(project.category, { words: 4 }),
+    toKeyword(project.category, { words: 2 }),
+    toKeyword(`${project.category} ${project.market === 'AE' ? 'uae' : ''}`, { words: 5 })
+  ])].filter((k) => k.length > 3).slice(0, 3);
 
   if (!keywords.length) {
-    return res.status(400).json({ error: 'Fill in what the business does on the Setup tab first' });
+    return res.status(400).json({ error: 'Fill in what the business does on the Setup tab first, in a few plain words.' });
   }
 
   const rivals = await many(
@@ -1090,7 +1092,8 @@ app.get('/api/projects/:id/landscape', requireAuth, wrap(async (req, res) => {
   try {
     const data = await landscape({
       keywords,
-      targets: [project.brand_name, ...rivals.map((r) => r.name)].filter(Boolean).slice(0, 10),
+      // Domains are more reliable targets than brand names, which collide.
+      targets: [project.domain, ...rivals.map((r) => r.domain).filter(Boolean)].slice(0, 10),
       market: project.market,
       platform
     });
@@ -1368,7 +1371,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix']
   });
 });
 
