@@ -1405,10 +1405,17 @@ app.get('/uae', (_req, res) => {
   res.sendFile(path.join(publicDir, 'uae.html'));
 });
 
-app.get('/api/public/index', wrap(async (_req, res) => {
+app.get('/api/public/index', wrap(async (req, res) => {
   const { readIndex } = await import('./lib/sectors.js');
   const data = await readIndex({ market: 'AE' });
-  res.setHeader('Cache-Control', 'public, max-age=1800');
+
+  // A long cache here served the previous, empty snapshot for half an hour
+  // after a successful refresh. Revalidate against the capture time instead,
+  // so a refresh is visible immediately while repeat views stay cheap.
+  const tag = `"${data.updatedAt ? new Date(data.updatedAt).getTime() : 0}-${data.totals.brands}"`;
+  res.setHeader('ETag', tag);
+  res.setHeader('Cache-Control', 'public, max-age=60, must-revalidate');
+  if (req.headers['if-none-match'] === tag) return res.status(304).end();
   res.json(data);
 }));
 
@@ -1435,7 +1442,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-15']
   });
 });
 

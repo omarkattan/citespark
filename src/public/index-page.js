@@ -115,7 +115,7 @@ $('sectorFilter').addEventListener('input', (e) => {
 
 $('year').textContent = new Date().getFullYear();
 
-fetch('/api/public/index')
+fetch(`/api/public/index?v=${Date.now()}`)
   .then((r) => r.json())
   .then((d) => {
     INDEX = d;

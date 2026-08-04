@@ -144,7 +144,7 @@ Both read DataForSEO's LLM Mentions corpus rather than asking questions live.
 
 - The in-app Landscape tab makes one call per keyword, capped at two, and caches for 30 minutes.
 - The public index at `/uae` is served entirely from stored snapshots. Visitors never trigger a call.
-- A full index refresh is 16 sectors x 2 keywords x $0.20 = about **$6.40**. Weekly is sensible; on every deploy is not.
+- A full index refresh is 15 sectors x 2 keywords x $0.20 = **$6.00**. Weekly is sensible; on every deploy is not.
 
 ### What the API actually returns
 

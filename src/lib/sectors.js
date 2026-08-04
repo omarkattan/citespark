@@ -9,7 +9,7 @@ import { landscape } from './mentions.js';
  * and costs nothing to promote.
  *
  * Refreshing is not free: LLM Mentions bills $0.20 a call and a sector uses
- * two, so a full pass across sixteen sectors is about $6.40. Weekly is
+ * two, so a full pass across fifteen sectors is about $6.00. Weekly is
  * sensible; on every deploy is not.
  *
  * Google AI Overview is the platform throughout, because it is the only one
@@ -32,7 +32,6 @@ export const SECTORS = [
   { slug: 'food-delivery', name: 'Food & Delivery', keywords: ['food delivery uae', 'restaurants dubai'], blurb: 'Delivery platforms and restaurant groups.' },
   { slug: 'automotive', name: 'Automotive', keywords: ['car dealers uae', 'buy car dubai'], blurb: 'Dealerships, marketplaces and rental.' },
   { slug: 'logistics', name: 'Logistics & Shipping', keywords: ['shipping companies uae', 'courier dubai'], blurb: 'Freight, courier and last-mile delivery.' },
-  { slug: 'marketing-agencies', name: 'Marketing Agencies', keywords: ['digital marketing agency dubai', 'seo agency uae'], blurb: 'Agencies serving the Gulf market.' },
   { slug: 'construction', name: 'Construction & Fit-out', keywords: ['construction companies uae', 'fit out companies dubai'], blurb: 'Contractors, fit-out and engineering.' }
 ];
 
@@ -63,6 +62,17 @@ export async function refreshSector(sector, { market = 'AE' } = {}) {
     `INSERT INTO index_snapshots (slug, market, data, cost_usd) VALUES ($1,$2,$3,$4)`,
     [sector.slug, market, JSON.stringify(snapshot), data.cost || 0]
   );
+
+  // An empty snapshot from a failed run would otherwise become the newest and
+  // hide the last good one, so clear those out once a real one lands.
+  if (snapshot.brands.length) {
+    await query(
+      `DELETE FROM index_snapshots
+       WHERE slug = $1 AND market = $2
+         AND jsonb_array_length(COALESCE(data->'brands', '[]'::jsonb)) = 0`,
+      [sector.slug, market]
+    );
+  }
   return snapshot;
 }
 
@@ -96,10 +106,14 @@ export async function refreshAll({ market = 'AE', only = null } = {}) {
 
 /** The latest snapshot per sector, for the public page. */
 export async function readIndex({ market = 'AE' } = {}) {
+  // Prefer the newest snapshot that actually has data, so one failed refresh
+  // never blanks the page.
   const rows = await many(
     `SELECT DISTINCT ON (slug) slug, data, captured_at
      FROM index_snapshots WHERE market = $1
-     ORDER BY slug, captured_at DESC`,
+     ORDER BY slug,
+              (jsonb_array_length(COALESCE(data->'brands', '[]'::jsonb)) > 0) DESC,
+              captured_at DESC`,
     [market]
   );
 
