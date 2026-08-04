@@ -20,20 +20,31 @@ const KIND_ORDER = ['candidate', 'portal', 'news', 'platform', 'government', 're
 
 function sectorCard(s) {
   const all = s.brands || [];
-  const max = Math.max(...all.map((b) => b.mentions), 1);
-  const silent = all.filter((b) => !b.mentions);
+  const max = Math.max(...all.map((b) => b.named), 1);
+  const absent = all.filter((b) => b.status === 'absent');
+  const namedNotCited = all.filter((b) => b.status === 'named-not-cited');
   const others = s.others || [];
 
   // The ranking contains only this sector's companies, so the card answers
   // the question its heading asks.
+  // Two measurements, kept distinct: named in the answer, and cited as a
+  // source. A brand can be recommended in prose while the citation, and the
+  // click, goes to a portal instead.
+  const label = (b) => {
+    if (b.status === 'named-and-cited') return `<span class="val good">named &middot; cited</span>`;
+    if (b.status === 'named-not-cited') return `<span class="val warn" title="Recommended in the answer, but the citation went elsewhere">named, not cited</span>`;
+    if (b.status === 'cited-not-named') return `<span class="val">cited only</span>`;
+    return `<span class="val bad">neither</span>`;
+  };
+
   const bars = all.length
     ? all
         .map(
-          (b, i) => `<div class="brand-row ${b.mentions ? '' : 'silent'}">
-            <span class="rank">${b.mentions ? i + 1 : '&mdash;'}</span>
+          (b, i) => `<div class="brand-row ${b.named ? '' : 'silent'}">
+            <span class="rank">${b.named ? i + 1 : '&mdash;'}</span>
             <span class="brand">${esc(b.name)}</span>
-            <span class="track"><span class="fill" style="width:${b.mentions ? Math.max(3, (b.mentions / max) * 100) : 0}%"></span></span>
-            <span class="val">${b.mentions ? b.mentions.toLocaleString() : 'not named'}</span>
+            <span class="track"><span class="fill" style="width:${b.named ? Math.max(3, (b.named / max) * 100) : 0}%"></span></span>
+            ${label(b)}
           </div>`
         )
         .join('')
@@ -60,11 +71,17 @@ function sectorCard(s) {
     <div class="sector-head">
       <h3>${esc(s.name)}</h3>
       <span class="spacer"></span>
-      <span class="tag">${all.filter((b) => b.mentions).length} of ${all.length} named</span>
+      <span class="tag">${all.filter((b) => b.named).length} of ${all.length} named</span>
     </div>
     <p class="sector-blurb">${esc(s.blurb)}</p>
     ${bars}
-    ${silent.length ? `<p class="sector-note">${silent.length} of ${all.length} major companies in this sector ${silent.length === 1 ? 'is' : 'are'} not named at all.</p>` : ''}
+    ${absent.length ? `<p class="sector-note">${absent.length} of ${all.length} major companies here ${absent.length === 1 ? 'is' : 'are'} neither named in the answers nor cited as a source.</p>` : ''}
+    ${namedNotCited.length ? `<p class="sector-note amber">${namedNotCited.length} ${namedNotCited.length === 1 ? 'is' : 'are'} recommended in the answer but not cited, so another site takes the click.</p>` : ''}
+
+    <div class="sector-cta">
+      <span>Is your company here, or should it be?</span>
+      <a class="btn ghost" href="/#try?from=uae&amp;sector=${esc(s.slug)}">Check your own domain free</a>
+    </div>
 
     ${sourceBlocks ? `<details class="others">
       <summary>What else AI cited here <span>${others.length}</span></summary>
@@ -96,7 +113,7 @@ function schema(index) {
       name: `${s.name} in the UAE, by AI visibility`,
       numberOfItems: (s.brands || []).length,
       itemListElement: (s.brands || [])
-        .filter((b) => b.mentions)
+        .filter((b) => b.named)
         .slice(0, 10)
         .map((b, i) => ({ '@type': 'ListItem', position: i + 1, name: b.name }))
     }))
@@ -109,7 +126,8 @@ function render() {
   $('indexMeta').innerHTML = `
     <span class="tag">${INDEX.totals.sectors} sectors</span>
     <span class="tag">${INDEX.totals.brands} brands ranked</span>
-    ${INDEX.totals.silent ? `<span class="tag">${INDEX.totals.silent} major companies not named</span>` : ''}
+    ${INDEX.totals.absent ? `<span class="tag">${INDEX.totals.absent} major companies absent entirely</span>` : ''}
+    ${INDEX.totals.namedNotCited ? `<span class="tag">${INDEX.totals.namedNotCited} named but not cited</span>` : ''}
     ${INDEX.totals.candidates ? `<span class="tag">${INDEX.totals.candidates} possible companies we did not list</span>` : ''}
     <span class="tag">Google AI Overview</span>
     <span class="tag">United Arab Emirates</span>

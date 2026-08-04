@@ -166,3 +166,22 @@
 }
 .others-group.is-candidate .k { color: var(--dune); }
 .others-group.is-candidate .chip { border-color: var(--dune); color: var(--dune); }
+
+.brand-row .val.good { color: var(--spark); }
+.brand-row .val.warn { color: var(--dune); font-size: 10.5px; }
+.brand-row .val.bad { color: var(--alert); font-size: 10.5px; }
+.brand-row .val { font-size: 11px; }
+
+.sector-note.amber { color: var(--dune); border-top: none; padding-top: 0; margin-top: 6px; }
+
+.sector-cta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-2);
+}
+.sector-cta span { font-size: 13px; color: var(--sand-2); flex: 1; min-width: 160px; }
+.sector-cta .btn { font-size: 10.5px; padding: 8px 13px; }

@@ -275,6 +275,81 @@ function safeDomain(url) {
  * One screen's worth of data. Each part is fetched independently so a single
  * unsupported endpoint degrades that panel rather than the whole page.
  */
+/**
+ * The answers themselves, so we can count whether a brand is named in the
+ * text rather than only whether its domain was cited. Those are different
+ * things, and conflating them was making the index overstate its findings.
+ */
+export async function searchMentions({ keyword, market, platform = 'google', limit = 100 }) {
+  const { result, cost } = await call('search_mentions', {
+    ...baseParams({ market, platform }),
+    target: asTarget(keyword),
+    limit
+  });
+
+  const first = result?.[0] || {};
+  const items = first.items || [];
+
+  return {
+    cost,
+    answers: items
+      .map((r) => ({
+        question: r.question || r.keyword || null,
+        answer: [r.answer, r.text, r.content].filter((x) => typeof x === 'string').join(' ').trim(),
+        sources: (r.sources || r.cited_sources || []).map((x) => strip(x.domain || x.url || x)),
+        aiSearchVolume: Number(r.ai_search_volume || 0)
+      }))
+      .filter((a) => a.answer)
+  };
+}
+
+/**
+ * Count how often each company is actually named in the answer text.
+ *
+ * Matching on a company name is fuzzier than matching a domain, so this errs
+ * towards missing a mention rather than inventing one: it needs a whole-word
+ * match on either the full name or a distinctive short form.
+ */
+export function countNames(answers, members) {
+  // Trailing descriptors that people drop in conversation. "Emaar Properties"
+  // becomes "Emaar"; "Emirates NBD" keeps both words because NBD is not one
+  // of these, which is what stops it matching the airline.
+  const SUFFIX = /\s+(properties|property|group|holding|holdings|company|co|corporation|corp|international|international llc|llc|pjsc|psc|fzc|fze|limited|ltd|inc|bank|insurance|airways|airlines|hotels|resorts|hospitality|healthcare|industries|enterprises|developments|development|real estate|contracting|construction|services|solutions|systems|technologies)$/i;
+
+  const forms = members.map((m) => {
+    const name = String(m.name || '').trim();
+    // "First Abu Dhabi Bank (FAB)" gives both the full name and FAB.
+    const bracketed = name.match(/\(([^)]{2,10})\)/)?.[1];
+    const plain = name.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+
+    // Strip one trailing descriptor, but only if what remains is still
+    // distinctive enough to be worth matching on its own.
+    let core = plain.replace(SUFFIX, '').trim();
+    if (core.length < 5 || core.toLowerCase() === plain.toLowerCase()) core = null;
+
+    const variants = [...new Set([plain, bracketed, core].filter(Boolean))];
+    return { member: m, variants };
+  });
+
+  const counts = new Map(members.map((m) => [m.domain, { named: 0, examples: [] }]));
+
+  for (const a of answers) {
+    const text = a.answer;
+    for (const { member, variants } of forms) {
+      const hit = variants.some((v) => {
+        const re = new RegExp(`(^|[^\\w])${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^\\w]|$)`, 'i');
+        return re.test(text);
+      });
+      if (!hit) continue;
+      const entry = counts.get(member.domain);
+      entry.named += 1;
+      if (entry.examples.length < 2 && a.question) entry.examples.push(a.question);
+    }
+  }
+
+  return counts;
+}
+
 export async function landscape({ keywords, market = 'AE', platform = 'google' }) {
   const list = (Array.isArray(keywords) ? keywords : [keywords])
     .map((k) => String(k || '').trim())

@@ -6,7 +6,13 @@ const esc = (s) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
   );
 
-const demo = { site: null };
+// Where the visitor came from, so the index page can be judged as a funnel.
+const demo = {
+  site: null,
+  source: new URLSearchParams(location.search).get('from') ||
+    (location.hash.includes('from=uae') ? 'uae' : null) ||
+    (document.referrer.includes('/uae') ? 'uae' : 'landing')
+};
 
 function note(msg, kind = '') {
   const el = $('demoNote');
@@ -94,7 +100,8 @@ async function run(index) {
         brandName: demo.site.brandName,
         market: demo.site.market,
         question: q.text,
-        token: q.token
+        token: q.token,
+        source: demo.source
       })
     });
     const d = await res.json();

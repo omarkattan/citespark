@@ -1,5 +1,5 @@
 import { many, one, query } from '../db/index.js';
-import { landscape, brandFromDomain } from './mentions.js';
+import { landscape, brandFromDomain, searchMentions, countNames } from './mentions.js';
 
 /**
  * The public UAE AI Visibility Index.
@@ -9,7 +9,8 @@ import { landscape, brandFromDomain } from './mentions.js';
  * and costs nothing to promote.
  *
  * Refreshing is not free: LLM Mentions bills $0.20 a call and a sector uses
- * two, so a full pass across twenty-five sectors is about $10. Weekly is
+ * two, plus one more to read the answers themselves, so a full pass across
+ * twenty-five sectors is about $15. Weekly is
  * sensible; on every deploy is not.
  *
  * Google AI Overview is the platform throughout, because it is the only one
@@ -845,27 +846,37 @@ export const DOMAIN_KIND_ORDER = ['candidate', 'portal', 'news', 'platform', 'go
  * machines never mention is the most useful row on the page, and dropping it
  * would hide the finding.
  */
-export function mergeKnown(members, measured) {
+export function mergeKnown(members, measured, nameCounts = new Map()) {
   const found = new Map(measured.map((m) => [strip(m.domain), m]));
   const claimed = new Set();
 
   const brands = members.map((m) => {
-    const hit = found.get(strip(m.domain));
-    if (hit) claimed.add(strip(m.domain));
+    const domain = strip(m.domain);
+    const hit = found.get(domain);
+    if (hit) claimed.add(domain);
+    const names = nameCounts.get(m.domain) || nameCounts.get(domain) || { named: 0, examples: [] };
+
+    // Two different measurements, deliberately kept apart:
+    //   cited  the company's own site was used as a source
+    //   named  the company was mentioned in the answer text
+    // A brand can be named without being cited, which is its own finding.
     return {
       name: m.name,
-      domain: strip(m.domain),
-      mentions: hit?.mentions || 0,
+      domain,
+      citations: hit?.mentions || 0,
+      named: names.named || 0,
+      examples: names.examples || [],
       aiSearchVolume: hit?.aiSearchVolume || 0,
       known: true,
-      measured: Boolean(hit)
+      cited: Boolean(hit),
+      status: names.named ? (hit ? 'named-and-cited' : 'named-not-cited') : hit ? 'cited-not-named' : 'absent'
     };
   });
 
-  const total = brands.reduce((n, b) => n + b.mentions, 0) || 1;
+  const totalCitations = brands.reduce((n, b) => n + b.citations, 0) || 1;
   const ranked = brands
-    .map((b) => ({ ...b, share: Math.round((b.mentions / total) * 1000) / 10 }))
-    .sort((a, b) => b.mentions - a.mentions);
+    .map((b) => ({ ...b, share: Math.round((b.citations / totalCitations) * 1000) / 10 }))
+    .sort((a, b) => b.named - a.named || b.citations - a.citations);
 
   const others = measured
     .filter((m) => !claimed.has(strip(m.domain)) && m.mentions > 0)
@@ -889,21 +900,37 @@ export function mergeKnown(members, measured) {
  * Refresh one sector. Kept deliberately small so a failure affects one card
  * on the page rather than the whole index.
  */
-export async function refreshSector(sector, { market = 'AE' } = {}) {
-  // One call per keyword at $0.20 each, so a sector uses two.
+export async function refreshSector(sector, { market = 'AE', withMentions = true } = {}) {
+  // Two calls for the citation picture, plus one for the answers themselves
+  // so we can tell "named in the answer" from "cited as a source".
   const data = await landscape({ keywords: sector.keywords, market, platform: 'google' });
+
+  let nameCounts = new Map();
+  let mentionsCost = 0;
+  let answersRead = 0;
+  if (withMentions) {
+    try {
+      const found = await searchMentions({ keyword: sector.keywords[0], market, platform: 'google' });
+      mentionsCost = found.cost || 0;
+      answersRead = found.answers.length;
+      nameCounts = countNames(found.answers, (sector.members || []).map((m) => ({ ...m, domain: strip(m.domain) })));
+    } catch (err) {
+      console.warn(`    could not read answers for ${sector.name}: ${err.message}`);
+    }
+  }
 
   const snapshot = {
     slug: sector.slug,
     name: sector.name,
     blurb: sector.blurb,
     keywords: data.keywordsUsed || sector.keywords,
-    ...mergeKnown(sector.members || [], data.brands),
+    ...mergeKnown(sector.members || [], data.brands, nameCounts),
     domains: data.domains.slice(0, 12),
+    answersRead,
     totalMentions: data.totalMentions,
     totalCount: data.totalCount,
     errors: data.errors || [],
-    cost: data.cost
+    cost: (data.cost || 0) + mentionsCost
   };
 
   await query(
@@ -935,8 +962,7 @@ export async function refreshAll({ market = 'AE', only = null } = {}) {
       spend += snap.cost || 0;
       done.push({ slug: sector.slug, brands: snap.brands.length, domains: snap.domains.length, errors: snap.errors.length });
 
-      const measured = snap.brands.filter((b) => b.measured).length;
-      const empty = !measured && !snap.domains.length;
+      const empty = !snap.brands.some((b) => b.named || b.cited) && !snap.domains.length;
       const why = empty
         ? snap.errors.length
           ? `no data (${snap.errors[0]})`
@@ -944,10 +970,11 @@ export async function refreshAll({ market = 'AE', only = null } = {}) {
             ? 'no data and nothing billed, so the request matched nothing. Run: npm run probe'
             : 'no data for these keywords'
         : '';
-      const seen = snap.brands.filter((b) => b.measured).length;
+      const seen = snap.brands.filter((b) => b.named || b.cited).length;
       const candidates = (snap.others || []).filter((o) => o.kind === 'candidate').length;
       console.log(
-        `  ${sector.name.padEnd(44)} ${String(seen).padStart(2)}/${snap.brands.length} named, ` +
+        `  ${sector.name.padEnd(44)} ${String(snap.brands.filter((b) => b.named).length).padStart(2)} named, ` +
+          `${String(snap.brands.filter((b) => b.cited).length).padStart(2)} cited of ${snap.brands.length}, ` +
           `${(snap.others || []).length} other sources` +
           `${candidates ? `, ${candidates} possible missing compan${candidates === 1 ? 'y' : 'ies'}` : ''}` +
           `${why ? `  <- ${why}` : ''}`
@@ -996,11 +1023,11 @@ export async function readIndex({ market = 'AE' } = {}) {
     crossSector: [...domainTotals.values()].sort((a, b) => b.sectors - a.sectors || b.mentions - a.mentions).slice(0, 12),
     totals: {
       sectors: sectors.length,
-      brands: sectors.reduce((n, s) => n + (s.brands || []).filter((b) => b.mentions).length, 0),
+      brands: sectors.reduce((n, s) => n + (s.brands || []).filter((b) => b.named || b.cited).length, 0),
       candidates: sectors.reduce((n, s) => n + (s.others || []).filter((o) => o.kind === 'candidate').length, 0),
-      // The most publishable number on the page: named companies the
-      // machines never mention.
-      silent: sectors.reduce((n, s) => n + (s.brands || []).filter((b) => b.known && !b.mentions).length, 0)
+      // The most publishable numbers on the page.
+      absent: sectors.reduce((n, s) => n + (s.brands || []).filter((b) => b.status === 'absent').length, 0),
+      namedNotCited: sectors.reduce((n, s) => n + (s.brands || []).filter((b) => b.status === 'named-not-cited').length, 0)
     }
   };
 }

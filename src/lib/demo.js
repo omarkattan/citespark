@@ -127,7 +127,7 @@ export async function proposeQuestions(domainInput) {
 
 /* ---------------- step two: run it ---------------- */
 
-export async function runDemo({ domain, brandName, question, token, market, ipHash }) {
+export async function runDemo({ domain, brandName, question, token, market, ipHash, source }) {
   if (!verifyQuestion(domain, question, token)) {
     return { ok: false, error: 'That question was not one of ours. Scan the site again to get a fresh set.' };
   }
@@ -141,7 +141,10 @@ export async function runDemo({ domain, brandName, question, token, market, ipHa
     [domain, question, String(CACHE_HOURS)]
   );
   if (cached?.result) {
-    await query('INSERT INTO demo_runs (ip_hash, domain, question, cost_usd) VALUES ($1,$2,$3,0)', [ipHash, domain, question]);
+    await query(
+      'INSERT INTO demo_runs (ip_hash, domain, question, cost_usd, source, brand_name) VALUES ($1,$2,$3,0,$4,$5)',
+      [ipHash, domain, question, source || null, brandName || null]
+    );
     return { ok: true, cached: true, ...cached.result };
   }
 
@@ -165,7 +168,10 @@ export async function runDemo({ domain, brandName, question, token, market, ipHa
   }
 
   if (!answers.length) {
-    await query('INSERT INTO demo_runs (ip_hash, domain, question, cost_usd) VALUES ($1,$2,$3,$4)', [ipHash, domain, question, spend]);
+    await query(
+      'INSERT INTO demo_runs (ip_hash, domain, question, cost_usd, source, brand_name) VALUES ($1,$2,$3,$4,$5,$6)',
+      [ipHash, domain, question, spend, source || null, brandName || null]
+    );
     return { ok: false, error: 'The engine did not answer that one. Try another question.' };
   }
 
@@ -196,8 +202,10 @@ export async function runDemo({ domain, brandName, question, token, market, ipHa
     fanOut: [...new Set(answers.flatMap((a) => a.fanOut))].slice(0, 2)
   };
 
-  await query('INSERT INTO demo_runs (ip_hash, domain, question, result, cost_usd) VALUES ($1,$2,$3,$4,$5)',
-    [ipHash, domain, question, JSON.stringify(result), spend]);
+  await query(
+    'INSERT INTO demo_runs (ip_hash, domain, question, result, cost_usd, source, brand_name) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+    [ipHash, domain, question, JSON.stringify(result), spend, source || null, brandName || null]
+  );
 
   return { ok: true, ...result };
 }

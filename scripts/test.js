@@ -851,6 +851,43 @@ console.log('\nsector index');
 
 const sec = await import('../src/lib/sectors.js');
 
+await test('named in the answer and cited as a source are measured separately', async () => {
+  const { countNames } = await import('../src/lib/mentions.js?names2=1');
+  const re = sec.SECTORS.find((s) => s.slug === 'real-estate-development');
+
+  const answers = [
+    { question: 'Top developers?', answer: 'Emaar Properties, DAMAC and Aldar Properties lead. Nakheel built Palm Jumeirah.' },
+    { question: 'Where to buy?', answer: 'Emaar and DAMAC dominate the market.' }
+  ];
+  const counts = countNames(answers, re.members);
+  const { brands } = sec.mergeKnown(re.members, [{ domain: 'emaar.com', mentions: 14000 }], counts);
+
+  const by = Object.fromEntries(brands.map((b) => [b.domain, b]));
+
+  // The distinction that makes the page honest: recommended in the answer is
+  // not the same as being the source the answer cited.
+  assert.equal(by['emaar.com'].status, 'named-and-cited');
+  assert.equal(by['damacproperties.com'].status, 'named-not-cited', 'named in prose, citation went elsewhere');
+  assert.equal(by['arada.com'].status, 'absent', 'neither named nor cited');
+
+  // A shortened form counts. "Emaar and DAMAC dominate" is a mention.
+  assert.equal(by['emaar.com'].named, 2);
+  assert.equal(by['damacproperties.com'].named, 2);
+});
+
+await test('a shortened name does not match a different company', async () => {
+  const { countNames } = await import('../src/lib/mentions.js?names3=1');
+  const members = [
+    { name: 'Emirates NBD', domain: 'emiratesnbd.com' },
+    { name: 'Emaar Properties', domain: 'emaar.com' }
+  ];
+  const counts = countNames([{ question: 'q', answer: 'Emirates is the flag carrier of Dubai.' }], members);
+
+  // "Emirates NBD" must not be credited for a sentence about the airline.
+  assert.equal(counts.get('emiratesnbd.com').named, 0);
+  assert.equal(counts.get('emaar.com').named, 0);
+});
+
 await test('non-companies are kept out of the ranking', () => {
   const banking = sec.SECTORS.find((s) => s.slug === 'banking');
 
@@ -911,15 +948,15 @@ await test('every named company appears, measured or not', () => {
     assert.ok(brands.some((b) => b.name === m.name), `${m.name} must appear`);
   }
   const fab = brands.find((b) => /First Abu Dhabi/.test(b.name));
-  assert.equal(fab.mentions, 0);
-  assert.equal(fab.measured, false, 'and be marked as not measured');
+  assert.equal(fab.citations, 0);
+  assert.equal(fab.cited, false, 'and be marked as not cited');
 
   // Anything found that is not on the list goes to the sources list.
   assert.ok(others.some((o) => o.domain === 'hsbc.ae'));
 
-  // Measured companies rank above silent ones.
+  // Measured companies rank above absent ones.
   assert.equal(brands[0].domain, 'emiratesnbd.com');
-  assert.ok(brands.findIndex((b) => b.mentions === 0) > brands.findIndex((b) => b.mentions > 0));
+  assert.ok(brands.findIndex((b) => b.citations === 0) > brands.findIndex((b) => b.citations > 0));
 });
 
 await test('the sector list is complete and well formed', () => {

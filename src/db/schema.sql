@@ -262,3 +262,7 @@ CREATE TABLE IF NOT EXISTS feedback (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS feedback_new ON feedback (status, created_at DESC);
+
+-- Where a demo came from, so the index page can be judged as a funnel.
+ALTER TABLE demo_runs ADD COLUMN IF NOT EXISTS source TEXT;
+ALTER TABLE demo_runs ADD COLUMN IF NOT EXISTS brand_name TEXT;
