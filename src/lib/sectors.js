@@ -75,7 +75,16 @@ export async function refreshAll({ market = 'AE', only = null } = {}) {
       const snap = await refreshSector(sector, { market });
       spend += snap.cost || 0;
       done.push({ slug: sector.slug, brands: snap.brands.length, domains: snap.domains.length, errors: snap.errors.length });
-      console.log(`  ${sector.name.padEnd(24)} ${snap.brands.length} brands, ${snap.domains.length} domains`);
+
+      const empty = !snap.brands.length && !snap.domains.length;
+      const why = empty
+        ? snap.errors.length
+          ? `no data (${snap.errors[0]})`
+          : snap.cost === 0
+            ? 'no data and nothing billed, so the request matched nothing. Run: npm run probe'
+            : 'no data for these keywords'
+        : '';
+      console.log(`  ${sector.name.padEnd(24)} ${snap.brands.length} brands, ${snap.domains.length} domains${why ? `  <- ${why}` : ''}`);
     } catch (err) {
       console.warn(`  ${sector.name.padEnd(24)} failed: ${err.message}`);
       done.push({ slug: sector.slug, error: String(err.message) });
