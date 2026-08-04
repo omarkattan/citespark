@@ -9,21 +9,23 @@ const esc = (s) =>
 let INDEX = null;
 
 function sectorCard(s) {
-  const max = Math.max(...(s.brands || []).map((b) => b.mentions), 1);
-  const rows = (s.brands || []).slice(0, 8);
+  const all = s.brands || [];
+  const max = Math.max(...all.map((b) => b.mentions), 1);
+  const rows = all.slice(0, 12);
+  const silent = all.filter((b) => b.known && !b.mentions);
 
   const bars = rows.length
     ? rows
         .map(
-          (b, i) => `<div class="brand-row">
-            <span class="rank">${i + 1}</span>
-            <span class="brand">${esc(b.name)}</span>
-            <span class="track"><span class="fill" style="width:${Math.max(3, (b.mentions / max) * 100)}%"></span></span>
-            <span class="val">${b.mentions.toLocaleString()}</span>
+          (b, i) => `<div class="brand-row ${b.mentions ? '' : 'silent'} ${b.known ? '' : 'found'}">
+            <span class="rank">${b.mentions ? i + 1 : '&mdash;'}</span>
+            <span class="brand">${esc(b.name)}${b.known ? '' : '<i title="Found in the data, not on our list">found</i>'}</span>
+            <span class="track"><span class="fill" style="width:${b.mentions ? Math.max(3, (b.mentions / max) * 100) : 0}%"></span></span>
+            <span class="val">${b.mentions ? b.mentions.toLocaleString() : 'not named'}</span>
           </div>`
         )
         .join('')
-    : `<p class="index-empty">No brands returned for this category yet.</p>`;
+    : `<p class="index-empty">No data returned for this category yet.</p>`;
 
   const sources = (s.domains || []).slice(0, 4);
   const haystack = `${s.name} ${s.blurb} ${(s.brands || []).map((b) => b.name).join(' ')} ${(s.domains || []).map((d) => d.domain).join(' ')}`.toLowerCase();
@@ -36,6 +38,7 @@ function sectorCard(s) {
     </div>
     <p class="sector-blurb">${esc(s.blurb)}</p>
     ${bars}
+    ${silent.length ? `<p class="sector-note">${silent.length} of the sector's major companies ${silent.length === 1 ? 'is' : 'are'} not named at all in these answers.</p>` : ''}
     ${sources.length ? `<div class="sector-sources">
       <span class="k">Most cited sources</span>
       ${sources.map((d) => `<span class="chip">${esc(d.domain)}</span>`).join('')}
@@ -63,11 +66,10 @@ function schema(index) {
       '@type': 'ItemList',
       name: `${s.name} in the UAE, by AI visibility`,
       numberOfItems: (s.brands || []).length,
-      itemListElement: (s.brands || []).slice(0, 10).map((b, i) => ({
-        '@type': 'ListItem',
-        position: i + 1,
-        name: b.name
-      }))
+      itemListElement: (s.brands || [])
+        .filter((b) => b.mentions)
+        .slice(0, 10)
+        .map((b, i) => ({ '@type': 'ListItem', position: i + 1, name: b.name }))
     }))
   };
 }
@@ -78,6 +80,7 @@ function render() {
   $('indexMeta').innerHTML = `
     <span class="tag">${INDEX.totals.sectors} sectors</span>
     <span class="tag">${INDEX.totals.brands} brands ranked</span>
+    ${INDEX.totals.silent ? `<span class="tag">${INDEX.totals.silent} major companies not named</span>` : ''}
     <span class="tag">Google AI Overview</span>
     <span class="tag">United Arab Emirates</span>
     ${INDEX.updatedAt ? `<span class="tag">updated ${new Date(INDEX.updatedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}</span>` : ''}`;

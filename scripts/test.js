@@ -847,6 +847,56 @@ await test('retries transient failures but not permanent ones', async () => {
   global.fetch = realFetch;
 });
 
+console.log('\nsector index');
+
+const sec = await import('../src/lib/sectors.js');
+
+await test('every named company appears, measured or not', () => {
+  const banking = sec.SECTORS.find((s) => s.slug === 'banking');
+  assert.equal(banking.members.length, 5, 'the list is the floor');
+
+  const measured = [
+    { domain: 'www.emiratesnbd.com', name: 'Emirates NBD', mentions: 17229 },
+    { domain: 'hsbc.ae', name: 'HSBC UAE', mentions: 7909 }
+  ];
+  const merged = sec.mergeKnown(banking.members, measured);
+
+  // A household name the machines never mention is the most useful row on the
+  // page, so it must survive rather than being dropped for having no data.
+  for (const m of banking.members) {
+    assert.ok(merged.some((b) => b.name === m.name), `${m.name} must appear`);
+  }
+  const fab = merged.find((b) => /First Abu Dhabi/.test(b.name));
+  assert.equal(fab.mentions, 0);
+  assert.equal(fab.measured, false, 'and be marked as not measured');
+  assert.equal(fab.known, true);
+
+  // Anything the data found that is not on the list is kept and flagged.
+  const hsbc = merged.find((b) => b.domain === 'hsbc.ae');
+  assert.equal(hsbc.known, false, 'discovered brands are marked as such');
+  assert.equal(hsbc.measured, true);
+
+  // Measured brands rank above silent ones.
+  assert.equal(merged[0].domain, 'emiratesnbd.com');
+  assert.ok(merged.findIndex((b) => b.mentions === 0) > merged.findIndex((b) => b.mentions > 0));
+});
+
+await test('the sector list is complete and well formed', () => {
+  assert.equal(sec.SECTORS.length, 25);
+  const slugs = new Set();
+  for (const s of sec.SECTORS) {
+    assert.ok(s.slug && !slugs.has(s.slug), `duplicate or missing slug: ${s.slug}`);
+    slugs.add(s.slug);
+    assert.ok(s.keywords.length >= 1, `${s.slug} needs a query`);
+    assert.ok(s.members.length >= 3, `${s.slug} needs known companies`);
+    for (const m of s.members) {
+      assert.ok(m.name && m.domain, `${s.slug} has a member with no domain`);
+      assert.ok(!m.domain.startsWith('www.'), `${m.domain} should be stripped`);
+      assert.ok(!/^https?:/.test(m.domain), `${m.domain} should not be a url`);
+    }
+  }
+});
+
 console.log('\ncategory landscape');
 
 await test('reads the real response and turns domains into a brand ranking', async () => {
