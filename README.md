@@ -136,6 +136,29 @@ That second string is an ordinary Google query, which means classic SEO applies 
 
 No competitor tool surfaces this. It is the bridge between GEO and the SEO work you already do.
 
+## The category landscape and the UAE index
+
+Both read DataForSEO's LLM Mentions corpus rather than asking questions live.
+
+**Cost, measured not estimated: $0.20 per call.** That is two orders of magnitude above what the row-based pricing implied, so:
+
+- The in-app Landscape tab makes one call per keyword, capped at two, and caches for 30 minutes.
+- The public index at `/uae` is served entirely from stored snapshots. Visitors never trigger a call.
+- A full index refresh is 16 sectors x 2 keywords x $0.20 = about **$6.40**. Weekly is sensible; on every deploy is not.
+
+### What the API actually returns
+
+`target` must be an array of objects, each with exactly one of `keyword` or `domain`:
+
+```json
+{ "platform": "google", "location_name": "United Arab Emirates",
+  "language_code": "en", "target": [{ "keyword": "banks uae" }] }
+```
+
+`top_mentioned_brands` returns nothing: `brand_entities_title` is empty in the corpus. The brand ranking therefore comes from `top_mentioned_domains`, where `aggregated_metrics.sources_domain` gives the domains cited most for the category. Those domains are the brands, with platforms such as YouTube and Wikipedia filtered out of the ranking but kept in the full source list.
+
+If the shape changes again, `npm run probe` tries a dozen request variations and reports which return rows. That is how the shape above was found.
+
 ## Reading a customer's site
 
 The scan escalates only as far as it needs to:

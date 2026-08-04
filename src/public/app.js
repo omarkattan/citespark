@@ -2203,16 +2203,16 @@ async function viewLandscape() {
       ${note ? `<p class="hint" style="margin-top:12px">${note}</p>` : ''}
     </div>`;
 
-  const brandsMax = Math.max(...d.brands.rows.map((r) => r.mentions), 1);
-  const domainsMax = Math.max(...d.domains.rows.map((r) => r.mentions || r.citations), 1);
-  const compMax = Math.max(...d.comparison.rows.map((r) => r.mentions), 1);
+  const brandsMax = Math.max(...d.brands.map((r) => r.mentions), 1);
+  const domainsMax = Math.max(...d.domains.map((r) => r.mentions), 1);
 
   return `
   <div class="landscape-head">
     ${toggle}
     <span class="spacer"></span>
-    <span class="tag">${esc(d.keywords.join(' | '))}</span>
-    <span class="tag">${d.cost ? '$' + d.cost.toFixed(4) : 'free'}${d.cached ? ' &middot; cached' : ''}</span>
+    <span class="tag">${esc((d.keywordsUsed || []).join(' | '))}</span>
+    <span class="tag">${d.totalCount ? d.totalCount.toLocaleString() + ' domains in corpus' : ''}</span>
+    <span class="tag">${d.cached ? 'cached' : '$' + (d.cost || 0).toFixed(2)}</span>
   </div>
 
   ${d.coverageWarning ? `<p class="report-warn">${esc(d.coverageWarning)}</p>` : ''}
@@ -2223,34 +2223,18 @@ async function viewLandscape() {
   </p>
 
   ${panel('Who owns the conversation',
-    d.brands.rows,
-    d.brands.rows.map((r) => barRow(r.name, r.mentions, brandsMax, { own: r.name.toLowerCase().includes(brand) })).join(''),
-    'Brands named most often across this category. Anyone above you here is worth adding as a tracked competitor.',
-    d.brands.error)}
+    d.brands,
+    d.brands.slice(0, 15).map((r) => barRow(`${r.name}  ${r.share}%`, r.mentions, brandsMax,
+      { own: r.domain === ownDomain })).join(''),
+    `Brands named most often across this category, measured by how often their own domain is cited.
+     Anyone above you here is worth adding as a tracked competitor.`,
+    d.errors?.[0])}
 
-  ${d.comparison.rows.length ? panel('You against your tracked competitors',
-    d.comparison.rows,
-    d.comparison.rows.map((r) => barRow(r.target, r.mentions, compMax, { own: r.target.toLowerCase().includes(brand) })).join(''),
-    'The same measure, limited to the brands you already track.',
-    d.comparison.error) : ''}
-
-  ${panel('What the models read',
-    d.domains.rows,
-    d.domains.rows.map((r) => barRow(r.domain, r.mentions || r.citations, domainsMax, { own: r.domain === ownDomain })).join(''),
-    'The domains shaping answers in this category. Absence from the top of this list is the gap worth closing.',
-    d.domains.error)}
-
-  ${panel('The exact pages being cited',
-    d.pages.rows,
-    d.pages.rows.slice(0, 20).map((r) => `<div class="row">
-        <div class="grow">
-          <div class="name"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url.replace(/^https?:\/\//, '').slice(0, 90))}</a></div>
-          <div class="sub">${esc(r.domain || '')}</div>
-        </div>
-        <span class="tag">${(r.citations || r.mentions).toLocaleString()}</span>
-      </div>`).join(''),
-    'Individual pages the models quote. These are your benchmarking targets, and where a teardown pays off most.',
-    d.pages.error)}`;
+  ${panel('Every source, including the platforms',
+    d.domains,
+    d.domains.slice(0, 15).map((r) => barRow(r.domain, r.mentions, domainsMax, { own: r.domain === ownDomain })).join(''),
+    `The same list before platforms such as YouTube and Wikipedia are filtered out. A platform high on this list is
+     itself a channel worth being present on.`)}`;
 }
 
 boot();

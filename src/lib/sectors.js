@@ -6,8 +6,11 @@ import { landscape } from './mentions.js';
  *
  * A page that measures a whole market, refreshed on a schedule and served
  * from a stored snapshot. Visitors never trigger an API call, so it is fast
- * and costs nothing to promote. A full refresh across every sector runs to a
- * few cents.
+ * and costs nothing to promote.
+ *
+ * Refreshing is not free: LLM Mentions bills $0.20 a call and a sector uses
+ * two, so a full pass across sixteen sectors is about $6.40. Weekly is
+ * sensible; on every deploy is not.
  *
  * Google AI Overview is the platform throughout, because it is the only one
  * in this dataset with UAE coverage. ChatGPT here is United States only, and
@@ -40,21 +43,19 @@ export const bySlug = (slug) => SECTORS.find((s) => s.slug === slug) || null;
  * on the page rather than the whole index.
  */
 export async function refreshSector(sector, { market = 'AE' } = {}) {
-  const data = await landscape({
-    keywords: sector.keywords,
-    market,
-    platform: 'google'
-  });
+  // One call per keyword at $0.20 each, so a sector uses two.
+  const data = await landscape({ keywords: sector.keywords, market, platform: 'google' });
 
   const snapshot = {
     slug: sector.slug,
     name: sector.name,
     blurb: sector.blurb,
     keywords: data.keywordsUsed || sector.keywords,
-    brands: data.brands.rows.slice(0, 10),
-    domains: data.domains.rows.slice(0, 10),
-    pages: data.pages.rows.slice(0, 5),
-    errors: [data.brands.error, data.domains.error, data.pages.error].filter(Boolean),
+    brands: data.brands.slice(0, 10),
+    domains: data.domains.slice(0, 10),
+    totalMentions: data.totalMentions,
+    totalCount: data.totalCount,
+    errors: data.errors || [],
     cost: data.cost
   };
 

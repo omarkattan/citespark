@@ -849,42 +849,58 @@ await test('retries transient failures but not permanent ones', async () => {
 
 console.log('\ncategory landscape');
 
-await test('parses every endpoint shape and survives one failing', async () => {
+await test('reads the real response and turns domains into a brand ranking', async () => {
   process.env.DATAFORSEO_LOGIN = 'x';
   process.env.DATAFORSEO_PASSWORD = 'y';
-  const m = await import('../src/lib/mentions.js?land=1');
+  const m = await import('../src/lib/mentions.js?real=1');
   const realFetch = global.fetch;
 
-  // The endpoints nest their rows under different keys and have already been
-  // renamed once, so binding to one shape would break on the next rename.
-  const shapes = {
-    top_mentioned_brands: { items: [{ brand: 'Digital Gravity', mentions_count: 412 }, { name: 'Sandstorm Digital', count: 96 }] },
-    top_mentioned_domains: { domains: [{ domain: 'clutch.co', mentions_count: 900 }, { target: 'reddit.com', mentions: 640 }] },
-    top_mentioned_pages: { items: [{ url: 'https://clutch.co/ae', citations_count: 220 }, { page: 'https://digitalgravity.ae/seo', mentions: 140 }] },
-    multi_target_metrics: { items: [{ target: 'Sandstorm Digital', mentions_count: 96 }] }
-  };
-  global.fetch = async (url) => {
-    const path = String(url).split('/llm_mentions/')[1].split('/')[0];
-    return { ok: true, json: async () => ({ cost: 0.0012, tasks: [{ status_code: 20000, result: [shapes[path]] }] }) };
-  };
+  // Trimmed from an actual response. brand_entities_title comes back empty,
+  // which is why there is no separate brand endpoint to read: the domains
+  // cited in the aggregate are the brands.
+  const REAL = { cost: 0.2, tasks: [{ status_code: 20000, cost: 0.2, result: [{
+    total_count: 8528,
+    aggregated_metrics: {
+      sources_domain: [
+        { key: 'www.emiratesnbd.com', mentions: 17229, ai_search_volume: 15519700 },
+        { key: 'www.youtube.com', mentions: 13742, ai_search_volume: 12518910 },
+        { key: 'www.adcb.com', mentions: 11128, ai_search_volume: 9548000 },
+        { key: 'www.hsbc.ae', mentions: 7909, ai_search_volume: 7005040 }
+      ],
+      brand_entities_title: [],
+      total: { mentions: 75279, ai_search_volume: 70952270 }
+    },
+    items: [
+      { domain: 'www.youtube.com', total: { mentions: 2851 } },
+      { domain: 'www.mashreq.com', total: { mentions: 386 } }
+    ]
+  }] }] };
 
-  const d = await m.landscape({ keywords: ['seo agency'], targets: ['Sandstorm Digital'], market: 'AE', platform: 'google' });
-  assert.equal(d.brands.rows.length, 2);
-  assert.equal(d.brands.rows[0].name, 'Digital Gravity');
-  assert.equal(d.domains.rows[1].domain, 'reddit.com', 'alternative key names must resolve');
-  assert.equal(d.pages.rows[1].domain, 'digitalgravity.ae', 'domain derived from the url when absent');
-  assert.ok(d.cost > 0, 'cost must be reported');
-
-  // A single unsupported endpoint should degrade one panel, not the screen.
-  global.fetch = async (url) =>
-    String(url).includes('top_mentioned_brands')
-      ? { ok: false, status: 404, json: async () => ({ status_message: 'Not found' }) }
-      : { ok: true, json: async () => ({ cost: 0, tasks: [{ status_code: 20000, result: [{ items: [] }] }] }) };
-  const partial = await m.landscape({ keywords: ['banks uae'], market: 'AE', platform: 'google' });
-  assert.ok(Array.isArray(partial.domains.rows), 'the rest of the page must still render');
-  assert.ok(partial.brands.error, 'the failing panel must say why');
-
+  let calls = 0;
+  global.fetch = async () => { calls++; return { ok: true, json: async () => REAL }; };
+  const d = await m.landscape({ keywords: ['banks uae'], market: 'AE', platform: 'google' });
   global.fetch = realFetch;
+
+  assert.equal(calls, 1, 'one call per keyword, because each costs twenty cents');
+  assert.equal(d.cost, 0.2, 'the real cost must be reported, not an estimate');
+  assert.equal(d.totalCount, 8528);
+
+  // Platforms are in every category and say nothing about who leads it.
+  assert.ok(!d.brands.some((b) => b.domain === 'youtube.com'), 'youtube is not a brand in this ranking');
+  assert.equal(d.brands[0].domain, 'emiratesnbd.com');
+  assert.ok(d.brands[0].share > 0, 'share of voice must be computed');
+
+  // But it should still be visible in the unfiltered list, since a platform
+  // high in a category is itself a channel worth being on.
+  assert.ok(d.domains.some((r) => r.domain === 'youtube.com'), 'the unfiltered list keeps platforms');
+  assert.ok(d.domains.length > d.brands.length);
+});
+
+await test('domains become readable names', async () => {
+  const m = await import('../src/lib/mentions.js?names=1');
+  assert.equal(m.brandFromDomain('www.emiratesnbd.com'), 'Emiratesnbd');
+  assert.equal(m.brandFromDomain('property-finder.ae'), 'Property Finder');
+  // A model call improves these where a key is present; this is the floor.
 });
 
 await test('a business description is reduced to a usable keyword', async () => {
@@ -900,33 +916,6 @@ await test('a business description is reduced to a usable keyword', async () => 
 
   assert.equal(m.toKeyword('orthodontic clinic'), 'orthodontic clinic');
   assert.equal(m.toKeyword('personal and corporate banking services'), 'personal corporate banking');
-});
-
-await test('every request sends target as an array, which the API requires', async () => {
-  process.env.DATAFORSEO_LOGIN = 'x';
-  process.env.DATAFORSEO_PASSWORD = 'y';
-  const m = await import('../src/lib/mentions.js?tgt=1');
-  const realFetch = global.fetch;
-  const sent = {};
-  global.fetch = async (url, opts) => {
-    sent[String(url).split('/llm_mentions/')[1].split('/')[0]] = JSON.parse(opts.body)[0];
-    return { ok: true, json: async () => ({ cost: 0.001, tasks: [{ status_code: 20000, result: [{ items: [] }] }] }) };
-  };
-
-  await m.landscape({ keywords: ['digital marketing agency'], targets: ['a.com', 'b.com'], market: 'AE', platform: 'google' });
-  global.fetch = realFetch;
-
-  // The API rejects a bare array with "Field 'target' is missing or has an
-  // invalid type", and an array of strings with "Each 'target' item must be
-  // an object". Both were real responses.
-  for (const [path, body] of Object.entries(sent)) {
-    assert.ok(Array.isArray(body.target), `${path} must send target as an array`);
-    assert.ok(body.target.every((t) => t && typeof t === 'object'), `${path} must send target items as objects`);
-    assert.equal(body.keywords, undefined, `${path} must not send a keywords field`);
-  }
-  // Anything hostname-shaped goes as a domain, everything else as a keyword.
-  assert.deepEqual(sent.multi_target_metrics.target, [{ domain: 'a.com' }, { domain: 'b.com' }]);
-  assert.deepEqual(sent.top_mentioned_brands.target, [{ keyword: 'digital marketing agency' }]);
 });
 
 await test('refuses to query with no usable keyword', async () => {
