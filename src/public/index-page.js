@@ -22,6 +22,7 @@ function sectorCard(s) {
   const all = s.brands || [];
   const max = Math.max(...all.map((b) => b.named), 1);
   const absent = all.filter((b) => b.status === 'absent');
+  const max2 = Math.max(...all.map((b) => b.citations || 0), 1);
   const namedNotCited = all.filter((b) => b.status === 'named-not-cited');
   const others = s.others || [];
 
@@ -31,6 +32,11 @@ function sectorCard(s) {
   // source. A brand can be recommended in prose while the citation, and the
   // click, goes to a portal instead.
   const label = (b) => {
+    if (b.status === 'unmeasured') {
+      return b.citations
+        ? `<span class="val">cited</span>`
+        : `<span class="val muted" title="This sector predates the mentions measurement">not cited</span>`;
+    }
     if (b.status === 'named-and-cited') return `<span class="val good">named &middot; cited</span>`;
     if (b.status === 'named-not-cited') return `<span class="val warn" title="Recommended in the answer, but the citation went elsewhere">named, not cited</span>`;
     if (b.status === 'cited-not-named') return `<span class="val">cited only</span>`;
@@ -43,7 +49,9 @@ function sectorCard(s) {
           (b, i) => `<div class="brand-row ${b.named ? '' : 'silent'}">
             <span class="rank">${b.named ? i + 1 : '&mdash;'}</span>
             <span class="brand">${esc(b.name)}</span>
-            <span class="track"><span class="fill" style="width:${b.named ? Math.max(3, (b.named / max) * 100) : 0}%"></span></span>
+            <span class="track"><span class="fill" style="width:${
+              b.named ? Math.max(3, (b.named / max) * 100) : b.citations ? Math.max(3, (b.citations / max2) * 100) : 0
+            }%"></span></span>
             ${label(b)}
           </div>`
         )
@@ -75,6 +83,7 @@ function sectorCard(s) {
     </div>
     <p class="sector-blurb">${esc(s.blurb)}</p>
     ${bars}
+    ${s.stale ? `<p class="sector-note muted">Measured before we began reading the answer text, so this card shows citations only. It will fill in on the next refresh.</p>` : ''}
     ${absent.length ? `<p class="sector-note">${absent.length} of ${all.length} major companies here ${absent.length === 1 ? 'is' : 'are'} neither named in the answers nor cited as a source.</p>` : ''}
     ${namedNotCited.length ? `<p class="sector-note amber">${namedNotCited.length} ${namedNotCited.length === 1 ? 'is' : 'are'} recommended in the answer but not cited, so another site takes the click.</p>` : ''}
 
@@ -126,6 +135,7 @@ function render() {
   $('indexMeta').innerHTML = `
     <span class="tag">${INDEX.totals.sectors} sectors</span>
     <span class="tag">${INDEX.totals.brands} brands ranked</span>
+    ${INDEX.stale ? `<span class="tag warn">${INDEX.stale} sectors awaiting refresh</span>` : ''}
     ${INDEX.totals.absent ? `<span class="tag">${INDEX.totals.absent} major companies absent entirely</span>` : ''}
     ${INDEX.totals.namedNotCited ? `<span class="tag">${INDEX.totals.namedNotCited} named but not cited</span>` : ''}
     ${INDEX.totals.candidates ? `<span class="tag">${INDEX.totals.candidates} possible companies we did not list</span>` : ''}

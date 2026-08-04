@@ -959,6 +959,35 @@ await test('every named company appears, measured or not', () => {
   assert.ok(brands.findIndex((b) => b.citations === 0) > brands.findIndex((b) => b.citations > 0));
 });
 
+await test('an old snapshot is never reported as absent', async () => {
+  // Snapshots written before citations and name mentions were separated only
+  // carry `mentions`. Reading them with the new field names made every
+  // company look absent, which is a stronger claim than the data supports.
+  const { readIndex } = await import('../src/lib/sectors.js');
+  const src = await import('node:fs').then((fs) =>
+    fs.readFileSync(new URL('../src/lib/sectors.js', import.meta.url), 'utf8')
+  );
+  const normalise = new Function('snap', src.match(/function normaliseSnapshot\(snap\)[\s\S]*?\n\}/)[0] + '; return normaliseSnapshot(snap);');
+
+  const old = normalise({
+    brands: [
+      { name: 'Emirates NBD', domain: 'emiratesnbd.com', mentions: 17229, known: true, measured: true },
+      { name: 'Mashreq', domain: 'mashreq.com', mentions: 0, known: true, measured: false }
+    ]
+  });
+
+  assert.equal(old.stale, true, 'the page needs to know it is out of date');
+  assert.equal(old.brands[0].citations, 17229, 'the old figure is a citation count');
+  assert.equal(old.brands[0].status, 'cited-not-named');
+  assert.equal(old.brands[1].status, 'unmeasured', 'not "absent": we never looked at the answer text');
+  assert.notEqual(old.brands[1].status, 'absent');
+
+  // And a current snapshot passes through untouched.
+  const current = normalise({ brands: [{ name: 'X', domain: 'x.com', citations: 5, named: 2, status: 'named-and-cited' }] });
+  assert.equal(current.stale, false);
+  assert.equal(current.brands[0].status, 'named-and-cited');
+});
+
 await test('the sector list is complete and well formed', () => {
   assert.equal(sec.SECTORS.length, 25);
   const slugs = new Set();

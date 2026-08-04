@@ -987,6 +987,38 @@ export async function refreshAll({ market = 'AE', only = null } = {}) {
   return { sectors: done, spend: Math.round(spend * 10000) / 10000 };
 }
 
+/**
+ * Snapshots written before citations and name mentions were measured
+ * separately only carry `mentions`. Reading them with the new field names
+ * makes every company look absent, which is worse than being out of date.
+ * Normalise on read, and mark them so the page can say it needs refreshing.
+ */
+function normaliseSnapshot(snap) {
+  const brands = (snap.brands || []).map((b) => {
+    if (b.status) return b; // already in the current shape
+
+    const citations = b.citations ?? b.mentions ?? 0;
+    return {
+      ...b,
+      citations,
+      named: b.named ?? 0,
+      cited: citations > 0,
+      // Without a mentions pass we cannot claim a company was not named, only
+      // that it was not cited. Saying "neither" would be a stronger claim than
+      // the data supports.
+      status: citations > 0 ? 'cited-not-named' : 'unmeasured',
+      share: b.share ?? 0
+    };
+  });
+
+  return {
+    ...snap,
+    brands,
+    others: snap.others || [],
+    stale: !snap.brands?.some((b) => b.status)
+  };
+}
+
 /** The latest snapshot per sector, for the public page. */
 export async function readIndex({ market = 'AE' } = {}) {
   // Prefer the newest snapshot that actually has data, so one failed refresh
@@ -1000,10 +1032,14 @@ export async function readIndex({ market = 'AE' } = {}) {
     [market]
   );
 
-  const bySlugMap = new Map(rows.map((r) => [r.slug, { ...r.data, capturedAt: r.captured_at }]));
+  const bySlugMap = new Map(
+    rows.map((r) => [r.slug, { ...normaliseSnapshot(r.data), capturedAt: r.captured_at }])
+  );
   const sectors = SECTORS.map((s) => bySlugMap.get(s.slug)).filter(Boolean);
 
   // Which sources shape answers across the whole market, not one sector.
+  const stale = sectors.filter((s) => s.stale).length;
+
   const domainTotals = new Map();
   for (const s of sectors) {
     for (const d of s.domains || []) {
@@ -1021,11 +1057,14 @@ export async function readIndex({ market = 'AE' } = {}) {
     updatedAt: latest,
     sectors,
     crossSector: [...domainTotals.values()].sort((a, b) => b.sectors - a.sectors || b.mentions - a.mentions).slice(0, 12),
+    stale,
     totals: {
       sectors: sectors.length,
       brands: sectors.reduce((n, s) => n + (s.brands || []).filter((b) => b.named || b.cited).length, 0),
       candidates: sectors.reduce((n, s) => n + (s.others || []).filter((o) => o.kind === 'candidate').length, 0),
       // The most publishable numbers on the page.
+      // 'unmeasured' is not 'absent'. Counting it as such would publish a
+      // claim the data does not support.
       absent: sectors.reduce((n, s) => n + (s.brands || []).filter((b) => b.status === 'absent').length, 0),
       namedNotCited: sectors.reduce((n, s) => n + (s.brands || []).filter((b) => b.status === 'named-not-cited').length, 0)
     }

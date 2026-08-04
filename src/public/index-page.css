@@ -185,3 +185,7 @@
 }
 .sector-cta span { font-size: 13px; color: var(--sand-2); flex: 1; min-width: 160px; }
 .sector-cta .btn { font-size: 10.5px; padding: 8px 13px; }
+
+.brand-row .val.muted { color: var(--mute); font-size: 10.5px; }
+.sector-note.muted { color: var(--mute); }
+.index-meta .tag.warn { border-color: var(--dune); color: var(--dune); }
