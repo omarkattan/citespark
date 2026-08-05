@@ -15,7 +15,7 @@ import { one, query } from '../db/index.js';
  * generic advice.
  */
 
-const AGGREGATORS = /(clutch\.co|g2\.com|capterra|trustpilot|designrush|sortlist|goodfirms|upcity|expertise\.com|yelp|tripadvisor|glassdoor|crunchbase|producthunt|thumbtack|houzz|checkatrade|trustedtraders)/i;
+const AGGREGATORS = /(clutch\.co|g2\.com|capterra|trustpilot|designrush|sortlist|goodfirms|upcity|expertise\.com|yelp|tripadvisor|glassdoor|crunchbase|producthunt|thumbtack|houzz|checkatrade|trustedtraders|bayut|propertyfinder|property-finder|dubizzle|houza|opensooq|yallacompare|souqalmal|policybazaar|compareit4me|talabat|deliveroo|noon\.com|booking\.com|agoda|expedia|skyscanner|kayak|bayt\.com|naukrigulf)/i;
 const COMMUNITY = /(reddit|quora|stackexchange|stackoverflow|discourse|forum|community\.|facebook\.com\/groups)/i;
 const REFERENCE = /(wikipedia|\.gov(\.|$)|\.edu(\.|$)|\.ac\.|britannica|who\.int|statista)/i;
 const PUBLISHER = /(medium\.com|substack|linkedin\.com\/pulse|forbes|entrepreneur|techcrunch|searchengine|hubspot\/blog)/i;

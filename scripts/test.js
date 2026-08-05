@@ -87,6 +87,57 @@ await test('rejects unknown engines instead of failing silently', async () => {
 
 console.log('\nrecommendation rules');
 
+await test('the rules engine runs with only the minimum inputs', () => {
+  // Two variables were referenced before they existed, so every cycle threw
+  // and produced no recommendations at all. Nothing caught it because every
+  // other rule test passes a fully populated fixture.
+  assert.doesNotThrow(() =>
+    evaluateRules({
+      project: { id: 1, brand_name: 'X', domain: 'x.com' },
+      stats: [{
+        prompt_id: 1, text: 'q', cluster: 'c', ai_search_volume: 100, engine: 'chatgpt',
+        entity_id: 1, name: 'X', kind: 'owned', domain: 'x.com',
+        runs: 3, hits: 2, avg_ordinal: 2, negatives: 0, snippet: null, sample_run: 1
+      }]
+    })
+  );
+  assert.doesNotThrow(() => evaluateRules({ project: { id: 1, brand_name: 'X', domain: 'x.com' }, stats: [] }));
+});
+
+await test('named but not cited names who took the click', () => {
+  const project = { id: 1, brand_name: 'Arada', domain: 'arada.com' };
+  const q = 'Which area is best for families in Sharjah?';
+  const stat = (o) => ({
+    prompt_id: 1, text: q, cluster: 'area-guide', ai_search_volume: 2600, engine: 'chatgpt',
+    entity_id: 1, name: 'Arada', kind: 'owned', domain: 'arada.com',
+    runs: 3, hits: 2, avg_ordinal: 2, negatives: 0, snippet: null, sample_run: 1, ...o
+  });
+
+  const recs = evaluateRules({
+    project,
+    stats: [stat({}), stat({ entity_id: 2, name: 'Emaar', kind: 'competitor', domain: 'emaar.com', hits: 1 })],
+    ownCitedByPrompt: new Map(),
+    citedByPrompt: new Map([[1, [
+      { domain: 'bayut.com', url: 'https://www.bayut.com/x', position: 1 },
+      { domain: 'rhkproperties.com', url: 'https://rhkproperties.com/y', position: 2 }
+    ]]])
+  });
+
+  const r = recs.find((x) => x.type === 'citable_asset');
+  assert.ok(r, 'the rule must fire when named but never cited');
+  assert.ok(/bayut\.com/.test(r.action), 'say who got the click');
+  assert.deepEqual(r.evidence.took_the_citation.map((t) => t.domain), ['bayut.com', 'rhkproperties.com']);
+
+  // A property portal is a portal, not an editorial site, and the advice
+  // differs: claim the listing rather than pitch a contribution.
+  assert.equal(r.evidence.took_the_citation[0].kind, 'directory');
+  assert.ok(/listing there is accurate/i.test(r.action));
+
+  // The split that makes this actionable rather than generic.
+  assert.ok(/only you can verify/i.test(r.action));
+  assert.ok(/never be trusted on/i.test(r.action));
+});
+
 const project = { id: 1, brand_name: 'Sandstorm Digital', domain: 'sandstormdigital.com' };
 
 const stat = (o) => ({
