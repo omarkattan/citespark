@@ -136,6 +136,31 @@ That second string is an ordinary Google query, which means classic SEO applies 
 
 No competitor tool surfaces this. It is the bridge between GEO and the SEO work you already do.
 
+## Notifications
+
+Two separate things.
+
+**The log** is the record. Every event is written to the `notifications` table whether or not the email goes out, so nothing is lost to a provider outage:
+
+```bash
+npm run log            # last 50
+npm run log trial      # just demo trials
+npm run log 200
+```
+
+**The email** is only how you hear about it sooner. Set `RESEND_API_KEY` and `NOTIFY_EMAIL`. Sent as they happen: a demo trial with its score, a new account, a new paid subscription, and any feedback. A trial scoring zero gets its own subject line, because someone typing their domain in and discovering they are invisible is the warmest lead this product generates.
+
+Sending is fire and forget. A Resend outage cannot break a signup, and there is a test that fails if it can. Failed sends are recorded in the log with the reason.
+
+A daily summary runs at 05:00 via the `cited-daily-digest` cron, or by hand:
+
+```bash
+npm run digest        # last 24 hours
+npm run digest 72
+```
+
+It prints to the console regardless, so it is useful even with nothing configured.
+
 ## The category landscape and the UAE index
 
 Both read DataForSEO's LLM Mentions corpus rather than asking questions live.

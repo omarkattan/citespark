@@ -266,3 +266,17 @@ CREATE INDEX IF NOT EXISTS feedback_new ON feedback (status, created_at DESC);
 -- Where a demo came from, so the index page can be judged as a funnel.
 ALTER TABLE demo_runs ADD COLUMN IF NOT EXISTS source TEXT;
 ALTER TABLE demo_runs ADD COLUMN IF NOT EXISTS brand_name TEXT;
+
+-- Every notification, kept whether or not the email went out. The log is the
+-- record; the email is just how you hear about it sooner.
+CREATE TABLE IF NOT EXISTS notifications (
+  id         SERIAL PRIMARY KEY,
+  kind       TEXT NOT NULL,
+  title      TEXT NOT NULL,
+  detail     JSONB NOT NULL DEFAULT '{}',
+  emailed    BOOLEAN NOT NULL DEFAULT false,
+  email_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS notifications_recent ON notifications (created_at DESC);
+CREATE INDEX IF NOT EXISTS notifications_kind ON notifications (kind, created_at DESC);

@@ -15,6 +15,13 @@ services:
       # Every other hostname 301s here. Leave unset to serve on any host.
       - key: CANONICAL_HOST
         value: cited.ae
+      # Where to send trials, signups, payments and feedback as they happen.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: NOTIFY_EMAIL
+        sync: false
+      - key: NOTIFY_FROM
+        value: Cited <notifications@cited.ae>
       # Public demo. Every run costs real money with nobody paying for it, so
       # these caps are what stand between you and a bad afternoon.
       - key: DEMO_RUNS
@@ -77,6 +84,28 @@ services:
         sync: false
       - key: STRIPE_PRICE_AGENCY_ANNUAL
         sync: false
+
+  # Morning summary: trials, signups, feedback and spend.
+  - type: cron
+    name: cited-daily-digest
+    runtime: node
+    plan: starter
+    schedule: "0 5 * * *"
+    buildCommand: npm ci
+    startCommand: npm run digest
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cited-db
+          property: connectionString
+      - key: RESEND_API_KEY
+        sync: false
+      - key: NOTIFY_EMAIL
+        sync: false
+      - key: NOTIFY_FROM
+        value: Cited <notifications@cited.ae>
+      - key: CANONICAL_HOST
+        value: cited.ae
 
   - type: cron
     name: cited-weekly-cycle

@@ -847,6 +847,53 @@ await test('retries transient failures but not permanent ones', async () => {
   global.fetch = realFetch;
 });
 
+console.log('\nnotifications');
+
+await test('an email failure never breaks the thing that triggered it', async () => {
+  process.env.RESEND_API_KEY = 'test';
+  process.env.NOTIFY_EMAIL = 'you@example.com';
+  const n = await import('../src/lib/notify.js?fail=1');
+  const realFetch = global.fetch;
+  global.fetch = async () => { throw new Error('resend is down'); };
+
+  // notify() is deliberately not awaited by callers, so a rejected send must
+  // be swallowed rather than becoming an unhandled rejection that takes the
+  // request down with it.
+  assert.doesNotThrow(() => n.notifyTrial({ domain: 'x.ae', rate: 0, runs: 3 }));
+  await new Promise((r) => setTimeout(r, 120));
+  global.fetch = realFetch;
+});
+
+await test('a zero-visibility trial is flagged as the lead it is', async () => {
+  process.env.RESEND_API_KEY = 'test';
+  process.env.NOTIFY_EMAIL = 'you@example.com';
+  const n = await import('../src/lib/notify.js?trial=1');
+  const realFetch = global.fetch;
+  const sent = [];
+  global.fetch = async (url, opts) => {
+    sent.push(JSON.parse(opts.body));
+    return { ok: true, text: async () => '' };
+  };
+
+  n.notifyTrial({ domain: 'bigbrand.ae', brandName: 'Big Brand', rate: 0, runs: 3, source: 'uae' });
+  n.notifyTrial({ domain: 'acme.ae', rate: 0.33, runs: 3, source: 'landing' });
+  await new Promise((r) => setTimeout(r, 200));
+  global.fetch = realFetch;
+
+  assert.ok(/scored 0% AI visibility/.test(sent[0].subject), 'the zero case says so in the subject line');
+  assert.ok(/easiest conversation/i.test(sent[0].html), 'and explains why it matters');
+  assert.ok(/33%/.test(sent[1].subject));
+  assert.ok(!/easiest conversation/i.test(sent[1].html), 'a partial score is not the same lead');
+
+  // The values must be escaped, since a domain is visitor-supplied.
+  const evil = [];
+  global.fetch = async (url, opts) => { evil.push(JSON.parse(opts.body)); return { ok: true, text: async () => '' }; };
+  n.notifyTrial({ domain: '<script>alert(1)</script>.ae', rate: 0.5, runs: 2 });
+  await new Promise((r) => setTimeout(r, 120));
+  global.fetch = realFetch;
+  assert.ok(!/<script>/.test(evil[0].html), 'visitor-supplied values must be escaped');
+});
+
 console.log('\nsector index');
 
 const sec = await import('../src/lib/sectors.js');

@@ -18,7 +18,9 @@
     "index": "node scripts/refresh-index.js",
     "probe": "node scripts/probe-mentions.js",
     "feedback": "node scripts/feedback.js",
-    "trials": "node scripts/trials.js"
+    "trials": "node scripts/trials.js",
+    "digest": "node scripts/digest.js",
+    "log": "node scripts/log.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

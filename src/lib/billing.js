@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { one, many, query } from '../db/index.js';
 import { PLANS, planFor, stripePriceId, WORST_CASE_CALL } from './plans.js';
 import { ENGINE_IDS } from './dataforseo.js';
+import { notifyPaid } from './notify.js';
 
 /**
  * Billing.
@@ -356,6 +357,18 @@ async function applySubscription(subscription) {
   }
 
   const cancelled = ['canceled', 'incomplete_expired', 'unpaid'].includes(subscription.status);
+
+  // Worth knowing about immediately, and only on the way in.
+  const previous = await one('SELECT plan FROM subscriptions WHERE org_id = $1', [target.org_id]);
+  if (!cancelled && mapped?.plan && previous?.plan !== mapped.plan && mapped.plan !== 'free') {
+    const owner = await one('SELECT email FROM users WHERE org_id = $1 ORDER BY id LIMIT 1', [target.org_id]);
+    notifyPaid({
+      email: owner?.email,
+      plan: PLANS[mapped.plan]?.name || mapped.plan,
+      interval: mapped.interval,
+      amount: mapped.interval === 'year' ? PLANS[mapped.plan]?.priceAnnual : PLANS[mapped.plan]?.price
+    });
+  }
   await query(
     `UPDATE subscriptions SET
        plan = $2, status = $3, interval = $4,

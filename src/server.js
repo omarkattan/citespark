@@ -17,6 +17,7 @@ import { discoverSite } from './lib/discover.js';
 import { PLANS, PLAN_ORDER, planFor } from './lib/plans.js';
 import { proposeQuestions, runDemo, checkLimits, hashIp, DEMO_CONFIG } from './lib/demo.js';
 import { teardown } from './lib/teardown.js';
+import { notifyTrial, notifySignup, notifyPaid, notifyFeedback, emailConfigured } from './lib/notify.js';
 import { listSites as listGscSites, candidates as gscCandidates, importQuestions } from './lib/gsc.js';
 import { landscape, PLATFORMS, mentionsConfigured } from './lib/mentions.js';
 import {
@@ -879,6 +880,16 @@ app.post('/api/demo/run', wrap(async (req, res) => {
     source: String(source || '').slice(0, 40) || null
   });
   if (!result.ok) return res.status(422).json(result);
+
+  // Not for a cached repeat: the same link doing the rounds is not a new lead.
+  if (!result.cached) {
+    notifyTrial({
+      domain, brandName, question,
+      rate: result.rate, runs: result.runs,
+      source: String(source || '').slice(0, 40) || null
+    });
+  }
+
   res.json({ ...result, remaining: Math.max(0, limits.remaining - 1) });
 }));
 
@@ -1090,6 +1101,7 @@ app.post('/api/feedback', wrap(async (req, res) => {
   );
 
   console.log(`Feedback #${row.id} [${kind}] from ${email || 'anonymous'}: ${message.slice(0, 120)}`);
+  notifyFeedback({ kind, message, email, view: context.view });
   res.json({ ok: true, id: row.id });
 }));
 
@@ -1441,11 +1453,12 @@ app.get('/api/version', (_req, res) => {
   res.json({
     startedAt: STARTED_AT,
     mockMode: MOCK,
+    notifications: emailConfigured,
     canonicalHost: CANONICAL_HOST || null,
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log']
   });
 });
 
