@@ -572,7 +572,8 @@ async function loadProject(id) {
     ? `Measured across ${state.overview.runs} answers on ${state.overview.cycle}. Every action below is derived from that evidence.`
     : 'Nothing measured yet. Run a cycle to ask every tracked question across the engines.';
   $('cycleMeta').textContent = state.overview.cycle ? `cycle ${state.overview.cycle}` : 'no data';
-  const short = p.name.length > 18 ? p.name.slice(0, 17) + '\u2026' : p.name;
+  const cap = window.innerWidth < 760 ? 12 : 18;
+  const short = p.name.length > cap ? p.name.slice(0, cap - 1) + '\u2026' : p.name;
   $('runBtn').textContent = `Run ${short}`;
   $('runBtn').title = `Runs a cycle for ${p.name} only`;
   await renderFigures();
@@ -684,7 +685,8 @@ $('signOut').addEventListener('click', async () => {
 
 function resetRunLabel() {
   const name = state.overview?.project?.name || 'cycle';
-  const short = name.length > 18 ? name.slice(0, 17) + '\u2026' : name;
+  const cap = window.innerWidth < 760 ? 12 : 18;
+  const short = name.length > cap ? name.slice(0, cap - 1) + '\u2026' : name;
   $('runBtn').textContent = `Run ${short}`;
 }
 

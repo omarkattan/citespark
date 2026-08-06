@@ -1022,3 +1022,104 @@ select { appearance: auto; }
 }
 
 .int-b em { font-style: normal; opacity: 0.6; font-size: 9px; letter-spacing: 0.08em; margin-left: 4px; }
+
+/* ------------------------------------------------------------------
+   Mobile
+   The app was built desktop first and a row of nine tabs will not wrap,
+   which forced the page 590px wider than a phone and made everything
+   underneath unreachable. These rules fix the causes rather than hiding
+   the symptom with overflow:hidden.
+   ------------------------------------------------------------------ */
+
+@media (max-width: 760px) {
+  /* Tabs scroll sideways rather than stretching the page. */
+  .tabs {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    margin: 0 -16px 18px;
+    padding: 0 16px;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    flex: none;
+    padding: 13px 13px;
+    font-size: 12.5px;
+    min-height: 44px;
+  }
+
+  /* Masthead stacks: brand on one line, controls on the next. */
+  .masthead-inner {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+  }
+  .masthead .meta { display: none; }
+  .masthead .spacer { display: none; }
+  /* Two rows, not four: picker on top, everything else beside it. */
+  .masthead-inner > select { flex: 1 1 100%; width: 100%; min-height: 44px; font-size: 15px; }
+  .masthead-inner .runwrap { flex: 1 1 auto; }
+  .runwrap { display: flex; }
+  .runwrap #runBtn { flex: 1; min-height: 44px; white-space: nowrap; }
+  .runmore { min-height: 44px; }
+  .usage-pill { order: 9; font-size: 10px; padding: 5px 9px; }
+  #addSiteBtn, #signOutBtn { padding: 11px 12px; font-size: 10.5px; }
+
+  main { padding: 20px 16px 90px; }
+
+  h1 { font-size: 30px; }
+  .dek { font-size: 15px; }
+
+  /* Two figures across, not five squeezed. */
+  .figures { grid-template-columns: repeat(2, 1fr); }
+  .figure { padding: 14px 15px; }
+  .figure .value { font-size: 30px; }
+
+  .panel { padding: 18px 16px; }
+  .panel-head { flex-wrap: wrap; gap: 8px; }
+
+  /* Anything meant to be tapped needs to be tappable. */
+  button, .btn, select, textarea,
+  input:not([type='checkbox']):not([type='radio']) {
+    min-height: 44px;
+    font-size: 16px; /* under 16px, iOS zooms the whole page on focus */
+  }
+  input[type='checkbox'] { width: 18px; height: 18px; }
+  .tfilter { min-height: 40px; padding: 9px 12px; }
+  .ghost { padding: 10px 14px; }
+
+  /* Rows that were side by side stack. */
+  .row { flex-wrap: wrap; gap: 8px; }
+  .row .grow { flex: 1 1 100%; }
+  .rec-foot { flex-wrap: wrap; gap: 6px; }
+  .rec-foot > span[style] { display: none; }
+  .rec-top { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .rec-pri { font-size: 11px; }
+
+  .taskbar { gap: 2px; }
+  .task-meta { gap: 5px; }
+
+  /* Charts keep their aspect ratio but lose the cramped labels. */
+  .chart { min-height: 200px; }
+  .legend { gap: 10px; }
+  .legend-item { font-size: 10.5px; }
+
+  /* Trend and share-of-voice rows. */
+  .sov-row, .mover { grid-template-columns: 1fr; gap: 4px; }
+  .sov-track { height: 8px; }
+
+  .excerpt, .demo-excerpt { max-height: 200px; }
+  .teardown .chips { gap: 5px; }
+
+  .switch-int { flex-wrap: wrap; }
+  .landscape-head { gap: 6px; }
+}
+
+@media (max-width: 380px) {
+  .figures { grid-template-columns: 1fr; }
+  h1 { font-size: 26px; }
+  .panel { padding: 16px 14px; }
+  .wordmark-text { font-size: 20px; }
+}
