@@ -1143,6 +1143,35 @@ await test('every company carries a home market', () => {
   assert.equal(companies, 125);
 });
 
+await test('Arabic markets are queried in Arabic', async () => {
+  const m = await import('../src/lib/mentions.js?lang=1');
+
+  // Saudi Arabia, Bahrain, Morocco, Algeria and Jordan reject language_code
+  // 'en' outright. Sending English to them returned nothing, which looked
+  // exactly like the market being uncovered and produced a table of zeros.
+  assert.equal(m.MARKET_LANGUAGE.SA, 'ar');
+  assert.equal(m.MARKET_LANGUAGE.MA, 'ar');
+  assert.equal(m.MARKET_LANGUAGE.JO, 'ar');
+  assert.equal(m.MARKET_LANGUAGE.AE, 'en');
+  assert.equal(m.MARKET_LANGUAGE.EG, 'en');
+
+  process.env.DATAFORSEO_LOGIN = 'x';
+  process.env.DATAFORSEO_PASSWORD = 'y';
+  const realFetch = global.fetch;
+  let sent = null;
+  global.fetch = async (url, opts) => {
+    sent = JSON.parse(opts.body)[0];
+    return { ok: true, json: async () => ({ cost: 0, tasks: [{ status_code: 20000, result: [{ aggregated_metrics: { sources_domain: [] }, items: [] }] }] }) };
+  };
+
+  await m.landscape({ keywords: ['best bank'], market: 'SA', platform: 'google' });
+  assert.equal(sent.language_code, 'ar', 'Saudi Arabia must be queried in Arabic');
+  await m.landscape({ keywords: ['best bank'], market: 'AE', platform: 'google' });
+  assert.equal(sent.language_code, 'en');
+
+  global.fetch = realFetch;
+});
+
 await test('the location map covers every market in the index', async () => {
   process.env.DATAFORSEO_LOGIN = 'x';
   process.env.DATAFORSEO_PASSWORD = 'y';

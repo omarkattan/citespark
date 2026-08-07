@@ -16,9 +16,20 @@ import { complete, parseJsonArray } from './anthropic.js';
 
 const BASE = 'https://api.dataforseo.com/v3/ai_optimization/llm_mentions';
 
+/**
+ * Confirmed with DataForSEO support: the ChatGPT platform is in limited
+ * access and supports the United States and English only. Google supports
+ * many locations and languages, listed at their locations_and_languages
+ * endpoint. Run `npm run locations` rather than guessing.
+ */
 export const PLATFORMS = {
   google: { label: 'Google AI Overview', allLocations: true },
-  chat_gpt: { label: 'ChatGPT', allLocations: false, note: 'United States only in this dataset' }
+  chat_gpt: {
+    label: 'ChatGPT',
+    allLocations: false,
+    language: 'en',
+    note: 'Limited access: United States and English only'
+  }
 };
 
 export const mentionsConfigured = Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD);
@@ -110,13 +121,27 @@ function rowsOf(result) {
  * outright with "Invalid Field: 'location_name'". Google accepts a location
  * and needs one, since that is the whole point of a UAE index.
  */
-const baseParams = ({ market, platform }) => {
+/**
+ * Which language the corpus holds for a market.
+ *
+ * Observed: Saudi Arabia, Bahrain, Morocco, Algeria and Jordan reject
+ * language_code 'en' outright, which means the corpus for those markets is
+ * Arabic rather than that they are uncovered. Qatar, Kuwait and Oman reject
+ * location_name, so they are genuinely absent from the dataset.
+ */
+export const MARKET_LANGUAGE = {
+  AE: 'en', EG: 'en', US: 'en', GB: 'en',
+  SA: 'ar', BH: 'ar', MA: 'ar', DZ: 'ar', JO: 'ar', LB: 'ar', IQ: 'ar', TN: 'ar', LY: 'ar'
+};
+
+const baseParams = ({ market, platform, language }) => {
   const p = PLATFORMS[platform] ? platform : 'google';
+  const lang = language || MARKET_LANGUAGE[market] || 'en';
   if (!PLATFORMS[p].allLocations) {
-    // No location to choose: the dataset covers one market.
-    return { platform: p, language_code: 'en' };
+    // One market, one language, so neither is ours to choose.
+    return { platform: p, language_code: PLATFORMS[p].language || 'en' };
   }
-  return { platform: p, location_name: LOCATIONS[market] || 'United States', language_code: 'en' };
+  return { platform: p, location_name: LOCATIONS[market] || 'United States', language_code: lang };
 };
 
 /**
@@ -234,9 +259,9 @@ function readDomainsResponse(result) {
  * sources shaping the category; the items, once platforms are filtered out,
  * name the brands. At twenty cents a call that matters.
  */
-export async function categoryPicture({ keyword, market, platform = 'google', limit = 100 }) {
+export async function categoryPicture({ keyword, market, platform = 'google', language, limit = 100 }) {
   const { result, cost } = await call('top_mentioned_domains', {
-    ...baseParams({ market, platform }),
+    ...baseParams({ market, platform, language }),
     target: asTarget(keyword),
     limit
   });
@@ -291,9 +316,9 @@ function safeDomain(url) {
  * text rather than only whether its domain was cited. Those are different
  * things, and conflating them was making the index overstate its findings.
  */
-export async function searchMentions({ keyword, market, platform = 'google', limit = 100 }) {
+export async function searchMentions({ keyword, market, platform = 'google', language, limit = 100 }) {
   const { result, cost } = await call('search_mentions', {
-    ...baseParams({ market, platform }),
+    ...baseParams({ market, platform, language }),
     target: asTarget(keyword),
     limit
   });
@@ -361,7 +386,7 @@ export function countNames(answers, members) {
   return counts;
 }
 
-export async function landscape({ keywords, market = 'AE', platform = 'google' }) {
+export async function landscape({ keywords, market = 'AE', platform = 'google', language }) {
   const list = (Array.isArray(keywords) ? keywords : [keywords])
     .map((k) => String(k || '').trim())
     .map((k) => (k.split(' ').length > 6 ? toKeyword(k) : k))
@@ -372,7 +397,7 @@ export async function landscape({ keywords, market = 'AE', platform = 'google' }
   // One call per keyword, and each costs real money, so cap it.
   const picked = list.slice(0, 2);
   const results = await Promise.allSettled(
-    picked.map((k) => categoryPicture({ keyword: k, market, platform }))
+    picked.map((k) => categoryPicture({ keyword: k, market, platform, language }))
   );
 
   const ok = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
@@ -395,6 +420,7 @@ export async function landscape({ keywords, market = 'AE', platform = 'google' }
 
   return {
     keywordsUsed: picked,
+    language: language || MARKET_LANGUAGE[market] || 'en',
     platform,
     platformLabel: PLATFORMS[platform]?.label || platform,
     market,

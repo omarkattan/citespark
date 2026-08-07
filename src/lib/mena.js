@@ -1,5 +1,6 @@
 import { many, query } from '../db/index.js';
-import { landscape, searchMentions, countNames, brandFromDomain } from './mentions.js';
+import { landscape, searchMentions, countNames, brandFromDomain, MARKET_LANGUAGE } from './mentions.js';
+import { complete } from './anthropic.js';
 import { classifyDomain } from './sectors.js';
 
 /**
@@ -864,6 +865,33 @@ const strip = (d) => String(d || '').replace(/^www\./, '').toLowerCase();
  * Measure one sector, once per country that appears in it, and attribute each
  * company from the run for its own market.
  */
+/**
+ * Arabic keywords for the markets whose corpus is Arabic. An English phrase
+ * sent to an Arabic corpus matches nothing, which looks identical to a market
+ * having no coverage and is how Saudi Arabia came back as a row of zeros.
+ */
+const arabicCache = new Map();
+
+async function keywordFor(sector, country) {
+  const english = `${sector.keyword} ${COUNTRY_NAMES[country].toLowerCase()}`;
+  if ((MARKET_LANGUAGE[country] || 'en') === 'en') return english;
+
+  const key = `${sector.slug}:${country}`;
+  if (arabicCache.has(key)) return arabicCache.get(key);
+
+  const raw = await complete(
+    `Translate this search query into the Arabic a person in ${COUNTRY_NAMES[country]} would actually type. Return only the Arabic, nothing else.\n\n${english}`,
+    { maxTokens: 100 }
+  );
+  const arabic = String(raw || '').trim().split('\n')[0].slice(0, 120);
+
+  // If translation is unavailable, the English phrase is better than nothing,
+  // and the run will simply return no rows rather than something wrong.
+  const out = /[\u0600-\u06FF]/.test(arabic) ? arabic : english;
+  arabicCache.set(key, out);
+  return out;
+}
+
 export async function refreshMenaSector(sector) {
   const countries = [...new Set(sector.members.map((m) => m.country))];
   const perCountry = new Map();
@@ -872,8 +900,8 @@ export async function refreshMenaSector(sector) {
 
   for (const country of countries) {
     // The full country name, because "best bank saudi" is not a query anyone
-    // types whereas "best bank saudi arabia" is.
-    const keyword = `${sector.keyword} ${COUNTRY_NAMES[country].toLowerCase()}`;
+    // types whereas "best bank saudi arabia" is. Arabic markets get Arabic.
+    const keyword = await keywordFor(sector, country);
     try {
       const data = await landscape({ keywords: [keyword], market: country, platform: 'google' });
       cost += data.cost || 0;
@@ -892,7 +920,8 @@ export async function refreshMenaSector(sector) {
 
       perCountry.set(country, { keyword, cited: new Map(data.brands.map((b) => [strip(b.domain), b])), names, domains: data.domains });
     } catch (err) {
-      errors.push(`${country}: ${err.message}`);
+      const lang = MARKET_LANGUAGE[country] || 'en';
+      errors.push(`${country} (${lang}): ${err.message}`);
       perCountry.set(country, { keyword, cited: new Map(), names: new Map(), domains: [] });
     }
   }
@@ -909,6 +938,7 @@ export async function refreshMenaSector(sector) {
       country: m.country,
       countryName: COUNTRY_SHORT[m.country],
       keyword: run?.keyword || null,
+      language: MARKET_LANGUAGE[m.country] || 'en',
       citations: hit?.mentions || 0,
       named,
       cited: Boolean(hit),

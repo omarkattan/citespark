@@ -23,6 +23,11 @@ const keyword = positional[0] || 'banks uae';
 // Second argument is a location, so coverage for a market can be tested
 // directly: npm run probe -- "best bank saudi arabia" "Saudi Arabia"
 const LOCATION = positional[1] || 'United Arab Emirates';
+// Third argument fixes the language. Without one, every language plausible
+// for the region is tried, because "Invalid Field: 'language_code'" means the
+// location is fine and the language is not, and the probe was only ever
+// sending English.
+const LANGUAGE = positional[2] || null;
 
 const login = process.env.DATAFORSEO_LOGIN;
 const password = process.env.DATAFORSEO_PASSWORD;
@@ -85,26 +90,30 @@ const monthAgo = new Date(Date.now() - 30 * 86400000);
  * target may be a keyword or a domain, so each object presumably declares
  * which kind it is, and these are the plausible ways of saying that.
  */
-const base = { platform: 'google', location_name: LOCATION, language_code: 'en' };
+const LANGUAGES = LANGUAGE ? [LANGUAGE] : ['en', 'ar', 'fr'];
 
+/**
+ * With no language given, the first block of variations sweeps languages for
+ * the requested location, which is the question that actually matters:
+ * is this market missing, or is it simply not English?
+ */
 const VARIATIONS = [
-  { name: '{ keyword }', payload: { ...base, target: [{ keyword }] } },
-  { name: '{ target }', payload: { ...base, target: [{ target: keyword }] } },
-  { name: '{ value }', payload: { ...base, target: [{ value: keyword }] } },
-  { name: '{ type, value }', payload: { ...base, target: [{ type: 'keyword', value: keyword }] } },
-  { name: '{ target_type, target }', payload: { ...base, target: [{ target_type: 'keyword', target: keyword }] } },
-  { name: '{ type, keyword }', payload: { ...base, target: [{ type: 'keyword', keyword }] } },
-  { name: '{ keyword, type: brand }', payload: { ...base, target: [{ keyword, type: 'brand' }] } },
-  { name: '{ name }', payload: { ...base, target: [{ name: keyword }] } },
-  { name: '{ keyword } + location_code', payload: { platform: 'google', location_code: 2784, language_code: 'en', target: [{ keyword }] } },
-  { name: '{ keyword } + United States', payload: { platform: 'google', location_name: 'United States', language_code: 'en', target: [{ keyword }] } },
-  { name: '{ keyword } no location', payload: { platform: 'google', language_code: 'en', target: [{ keyword }] } },
-  { name: '{ domain } instead', payload: { ...base, target: [{ domain: 'emiratesnbd.com' }] } }
+  ...LANGUAGES.map((lang) => ({
+    name: `location_name + ${lang}`,
+    payload: { platform: 'google', location_name: LOCATION, language_code: lang, target: [{ keyword }] }
+  })),
+  ...LANGUAGES.map((lang) => ({
+    name: `no language_code, ${lang} dropped`,
+    payload: { platform: 'google', location_name: LOCATION, target: [{ keyword }] }
+  })).slice(0, 1),
+  { name: 'no location, no language', payload: { platform: 'google', target: [{ keyword }] } },
+  { name: '{ target } instead of keyword', payload: { platform: 'google', location_name: LOCATION, language_code: LANGUAGES[0], target: [{ target: keyword }] } },
+  { name: '{ domain } instead', payload: { platform: 'google', location_name: LOCATION, language_code: LANGUAGES[0], target: [{ domain: 'alrajhibank.com.sa' }] } }
 ];
 
 const ENDPOINTS = ['top_mentioned_brands', 'top_mentioned_domains', 'search_mentions', 'target_metrics'];
 
-console.log(`Probing LLM Mentions with keyword "${keyword}" in ${LOCATION}\n`);
+console.log(`Probing LLM Mentions with "${keyword}" in ${LOCATION}, language: ${LANGUAGE || LANGUAGES.join(' / ')}\n`);
 
 let firstHit = null;
 let spend = 0;
