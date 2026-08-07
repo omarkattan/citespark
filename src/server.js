@@ -1420,6 +1420,23 @@ app.get('/uae', (_req, res) => {
   res.sendFile(path.join(publicDir, 'uae.html'));
 });
 
+// The regional index. Measured per home market, so it is a separate page
+// rather than a filter on the UAE one.
+app.get('/mena', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(publicDir, 'mena.html'));
+});
+
+app.get('/api/public/mena', wrap(async (req, res) => {
+  const { readMena } = await import('./lib/mena.js');
+  const data = await readMena();
+  const tag = `"${data.updatedAt ? new Date(data.updatedAt).getTime() : 0}-${data.totals.named}"`;
+  res.setHeader('ETag', tag);
+  res.setHeader('Cache-Control', 'public, max-age=60, must-revalidate');
+  if (req.headers['if-none-match'] === tag) return res.status(304).end();
+  res.json(data);
+}));
+
 app.get('/api/public/index', wrap(async (req, res) => {
   const { readIndex } = await import('./lib/sectors.js');
   const data = await readIndex({ market: 'AE' });
@@ -1458,7 +1475,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index']
   });
 });
 

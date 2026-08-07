@@ -10,7 +10,7 @@ import { landscape, brandFromDomain, searchMentions, countNames } from './mentio
  *
  * Refreshing is not free: LLM Mentions bills $0.20 a call and a sector uses
  * two, plus one more to read the answers themselves, so a full pass across
- * twenty-five sectors is about $15. Weekly is
+ * twenty-six sectors is about $16. Weekly is
  * sensible; on every deploy is not.
  *
  * Google AI Overview is the platform throughout, because it is the only one
@@ -609,13 +609,44 @@ export const SECTORS = [
     ]
   },
   {
-    "slug": "financial-services-and-fintech",
-    "name": "Financial Services & Fintech",
+    "slug": "fintech",
+    "name": "Fintech",
     "keywords": [
-      "payment apps uae",
-      "money transfer uae"
+      "fintech companies uae",
+      "buy now pay later uae"
     ],
-    "blurb": "Payments, wallets and remittance.",
+    "blurb": "Digital-first payments, BNPL and neobanks.",
+    "members": [
+      {
+        "name": "Tabby",
+        "domain": "tabby.ai"
+      },
+      {
+        "name": "Wio Bank",
+        "domain": "wio.io"
+      },
+      {
+        "name": "Optasia",
+        "domain": "optasia.com"
+      },
+      {
+        "name": "Ziina",
+        "domain": "ziina.com"
+      },
+      {
+        "name": "Paymob",
+        "domain": "paymob.com"
+      }
+    ]
+  },
+  {
+    "slug": "financial-services-and-fintech",
+    "name": "Payments & Exchange",
+    "keywords": [
+      "money transfer uae",
+      "payment gateway uae"
+    ],
+    "blurb": "Remittance, exchange houses and payment infrastructure.",
     "members": [
       {
         "name": "Al Ansari Financial Services",
@@ -626,16 +657,16 @@ export const SECTORS = [
         "domain": "network.ae"
       },
       {
-        "name": "Wio Bank",
-        "domain": "wio.io"
-      },
-      {
-        "name": "Tabby",
-        "domain": "tabby.ai"
-      },
-      {
         "name": "Magnati",
         "domain": "magnati.com"
+      },
+      {
+        "name": "Lulu Exchange",
+        "domain": "luluexchange.com"
+      },
+      {
+        "name": "Al Fardan Exchange",
+        "domain": "alfardanexchange.com"
       }
     ]
   },

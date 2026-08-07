@@ -57,7 +57,8 @@ function auth() {
 
 const LOCATIONS = {
   AE: 'United Arab Emirates', SA: 'Saudi Arabia', QA: 'Qatar', KW: 'Kuwait', BH: 'Bahrain',
-  OM: 'Oman', EG: 'Egypt', GB: 'United Kingdom', US: 'United States', IN: 'India',
+  OM: 'Oman', EG: 'Egypt', MA: 'Morocco', DZ: 'Algeria', JO: 'Jordan', LB: 'Lebanon',
+  IQ: 'Iraq', TN: 'Tunisia', LY: 'Libya', GB: 'United Kingdom', US: 'United States', IN: 'India',
   DE: 'Germany', FR: 'France', ES: 'Spain', IT: 'Italy', NL: 'Netherlands',
   CA: 'Canada', AU: 'Australia', IE: 'Ireland', ZA: 'South Africa', SG: 'Singapore'
 };

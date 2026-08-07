@@ -1087,7 +1087,7 @@ await test('an old snapshot is never reported as absent', async () => {
 });
 
 await test('the sector list is complete and well formed', () => {
-  assert.equal(sec.SECTORS.length, 25);
+  assert.ok(sec.SECTORS.length >= 25, `only ${sec.SECTORS.length} sectors`);
   const slugs = new Set();
   for (const s of sec.SECTORS) {
     assert.ok(s.slug && !slugs.has(s.slug), `duplicate or missing slug: ${s.slug}`);
@@ -1098,8 +1098,70 @@ await test('the sector list is complete and well formed', () => {
       assert.ok(m.name && m.domain, `${s.slug} has a member with no domain`);
       assert.ok(!m.domain.startsWith('www.'), `${m.domain} should be stripped`);
       assert.ok(!/^https?:/.test(m.domain), `${m.domain} should not be a url`);
+      assert.ok(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(m.domain), `${m.domain} is not a bare hostname`);
     }
   }
+
+  // A company appearing in two sectors gets ranked twice and reads as an
+  // error. Al Futtaim is the deliberate exception: it is genuinely a major
+  // player in both retail and automotive distribution.
+  const seen = new Map();
+  for (const s of sec.SECTORS) {
+    for (const m of s.members) {
+      if (!seen.has(m.domain)) seen.set(m.domain, []);
+      seen.get(m.domain).push(s.slug);
+    }
+  }
+  const duplicated = [...seen.entries()].filter(([d, list]) => list.length > 1 && d !== 'alfuttaim.com');
+  assert.deepEqual(duplicated, [], `these domains appear in more than one sector: ${JSON.stringify(duplicated)}`);
+});
+
+console.log('\nmena index');
+
+const mena = await import('../src/lib/mena.js');
+
+await test('every company carries a home market', () => {
+  assert.equal(mena.MENA_SECTORS.length, 25);
+  const slugs = new Set();
+  let companies = 0;
+
+  for (const s of mena.MENA_SECTORS) {
+    assert.ok(s.slug && !slugs.has(s.slug), `duplicate slug: ${s.slug}`);
+    slugs.add(s.slug);
+    assert.ok(s.keyword && s.keyword.length > 3, `${s.slug} needs a keyword`);
+    // The keyword has the country appended per market, so it must not already
+    // name one or the query becomes "best bank saudi uae".
+    assert.ok(!/uae|saudi|egypt|qatar|kuwait|dubai/i.test(s.keyword), `${s.slug} keyword must be country-neutral: ${s.keyword}`);
+
+    for (const m of s.members) {
+      companies++;
+      assert.ok(m.name && m.domain, `${s.slug} has an incomplete member`);
+      assert.ok(m.country && mena.COUNTRY_NAMES[m.country], `${m.name} has no usable country: ${m.country}`);
+      assert.ok(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(m.domain), `${m.domain} is not a bare hostname`);
+    }
+  }
+  assert.equal(companies, 125);
+});
+
+await test('the location map covers every market in the index', async () => {
+  process.env.DATAFORSEO_LOGIN = 'x';
+  process.env.DATAFORSEO_PASSWORD = 'y';
+  const m = await import('../src/lib/mentions.js?loc=1');
+  const realFetch = global.fetch;
+  const seen = [];
+  global.fetch = async (url, opts) => {
+    seen.push(JSON.parse(opts.body)[0].location_name);
+    return { ok: true, json: async () => ({ cost: 0, tasks: [{ status_code: 20000, result: [{ aggregated_metrics: { sources_domain: [] }, items: [] }] }] }) };
+  };
+
+  const countries = [...new Set(mena.MENA_SECTORS.flatMap((s) => s.members.map((x) => x.country)))];
+  for (const c of countries) await m.landscape({ keywords: ['best bank'], market: c, platform: 'google' });
+  global.fetch = realFetch;
+
+  // An unmapped country silently falls back to the United States, which would
+  // publish American figures under an Arab headline.
+  assert.ok(!seen.includes('United States'), `an unmapped country fell back to the US: ${JSON.stringify(seen)}`);
+  assert.equal(seen.length, countries.length);
 });
 
 console.log('\ncategory landscape');

@@ -185,6 +185,21 @@ Both read DataForSEO's LLM Mentions corpus rather than asking questions live.
 
 If the shape changes again, `npm run probe` tries a dozen request variations and reports which return rows. That is how the shape above was found.
 
+## The two public indexes
+
+**`/uae`** measures 26 sectors in one market, so every company competes on the same corpus and the numbers are directly comparable. Refresh with `npm run index`, about $16.
+
+**`/mena`** measures 25 sectors across 7 countries, and each company is measured in its own home market: Al Rajhi in Saudi Arabia, QNB in Qatar, Emirates NBD in the UAE. Asking about Saudi banks in the Emirates would measure the wrong conversation entirely.
+
+That means counts are not comparable across borders, only within them. The page says so, and compares markets rather than ranking companies against each other internationally. Refresh with `npm run mena`, about $33, since it needs one pair of calls per sector per country present.
+
+```bash
+npm run mena                    # all 25 sectors
+npm run mena -- banking fintech # just those two
+```
+
+The sector keyword is country-neutral ("best bank") and the market is appended per call ("best bank saudi"). There is a test that fails if a keyword names a country, since that would produce queries like "best bank uae saudi".
+
 ## Reading a customer's site
 
 The scan escalates only as far as it needs to:

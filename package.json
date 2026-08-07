@@ -20,7 +20,8 @@
     "feedback": "node scripts/feedback.js",
     "trials": "node scripts/trials.js",
     "digest": "node scripts/digest.js",
-    "log": "node scripts/log.js"
+    "log": "node scripts/log.js",
+    "mena": "node scripts/refresh-mena.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
