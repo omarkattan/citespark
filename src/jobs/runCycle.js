@@ -253,12 +253,27 @@ async function summarise(projectId, cycle, { runs, spend, recs, trimmed, estimat
 
 // Allow: npm run cycle  (all projects)  or  npm run cycle -- 1
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const arg = process.argv[2];
-  const ids = arg
-    ? [Number(arg)]
+  const args = process.argv.slice(2).filter(Boolean);
+  const all = args.includes('--all');
+  const id = args.find((a) => /^\d+$/.test(a));
+
+  // Running every site costs real money, so it has to be asked for explicitly
+  // rather than being what happens when the command is typed with no arguments.
+  if (!id && !all) {
+    console.error('Nothing run. Name a site, or pass --all to run every site with automatic cycles on.\n');
+    console.error('  npm run cycle -- 3        one site');
+    console.error('  npm run cycle -- --all    every site with auto_cycle on\n');
+    const rows = await many('SELECT id, name, auto_cycle FROM projects ORDER BY id');
+    for (const r of rows) console.log(`  ${String(r.id).padStart(3)}  ${r.name}${r.auto_cycle ? '' : '   (automatic cycles off)'}`);
+    await pool.end();
+    process.exit(1);
+  }
+
+  const ids = id
+    ? [Number(id)]
     : (await many('SELECT id FROM projects WHERE auto_cycle')).map((r) => r.id);
 
-  if (!arg) console.log(`Scheduled run: ${ids.length} site${ids.length === 1 ? '' : 's'} with automatic cycles on.`);
+  if (!id) console.log(`Running ${ids.length} site${ids.length === 1 ? '' : 's'} with automatic cycles on.`);
   for (const id of ids) await runCycleForProject(id);
   await pool.end();
 }

@@ -173,7 +173,9 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS engines TEXT[] NOT NULL DEFAULT '{
 
 -- Per-site scheduling. An agency rarely wants every client on the same
 -- cadence, and a paused site should stop costing money without being deleted.
-ALTER TABLE projects ADD COLUMN IF NOT EXISTS auto_cycle BOOLEAN NOT NULL DEFAULT true;
+-- Off by default: nothing measures, and nothing spends, unless someone asks.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS auto_cycle BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE projects ALTER COLUMN auto_cycle SET DEFAULT false;
 
 -- Public demo. Every run costs real money with no account behind it, so each
 -- one is recorded for rate limiting, for a global daily spend cap, and so an

@@ -1374,6 +1374,46 @@ await test('SERP engines have a location for the markets we default to', () => {
   }
 });
 
+console.log('\nnothing runs unattended');
+
+await test('no scheduler is wired into the app itself', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const dirs = ['../src', '../src/lib', '../src/jobs'];
+  const offenders = [];
+
+  for (const d of dirs) {
+    const base = new URL(d + '/', import.meta.url);
+    for (const f of readdirSync(base)) {
+      if (!f.endsWith('.js')) continue;
+      const body = readFileSync(new URL(f, base), 'utf8');
+      // A timer or cron inside the server would spend money on its own
+      // schedule, which is exactly what must not happen.
+      if (/setInterval\s*\(|node-cron|cron\.schedule\s*\(/.test(body)) offenders.push(d + '/' + f);
+    }
+  }
+  assert.deepEqual(offenders, [], `these files schedule work on their own: ${offenders.join(', ')}`);
+});
+
+await test('a new site does not schedule itself', async () => {
+  const { readFileSync } = await import('node:fs');
+  const schema = readFileSync(new URL('../src/db/schema.sql', import.meta.url), 'utf8');
+
+  // Anything that defaults to on means a customer adding a site starts
+  // spending without having asked for it.
+  assert.ok(/auto_cycle BOOLEAN NOT NULL DEFAULT false/.test(schema), 'auto_cycle must default to false');
+  assert.ok(!/auto_cycle BOOLEAN NOT NULL DEFAULT true/.test(schema));
+});
+
+await test('running every site has to be asked for explicitly', async () => {
+  const { readFileSync } = await import('node:fs');
+  const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
+
+  // `npm run cycle` with no arguments used to run every site with auto_cycle
+  // on, which is a surprising amount of money for a bare command.
+  assert.ok(/--all/.test(job), 'the all-sites path needs an explicit flag');
+  assert.ok(/Nothing run/.test(job), 'and a bare invocation must refuse and say so');
+});
+
 console.log('\nplans and margins');
 
 await test('every plan is internally consistent', () => {

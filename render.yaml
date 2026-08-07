@@ -107,35 +107,37 @@ services:
       - key: CANONICAL_HOST
         value: cited.ae
 
-  - type: cron
-    name: cited-weekly-cycle
-    runtime: node
-    plan: starter
-    schedule: "0 6 * * 1"
-    buildCommand: npm ci
-    startCommand: npm run cycle
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: cited-db
-          property: connectionString
-      # Set in the dashboard, not here. A hardcoded value would be re-applied
-      # on every blueprint sync and silently switch a live service back to
-      # simulated answers. Leave unset for real data; set to "true" only for
-      # a demo environment.
-      - key: MOCK_MODE
-        sync: false
-      - key: ENGINES
-        value: chatgpt,gemini,perplexity
-      - key: MAX_OUTPUT_TOKENS
-        value: "700"
-      - key: DATAFORSEO_LOGIN
-        sync: false
-      - key: DATAFORSEO_PASSWORD
-        sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
+  # Disabled on purpose. Measurement runs only when someone presses Run, or
+  # runs `npm run cycle -- --all` by hand. Uncomment to schedule it again.
+  # - type: cron
+  #   name: cited-weekly-cycle
+  #   runtime: node
+  #   plan: starter
+  #   schedule: "0 6 * * 1"
+  #   buildCommand: npm ci
+  #   startCommand: npm run cycle
+  #   envVars:
+  #     - key: DATABASE_URL
+  #       fromDatabase:
+  #         name: cited-db
+  #         property: connectionString
+  #     # Set in the dashboard, not here. A hardcoded value would be re-applied
+  #     # on every blueprint sync and silently switch a live service back to
+  #     # simulated answers. Leave unset for real data; set to "true" only for
+  #     # a demo environment.
+  #     - key: MOCK_MODE
+  #       sync: false
+  #     - key: ENGINES
+  #       value: chatgpt,gemini,perplexity
+  #     - key: MAX_OUTPUT_TOKENS
+  #       value: "700"
+  #     - key: DATAFORSEO_LOGIN
+  #       sync: false
+  #     - key: DATAFORSEO_PASSWORD
+  #       sync: false
+  #     - key: ANTHROPIC_API_KEY
+  #       sync: false
 
-databases:
-  - name: cited-db
-    plan: basic-256mb
+# databases:
+  # - name: cited-db
+  #   plan: basic-256mb

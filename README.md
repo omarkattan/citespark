@@ -185,6 +185,25 @@ Both read DataForSEO's LLM Mentions corpus rather than asking questions live.
 
 If the shape changes again, `npm run probe` tries a dozen request variations and reports which return rows. That is how the shape above was found.
 
+## Nothing runs on its own
+
+Everything that spends money is manual. Deliberately, and there are tests that fail if that changes.
+
+| What | How it runs |
+|---|---|
+| Measurement cycle | Run button in the app, or `npm run cycle -- 3` |
+| Every site at once | `npm run cycle -- --all`, and only sites with automatic cycles switched on |
+| UAE index | `npm run index` |
+| MENA index | `npm run mena` |
+| Landscape tab | One click, cached 30 minutes |
+| Public demo | A visitor, rate limited and capped at a daily budget |
+
+`auto_cycle` defaults to **off**, so a new site never schedules itself. The weekly cron in `render.yaml` is commented out. `npm run cycle` with no arguments refuses and lists the sites instead of running them.
+
+The only scheduled service left is `cited-daily-digest`, which reads the database and sends a summary. It spends nothing and measures nothing. Delete it in Render if you would rather have nothing at all.
+
+**A blueprint file does not delete services that already exist.** If a `cited-weekly-cycle` cron was ever created in Render, suspend or delete it in the dashboard, because commenting it out here will not.
+
 ## The two public indexes
 
 **`/uae`** measures 26 sectors in one market, so every company competes on the same corpus and the numbers are directly comparable. Refresh with `npm run index`, about $16.
