@@ -18,7 +18,11 @@ import 'dotenv/config';
 const BASE = 'https://api.dataforseo.com/v3/ai_optimization/llm_mentions';
 const args = process.argv.slice(2);
 const RAW = args.includes('--raw');
-const keyword = args.filter((a) => !a.startsWith('--'))[0] || 'banks uae';
+const positional = args.filter((a) => !a.startsWith('--'));
+const keyword = positional[0] || 'banks uae';
+// Second argument is a location, so coverage for a market can be tested
+// directly: npm run probe -- "best bank saudi arabia" "Saudi Arabia"
+const LOCATION = positional[1] || 'United Arab Emirates';
 
 const login = process.env.DATAFORSEO_LOGIN;
 const password = process.env.DATAFORSEO_PASSWORD;
@@ -81,7 +85,7 @@ const monthAgo = new Date(Date.now() - 30 * 86400000);
  * target may be a keyword or a domain, so each object presumably declares
  * which kind it is, and these are the plausible ways of saying that.
  */
-const base = { platform: 'google', location_name: 'United Arab Emirates', language_code: 'en' };
+const base = { platform: 'google', location_name: LOCATION, language_code: 'en' };
 
 const VARIATIONS = [
   { name: '{ keyword }', payload: { ...base, target: [{ keyword }] } },
@@ -100,7 +104,7 @@ const VARIATIONS = [
 
 const ENDPOINTS = ['top_mentioned_brands', 'top_mentioned_domains', 'search_mentions', 'target_metrics'];
 
-console.log(`Probing LLM Mentions with keyword "${keyword}"\n`);
+console.log(`Probing LLM Mentions with keyword "${keyword}" in ${LOCATION}\n`);
 
 let firstHit = null;
 let spend = 0;

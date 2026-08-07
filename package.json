@@ -21,7 +21,8 @@
     "trials": "node scripts/trials.js",
     "digest": "node scripts/digest.js",
     "log": "node scripts/log.js",
-    "mena": "node scripts/refresh-mena.js"
+    "mena": "node scripts/refresh-mena.js",
+    "coverage": "node scripts/coverage.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

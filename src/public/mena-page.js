@@ -19,6 +19,7 @@ const KIND_LABEL = {
 const KIND_ORDER = ['candidate', 'portal', 'news', 'platform', 'government', 'reference'];
 
 function label(b) {
+  if (b.noData) return '<span class="val muted" title="No data returned for this market">no data</span>';
   if (b.status === 'named-and-cited') return '<span class="val good">named &middot; cited</span>';
   if (b.status === 'named-not-cited') return '<span class="val warn" title="Recommended in the answer, but the citation went elsewhere">named, not cited</span>';
   if (b.status === 'cited-not-named') return '<span class="val">cited only</span>';
@@ -26,9 +27,10 @@ function label(b) {
 }
 
 function sectorCard(s) {
-  const all = s.brands || [];
+  const missing = new Set(INDEX.coverage?.missingCodes || []);
+  const all = (s.brands || []).map((b) => ({ ...b, noData: missing.has(b.country) }));
   const max = Math.max(...all.map((b) => b.named), 1);
-  const absent = all.filter((b) => b.status === 'absent');
+  const absent = all.filter((b) => b.status === 'absent' && !b.noData);
   const notCited = all.filter((b) => b.status === 'named-not-cited');
 
   const bars = all.length
@@ -64,11 +66,12 @@ function sectorCard(s) {
     <div class="sector-head">
       <h3>${esc(s.name)}</h3>
       <span class="spacer"></span>
-      <span class="tag">${all.filter((b) => b.named).length} of ${all.length} named</span>
+      <span class="tag">${all.filter((b) => b.named).length} of ${all.filter((b) => !b.noData).length} named</span>
     </div>
     <p class="sector-blurb">${esc(s.blurb)}</p>
     ${bars}
-    ${absent.length ? `<p class="sector-note">${absent.length} of ${all.length} ${absent.length === 1 ? 'is' : 'are'} neither named nor cited in ${absent.length === 1 ? 'its' : 'their'} own market.</p>` : ''}
+    ${absent.length ? `<p class="sector-note">${absent.length} ${absent.length === 1 ? 'is' : 'are'} neither named nor cited in ${absent.length === 1 ? 'its' : 'their'} own market.</p>` : ''}
+    ${all.some((b) => b.noData) ? `<p class="sector-note muted">${all.filter((b) => b.noData).length} could not be measured: the corpus returned nothing for ${[...new Set(all.filter((b) => b.noData).map((b) => b.countryName))].join(', ')}.</p>` : ''}
     ${notCited.length ? `<p class="sector-note amber">${notCited.length} ${notCited.length === 1 ? 'is' : 'are'} recommended in the answer but not cited, so another site takes the click.</p>` : ''}
 
     <div class="sector-cta">
@@ -125,16 +128,24 @@ function render() {
     ? INDEX.sectors.map(sectorCard).join('') + '<p class="index-empty" data-filter-empty hidden>Nothing matches that.</p>'
     : '<p class="index-empty">The index has not been built yet.</p>';
 
-  const max = Math.max(...INDEX.countries.map((c) => c.rate), 1);
-  $('countryTable').innerHTML = INDEX.countries
-    .map(
-      (c) => `<div class="cross-row">
+  const max = Math.max(...INDEX.countries.filter((c) => !c.noData).map((c) => c.rate), 1);
+  $('countryTable').innerHTML =
+    INDEX.countries
+      .map(
+        (c) => `<div class="cross-row ${c.noData ? 'nodata' : ''}">
         <span class="domain">${esc(c.name)}</span>
-        <span class="track"><span class="fill" style="width:${(c.rate / max) * 100}%"></span></span>
-        <span class="val">${c.rate}% of ${c.total}</span>
+        <span class="track"><span class="fill" style="width:${c.noData ? 0 : (c.rate / max) * 100}%"></span></span>
+        <span class="val">${c.noData ? 'no data' : `${c.rate}% of ${c.total}`}</span>
       </div>`
-    )
-    .join('');
+      )
+      .join('') +
+    (INDEX.coverage?.missing?.length
+      ? `<p class="note" style="margin-top:18px">
+          The corpus behind this index returned nothing for ${INDEX.coverage.missing.map(esc).join(', ')}.
+          That is a gap in the data, not a finding about those companies, so we report it as no data rather than as a zero.
+          We are working on coverage for those markets.
+        </p>`
+      : '');
 
   $('indexSchema').textContent = JSON.stringify(schema(INDEX));
 }

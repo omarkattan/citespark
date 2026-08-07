@@ -871,7 +871,9 @@ export async function refreshMenaSector(sector) {
   const errors = [];
 
   for (const country of countries) {
-    const keyword = `${sector.keyword} ${COUNTRY_SHORT[country].toLowerCase()}`;
+    // The full country name, because "best bank saudi" is not a query anyone
+    // types whereas "best bank saudi arabia" is.
+    const keyword = `${sector.keyword} ${COUNTRY_NAMES[country].toLowerCase()}`;
     try {
       const data = await landscape({ keywords: [keyword], market: country, platform: 'google' });
       cost += data.cost || 0;
@@ -994,17 +996,43 @@ export async function readMena() {
     }
   }
 
+  /**
+   * A country with zero named companies across every single sector is almost
+   * certainly missing from the corpus rather than genuinely invisible. Saudi
+   * Arabia's largest firms are not absent from AI answers; we simply got no
+   * data back. Publishing that as 0% would be a serious error, so it is
+   * reported as "no data" and excluded from the totals.
+   */
+  const countries = [...byCountry.values()].map((c) => {
+    const noData = c.named === 0 && c.cited === 0 && c.total >= 3;
+    return {
+      ...c,
+      noData,
+      rate: noData ? null : c.total ? Math.round((c.named / c.total) * 100) : 0
+    };
+  });
+
+  const covered = countries.filter((c) => !c.noData);
+
   return {
     updatedAt: rows.reduce((a, r) => (!a || r.captured_at > a ? r.captured_at : a), null),
     sectors,
-    countries: [...byCountry.values()]
-      .map((c) => ({ ...c, rate: c.total ? Math.round((c.named / c.total) * 100) : 0 }))
-      .sort((a, b) => b.rate - a.rate || b.total - a.total),
+    countries: countries.sort((a, b) => Number(a.noData) - Number(b.noData) || b.rate - a.rate || b.total - a.total),
+    coverage: {
+      measured: covered.map((c) => c.name),
+      missing: countries.filter((c) => c.noData).map((c) => c.name),
+      missingCodes: countries.filter((c) => c.noData).map((c) => c.country)
+    },
     totals: {
       sectors: sectors.length,
       companies: sectors.reduce((n, s) => n + (s.brands || []).length, 0),
       named: sectors.reduce((n, s) => n + (s.brands || []).filter((b) => b.named).length, 0),
-      absent: sectors.reduce((n, s) => n + (s.brands || []).filter((b) => b.status === 'absent').length, 0)
+      // Only count absences in markets we actually have data for.
+      absent: sectors.reduce(
+        (n, s) => n + (s.brands || []).filter((b) => b.status === 'absent' && !countries.find((c) => c.country === b.country)?.noData).length,
+        0
+      ),
+      inCoveredMarkets: covered.reduce((n, c) => n + c.total, 0)
     }
   };
 }
