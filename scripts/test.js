@@ -1143,17 +1143,28 @@ await test('every company carries a home market', () => {
   assert.equal(companies, 125);
 });
 
-await test('Arabic markets are queried in Arabic', async () => {
+await test('each market is queried in a language its corpus actually holds', async () => {
   const m = await import('../src/lib/mentions.js?lang=1');
 
-  // Saudi Arabia, Bahrain, Morocco, Algeria and Jordan reject language_code
-  // 'en' outright. Sending English to them returned nothing, which looked
-  // exactly like the market being uncovered and produced a table of zeros.
+  // Taken from llm_mentions/locations_and_languages, not guessed:
+  //   UAE ar,en   Saudi ar   Egypt ar,en   Morocco ar,fr   Algeria fr,ar
+  // Sending English to an Arabic-only market returns nothing, which looks
+  // identical to the market being uncovered and produced a table of zeros.
   assert.equal(m.MARKET_LANGUAGE.SA, 'ar');
-  assert.equal(m.MARKET_LANGUAGE.MA, 'ar');
+  assert.equal(m.MARKET_LANGUAGE.BH, 'ar');
   assert.equal(m.MARKET_LANGUAGE.JO, 'ar');
+  assert.equal(m.MARKET_LANGUAGE.DZ, 'fr');
   assert.equal(m.MARKET_LANGUAGE.AE, 'en');
   assert.equal(m.MARKET_LANGUAGE.EG, 'en');
+
+  // Absent from the corpus entirely. Calling them costs money and returns
+  // nothing, and publishing that as a zero would be a false claim about a
+  // country's largest companies.
+  for (const code of ['QA', 'KW', 'OM', 'LB', 'IQ', 'LY']) {
+    assert.equal(m.marketSupported(code), false, `${code} must be treated as unmeasurable`);
+  }
+  assert.equal(m.marketSupported('SA'), true);
+  assert.equal(m.marketSupported('AE'), true);
 
   process.env.DATAFORSEO_LOGIN = 'x';
   process.env.DATAFORSEO_PASSWORD = 'y';

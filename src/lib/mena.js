@@ -1,5 +1,5 @@
 import { many, query } from '../db/index.js';
-import { landscape, searchMentions, countNames, brandFromDomain, MARKET_LANGUAGE } from './mentions.js';
+import { landscape, searchMentions, countNames, brandFromDomain, MARKET_LANGUAGE, marketSupported } from './mentions.js';
 import { complete } from './anthropic.js';
 import { classifyDomain } from './sectors.js';
 
@@ -893,7 +893,11 @@ async function keywordFor(sector, country) {
 }
 
 export async function refreshMenaSector(sector) {
-  const countries = [...new Set(sector.members.map((m) => m.country))];
+  const all = [...new Set(sector.members.map((m) => m.country))];
+  // Skip markets the corpus does not hold. Calling them spends money and
+  // returns nothing that could be honestly published.
+  const countries = all.filter(marketSupported);
+  const unmeasurable = all.filter((c) => !marketSupported(c));
   const perCountry = new Map();
   let cost = 0;
   const errors = [];
@@ -931,8 +935,26 @@ export async function refreshMenaSector(sector) {
     const domain = strip(m.domain);
     const hit = run?.cited.get(domain);
     const named = run?.names.get(domain)?.named || 0;
+    const measurable = marketSupported(m.country);
+
+    if (!measurable) {
+      return {
+        name: m.name,
+        domain,
+        country: m.country,
+        countryName: COUNTRY_SHORT[m.country],
+        keyword: null,
+        language: null,
+        citations: 0,
+        named: 0,
+        cited: false,
+        measurable: false,
+        status: 'unmeasurable'
+      };
+    }
 
     return {
+      measurable: true,
       name: m.name,
       domain,
       country: m.country,
@@ -963,7 +985,10 @@ export async function refreshMenaSector(sector) {
     blurb: sector.blurb,
     keyword: sector.keyword,
     countries,
-    brands: brands.sort((a, b) => b.named - a.named || b.citations - a.citations),
+    unmeasurable,
+    brands: brands.sort(
+      (a, b) => Number(b.measurable) - Number(a.measurable) || b.named - a.named || b.citations - a.citations
+    ),
     others: others.sort((a, b) => b.mentions - a.mentions).slice(0, 14),
     errors,
     cost: Math.round(cost * 10000) / 10000
@@ -1034,10 +1059,12 @@ export async function readMena() {
    * reported as "no data" and excluded from the totals.
    */
   const countries = [...byCountry.values()].map((c) => {
-    const noData = c.named === 0 && c.cited === 0 && c.total >= 3;
+    // Known-absent markets are declared, not inferred from a row of zeros.
+    const noData = !marketSupported(c.country) || (c.named === 0 && c.cited === 0 && c.total >= 3);
     return {
       ...c,
       noData,
+      notInCorpus: !marketSupported(c.country),
       rate: noData ? null : c.total ? Math.round((c.named / c.total) * 100) : 0
     };
   });

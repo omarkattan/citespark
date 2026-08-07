@@ -19,6 +19,8 @@ const KIND_LABEL = {
 const KIND_ORDER = ['candidate', 'portal', 'news', 'platform', 'government', 'reference'];
 
 function label(b) {
+  if (b.measurable === false || b.status === 'unmeasurable')
+    return '<span class="val muted" title="This market is not in the dataset, so the company could not be measured">not measurable</span>';
   if (b.noData) return '<span class="val muted" title="No data returned for this market">no data</span>';
   if (b.status === 'named-and-cited') return '<span class="val good">named &middot; cited</span>';
   if (b.status === 'named-not-cited') return '<span class="val warn" title="Recommended in the answer, but the citation went elsewhere">named, not cited</span>';
@@ -66,12 +68,14 @@ function sectorCard(s) {
     <div class="sector-head">
       <h3>${esc(s.name)}</h3>
       <span class="spacer"></span>
-      <span class="tag">${all.filter((b) => b.named).length} of ${all.filter((b) => !b.noData).length} named</span>
+      <span class="tag">${all.filter((b) => b.named).length} of ${all.filter((b) => b.measurable !== false && !b.noData).length} measured</span>
     </div>
     <p class="sector-blurb">${esc(s.blurb)}</p>
     ${bars}
     ${absent.length ? `<p class="sector-note">${absent.length} ${absent.length === 1 ? 'is' : 'are'} neither named nor cited in ${absent.length === 1 ? 'its' : 'their'} own market.</p>` : ''}
-    ${all.some((b) => b.noData) ? `<p class="sector-note muted">${all.filter((b) => b.noData).length} could not be measured: the corpus returned nothing for ${[...new Set(all.filter((b) => b.noData).map((b) => b.countryName))].join(', ')}.</p>` : ''}
+    ${all.some((b) => b.measurable === false || b.noData)
+      ? `<p class="sector-note muted">${all.filter((b) => b.measurable === false || b.noData).length} could not be measured: ${[...new Set(all.filter((b) => b.measurable === false || b.noData).map((b) => b.countryName))].join(', ')} ${[...new Set(all.filter((b) => b.measurable === false || b.noData).map((b) => b.countryName))].length === 1 ? 'is' : 'are'} not in the dataset.</p>`
+      : ''}
     ${notCited.length ? `<p class="sector-note amber">${notCited.length} ${notCited.length === 1 ? 'is' : 'are'} recommended in the answer but not cited, so another site takes the click.</p>` : ''}
 
     <div class="sector-cta">
@@ -121,6 +125,7 @@ function render() {
     <span class="tag">${t.companies} companies</span>
     <span class="tag">${INDEX.countries.length} markets</span>
     ${t.absent ? `<span class="tag">${t.absent} named by nobody</span>` : ''}
+    ${INDEX.coverage?.missing?.length ? `<span class="tag warn">${INDEX.coverage.missing.length} markets unavailable</span>` : ''}
     <span class="tag">Google AI Overview</span>
     ${INDEX.updatedAt ? `<span class="tag">updated ${new Date(INDEX.updatedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}</span>` : ''}`;
 
@@ -135,15 +140,15 @@ function render() {
         (c) => `<div class="cross-row ${c.noData ? 'nodata' : ''}">
         <span class="domain">${esc(c.name)}</span>
         <span class="track"><span class="fill" style="width:${c.noData ? 0 : (c.rate / max) * 100}%"></span></span>
-        <span class="val">${c.noData ? 'no data' : `${c.rate}% of ${c.total}`}</span>
+        <span class="val">${c.notInCorpus ? 'not in dataset' : c.noData ? 'no data' : `${c.rate}% of ${c.total}`}</span>
       </div>`
       )
       .join('') +
     (INDEX.coverage?.missing?.length
       ? `<p class="note" style="margin-top:18px">
-          The corpus behind this index returned nothing for ${INDEX.coverage.missing.map(esc).join(', ')}.
-          That is a gap in the data, not a finding about those companies, so we report it as no data rather than as a zero.
-          We are working on coverage for those markets.
+          ${INDEX.coverage.missing.map(esc).join(', ')} ${INDEX.coverage.missing.length === 1 ? 'is' : 'are'} not in the dataset this index reads,
+          so their companies could not be measured. That is a gap in the data, not a finding about those companies,
+          and reporting it as a zero would be wrong. We will add them if and when coverage arrives.
         </p>`
       : '');
 

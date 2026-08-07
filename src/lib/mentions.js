@@ -130,9 +130,26 @@ function rowsOf(result) {
  * location_name, so they are genuinely absent from the dataset.
  */
 export const MARKET_LANGUAGE = {
-  AE: 'en', EG: 'en', US: 'en', GB: 'en',
-  SA: 'ar', BH: 'ar', MA: 'ar', DZ: 'ar', JO: 'ar', LB: 'ar', IQ: 'ar', TN: 'ar', LY: 'ar'
+  // Confirmed against llm_mentions/locations_and_languages, not guessed.
+  AE: 'en', // ar, en
+  EG: 'en', // ar, en
+  US: 'en',
+  GB: 'en',
+  SA: 'ar', // Arabic only, so its keywords must be Arabic too
+  BH: 'ar',
+  JO: 'ar',
+  TN: 'ar',
+  MA: 'ar', // ar, fr
+  DZ: 'fr'  // fr, ar
 };
+
+/**
+ * Absent from the corpus entirely. Calling these costs money and returns
+ * nothing, and reporting the result as zero would libel a country's largest
+ * companies, so they are skipped and reported as not measurable.
+ */
+export const UNSUPPORTED_MARKETS = new Set(['QA', 'KW', 'OM', 'LB', 'IQ', 'LY']);
+export const marketSupported = (code) => Boolean(MARKET_LANGUAGE[code]) && !UNSUPPORTED_MARKETS.has(code);
 
 const baseParams = ({ market, platform, language }) => {
   const p = PLATFORMS[platform] ? platform : 'google';
