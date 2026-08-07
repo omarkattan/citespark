@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { pool } from '../src/db/index.js';
 import { refreshMena, MENA_SECTORS } from '../src/lib/mena.js';
+import { marketSupported } from '../src/lib/mentions.js';
 
 /**
  * Refresh the MENA index.
@@ -22,10 +23,17 @@ if (only.length) {
 }
 
 const list = only.length ? only : MENA_SECTORS.map((s) => s.slug);
-const pairs = MENA_SECTORS.filter((s) => list.includes(s.slug))
-  .reduce((n, s) => n + new Set(s.members.map((m) => m.country)).size, 0);
+// Only supported markets are called, so only those cost anything. Counting
+// the rest overstated the estimate by about a third.
+const chosen = MENA_SECTORS.filter((s) => list.includes(s.slug));
+const pairs = chosen.reduce((n, s) => n + new Set(s.members.map((m) => m.country).filter(marketSupported)).size, 0);
+const skipped = chosen.reduce((n, s) => n + new Set(s.members.map((m) => m.country).filter((c) => !marketSupported(c))).size, 0);
 
-console.log(`Refreshing ${list.length} sector(s) across ${pairs} sector-market pairs, about $${(pairs * 0.4).toFixed(2)}\n`);
+console.log(
+  `Refreshing ${list.length} sector(s) across ${pairs} sector-market pairs, about $${(pairs * 0.4).toFixed(2)}` +
+    (skipped ? `\n${skipped} sector-market pairs skipped: those markets are not in the dataset.` : '') +
+    '\n'
+);
 
 const result = await refreshMena({ only: only.length ? only : null });
 const failed = result.sectors.filter((s) => s.error).length;
