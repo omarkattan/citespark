@@ -118,13 +118,42 @@ if (dry) {
 }
 
 const cycle = new Date().toISOString().slice(0, 10);
-let done = 0;
+
+/**
+ * Answers already stored for this cycle are skipped rather than re-asked.
+ * Render drops idle shells, and without this every restart pays again for
+ * everything it had already collected.
+ *
+ * Pass --redo to force a fresh answer for every prompt.
+ */
+const redo = args.includes('--redo');
+const existing = new Set(
+  redo
+    ? []
+    : (
+        await many(
+          `SELECT prompt_id, engine, run_index FROM sector_answers
+           WHERE study_id = $1 AND cycle_date = $2 AND ok AND length(COALESCE(answer_text,'')) > 0`,
+          [study.id, cycle]
+        )
+      ).map((r) => `${r.prompt_id}:${r.engine}:${r.run_index}`)
+);
+
+if (existing.size) {
+  console.log(`  ${existing.size} answers already stored for today and will be skipped. Use --redo to re-ask.\n`);
+}
+
+let done = existing.size;
+let asked = 0;
 let spend = 0;
 const failures = new Map();
 
 for (const prompt of prompts) {
   for (const engine of engines) {
     for (let run = 0; run < runs; run++) {
+      if (existing.has(`${prompt.id}:${engine}:${run}`)) continue;
+
+      asked++;
       const answer = await askEngine({
         engine,
         prompt: prompt.text,
@@ -179,8 +208,8 @@ for (const prompt of prompts) {
         }
       }
 
-      if (done % 10 === 0 || done === total) {
-        process.stdout.write(`\r  ${done}/${total} answers, $${spend.toFixed(2)}   `);
+      if (asked % 10 === 0 || done === total) {
+        process.stdout.write(`\r  ${done}/${total} answers, ${asked} asked this session, $${spend.toFixed(2)}   `);
       }
     }
   }
@@ -202,6 +231,9 @@ const summary = await one(
 );
 
 console.log(`  ${summary.ok}/${summary.answers} usable answers, ${summary.mentions} developer mentions extracted`);
-console.log(`  $${spend.toFixed(2)} spent\n`);
+console.log(`  ${asked} asked this session, $${spend.toFixed(2)} spent\n`);
+if (summary.answers < total) {
+  console.log(`  ${total - summary.answers} still to collect. Run the same command again; stored answers are skipped.\n`);
+}
 console.log('  Next: npm run study:validate    read the answers before trusting the numbers\n');
 await pool.end();
