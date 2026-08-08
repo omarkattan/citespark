@@ -1123,3 +1123,6 @@ select { appearance: auto; }
   .panel { padding: 16px 14px; }
   .wordmark-text { font-size: 20px; }
 }
+
+.ghost.danger { color: var(--alert); border-color: var(--line); }
+.ghost.danger:hover { border-color: var(--alert); }

@@ -447,6 +447,53 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
  * Read the page that was actually cited and explain why. This is the answer
  * to "why them and not me", which no amount of generic advice can give.
  */
+/**
+ * Delete an action outright. Dismissing keeps it in the record; deleting
+ * removes it and suppresses the fingerprint so the next cycle does not
+ * regenerate it. Reversible from the Dismissed filter.
+ */
+app.delete('/api/recommendations/:recId', requireAuth, wrap(async (req, res) => {
+  const rec = await one(
+    `SELECT r.id, r.project_id, r.fingerprint, r.title FROM recommendations r
+     JOIN projects p ON p.id = r.project_id
+     WHERE r.id = $1 AND p.org_id = $2`,
+    [Number(req.params.recId), req.session.orgId]
+  );
+  if (!rec) return res.status(404).json({ error: 'Action not found' });
+
+  await query(
+    `INSERT INTO recommendation_suppressions (project_id, fingerprint, title)
+     VALUES ($1,$2,$3) ON CONFLICT (project_id, fingerprint) DO NOTHING`,
+    [rec.project_id, rec.fingerprint, rec.title]
+  );
+  await query('DELETE FROM recommendations WHERE id = $1', [rec.id]);
+
+  const n = await one('SELECT COUNT(*)::int AS n FROM recommendation_suppressions WHERE project_id = $1', [rec.project_id]);
+  res.json({ ok: true, suppressed: n.n });
+}));
+
+app.get('/api/projects/:id/suppressed', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  res.json(
+    await many(
+      'SELECT id, fingerprint, title, created_at FROM recommendation_suppressions WHERE project_id = $1 ORDER BY created_at DESC',
+      [project.id]
+    )
+  );
+}));
+
+/** Let a deleted action come back on the next cycle. */
+app.delete('/api/projects/:id/suppressed/:suppressionId', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  const result = await query('DELETE FROM recommendation_suppressions WHERE id = $1 AND project_id = $2', [
+    Number(req.params.suppressionId), project.id
+  ]);
+  if (!result.rowCount) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
+}));
+
 app.post('/api/projects/:id/teardown', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
@@ -1507,7 +1554,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions']
   });
 });
 

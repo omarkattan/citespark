@@ -699,9 +699,17 @@ export function evaluateRules({
 
 /** Upsert into the recommendations table, keeping human status changes intact. */
 export async function persistRecommendations(projectId, recs) {
+  // Anything the customer deleted outright stays gone, rather than returning
+  // on the next cycle under the same fingerprint.
+  const suppressed = new Set(
+    (await many('SELECT fingerprint FROM recommendation_suppressions WHERE project_id = $1', [projectId]))
+      .map((r) => r.fingerprint)
+  );
+
   for (const r of recs) {
     const key = r.evidence.prompt_id || r.evidence.domain || r.target_url || r.title;
     const fingerprint = `${r.type}:${key}`;
+    if (suppressed.has(fingerprint)) continue;
     await query(
       `INSERT INTO recommendations
          (project_id, fingerprint, type, title, action, target_url, impact, effort, priority, evidence, updated_at)

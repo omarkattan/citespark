@@ -383,3 +383,15 @@ ALTER TABLE sector_companies ADD COLUMN IF NOT EXISTS notes JSONB NOT NULL DEFAU
 -- treat corporate visibility and project visibility as different measurements.
 ALTER TABLE sector_companies ADD COLUMN IF NOT EXISTS project_aliases TEXT[] NOT NULL DEFAULT '{}';
 ALTER TABLE sector_mentions ADD COLUMN IF NOT EXISTS via_project BOOLEAN NOT NULL DEFAULT false;
+
+-- Deleting an action has to outlast the next cycle. Without this the engine
+-- regenerates the same fingerprint and it reappears, which reads as the
+-- delete button not working.
+CREATE TABLE IF NOT EXISTS recommendation_suppressions (
+  id          SERIAL PRIMARY KEY,
+  project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  fingerprint TEXT NOT NULL,
+  title       TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (project_id, fingerprint)
+);
