@@ -197,6 +197,21 @@ function taskCard(t) {
       ${canDelete ? `<button class="ghost danger" data-delete-rec="${t.id}" title="Remove it and stop it coming back">Delete</button>` : ''}
     </div>
 
+    ${ev.questions?.length ? `<details class="qlist">
+      <summary>Which ${ev.questions.length} question${ev.questions.length === 1 ? '' : 's'}<span></span></summary>
+      <div class="qlist-body">
+        ${ev.questions
+          .map(
+            (q) => `<div class="qrow">
+              <span class="qhits" title="Times ${esc(ev.domain || 'this source')} was cited for it">${q.hits}&times;</span>
+              <span class="qtext">${esc(q.question)}</span>
+              ${q.url ? `<a class="qlink" href="${esc(q.url)}" target="_blank" rel="noopener" title="${esc(q.url)}">page</a>` : ''}
+            </div>`
+          )
+          .join('')}
+      </div>
+    </details>` : ''}
+
     <div class="teardown" id="teardown-${t.id}" hidden></div>
 
     <div class="task-edit" id="edit-${t.id}" hidden>

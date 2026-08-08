@@ -432,6 +432,60 @@ await test('the rules engine runs with only the minimum inputs', () => {
   assert.doesNotThrow(() => evaluateRules({ project: { id: 1, brand_name: 'X', domain: 'x.com' }, stats: [] }));
 });
 
+await test('a source action carries every question it shapes', () => {
+  // "keyspacerealty.com shapes 15 of your questions" is only actionable if
+  // the fifteen can be read. One sample question was the least useful part
+  // of an otherwise specific action.
+  const project = { id: 1, brand_name: 'Sandstorm Digital', domain: 'sandstormdigital.com' };
+  const stat = {
+    prompt_id: 1, text: 'q', cluster: 'c', ai_search_volume: 100, engine: 'chatgpt',
+    entity_id: 1, name: 'Sandstorm Digital', kind: 'owned', domain: 'sandstormdigital.com',
+    runs: 3, hits: 1, avg_ordinal: 3, negatives: 0, snippet: null, sample_run: 1
+  };
+
+  const questions = Array.from({ length: 15 }, (_, i) => ({
+    question: `Question number ${i + 1}?`,
+    url: `https://keyspacerealty.com/page-${i + 1}`,
+    hits: 3
+  }));
+
+  const recs = evaluateRules({
+    project,
+    stats: [stat],
+    ownCitedByPrompt: new Map(),
+    sourceRows: [
+      { domain: 'keyspacerealty.com', n: 45, prompts: 15, sample_url: questions[0].url,
+        sample_question: questions[0].question, questions }
+    ]
+  });
+
+  const r = recs.find((x) => x.evidence.domain === 'keyspacerealty.com');
+  assert.ok(r, 'the rule must fire');
+  assert.equal(r.evidence.prompts, 15);
+  assert.equal(r.evidence.questions.length, 15, 'the count and the list must agree');
+  assert.ok(r.evidence.questions.every((q) => q.question && q.url), 'each needs a question and a page');
+});
+
+await test('the question list is capped so a row cannot grow unbounded', () => {
+  const project = { id: 1, brand_name: 'X', domain: 'x.com' };
+  const many = Array.from({ length: 80 }, (_, i) => ({ question: `q${i}`, url: `https://y.com/${i}`, hits: 1 }));
+
+  const recs = evaluateRules({
+    project,
+    stats: [{
+      prompt_id: 1, text: 'q', cluster: 'c', ai_search_volume: 100, engine: 'chatgpt',
+      entity_id: 1, name: 'X', kind: 'owned', domain: 'x.com',
+      runs: 3, hits: 1, avg_ordinal: 3, negatives: 0, snippet: null, sample_run: 1
+    }],
+    ownCitedByPrompt: new Map(),
+    sourceRows: [{ domain: 'y.com', n: 80, prompts: 80, sample_url: 'https://y.com/0', sample_question: 'q0', questions: many }]
+  });
+
+  const r = recs.find((x) => x.evidence.domain === 'y.com');
+  assert.equal(r.evidence.questions.length, 25);
+  assert.equal(r.evidence.prompts, 80, 'the true count is still reported');
+});
+
 await test('named but not cited names who took the click', () => {
   const project = { id: 1, brand_name: 'Arada', domain: 'arada.com' };
   const q = 'Which area is best for families in Sharjah?';

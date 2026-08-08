@@ -233,7 +233,16 @@ export function notifyAssignment({ to, assignedBy, site, task, appUrl }) {
       // The exact page, so the recipient can open the thing being talked
       // about rather than a home page and a hunt.
       task.target_url ? ['Page', task.target_url] : task.evidence?.domain ? ['Source', task.evidence.domain] : null,
-      task.evidence?.question ? ['Question it came from', task.evidence.question] : null,
+      // A few of the questions, rather than a count the reader cannot check.
+      task.evidence?.questions?.length
+        ? [
+            `Questions it shapes (${task.evidence.questions.length})`,
+            task.evidence.questions.slice(0, 4).map((q) => q.question).join(' \u2022 ') +
+              (task.evidence.questions.length > 4 ? ` \u2022 and ${task.evidence.questions.length - 4} more` : '')
+          ]
+        : task.evidence?.question
+          ? ['Question it came from', task.evidence.question]
+          : null,
       task.evidence?.own_rate !== undefined ? ['Your visibility', `${task.evidence.own_rate}%`] : null,
       task.evidence?.competitor && task.evidence?.competitor_rate !== undefined
         ? ['Competitor', `${task.evidence.competitor} at ${task.evidence.competitor_rate}%`]

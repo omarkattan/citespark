@@ -1126,3 +1126,36 @@ select { appearance: auto; }
 
 .ghost.danger { color: var(--alert); border-color: var(--line); }
 .ghost.danger:hover { border-color: var(--alert); }
+
+/* the questions behind a source action */
+.qlist { margin-top: 12px; }
+.qlist summary {
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.qlist summary::-webkit-details-marker { display: none; }
+.qlist summary::before { content: '+ '; color: var(--you); }
+.qlist[open] summary::before { content: '\2212 '; }
+.qlist summary:hover { color: var(--ink); }
+.qlist-body { margin-top: 8px; border-top: 1px solid var(--line-2); }
+.qrow {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line-2);
+}
+.qrow:last-child { border-bottom: none; }
+.qhits { font-family: var(--mono); font-size: 11px; color: var(--ink-3); text-align: right; }
+.qtext { font-size: 13.5px; line-height: 1.45; color: var(--ink-2); }
+.qlink { font-family: var(--mono); font-size: 10.5px; color: var(--you); white-space: nowrap; }
+@media (max-width: 560px) {
+  .qrow { grid-template-columns: 30px 1fr; }
+  .qlink { grid-column: 2; }
+}

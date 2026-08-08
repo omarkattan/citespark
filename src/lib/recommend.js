@@ -249,17 +249,36 @@ export async function buildRecommendations(projectId) {
     [projectId, cycle]
   );
 
+  /**
+   * Which questions each source shapes, not just how many.
+   *
+   * "keyspacerealty.com shapes 15 of your questions" is only actionable if
+   * you can see the fifteen. One sample question was the least useful part
+   * of an otherwise specific action.
+   */
   const sourceRows = await many(
-    `SELECT c.domain,
-            COUNT(*)::int AS n,
-            COUNT(DISTINCT r.prompt_id)::int AS prompts,
-            (ARRAY_AGG(c.url ORDER BY c.position))[1] AS sample_url,
-            (ARRAY_AGG(p.text ORDER BY c.position))[1] AS sample_question
-     FROM citations c
-     JOIN runs r ON r.id = c.run_id
-     JOIN prompts p ON p.id = r.prompt_id
-     WHERE r.project_id = $1 AND r.cycle_date = $2
-     GROUP BY c.domain
+    `WITH per_prompt AS (
+       SELECT c.domain, r.prompt_id, p.text AS question,
+              COUNT(*)::int AS hits,
+              MIN(c.position)::int AS best_position,
+              (ARRAY_AGG(c.url ORDER BY c.position))[1] AS url
+       FROM citations c
+       JOIN runs r ON r.id = c.run_id
+       JOIN prompts p ON p.id = r.prompt_id
+       WHERE r.project_id = $1 AND r.cycle_date = $2
+       GROUP BY c.domain, r.prompt_id, p.text
+     )
+     SELECT domain,
+            SUM(hits)::int AS n,
+            COUNT(*)::int AS prompts,
+            (ARRAY_AGG(url ORDER BY best_position))[1] AS sample_url,
+            (ARRAY_AGG(question ORDER BY best_position))[1] AS sample_question,
+            JSONB_AGG(
+              JSONB_BUILD_OBJECT('question', question, 'url', url, 'hits', hits)
+              ORDER BY hits DESC, best_position
+            ) AS questions
+     FROM per_prompt
+     GROUP BY domain
      ORDER BY n DESC`,
     [projectId, cycle]
   );
@@ -648,7 +667,10 @@ export function evaluateRules({
           reachable,
           analysable: Boolean(s.sample_url),
           url: s.sample_url,
-          question: s.sample_question || null
+          question: s.sample_question || null,
+          // The whole list, so "15 of your questions" can be read rather
+          // than taken on trust. Capped so the row stays a reasonable size.
+          questions: (s.questions || []).slice(0, 25)
         }
       })
     );
