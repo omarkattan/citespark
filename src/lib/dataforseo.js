@@ -419,11 +419,18 @@ async function askGoogle({ cfg, prompt, market }) {
     ? `${BASE}/serp/google/ai_mode/live/advanced`
     : `${BASE}/serp/google/organic/live/advanced`;
 
-  // load_async_ai_overview makes DataForSEO fetch the expanded overview in a
-  // second request, and that is where "Internal SE Server Error" comes from.
-  // The overview block is present in the standard response without it, so it
-  // is off by default. Turn it on only if you need the expanded references.
-  const wantAsync = String(process.env.AI_OVERVIEW_ASYNC || '').toLowerCase() === 'true';
+  /**
+   * load_async_ai_overview asks DataForSEO to fetch the overview in a second
+   * request. Turning it off stopped "Internal SE Server Error", but it also
+   * stopped the overview arriving at all: a study run returned 0 usable
+   * AI Overview answers from 31 prompts, which read as absence when it was
+   * really a gap in the measurement.
+   *
+   * So it is on by default now, and the errors it brings are visible in the
+   * failure report rather than hidden as silent zeros. Set
+   * AI_OVERVIEW_ASYNC=false to go back to the quiet-but-empty behaviour.
+   */
+  const wantAsync = String(process.env.AI_OVERVIEW_ASYNC ?? 'true').toLowerCase() !== 'false';
 
   const body = [
     {
@@ -463,8 +470,11 @@ async function askGoogle({ cfg, prompt, market }) {
       : items.find((i) => i.type === 'ai_overview') || null;
 
     if (!isMode && !block) {
+      // A real finding: Google shows no AI Overview for this query. Distinct
+      // from a request that failed, and it must not be scored as a developer
+      // being absent from an answer that never existed.
       return {
-        ok: true, absent: true, text: '', citations: [], fanOut: [],
+        ok: true, absent: true, noOverview: true, text: '', citations: [], fanOut: [],
         costUsd: Number(json?.cost || 0), model: cfg.label,
         error: null
       };

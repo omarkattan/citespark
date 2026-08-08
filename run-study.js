@@ -16,10 +16,32 @@ import { extractMentions, scoreRecommendations } from '../src/lib/extract.js';
  * against real answers before it is trusted three times over.
  */
 const args = process.argv.slice(2);
+
+/**
+ * Flags that take a value, so the value is not mistaken for the study slug.
+ * "--engines ai_overview" previously made the runner look for a study called
+ * "ai_overview" and give up.
+ */
+const VALUED = new Set(['--runs', '--engines', '--limit']);
+
+const flagValue = (name) => {
+  const i = args.indexOf(name);
+  return i === -1 ? null : args[i + 1] ?? null;
+};
+
+const consumed = new Set();
+for (const [i, a] of args.entries()) if (VALUED.has(a)) consumed.add(i + 1);
+
 const dry = args.includes('--dry');
 const all = args.includes('--all');
-const runs = Number(args[args.indexOf('--runs') + 1]) || 1;
-const slug = args.find((a) => !a.startsWith('--') && !/^\d+$/.test(a)) || 'property-developers';
+const runs = Number(flagValue('--runs')) || 1;
+const limit = Number(flagValue('--limit')) || null;
+const onlyEngines = flagValue('--engines')
+  ? String(flagValue('--engines')).split(',').map((e) => e.trim()).filter(Boolean)
+  : null;
+
+const slug =
+  args.find((a, i) => !a.startsWith('--') && !consumed.has(i)) || 'property-developers';
 
 const study = await one('SELECT * FROM sector_studies WHERE slug = $1', [slug]);
 if (!study) {
@@ -51,13 +73,18 @@ const engines = (study.config.engines || ['ai_mode', 'ai_overview', 'chatgpt']).
     process.exit(1);
   }
   return mapped;
-});
+}).filter((e) => !onlyEngines || onlyEngines.includes(e));
+
+if (!engines.length) {
+  console.error('No engines selected. Check --engines.');
+  process.exit(1);
+}
 const prompts = await many(
-  `SELECT * FROM sector_prompts WHERE study_id = $1 ${all ? '' : 'AND v1'} ORDER BY kind, key`,
+  `SELECT * FROM sector_prompts WHERE study_id = $1 ${all ? '' : 'AND v1'} ORDER BY kind, key ${limit ? `LIMIT ${limit}` : ''}`,
   [study.id]
 );
 const companies = await many(
-  'SELECT id, key, name, domain, aliases, notes FROM sector_companies WHERE study_id = $1 AND active',
+  'SELECT id, key, name, domain, aliases, project_aliases, notes FROM sector_companies WHERE study_id = $1 AND active',
   [study.id]
 );
 
@@ -73,6 +100,7 @@ const matchers = companies.map((c) => ({
   name: c.name,
   domain: c.domain,
   aliases: c.aliases,
+  projectAliases: c.project_aliases || [],
   neverMatch: c.notes?.never_match || []
 }));
 
@@ -144,9 +172,9 @@ for (const prompt of prompts) {
         for (const m of extraction.mentions) {
           await query(
             `INSERT INTO sector_mentions
-               (answer_id, company_id, mentioned, ordinal, matched_alias, snippet, recommended, cited, citation_url)
-             VALUES ($1,$2,true,$3,$4,$5,$6,$7,$8)`,
-            [stored.id, m.company.id, m.ordinal, m.matchedAlias, m.snippet, m.recommended, m.cited, m.citationUrl]
+               (answer_id, company_id, mentioned, ordinal, matched_alias, snippet, recommended, cited, citation_url, via_project)
+             VALUES ($1,$2,true,$3,$4,$5,$6,$7,$8,$9)`,
+            [stored.id, m.company.id, m.ordinal, m.matchedAlias, m.snippet, m.recommended, m.cited, m.citationUrl, m.viaProject]
           );
         }
       }

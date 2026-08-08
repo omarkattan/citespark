@@ -107,6 +107,17 @@ for (const h of health) {
       `${h.failed ? `, ${h.failed} failed (${(h.sample_error || '').slice(0, 44)})` : ''}`
   );
 }
+// A surface that answered nothing is a measurement gap, not a finding about
+// developers, and must not silently become part of a published denominator.
+const dead = health.filter((h) => h.with_text === 0 && h.attempted > 0);
+if (dead.length) {
+  console.log();
+  for (const h of dead) {
+    console.log(`  ${h.engine} returned no usable answer at all. Either fix it or drop it from the`);
+    console.log('  run and say so on the page. Scoring it as zero would report a gap in our');
+    console.log('  measurement as an absence of the developers.');
+  }
+}
 console.log();
 console.log(`across the whole run: ${stats.answers} answers, ${stats.mentions} mentions`);
 console.log(`  ${stats.empty_answers} answers named no developer at all`);

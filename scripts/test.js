@@ -1635,7 +1635,7 @@ await test('AI Overview parses, and an absent overview is not an error', async (
   global.fetch = realFetch;
 });
 
-await test('the async overview flag is off unless asked for', async () => {
+await test('the async overview flag is on unless turned off', async () => {
   process.env.MOCK_MODE = 'false';
   delete process.env.AI_OVERVIEW_ASYNC;
   const { askEngine: live } = await import('../src/lib/dataforseo.js?flag=1');
@@ -1648,10 +1648,26 @@ await test('the async overview flag is off unless asked for', async () => {
   await live({ engine: 'ai_overview', prompt: 'q', market: 'AE' });
   global.fetch = realFetch;
 
-  // This flag makes DataForSEO do a second fetch, and that second fetch is
-  // where "Internal SE Server Error" was coming from.
-  assert.equal(sent.load_async_ai_overview, undefined, 'must be off by default');
+  // Turning this off stopped the errors and also stopped the data: a study
+  // run returned 0 usable AI Overview answers from 31 prompts, which reads as
+  // developers being absent when the overview was never fetched at all. A
+  // visible failure is better than a silent zero.
+  assert.equal(sent.load_async_ai_overview, true, 'must be on by default');
   assert.equal(sent.location_name, 'United Arab Emirates');
+
+  // And it must still be possible to turn off.
+  process.env.AI_OVERVIEW_ASYNC = 'false';
+  const { askEngine: off } = await import('../src/lib/dataforseo.js?flagoff=1');
+  const realFetch2 = global.fetch;
+  let sentOff = null;
+  global.fetch = async (url, opts) => {
+    sentOff = JSON.parse(opts.body)[0];
+    return { ok: true, json: async () => ({ tasks: [{ status_code: 20000, result: [{ items: [{ type: 'ai_overview', text: 'x' }] }] }] }) };
+  };
+  await off({ engine: 'ai_overview', prompt: 'q', market: 'AE' });
+  global.fetch = realFetch2;
+  delete process.env.AI_OVERVIEW_ASYNC;
+  assert.equal(sentOff.load_async_ai_overview, undefined);
 });
 
 console.log('\nengine catalogue');
