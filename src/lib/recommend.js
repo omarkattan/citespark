@@ -634,7 +634,13 @@ export function evaluateRules({
           competitor: g.name,
           competitor_rate: avgTheirs,
           own_rate: avgYours,
-          questions: g.questions.map((q) => q.text).slice(0, 6)
+          // Both rates per question, so "they beat you on 6 questions" can be
+          // opened and read rather than taken on trust.
+          questions: g.questions.slice(0, 25).map((q) => ({
+            question: q.text,
+            own_rate: q.yours,
+            competitor_rate: q.theirs
+          }))
         }
       })
     );

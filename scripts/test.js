@@ -432,6 +432,34 @@ await test('the rules engine runs with only the minimum inputs', () => {
   assert.doesNotThrow(() => evaluateRules({ project: { id: 1, brand_name: 'X', domain: 'x.com' }, stats: [] }));
 });
 
+await test('a competitor action says on which questions they win', () => {
+  // "They beat you on 6 questions" is a claim until the six can be read,
+  // with both rates side by side.
+  const project = { id: 1, brand_name: 'Sandstorm Digital', domain: 'sandstormdigital.com' };
+  const q = (i) => ({
+    prompt_id: i, text: `Question ${i}?`, cluster: 'c', ai_search_volume: 500, engine: 'chatgpt',
+    runs: 3, negatives: 0, snippet: null, sample_run: 1, avg_ordinal: 3
+  });
+
+  const stats = [];
+  for (let i = 1; i <= 4; i++) {
+    stats.push({ ...q(i), entity_id: 1, name: 'Sandstorm Digital', kind: 'owned', domain: 'sandstormdigital.com', hits: 1 });
+    stats.push({ ...q(i), entity_id: 2, name: 'Digital Gravity', kind: 'competitor', domain: 'digitalgravity.ae', hits: 3 });
+  }
+
+  const rec = evaluateRules({ project, stats, ownCitedByPrompt: new Map() })
+    .find((r) => r.type === 'competitor_comparison');
+
+  assert.ok(rec, 'the rule must fire');
+  assert.equal(rec.evidence.questions.length, 4, 'every question, not a sample');
+  for (const item of rec.evidence.questions) {
+    assert.ok(item.question, 'each row needs the question');
+    assert.equal(typeof item.own_rate, 'number');
+    assert.equal(typeof item.competitor_rate, 'number');
+    assert.ok(item.competitor_rate > item.own_rate, 'these are the ones they win');
+  }
+});
+
 await test('a source action carries every question it shapes', () => {
   // "keyspacerealty.com shapes 15 of your questions" is only actionable if
   // the fifteen can be read. One sample question was the least useful part
