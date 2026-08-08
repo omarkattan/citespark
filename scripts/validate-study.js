@@ -31,6 +31,7 @@ const rows = await many(
           (SELECT COUNT(*)::int FROM sector_mentions m WHERE m.answer_id = a.id) AS n
    FROM sector_answers a JOIN sector_prompts p ON p.id = a.prompt_id
    WHERE a.study_id = $1 AND a.cycle_date = $2 AND a.ok
+     AND a.answer_text IS NOT NULL AND length(a.answer_text) > 0
    ORDER BY random() LIMIT $3`,
   [study.id, cycle, onlyEmpty ? 200 : limit]
 );
@@ -52,8 +53,8 @@ for (const r of shown) {
   console.log('─'.repeat(78));
   console.log(`[${r.engine}] ${r.prompt_key}: ${r.prompt.slice(0, 100)}`);
   console.log();
-  console.log(r.answer_text.slice(0, 700).replace(/\n{2,}/g, '\n').split('\n').map((l) => '  ' + l).join('\n'));
-  if (r.answer_text.length > 700) console.log('  …');
+  console.log((r.answer_text || '').slice(0, 700).replace(/\n{2,}/g, '\n').split('\n').map((l) => '  ' + l).join('\n'));
+  if ((r.answer_text || '').length > 700) console.log('  …');
   console.log();
 
   if (!mentions.length) {
@@ -63,6 +64,7 @@ for (const r of shown) {
     for (const m of mentions) {
       console.log(
         `    ${String(m.ordinal).padStart(2)}. ${m.name.padEnd(26)} matched "${m.matched_alias}"` +
+          `${m.via_project ? '  [PROJECT NAME, not corporate]' : ''}` +
           `${m.recommended ? '  recommended' : ''}${m.cited ? `  cited ${m.citation_url?.slice(0, 46)}` : ''}`
       );
     }
@@ -75,13 +77,37 @@ const stats = await one(
           COUNT(m.id)::int AS mentions,
           COUNT(DISTINCT a.id) FILTER (WHERE m.id IS NULL)::int AS empty_answers,
           COUNT(m.id) FILTER (WHERE m.cited)::int AS cited,
-          COUNT(m.id) FILTER (WHERE m.recommended)::int AS recommended
+          COUNT(m.id) FILTER (WHERE m.recommended)::int AS recommended,
+          COUNT(m.id) FILTER (WHERE m.via_project)::int AS via_project
    FROM sector_answers a LEFT JOIN sector_mentions m ON m.answer_id = a.id
    WHERE a.study_id = $1 AND a.cycle_date = $2 AND a.ok`,
   [study.id, cycle]
 );
 
+// Engine-level health first: a surface that returned nothing for most prompts
+// is not a finding about developers, it is a gap in the measurement.
+const health = await many(
+  `SELECT engine,
+          COUNT(*)::int AS attempted,
+          COUNT(*) FILTER (WHERE ok AND length(COALESCE(answer_text,'')) > 0)::int AS with_text,
+          COUNT(*) FILTER (WHERE ok AND COALESCE(answer_text,'') = '')::int AS empty,
+          COUNT(*) FILTER (WHERE NOT ok)::int AS failed,
+          MIN(error) AS sample_error
+   FROM sector_answers WHERE study_id = $1 AND cycle_date = $2
+   GROUP BY engine ORDER BY engine`,
+  [study.id, cycle]
+);
+
 console.log('─'.repeat(78));
+console.log('engine health');
+for (const h of health) {
+  console.log(
+    `  ${h.engine.padEnd(13)} ${h.with_text}/${h.attempted} answered` +
+      `${h.empty ? `, ${h.empty} returned nothing` : ''}` +
+      `${h.failed ? `, ${h.failed} failed (${(h.sample_error || '').slice(0, 44)})` : ''}`
+  );
+}
+console.log();
 console.log(`across the whole run: ${stats.answers} answers, ${stats.mentions} mentions`);
 console.log(`  ${stats.empty_answers} answers named no developer at all`);
 console.log(`  ${stats.cited} mentions came with a citation to that developer's own site`);

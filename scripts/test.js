@@ -252,6 +252,48 @@ await test('a multi-word name in its own capitalisation counts', () => {
   assert.deepEqual(keys('select group discounts are available.'), [], 'lower case is prose, not a name');
 });
 
+await test('a project name is not a corporate mention', () => {
+  // The run rules state that corporate developer visibility and individual
+  // project visibility are separate measurements. Crediting Sharjah Holding
+  // for an answer that says "Al Zahia" conflates the two.
+  const devs = [
+    { key: 'sh', name: 'Sharjah Holding', domain: 'sharjahholding.ae',
+      aliases: ['Sharjah Holding PJSC'], projectAliases: ['Al Zahia'] },
+    { key: 'arada', name: 'Arada', domain: 'arada.com' }
+  ];
+  const find = (t) => ex.extractMentions(t, devs).mentions;
+
+  const project = find('Al Zahia is a well regarded family community.');
+  assert.equal(project[0].company.key, 'sh');
+  assert.equal(project[0].viaProject, true, 'must be flagged, not counted as corporate');
+
+  const corporate = find('Sharjah Holding PJSC develops in the emirate.');
+  assert.equal(corporate[0].viaProject, false);
+
+  // Named both ways in one answer: the corporate mention is the stronger
+  // signal and must win regardless of which appears first.
+  const both = find('Al Zahia, developed by Sharjah Holding PJSC, is popular.');
+  assert.equal(both.length, 1);
+  assert.equal(both[0].viaProject, false, 'a corporate mention outranks a project mention');
+});
+
+await test('project aliases are held apart in the seed', async () => {
+  const { readFileSync } = await import('node:fs');
+  const ver = JSON.parse(readFileSync(new URL('../data/developers-verified.json', import.meta.url)));
+
+  for (const d of ver.developers) {
+    for (const a of d.aliases || []) {
+      assert.ok(
+        !(d.project_aliases || []).includes(a),
+        `${d.id}: "${a}" is in both the corporate and project alias lists`
+      );
+    }
+  }
+  const sh = ver.developers.find((d) => d.id === 'sharjah_holding');
+  assert.deepEqual(sh.project_aliases, ['Al Zahia']);
+  assert.ok(!sh.aliases.includes('Al Zahia'));
+});
+
 await test('being short does not make a name ambiguous', () => {
   // "Arada" is five letters and unmistakable. "Select" is six and not.
   assert.equal(ex.isAmbiguous('Arada'), false);

@@ -57,7 +57,7 @@ const prompts = await many(
   [study.id]
 );
 const companies = await many(
-  'SELECT id, key, name, domain, aliases, notes FROM sector_companies WHERE study_id = $1 AND active',
+  'SELECT id, key, name, domain, aliases, project_aliases, notes FROM sector_companies WHERE study_id = $1 AND active',
   [study.id]
 );
 
@@ -73,6 +73,7 @@ const matchers = companies.map((c) => ({
   name: c.name,
   domain: c.domain,
   aliases: c.aliases,
+  projectAliases: c.project_aliases || [],
   neverMatch: c.notes?.never_match || []
 }));
 
@@ -144,9 +145,9 @@ for (const prompt of prompts) {
         for (const m of extraction.mentions) {
           await query(
             `INSERT INTO sector_mentions
-               (answer_id, company_id, mentioned, ordinal, matched_alias, snippet, recommended, cited, citation_url)
-             VALUES ($1,$2,true,$3,$4,$5,$6,$7,$8)`,
-            [stored.id, m.company.id, m.ordinal, m.matchedAlias, m.snippet, m.recommended, m.cited, m.citationUrl]
+               (answer_id, company_id, mentioned, ordinal, matched_alias, snippet, recommended, cited, citation_url, via_project)
+             VALUES ($1,$2,true,$3,$4,$5,$6,$7,$8,$9)`,
+            [stored.id, m.company.id, m.ordinal, m.matchedAlias, m.snippet, m.recommended, m.cited, m.citationUrl, m.viaProject]
           );
         }
       }

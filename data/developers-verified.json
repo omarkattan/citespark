@@ -91,8 +91,7 @@
       "name": "Sharjah Holding",
       "aliases": [
         "Sharjah Holding Co. PJSC",
-        "Sharjah Holding PJSC",
-        "Al Zahia"
+        "Sharjah Holding PJSC"
       ],
       "domain": "sharjahholding.ae",
       "hq": "Sharjah",
@@ -102,29 +101,32 @@
       "never_match": [
         "Majid Al Futtaim Properties",
         "Majid Al Futtaim Group"
+      ],
+      "project_aliases": [
+        "Al Zahia"
       ]
     },
     {
       "id": "tilal",
       "name": "Tilal Properties",
       "aliases": [
-        "Tilal Properties LLC",
-        "Tilal City"
+        "Tilal Properties LLC"
       ],
       "domain": "tilalproperties.com",
       "hq": "Sharjah",
       "verification_status": "verified_corrected",
       "was": "tilalproperties.ae",
       "source": "tilalproperties.com returned as official site",
-      "cohort_warning": "Tilal has announced that all plots in Tilal City are sold. Remove from the off_plan cohort. Retain in sharjah cohort only if the index is measuring brand visibility rather than current inventory."
+      "cohort_warning": "Tilal has announced that all plots in Tilal City are sold. Remove from the off_plan cohort. Retain in sharjah cohort only if the index is measuring brand visibility rather than current inventory.",
+      "project_aliases": [
+        "Tilal City"
+      ]
     },
     {
       "id": "ajmal_makan",
       "name": "Ajmal Makan",
       "aliases": [
         "AJMAL MAKAN",
-        "Ajmal Makan City",
-        "Sharjah Waterfront City",
         "Sharjah Oasis Real Estate Development"
       ],
       "domain": "ajmalmakan.com",
@@ -132,7 +134,11 @@
       "verification_status": "verified_corrected",
       "was": "ajmalmakan.ae",
       "source": "ajmalmakan.com returned as official site",
-      "note": "Brand markets as Ajmal Makan; the developing entity is reported as Sharjah Oasis Real Estate Development. Both must be in the alias set or mentions will be undercounted."
+      "note": "Brand markets as Ajmal Makan; the developing entity is reported as Sharjah Oasis Real Estate Development. Both must be in the alias set or mentions will be undercounted.",
+      "project_aliases": [
+        "Ajmal Makan City",
+        "Sharjah Waterfront City"
+      ]
     },
     {
       "id": "binghatti",
@@ -313,5 +319,5 @@
     "error_rate_on_guessed_domains": "2 of 22 guessed domains were wrong and were corrected",
     "gate": "All records verified. The alias-matching layer may now be written."
   },
-  "_alias_policy": "A never_match list holds strings that must not be counted as this company. Checked against the phrase around each hit before any alias is accepted, so the other company can still appear elsewhere in the same answer. Alef in particular is never matched bare: only the qualified forms, and never when Alef Education is the thing being named."
+  "_alias_policy": "A never_match list holds strings that must not be counted as this company. Checked against the phrase around each hit before any alias is accepted, so the other company can still appear elsewhere in the same answer. Alef in particular is never matched bare: only the qualified forms, and never when Alef Education is the thing being named. Project names are held separately in project_aliases. The run rules state that corporate developer visibility and individual project visibility are separate measurements, so an answer naming \"Al Zahia\" is a mention of the community, not of Sharjah Holding, and must not enter the corporate score."
 }

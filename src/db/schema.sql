@@ -378,3 +378,8 @@ CREATE INDEX IF NOT EXISTS sector_mentions_company ON sector_mentions (company_i
 ALTER TABLE sector_companies ADD COLUMN IF NOT EXISTS verification_status TEXT NOT NULL DEFAULT 'unverified';
 ALTER TABLE sector_companies ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE sector_companies ADD COLUMN IF NOT EXISTS notes JSONB NOT NULL DEFAULT '{}';
+
+-- Project names are matched separately from company names: the run rules
+-- treat corporate visibility and project visibility as different measurements.
+ALTER TABLE sector_companies ADD COLUMN IF NOT EXISTS project_aliases TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE sector_mentions ADD COLUMN IF NOT EXISTS via_project BOOLEAN NOT NULL DEFAULT false;

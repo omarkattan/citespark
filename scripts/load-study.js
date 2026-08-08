@@ -121,15 +121,17 @@ for (const d of merged) {
   // seed's warning about Alef is satisfied because its declared name is
   // "Alef Group", and bare "Alef" appears in neither the name nor the aliases.
   const aliases = [...new Set([d.name, ...(d.aliases || [])])].filter(Boolean);
+  const projectAliases = [...new Set(d.project_aliases || [])].filter(Boolean);
 
   await query(
-    `INSERT INTO sector_companies (study_id, key, name, domain, aliases, cohorts, verification_status, active, notes)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    `INSERT INTO sector_companies (study_id, key, name, domain, aliases, project_aliases, cohorts, verification_status, active, notes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      ON CONFLICT (study_id, key) DO UPDATE SET
        name = EXCLUDED.name, domain = EXCLUDED.domain, aliases = EXCLUDED.aliases,
+       project_aliases = EXCLUDED.project_aliases,
        cohorts = EXCLUDED.cohorts, verification_status = EXCLUDED.verification_status,
        active = EXCLUDED.active, notes = EXCLUDED.notes`,
-    [study.id, d.id, d.name, d.domain, aliases, cohortsOf(d.id), d.verification_status, active,
+    [study.id, d.id, d.name, d.domain, aliases, projectAliases, cohortsOf(d.id), d.verification_status, active,
      JSON.stringify({
        alias_warning: d.alias_warning || null,
        cohort_warning: d.cohort_warning || null,

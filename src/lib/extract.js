@@ -205,9 +205,14 @@ export function extractMentions(answerText, companies, suppliedLinks = []) {
   for (const company of companies) {
     // Longest aliases first, so "Emaar Properties" wins over "Emaar" and the
     // recorded alias reflects what the answer actually said.
-    const aliases = [...new Set([company.name, ...(company.aliases || [])])]
-      .filter(Boolean)
-      .sort((a, b) => b.length - a.length);
+    //
+    // Project names are matched too but flagged, because naming a community
+    // is not the same as naming the company that built it and the two are
+    // reported as separate measurements.
+    const corporate = [...new Set([company.name, ...(company.aliases || [])])].filter(Boolean);
+    const projects = [...new Set(company.projectAliases || company.project_aliases || [])].filter(Boolean);
+    const aliases = [...corporate, ...projects].sort((a, b) => b.length - a.length);
+    const isProject = new Set(projects);
 
     let best = null;
 
@@ -221,10 +226,17 @@ export function extractMentions(answerText, companies, suppliedLinks = []) {
           if (!verdict.ok) continue;
           why = verdict.why;
         }
-        if (!best || hit.index < best.index) best = { index: hit.index, alias, ambiguous, why };
+        const viaProject = isProject.has(alias);
+        // A corporate mention outranks a project mention, whatever the order:
+        // the company being named directly is the stronger signal.
+        const better =
+          !best ||
+          (best.viaProject && !viaProject) ||
+          (best.viaProject === viaProject && hit.index < best.index);
+        if (better) best = { index: hit.index, alias, ambiguous, why, viaProject };
         break; // first qualifying hit per alias is enough
       }
-      if (best && !best.ambiguous) break; // an unambiguous match settles it
+      if (best && !best.ambiguous && !best.viaProject) break; // settled
     }
 
     if (!best) continue;
@@ -237,6 +249,8 @@ export function extractMentions(answerText, companies, suppliedLinks = []) {
       index: best.index,
       matchedAlias: best.alias,
       ambiguousMatch: best.ambiguous,
+      // True when the company was found only via one of its project names.
+      viaProject: Boolean(best.viaProject),
       // Why an ambiguous match was accepted, so a reviewer can audit it.
       matchReason: best.why || null,
       snippet: snippetAround(text, best.index, best.alias.length),
