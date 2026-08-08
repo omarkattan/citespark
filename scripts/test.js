@@ -30,6 +30,27 @@ const entities = [
   { id: 3, name: 'Aira', domain: 'aira.net', kind: 'competitor', aliases: [] }
 ];
 
+console.log('\nsector scoring');
+
+const sc = await import('../src/lib/score.js');
+
+await test('the composite matches the published weights exactly', () => {
+  assert.deepEqual(sc.COMPOSITE_WEIGHTS, {
+    mention_rate: 0.35, top_three_rate: 0.25, recommendation_rate: 0.2, citation_rate: 0.2
+  });
+  assert.equal(Object.values(sc.COMPOSITE_WEIGHTS).reduce((a, b) => a + b, 0), 1);
+
+  // A developer named in everything, first every time, always recommended
+  // and always cited scores 1. Nothing scores above it.
+  assert.equal(sc.composite({ mention_rate: 1, top_three_rate: 1, recommendation_rate: 1, citation_rate: 1 }), 1);
+  assert.equal(sc.composite({ mention_rate: 0, top_three_rate: 0, recommendation_rate: 0, citation_rate: 0 }), 0);
+
+  // Mention rate carries the most weight, so it must move the score most.
+  const base = { mention_rate: 0, top_three_rate: 0, recommendation_rate: 0, citation_rate: 0 };
+  assert.ok(sc.composite({ ...base, mention_rate: 1 }) > sc.composite({ ...base, top_three_rate: 1 }));
+  assert.ok(sc.composite({ ...base, top_three_rate: 1 }) > sc.composite({ ...base, citation_rate: 1 }));
+});
+
 console.log('\nsector study seed');
 
 await test('every developer has a verified domain', async () => {
