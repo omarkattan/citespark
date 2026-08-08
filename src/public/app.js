@@ -844,17 +844,61 @@ const PHASE_LABEL = {
   done: 'Finished'
 };
 
-function showProgress(phase, done, total) {
+const ENGINE_LABEL = {
+  chatgpt: 'ChatGPT',
+  gemini: 'Gemini',
+  claude: 'Claude',
+  perplexity: 'Perplexity',
+  ai_overview: 'Google AI Overview',
+  ai_mode: 'Google AI Mode'
+};
+
+/**
+ * A cycle takes minutes, and a bar that only counts gives no reason to
+ * believe anything is happening. Showing the actual questions going out, and
+ * whether the brand came back named, turns the wait into the product.
+ */
+function showProgress(phase, done, total, recent = []) {
   $('cycleBar').hidden = false;
   $('cycleLabel').textContent = PHASE_LABEL[phase] || 'Working';
   $('cycleCount').textContent = total ? `${done} of ${total} answers` : '';
   const pct = phase === 'thinking' ? 100 : total ? Math.round((done / total) * 100) : 5;
   $('cycleFill').style.width = `${Math.max(3, pct)}%`;
+
+  const feed = $('cycleFeed');
+  if (!feed) return;
+
+  if (!recent.length) {
+    feed.hidden = true;
+    return;
+  }
+  feed.hidden = false;
+  feed.innerHTML = recent
+    .map((r) => {
+      const mark =
+        r.state === 'answered'
+          ? r.named
+            ? '<span class="fmark named" title="You were named in this answer">named</span>'
+            : '<span class="fmark missed" title="You were not named">not named</span>'
+          : r.state === 'failed'
+            ? '<span class="fmark failed">no answer</span>'
+            : '<span class="fmark asking">asking</span>';
+      return `<div class="frow ${r.state}">
+        <span class="fengine">${esc(ENGINE_LABEL[r.engine] || r.engine)}</span>
+        <span class="fq">${esc(r.question)}</span>
+        ${mark}
+      </div>`;
+    })
+    .join('');
 }
 
 function hideProgress() {
   $('cycleBar').hidden = true;
   $('cycleFill').style.width = '0%';
+  if ($('cycleFeed')) {
+    $('cycleFeed').hidden = true;
+    $('cycleFeed').innerHTML = '';
+  }
 }
 
 function deltaFig(s) {
@@ -978,7 +1022,7 @@ async function pollCycle() {
     await loadProject(state.projectId);
     return true;
   }
-  showProgress(status.phase, status.done || 0, status.total || 0);
+  showProgress(status.phase, status.done || 0, status.total || 0, status.recent || []);
   return false;
 }
 

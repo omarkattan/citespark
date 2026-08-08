@@ -1308,6 +1308,30 @@ await test('retries transient failures but not permanent ones', async () => {
   global.fetch = realFetch;
 });
 
+console.log('\ncycle progress');
+
+await test('a failed answer still counts towards progress', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
+
+  // Returning early on failure left the counter stuck and the feed showing a
+  // question that never resolved, which reads as the run having hung.
+  const block = src.slice(src.indexOf('if (!answer.ok)'), src.indexOf('const results = await analyseRun'));
+  assert.ok(/done\+\+/.test(block), 'a failed call must still increment the counter');
+  assert.ok(/asking\.state = 'failed'/.test(block), 'and be marked failed in the feed');
+  assert.ok(/report\(/.test(block), 'and report immediately');
+});
+
+await test('progress reports what is being asked, not just a count', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
+
+  assert.ok(/recent: \[\.\.\.recent\]/.test(src), 'the recent questions must be sent to the client');
+  assert.ok(/noteAsked\(/.test(src), 'each question is recorded as it goes out');
+  // Bounded, or a long cycle grows the status payload without limit.
+  assert.ok(/recent\.length > \d+/.test(src), 'the feed must be capped');
+});
+
 console.log('\nassignment');
 
 await test('an assignment email carries the notes and the right link', async () => {

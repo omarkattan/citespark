@@ -317,7 +317,13 @@ export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 700
   const cfg = ENGINES[engine];
   if (!cfg) return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, error: `Unknown engine ${engine}` };
 
-  if (MOCK) return mockAnswer({ engine, prompt, model: cfg.model || cfg.label });
+  if (MOCK) {
+    // A real cycle takes minutes; mock returns instantly, which makes the
+    // progress UI impossible to see or test. MOCK_DELAY_MS puts the wait back.
+    const delay = Number(process.env.MOCK_DELAY_MS || 0);
+    if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+    return mockAnswer({ engine, prompt, model: cfg.model || cfg.label });
+  }
 
   if (cfg.kind === 'serp') {
     const first = await askGoogle({ cfg, prompt, market });
