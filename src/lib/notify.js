@@ -34,6 +34,20 @@ const escapeHtml = (s) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
   );
 
+/**
+ * A URL in a row is the thing the reader needs to open, so it is a link.
+ * The full path, not the domain: "clutch.co" says where, the page says which.
+ */
+export function renderValue(v) {
+  const s = String(v == null ? '' : v);
+  if (!/^https?:\/\//i.test(s)) return escapeHtml(s);
+
+  // Show enough of the path to be recognisable without wrapping to four lines.
+  const shown = s.replace(/^https?:\/\/(www\.)?/i, '');
+  const label = shown.length > 72 ? `${shown.slice(0, 69)}…` : shown;
+  return `<a href="${escapeHtml(s)}" style="color:#157a4a;word-break:break-all">${escapeHtml(label)}</a>`;
+}
+
 /** Plain, readable, and legible on a phone at seven in the morning. */
 function render({ title, lead, rows, action, actionUrl }) {
   return `<div style="font-family:ui-sans-serif,-apple-system,system-ui,sans-serif;max-width:520px;margin:0 auto;padding:28px 24px;color:#14161a">
@@ -46,7 +60,7 @@ function render({ title, lead, rows, action, actionUrl }) {
             .map(
               ([k, v]) => `<tr>
                 <td style="padding:7px 12px 7px 0;font-family:ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#75887c;vertical-align:top;white-space:nowrap">${escapeHtml(k)}</td>
-                <td style="padding:7px 0;font-size:14.5px;color:#14161a;line-height:1.5">${escapeHtml(v)}</td>
+                <td style="padding:7px 0;font-size:14.5px;color:#14161a;line-height:1.5;word-break:break-word">${renderValue(v)}</td>
               </tr>`
             )
             .join('')}</table>`
@@ -216,8 +230,14 @@ export function notifyAssignment({ to, assignedBy, site, task, appUrl }) {
       ['Site', site],
       due ? ['Due', due] : null,
       ['Why it fired', String(task.type || '').replace(/_/g, ' ')],
-      task.evidence?.domain ? ['Source', task.evidence.domain] : null,
+      // The exact page, so the recipient can open the thing being talked
+      // about rather than a home page and a hunt.
+      task.target_url ? ['Page', task.target_url] : task.evidence?.domain ? ['Source', task.evidence.domain] : null,
+      task.evidence?.question ? ['Question it came from', task.evidence.question] : null,
       task.evidence?.own_rate !== undefined ? ['Your visibility', `${task.evidence.own_rate}%`] : null,
+      task.evidence?.competitor && task.evidence?.competitor_rate !== undefined
+        ? ['Competitor', `${task.evidence.competitor} at ${task.evidence.competitor_rate}%`]
+        : null,
       assignedBy ? ['Assigned by', assignedBy] : null
     ].filter(Boolean),
     action: 'Open it in Cited',
@@ -237,8 +257,9 @@ export function notifyOverdue({ to, site, task, days, appUrl }) {
     rows: [
       ['Site', site],
       ['Was due', new Date(task.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })],
-      ['Overdue by', `${days} day${days === 1 ? '' : 's'}`]
-    ],
+      ['Overdue by', `${days} day${days === 1 ? '' : 's'}`],
+      task.target_url ? ['Page', task.target_url] : null
+    ].filter(Boolean),
     action: 'Open it in Cited',
     actionUrl: appUrl
   });

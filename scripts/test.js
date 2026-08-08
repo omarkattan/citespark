@@ -1228,6 +1228,54 @@ await test('retries transient failures but not permanent ones', async () => {
 
 console.log('\nnotifications');
 
+await test('an assignment email points at the page, not the domain', async () => {
+  process.env.RESEND_API_KEY = 'test';
+  const n = await import('../src/lib/notify.js?url=1');
+  const realFetch = global.fetch;
+  const sent = [];
+  global.fetch = async (url, opts) => { sent.push(JSON.parse(opts.body)); return { ok: true, text: async () => '' }; };
+
+  const page = 'https://www.bhomes.com/en/blog/betterinformed/affordable-neighbourhoods-for-first-time-buyers-in-sharjah';
+  n.notifyAssignment({
+    to: 'sara@example.com',
+    site: 'Arada',
+    task: {
+      title: 'bhomes.com shapes 3 of your questions',
+      action: 'Cited across 3 tracked questions.',
+      type: 'source_gap',
+      target_url: page,
+      evidence: { domain: 'bhomes.com', question: 'Which areas suit first-time buyers?' }
+    },
+    appUrl: 'https://cited.ae/app?site=5'
+  });
+  await new Promise((r) => setTimeout(r, 150));
+  global.fetch = realFetch;
+
+  const html = sent[0].html;
+  // The whole point: the recipient opens the page being discussed, not a
+  // home page and a hunt.
+  assert.ok(html.includes(`href="${page}"`), 'the full URL must be the link target');
+  assert.ok(!/>\s*bhomes\.com\s*</.test(html.replace(/href="[^"]*"/g, '')), 'the bare domain is not enough');
+  assert.ok(/Question it came from/.test(html), 'say which question produced it');
+});
+
+await test('a plain value is escaped, a URL becomes a link', async () => {
+  const { renderValue } = await import('../src/lib/notify.js?rv=1');
+
+  assert.equal(renderValue('Arada'), 'Arada');
+  assert.ok(renderValue('<script>x</script>').includes('&lt;script&gt;'), 'plain values stay escaped');
+
+  const link = renderValue('https://x.com/a/b');
+  assert.ok(link.startsWith('<a href="https://x.com/a/b"'), 'a URL becomes a link to itself');
+  assert.ok(link.includes('>x.com/a/b<'), 'and reads without the scheme');
+
+  // A long path is shortened for reading, never for linking.
+  const long = `https://example.com/${'segment/'.repeat(20)}end`;
+  const rendered = renderValue(long);
+  assert.ok(rendered.includes(`href="${long}"`), 'the href keeps the whole URL');
+  assert.ok(rendered.includes('…'), 'the label is truncated');
+});
+
 await test('an email failure never breaks the thing that triggered it', async () => {
   process.env.RESEND_API_KEY = 'test';
   process.env.NOTIFY_EMAIL = 'you@example.com';
