@@ -50,9 +50,13 @@ const COMMON_WORDS = new Set([
   'national', 'international', 'emirates', 'dubai', 'sharjah', 'gulf'
 ]);
 
-/** Suffixes that turn an ordinary word into a company name. */
+/**
+ * Suffixes that turn an ordinary word into a company name. Case matters:
+ * "Select Group" is a company, "select group discounts" is not, and matching
+ * case-insensitively accepted the second.
+ */
 const COMPANY_SUFFIX =
-  /^(group|properties|property|developments?|holdings?|homes|real estate|realty|estates|international|llc|pjsc)\b/i;
+  /^(Group|Properties|Property|Developments?|Holdings?|Homes|Real Estate|Realty|Estates|International|LLC|PJSC)\b/;
 
 const QUALIFIERS =
   /\b(develop\w*|properties|property|real estate|project|community|tower|residence|villa|apartment|off.?plan|handover|master.?plan|launch\w*)/i;
@@ -90,6 +94,13 @@ function findAll(haystack, needle) {
  *   an unambiguous form appears elsewhere     the full name is used somewhere
  */
 function ambiguousHitIsReal(text, hit, alias, company, linkedDomains) {
+  // A multi-word alias matching its exact capitalisation is a proper noun,
+  // not prose. "Select Group delivered Marina Gate" is the company; "select a
+  // group of developers" is not, and would not match this alias anyway.
+  if (alias.includes(' ') && hit.text === alias && /^[A-Z]/.test(alias)) {
+    return { ok: true, why: 'exact capitalisation of a multi-word name' };
+  }
+
   const after = text.slice(hit.index + alias.length).replace(/^[\s,.:;-]+/, '');
   if (COMPANY_SUFFIX.test(after)) return { ok: true, why: 'company suffix follows' };
 
@@ -147,6 +158,43 @@ export function extractLinks(text, supplied = []) {
  * @param {Array<{id?, key, name, domain, aliases?}>} companies
  * @param {Array} suppliedLinks  citations the engine returned separately
  */
+/**
+ * Some names belong to two companies. "Alef" is a Sharjah developer and also
+ * Alef Education, a UAE edtech firm that sits in another of our own public
+ * indexes. "Sobha" is a Dubai developer and an unrelated listed company in
+ * India. "Danube" is a developer, a river, and a furniture retailer.
+ *
+ * A company may therefore declare strings that must never be counted as it,
+ * checked before any alias is accepted. This runs first because a false
+ * positive here would attribute another company's visibility to this one on
+ * a public page.
+ */
+function excludedHere(text, hit, alias, company) {
+  const blockers = company.neverMatch || company.never_match || [];
+  if (!blockers.length) return false;
+
+  // The hit must be part of the excluded phrase, not merely near it. A window
+  // blocked "Alef Group is building Hayyan" because "Alef Education" appeared
+  // in the following sentence, which is exactly backwards: the other company
+  // appearing elsewhere is normal and says nothing about this mention.
+  const hitStart = hit.index;
+  const hitEnd = hit.index + alias.length;
+
+  for (const b of blockers) {
+    const escaped = String(b).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(escaped, 'gi');
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const bStart = m.index;
+      const bEnd = m.index + m[0].length;
+      // Overlap means this hit is the one inside the excluded phrase.
+      if (hitStart < bEnd && hitEnd > bStart) return true;
+      if (re.lastIndex === m.index) re.lastIndex++;
+    }
+  }
+  return false;
+}
+
 export function extractMentions(answerText, companies, suppliedLinks = []) {
   const text = normalise(answerText);
   const links = extractLinks(text, suppliedLinks);
@@ -166,6 +214,7 @@ export function extractMentions(answerText, companies, suppliedLinks = []) {
     for (const alias of aliases) {
       const ambiguous = isAmbiguous(alias);
       for (const hit of findAll(text, alias)) {
+        if (excludedHere(text, hit, alias, company)) continue;
         let why = null;
         if (ambiguous) {
           const verdict = ambiguousHitIsReal(text, hit, alias, company, linkedDomains);

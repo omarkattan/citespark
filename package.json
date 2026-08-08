@@ -23,7 +23,10 @@
     "log": "node scripts/log.js",
     "mena": "node scripts/refresh-mena.js",
     "coverage": "node scripts/coverage.js",
-    "locations": "node scripts/locations.js"
+    "locations": "node scripts/locations.js",
+    "study:load": "node scripts/load-study.js",
+    "study:run": "node scripts/run-study.js",
+    "study:validate": "node scripts/validate-study.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

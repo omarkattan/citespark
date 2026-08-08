@@ -30,6 +30,76 @@ const entities = [
   { id: 3, name: 'Aira', domain: 'aira.net', kind: 'competitor', aliases: [] }
 ];
 
+console.log('\nsector study seed');
+
+await test('every developer has a verified domain', async () => {
+  const { readFileSync } = await import('node:fs');
+  const ver = JSON.parse(readFileSync(new URL('../data/developers-verified.json', import.meta.url)));
+
+  // A guessed domain credits another company's citations to this one on a
+  // public page. Two of the original twenty-two were wrong, which is the
+  // whole reason this gate exists.
+  for (const d of ver.developers) {
+    assert.ok(
+      ['verified', 'verified_corrected'].includes(d.verification_status),
+      `${d.id} is ${d.verification_status} and must not be published`
+    );
+    assert.ok(d.domain && d.domain !== 'UNVERIFIED', `${d.id} has no confirmed domain`);
+    assert.ok(!/^https?:/.test(d.domain), `${d.id}: domain should be a bare hostname`);
+    assert.ok(!d.candidate, `${d.id} still carries an unresolved candidate domain`);
+  }
+});
+
+await test('the seed files are internally consistent', async () => {
+  const { readFileSync } = await import('node:fs');
+  const base = JSON.parse(readFileSync(new URL('../data/property-developers-index.json', import.meta.url)));
+  const ver = JSON.parse(readFileSync(new URL('../data/developers-verified.json', import.meta.url)));
+
+  const ids = new Set(base.developers.map((d) => d.id));
+  // A cohort naming a developer that does not exist would silently shrink
+  // that cohort's denominator and inflate everyone else's score.
+  for (const c of base.cohorts) {
+    for (const m of c.members) assert.ok(ids.has(m), `cohort ${c.id} names unknown developer "${m}"`);
+  }
+  const cohortIds = new Set(base.cohorts.map((c) => c.id));
+  for (const p of base.prompts.neutral) {
+    for (const c of p.cohorts || []) assert.ok(cohortIds.has(c), `prompt ${p.id} names unknown cohort "${c}"`);
+  }
+  for (const d of base.developers) {
+    assert.ok(base.cohorts.some((c) => c.members.includes(d.id)), `${d.id} is in no cohort and can never be scored`);
+  }
+
+  // The verification file supersedes the developers array, so it must cover it.
+  const verIds = new Set(ver.developers.map((d) => d.id));
+  for (const d of base.developers) assert.ok(verIds.has(d.id), `${d.id} missing from the verification file`);
+});
+
+await test('the composite uses machine-verifiable components only', async () => {
+  const { readFileSync } = await import('node:fs');
+  const base = JSON.parse(readFileSync(new URL('../data/property-developers-index.json', import.meta.url)));
+  const w = base.scoring.published_composite.weights;
+
+  assert.equal(Object.values(w).reduce((a, b) => a + b, 0), 1, 'weights must sum to 1');
+
+  // Accuracy, sentiment and hallucination cannot be reproduced monthly across
+  // 22 developers, so they cannot be defended and must stay out of the score.
+  for (const k of base.scoring.annotated_only) {
+    assert.ok(!(k in w), `${k} is annotated, it must not enter the composite`);
+  }
+  assert.deepEqual(Object.keys(w).sort(), ['citation_rate', 'mention_rate', 'recommendation_rate', 'top_three_rate']);
+});
+
+await test('the reputational prompt is withheld with its reason intact', async () => {
+  const { readFileSync } = await import('node:fs');
+  const base = JSON.parse(readFileSync(new URL('../data/property-developers-index.json', import.meta.url)));
+  const withheld = base.prompts.neutral.filter((p) => p.excluded_from_public);
+
+  assert.equal(withheld.length, 1);
+  assert.match(withheld[0].text, /complaints/i);
+  assert.ok(withheld[0].exclusion_reason, 'the reason is part of the method and must be retained');
+  assert.equal(withheld[0].v1, false, 'and it must not be in the v1 run');
+});
+
 console.log('\nsector extraction');
 
 const ex = await import('../src/lib/extract.js');
@@ -57,7 +127,11 @@ await test('an ordinary word is not a company mention', () => {
 await test('an ambiguous alias counts only on hard evidence', () => {
   const suffix = ex.extractMentions('Select Group delivered Marina Gate. Nest Properties is smaller.', DEVS);
   assert.deepEqual(suffix.mentions.map((m) => m.company.key).sort(), ['nest', 'select']);
-  assert.match(suffix.mentions[0].matchReason, /suffix/);
+  // Both are accepted, for different reasons: "Select Group" on its
+  // capitalisation, "Nest Properties" on the suffix that follows.
+  const reasons = Object.fromEntries(suffix.mentions.map((m) => [m.company.key, m.matchReason]));
+  assert.match(reasons.nest, /suffix/);
+  assert.match(reasons.select, /capitalisation|suffix/);
 
   const entity = ex.extractMentions('The tower was developed by Nest, a boutique firm.', DEVS);
   assert.deepEqual(entity.mentions.map((m) => m.company.key), ['nest']);
@@ -69,6 +143,65 @@ await test('an ambiguous alias counts only on hard evidence', () => {
   // Every accepted ambiguous match records why, so it can be audited.
   for (const r of [suffix, entity, linked]) {
     for (const m of r.mentions) if (m.ambiguousMatch) assert.ok(m.matchReason, 'ambiguous matches must say why');
+  }
+});
+
+await test('a name shared with another company does not count as this one', () => {
+  // Alef Group is a Sharjah developer. Alef Education is a UAE edtech firm
+  // that appears in another of our own public indexes, so a collision would
+  // be visible on two pages at once.
+  const devs = [
+    { key: 'alef', name: 'Alef Group', domain: 'alefgroup.ae',
+      aliases: ['Alef Group', 'Alef Properties', 'Alef Real Estate'],
+      neverMatch: ['Alef Education', 'alefeducation', 'Alef Aviation'] },
+    { key: 'sobha', name: 'Sobha Realty', domain: 'sobharealty.com',
+      aliases: ['Sobha Realty', 'Sobha'], neverMatch: ['Sobha Limited'] },
+    { key: 'danube', name: 'Danube Properties', domain: 'danubeproperties.com',
+      aliases: ['Danube Properties', 'Danube'], neverMatch: ['Danube Home', 'Danube River'] }
+  ];
+  const keys = (t) => ex.extractMentions(t, devs).mentions.map((m) => m.company.key);
+
+  assert.deepEqual(keys('Alef Education provides digital learning across UAE schools.'), []);
+  assert.deepEqual(keys('Alef Group is developing Hayyan in Sharjah.'), ['alef']);
+
+  // Both companies in one answer: only the developer counts, and the presence
+  // of the other must not suppress it.
+  assert.deepEqual(keys('Alef Education runs the platform. Separately, Alef Properties is building in Sharjah.'), ['alef']);
+
+  // An exclusion must fire only when the hit is inside the excluded phrase.
+  // A window blocked "Alef Group is building Hayyan" because "Alef Education"
+  // appeared in the next sentence, which is exactly backwards.
+  assert.deepEqual(
+    keys('Alef Group is building Hayyan.\nAlef Education is a separate edtech company.'),
+    ['alef'],
+    'the other company appearing nearby must not suppress a real mention'
+  );
+  assert.deepEqual(
+    keys('Buy furniture at Danube Home, but Danube Properties is a developer.'),
+    ['danube'],
+    'the developer counts even with the retailer in the same sentence'
+  );
+
+  assert.deepEqual(keys('Sobha Limited is listed on the Indian exchanges.'), []);
+  assert.deepEqual(keys('Sobha Realty is building Hartland II.'), ['sobha']);
+  assert.deepEqual(keys('Furnish it from Danube Home in Al Quoz.'), []);
+  assert.deepEqual(keys('Danube Properties offers a 1% monthly plan.'), ['danube']);
+});
+
+await test('the bare name is never an alias where the seed forbids it', async () => {
+  const { readFileSync } = await import('node:fs');
+  const ver = JSON.parse(readFileSync(new URL('../data/developers-verified.json', import.meta.url)));
+  const alef = ver.developers.find((d) => d.id === 'alef');
+
+  assert.ok(!alef.aliases.includes('Alef'), 'bare "Alef" must never be matchable');
+  assert.ok(alef.aliases.every((a) => /^Alef (Group|Properties|Real Estate)$/.test(a)));
+  assert.ok(alef.never_match.some((n) => /Alef Education/i.test(n)));
+
+  // Every developer carrying an alias warning must also carry exclusions.
+  for (const d of ver.developers) {
+    if (d.alias_warning) {
+      assert.ok(d.never_match?.length, `${d.id} has an alias warning but no never_match list`);
+    }
   }
 });
 
@@ -105,6 +238,18 @@ await test('recommendation is narrower than mention', () => {
   assert.equal(by.emaar.recommended, true);
   assert.equal(by.damac.recommended, false, 'merely present is not recommended');
   assert.equal(by.nakheel.recommended, false, 'negative context must not count as a recommendation');
+});
+
+await test('a multi-word name in its own capitalisation counts', () => {
+  // "Select Group" is every-token-common and therefore ambiguous, but it can
+  // still be matched: proper-noun capitalisation is the evidence. Without
+  // this the company was unmatchable, which is a silent zero on a public page.
+  const devs = [{ key: 'select', name: 'Select Group', domain: 'select-group.ae', aliases: ['Select Group', 'Select'] }];
+  const keys = (t) => ex.extractMentions(t, devs).mentions.map((m) => m.company.key);
+
+  assert.deepEqual(keys('Select Group delivered Marina Gate.'), ['select']);
+  assert.deepEqual(keys('You should select a group of developers to compare.'), []);
+  assert.deepEqual(keys('select group discounts are available.'), [], 'lower case is prose, not a name');
 });
 
 await test('being short does not make a name ambiguous', () => {

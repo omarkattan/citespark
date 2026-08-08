@@ -372,3 +372,9 @@ CREATE TABLE IF NOT EXISTS sector_mentions (
   UNIQUE (answer_id, company_id)
 );
 CREATE INDEX IF NOT EXISTS sector_mentions_company ON sector_mentions (company_id, mentioned);
+
+-- A company with an unverified domain must not be scored or rendered: a wrong
+-- domain misattributes citations to the wrong company on a public page.
+ALTER TABLE sector_companies ADD COLUMN IF NOT EXISTS verification_status TEXT NOT NULL DEFAULT 'unverified';
+ALTER TABLE sector_companies ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE sector_companies ADD COLUMN IF NOT EXISTS notes JSONB NOT NULL DEFAULT '{}';
