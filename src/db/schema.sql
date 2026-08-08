@@ -282,3 +282,93 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 CREATE INDEX IF NOT EXISTS notifications_recent ON notifications (created_at DESC);
 CREATE INDEX IF NOT EXISTS notifications_kind ON notifications (kind, created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- Sector deep-dives. One sector, many companies, purpose-built prompts.
+-- Separate from the index snapshots because this stores evidence rather than
+-- a summary: full answer text, every link, and every citation destination,
+-- so a published number can be traced back to the answer that produced it.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS sector_studies (
+  id          SERIAL PRIMARY KEY,
+  slug        TEXT UNIQUE NOT NULL,
+  name        TEXT NOT NULL,
+  market      TEXT NOT NULL DEFAULT 'AE',
+  config      JSONB NOT NULL DEFAULT '{}',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS sector_companies (
+  id          SERIAL PRIMARY KEY,
+  study_id    INTEGER NOT NULL REFERENCES sector_studies(id) ON DELETE CASCADE,
+  key         TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  domain      TEXT,
+  aliases     TEXT[] NOT NULL DEFAULT '{}',
+  cohorts     TEXT[] NOT NULL DEFAULT '{}',
+  UNIQUE (study_id, key)
+);
+
+CREATE TABLE IF NOT EXISTS sector_prompts (
+  id          SERIAL PRIMARY KEY,
+  study_id    INTEGER NOT NULL REFERENCES sector_studies(id) ON DELETE CASCADE,
+  key         TEXT NOT NULL,
+  text        TEXT NOT NULL,
+  geo         TEXT,
+  intent      TEXT,
+  kind        TEXT NOT NULL DEFAULT 'neutral',   -- neutral | persona | branded
+  cohorts     TEXT[] NOT NULL DEFAULT '{}',      -- drives scoring segmentation
+  v1          BOOLEAN NOT NULL DEFAULT false,
+  -- Retained rather than deleted: the reason a prompt is withheld is part of
+  -- the method, and a future reader needs to see what was excluded and why.
+  excluded_from_public BOOLEAN NOT NULL DEFAULT false,
+  exclusion_reason     TEXT,
+  UNIQUE (study_id, key)
+);
+
+/**
+ * One row per answer. Everything needed to reproduce or dispute a number.
+ */
+CREATE TABLE IF NOT EXISTS sector_answers (
+  id             SERIAL PRIMARY KEY,
+  study_id       INTEGER NOT NULL REFERENCES sector_studies(id) ON DELETE CASCADE,
+  prompt_id      INTEGER NOT NULL REFERENCES sector_prompts(id) ON DELETE CASCADE,
+  cycle_date     DATE NOT NULL,
+  engine         TEXT NOT NULL,
+  run_index      INTEGER NOT NULL,
+  ok             BOOLEAN NOT NULL DEFAULT false,
+  error          TEXT,
+  answer_text    TEXT,
+  links          JSONB NOT NULL DEFAULT '[]',    -- every link in the answer
+  citations      JSONB NOT NULL DEFAULT '[]',    -- resolved citation destinations
+  -- Provenance, recorded on every answer.
+  model_version  TEXT,
+  country        TEXT,
+  language       TEXT,
+  browsing       BOOLEAN,
+  cost_usd       NUMERIC(10,6) NOT NULL DEFAULT 0,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (study_id, prompt_id, engine, cycle_date, run_index)
+);
+CREATE INDEX IF NOT EXISTS sector_answers_cycle ON sector_answers (study_id, cycle_date, engine);
+
+/**
+ * One row per company per answer. The extraction layer's output, kept
+ * separately so it can be recomputed from stored answers without re-running
+ * anything against an engine.
+ */
+CREATE TABLE IF NOT EXISTS sector_mentions (
+  id            SERIAL PRIMARY KEY,
+  answer_id     INTEGER NOT NULL REFERENCES sector_answers(id) ON DELETE CASCADE,
+  company_id    INTEGER NOT NULL REFERENCES sector_companies(id) ON DELETE CASCADE,
+  mentioned     BOOLEAN NOT NULL DEFAULT false,
+  ordinal       INTEGER,          -- position among developer names, not among all text
+  matched_alias TEXT,             -- which alias fired, for auditing collisions
+  snippet       TEXT,
+  recommended   BOOLEAN NOT NULL DEFAULT false,
+  cited         BOOLEAN NOT NULL DEFAULT false,
+  citation_url  TEXT,
+  UNIQUE (answer_id, company_id)
+);
+CREATE INDEX IF NOT EXISTS sector_mentions_company ON sector_mentions (company_id, mentioned);

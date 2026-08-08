@@ -30,6 +30,94 @@ const entities = [
   { id: 3, name: 'Aira', domain: 'aira.net', kind: 'competitor', aliases: [] }
 ];
 
+console.log('\nsector extraction');
+
+const ex = await import('../src/lib/extract.js');
+
+const DEVS = [
+  { key: 'emaar', name: 'Emaar Properties', domain: 'emaar.com', aliases: ['Emaar'] },
+  { key: 'damac', name: 'DAMAC Properties', domain: 'damacproperties.com', aliases: ['DAMAC'] },
+  { key: 'arada', name: 'Arada', domain: 'arada.com' },
+  { key: 'nakheel', name: 'Nakheel', domain: 'nakheel.com' },
+  { key: 'select', name: 'Select Group', domain: 'select-group.ae', aliases: ['Select'] },
+  { key: 'nest', name: 'Nest', domain: 'nestdubai.ae' },
+  { key: 'meraas', name: 'Meraas', domain: 'meraas.com' }
+];
+
+await test('an ordinary word is not a company mention', () => {
+  // "select a developer" and "nest your savings" both produced false
+  // positives when nearness to a qualifier was the test. A published score
+  // built on those would be noise dressed as evidence.
+  const text = 'Nest your savings carefully. Select a developer with a track record. The best option is Meraas.';
+  const r = ex.extractMentions(text, DEVS);
+
+  assert.deepEqual(r.mentions.map((m) => m.company.key), ['meraas']);
+});
+
+await test('an ambiguous alias counts only on hard evidence', () => {
+  const suffix = ex.extractMentions('Select Group delivered Marina Gate. Nest Properties is smaller.', DEVS);
+  assert.deepEqual(suffix.mentions.map((m) => m.company.key).sort(), ['nest', 'select']);
+  assert.match(suffix.mentions[0].matchReason, /suffix/);
+
+  const entity = ex.extractMentions('The tower was developed by Nest, a boutique firm.', DEVS);
+  assert.deepEqual(entity.mentions.map((m) => m.company.key), ['nest']);
+
+  const linked = ex.extractMentions('A good option is Nest. See https://nestdubai.ae/projects.', DEVS);
+  assert.deepEqual(linked.mentions.map((m) => m.company.key), ['nest']);
+  assert.equal(linked.mentions[0].cited, true, 'the linked domain is also the citation');
+
+  // Every accepted ambiguous match records why, so it can be audited.
+  for (const r of [suffix, entity, linked]) {
+    for (const m of r.mentions) if (m.ambiguousMatch) assert.ok(m.matchReason, 'ambiguous matches must say why');
+  }
+});
+
+await test('ordinal is position among companies, not position in the text', () => {
+  const text =
+    'For families in Sharjah, Arada is strongest. In Dubai, Emaar Properties remains the benchmark ' +
+    'and DAMAC Properties is worth considering. Nakheel built Palm Jumeirah.';
+  const r = ex.extractMentions(text, DEVS);
+
+  assert.deepEqual(r.mentions.map((m) => m.company.key), ['arada', 'emaar', 'damac', 'nakheel']);
+  assert.deepEqual(r.mentions.map((m) => m.ordinal), [1, 2, 3, 4]);
+});
+
+await test('citations match a company to its own domain, tracking stripped', () => {
+  const text = 'Arada is strongest, see https://www.arada.com/en/aljada/?utm_source=chatgpt.com. Emaar is also strong.';
+  const r = ex.extractMentions(text, DEVS, ['https://emaar.com/en/?ref=x']);
+
+  const arada = r.mentions.find((m) => m.company.key === 'arada');
+  assert.equal(arada.cited, true);
+  assert.equal(arada.citationUrl, 'https://www.arada.com/en/aljada/', 'utm parameters must be stripped');
+
+  // Links supplied separately by the engine count as citations too.
+  assert.equal(r.mentions.find((m) => m.company.key === 'emaar').cited, true);
+  assert.ok(r.links.some((l) => l.source === 'engine'));
+});
+
+await test('recommendation is narrower than mention', () => {
+  const text =
+    'Emaar Properties is the one I would recommend. DAMAC Properties also builds here. ' +
+    'I would avoid Nakheel for off-plan at the moment.';
+  const r = ex.scoreRecommendations(text, ex.extractMentions(text, DEVS));
+  const by = Object.fromEntries(r.mentions.map((m) => [m.company.key, m]));
+
+  assert.equal(by.emaar.recommended, true);
+  assert.equal(by.damac.recommended, false, 'merely present is not recommended');
+  assert.equal(by.nakheel.recommended, false, 'negative context must not count as a recommendation');
+});
+
+await test('being short does not make a name ambiguous', () => {
+  // "Arada" is five letters and unmistakable. "Select" is six and not.
+  assert.equal(ex.isAmbiguous('Arada'), false);
+  assert.equal(ex.isAmbiguous('Emaar'), false);
+  assert.equal(ex.isAmbiguous('Meraas'), false);
+  assert.equal(ex.isAmbiguous('Select'), true);
+  assert.equal(ex.isAmbiguous('Nest'), true);
+  assert.equal(ex.isAmbiguous('One'), true);
+  assert.equal(ex.isAmbiguous('Select Group'), true, 'every token is a common word');
+});
+
 console.log('\nmention detection');
 
 await test('finds the brand and records order of appearance', async () => {
