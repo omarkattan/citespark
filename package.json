@@ -27,7 +27,8 @@
     "study:load": "node scripts/load-study.js",
     "study:run": "node scripts/run-study.js",
     "study:validate": "node scripts/validate-study.js",
-    "study:score": "node scripts/score-study.js"
+    "study:score": "node scripts/score-study.js",
+    "overdue": "node scripts/overdue.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

@@ -395,3 +395,8 @@ CREATE TABLE IF NOT EXISTS recommendation_suppressions (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (project_id, fingerprint)
 );
+
+-- Assignment emails: sent once per assignment, and once when a task falls
+-- overdue, so a re-save or a repeated cron does not send it again.
+ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS assigned_notified_at TIMESTAMPTZ;
+ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS overdue_notified_at  TIMESTAMPTZ;

@@ -17,7 +17,7 @@ import { discoverSite } from './lib/discover.js';
 import { PLANS, PLAN_ORDER, planFor } from './lib/plans.js';
 import { proposeQuestions, runDemo, checkLimits, hashIp, DEMO_CONFIG } from './lib/demo.js';
 import { teardown } from './lib/teardown.js';
-import { notifyTrial, notifySignup, notifyPaid, notifyFeedback, emailConfigured } from './lib/notify.js';
+import { notifyTrial, notifySignup, notifyPaid, notifyFeedback, notifyAssignment, looksLikeEmail, emailConfigured } from './lib/notify.js';
 import { listSites as listGscSites, candidates as gscCandidates, importQuestions } from './lib/gsc.js';
 import { landscape, PLATFORMS, mentionsConfigured } from './lib/mentions.js';
 import {
@@ -522,6 +522,14 @@ app.post('/api/projects/:id/teardown', requireAuth, wrap(async (req, res) => {
 app.patch('/api/recommendations/:recId', requireAuth, wrap(async (req, res) => {
   const { status, assignee, dueDate, notes } = req.body || {};
 
+  // Read the current assignee first, so a genuine change can be told from a
+  // re-save of the same value.
+  const previous = await one(
+    `SELECT r.assignee FROM recommendations r JOIN projects p ON p.id = r.project_id
+     WHERE r.id = $1 AND p.org_id = $2`,
+    [Number(req.params.recId), req.session.orgId]
+  );
+
   if (status !== undefined && !['open', 'doing', 'done', 'dismissed'].includes(status)) {
     return res.status(400).json({ error: 'Unknown status' });
   }
@@ -535,6 +543,11 @@ app.patch('/api/recommendations/:recId', requireAuth, wrap(async (req, res) => {
        assignee     = CASE WHEN $3::text IS NULL THEN assignee ELSE NULLIF(trim($3), '') END,
        due_date     = CASE WHEN $4::text IS NULL THEN due_date ELSE NULLIF($4, '')::date END,
        notes        = CASE WHEN $5::text IS NULL THEN notes ELSE NULLIF(trim($5), '') END,
+       -- A rescheduled or reopened task becomes chaseable again.
+       overdue_notified_at = CASE
+         WHEN $4::text IS NOT NULL AND NULLIF($4,'')::date IS DISTINCT FROM due_date THEN NULL
+         WHEN $2 IN ('open','doing') AND status = 'done' THEN NULL
+         ELSE overdue_notified_at END,
        started_at   = CASE WHEN $2 = 'doing' AND started_at IS NULL THEN now() ELSE started_at END,
        completed_at = CASE WHEN $2 = 'done' THEN now()
                            WHEN $2 IN ('open','doing') THEN NULL
@@ -552,7 +565,29 @@ app.patch('/api/recommendations/:recId', requireAuth, wrap(async (req, res) => {
     ]
   );
   if (!row) return res.status(404).json({ error: 'Action not found' });
-  res.json(row);
+
+  // Tell the person the work was given to. Once per assignment: re-saving a
+  // due date or a note must not send it again.
+  const newlyAssigned =
+    assignee !== undefined &&
+    row.assignee &&
+    row.assignee !== previous?.assignee &&
+    looksLikeEmail(row.assignee);
+
+  if (newlyAssigned) {
+    const project = await one('SELECT name, domain FROM projects WHERE id = $1', [row.project_id]);
+    const me = await one('SELECT email FROM users WHERE id = $1', [req.session.userId]);
+    notifyAssignment({
+      to: row.assignee,
+      assignedBy: me?.email || null,
+      site: project?.name || project?.domain || 'your site',
+      task: row,
+      appUrl: `${req.protocol}://${req.get('host')}/app?site=${row.project_id}`
+    });
+    await query('UPDATE recommendations SET assigned_notified_at = now() WHERE id = $1', [row.id]);
+  }
+
+  res.json({ ...row, notified: newlyAssigned });
 }));
 
 app.get('/api/projects/:id/sources', requireAuth, wrap(async (req, res) => {
@@ -1554,7 +1589,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser']
   });
 });
 

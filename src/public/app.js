@@ -203,7 +203,10 @@ function taskCard(t) {
       <div class="task-edit-row">
         <div class="field">
           <label for="a-${t.id}">Who is doing it</label>
-          <input id="a-${t.id}" list="people-list" value="${esc(t.assignee || '')}" placeholder="Name or email" />
+          <input id="a-${t.id}" list="people-list" value="${esc(t.assignee || '')}" placeholder="Email address" />
+          <span class="hint" style="margin:5px 0 0;display:block">
+            An email address gets a note with the action and its due date. A name is just a label.
+          </span>
         </div>
         <div class="field">
           <label for="d-${t.id}">Due by</label>
@@ -1024,6 +1027,10 @@ document.addEventListener('click', async (e) => {
     if (res.ok) {
       const updated = await res.json();
       replaceCard(id, updated);
+      if (updated.notified) {
+        const note = document.querySelector(`[data-task="${id}"] .task-meta`);
+        if (note) note.insertAdjacentHTML('beforeend', '<span class="tag ok">emailed</span>');
+      }
     } else {
       const j = await res.json();
       $(`saved-${id}`).textContent = j.error || 'Could not save';

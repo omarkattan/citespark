@@ -19,7 +19,15 @@ const TO = process.env.NOTIFY_EMAIL;
 const FROM = process.env.NOTIFY_FROM || 'Cited <notifications@cited.ae>';
 const SITE = process.env.CANONICAL_HOST ? `https://${process.env.CANONICAL_HOST}` : 'https://cited.ae';
 
+/** The deployment's own inbox is configured: trials, signups, feedback. */
 export const emailConfigured = Boolean(RESEND && TO);
+
+/**
+ * Sending to someone else is configured. Assignment and overdue emails go to
+ * the assignee, so they need a Resend key but not NOTIFY_EMAIL, and gating
+ * them on the latter stopped them silently.
+ */
+export const canEmailOthers = Boolean(RESEND);
 
 const escapeHtml = (s) =>
   String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
@@ -142,6 +150,97 @@ export function notifyPaid({ email, plan, interval, amount }) {
       ['Plan', `${plan}${interval ? `, billed ${interval}ly` : ''}`],
       amount ? ['Amount', `$${amount}`] : null
     ].filter(Boolean)
+  });
+}
+
+/**
+ * Send to a specific address rather than the deployment's own inbox. Used for
+ * task assignment, where the recipient is whoever the work was given to.
+ */
+export function notifyTo(to, payload) {
+  if (!RESEND || !to) return;
+
+  (async () => {
+    let emailed = false;
+    let error = null;
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${RESEND}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: FROM,
+          to: [to],
+          subject: payload.subject || payload.title,
+          html: render(payload)
+        })
+      });
+      if (!res.ok) throw new Error(`Resend ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
+      emailed = true;
+    } catch (err) {
+      error = String(err.message || err);
+      console.warn(`assignment email to ${to} failed: ${error}`);
+    }
+
+    try {
+      await query(
+        'INSERT INTO notifications (kind, title, detail, emailed, email_error) VALUES ($1,$2,$3,$4,$5)',
+        [payload.kind || 'assignment', payload.title, JSON.stringify({ ...payload, to }), emailed, error]
+      );
+    } catch (err) {
+      console.error('could not write notification log:', String(err.message || err));
+    }
+  })();
+}
+
+/** Free-text assignees are allowed, so only some of them can be emailed. */
+export const looksLikeEmail = (s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s || '').trim());
+
+/**
+ * The action itself, not "you have been assigned a task". Someone opening
+ * this on a phone should be able to tell what to do and why without opening
+ * anything else.
+ */
+export function notifyAssignment({ to, assignedBy, site, task, appUrl }) {
+  if (!looksLikeEmail(to)) return;
+
+  const due = task.due_date
+    ? new Date(task.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })
+    : null;
+
+  notifyTo(to, {
+    kind: 'assignment',
+    title: task.title,
+    subject: `Cited: ${task.title.slice(0, 70)}${due ? ` (due ${due})` : ''}`,
+    lead: task.action,
+    rows: [
+      ['Site', site],
+      due ? ['Due', due] : null,
+      ['Why it fired', String(task.type || '').replace(/_/g, ' ')],
+      task.evidence?.domain ? ['Source', task.evidence.domain] : null,
+      task.evidence?.own_rate !== undefined ? ['Your visibility', `${task.evidence.own_rate}%`] : null,
+      assignedBy ? ['Assigned by', assignedBy] : null
+    ].filter(Boolean),
+    action: 'Open it in Cited',
+    actionUrl: appUrl
+  });
+}
+
+/** A due date that passes silently is the usual failure of task tools. */
+export function notifyOverdue({ to, site, task, days, appUrl }) {
+  if (!looksLikeEmail(to)) return;
+
+  notifyTo(to, {
+    kind: 'overdue',
+    title: `Overdue: ${task.title}`,
+    subject: `Cited: "${task.title.slice(0, 60)}" is ${days} day${days === 1 ? '' : 's'} overdue`,
+    lead: task.action,
+    rows: [
+      ['Site', site],
+      ['Was due', new Date(task.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })],
+      ['Overdue by', `${days} day${days === 1 ? '' : 's'}`]
+    ],
+    action: 'Open it in Cited',
+    actionUrl: appUrl
   });
 }
 
