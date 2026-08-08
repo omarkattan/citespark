@@ -59,7 +59,11 @@ export const ENGINES = {
     // "Invalid Field: 'model_name'". Omitting it lets them pick a valid default,
     // which is more durable than chasing their supported list.
     model: process.env.MODEL_GEMINI || null,
-    supportsCountry: true,
+    // Observed: Gemini rejects web_search_country_iso_code the same way Claude
+    // does, failing 100% of calls with "Invalid Field". That is a rejection of
+    // our request, not a provider outage, and it was being reported to
+    // customers as Gemini being unreliable.
+    supportsCountry: false,
     note: 'Favours Google surfaces, so your Business Profile and entity consistency matter here.'
   },
   claude: {
@@ -317,12 +321,20 @@ export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 700
   const cfg = ENGINES[engine];
   if (!cfg) return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, error: `Unknown engine ${engine}` };
 
-  if (MOCK) return mockAnswer({ engine, prompt, model: cfg.model || cfg.label });
+  if (MOCK) {
+    // A real cycle takes minutes; mock returns instantly, which makes the
+    // progress UI impossible to see or test. MOCK_DELAY_MS puts the wait back.
+    const delay = Number(process.env.MOCK_DELAY_MS || 0);
+    if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+    return mockAnswer({ engine, prompt, model: cfg.model || cfg.label });
+  }
 
   if (cfg.kind === 'serp') {
     const first = await askGoogle({ cfg, prompt, market });
     if (!isTransient(first) || attempt >= RETRIES) return first;
-    await sleep(700 * (attempt + 1));
+    // Google-side failures clear more slowly than an LLM hiccup, so back off
+    // further rather than hammering the same second.
+    await sleep(1500 * (attempt + 1));
     return askEngine({ engine, prompt, market, maxTokens, attempt: attempt + 1 });
   }
 
@@ -417,13 +429,26 @@ async function askGoogle({ cfg, prompt, market }) {
     ? `${BASE}/serp/google/ai_mode/live/advanced`
     : `${BASE}/serp/google/organic/live/advanced`;
 
+  /**
+   * load_async_ai_overview asks DataForSEO to fetch the overview in a second
+   * request. Turning it off stopped "Internal SE Server Error", but it also
+   * stopped the overview arriving at all: a study run returned 0 usable
+   * AI Overview answers from 31 prompts, which read as absence when it was
+   * really a gap in the measurement.
+   *
+   * So it is on by default now, and the errors it brings are visible in the
+   * failure report rather than hidden as silent zeros. Set
+   * AI_OVERVIEW_ASYNC=false to go back to the quiet-but-empty behaviour.
+   */
+  const wantAsync = String(process.env.AI_OVERVIEW_ASYNC ?? 'true').toLowerCase() !== 'false';
+
   const body = [
     {
       keyword: prompt.slice(0, 700),
       location_name: LOCATIONS[market] || 'United Arab Emirates',
       language_code: 'en',
       device: 'desktop',
-      ...(isMode ? {} : { load_async_ai_overview: true, depth: 20 })
+      ...(isMode ? {} : { depth: 10, ...(wantAsync ? { load_async_ai_overview: true } : {}) })
     }
   ];
 
@@ -455,8 +480,11 @@ async function askGoogle({ cfg, prompt, market }) {
       : items.find((i) => i.type === 'ai_overview') || null;
 
     if (!isMode && !block) {
+      // A real finding: Google shows no AI Overview for this query. Distinct
+      // from a request that failed, and it must not be scored as a developer
+      // being absent from an answer that never existed.
       return {
-        ok: true, absent: true, text: '', citations: [], fanOut: [],
+        ok: true, absent: true, noOverview: true, text: '', citations: [], fanOut: [],
         costUsd: Number(json?.cost || 0), model: cfg.label,
         error: null
       };
@@ -471,7 +499,7 @@ async function askGoogle({ cfg, prompt, market }) {
       text,
       citations: dedupeCitations(urls),
       fanOut: [],
-      costUsd: Number(json?.cost ?? taskData?.cost ?? 0),
+      costUsd: Number(json?.cost ?? task?.cost ?? 0),
       model: cfg.label,
       error: text.length ? null : 'No AI answer returned for this query'
     };

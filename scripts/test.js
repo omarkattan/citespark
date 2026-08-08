@@ -1308,6 +1308,54 @@ await test('retries transient failures but not permanent ones', async () => {
   global.fetch = realFetch;
 });
 
+console.log('\nengine parameters');
+
+await test('no engine is sent a field it rejects', async () => {
+  process.env.DATAFORSEO_LOGIN = 'x';
+  process.env.DATAFORSEO_PASSWORD = 'y';
+  process.env.MOCK_MODE = 'false';
+  const df = await import('../src/lib/dataforseo.js?params2=1');
+  const realFetch = global.fetch;
+  const sent = {};
+  global.fetch = async (url, opts) => {
+    const body = JSON.parse(opts.body)[0];
+    for (const e of ['chat_gpt', 'gemini', 'claude', 'perplexity']) if (url.includes(e)) sent[e] = body;
+    return { ok: true, json: async () => ({ tasks: [{ status_code: 20000, result: [{ items: [{ type: 'ai_overview', text: 'x' }] }] }] }) };
+  };
+
+  for (const e of ['chatgpt', 'gemini', 'claude', 'perplexity']) {
+    await df.askEngine({ engine: e, prompt: 'q', market: 'AE' });
+  }
+  global.fetch = realFetch;
+  process.env.MOCK_MODE = 'true';
+
+  // Gemini and Claude both reject web_search_country_iso_code. Sending it
+  // failed 100% of Gemini's calls, and the customer was told the provider
+  // was unreliable and to switch it off.
+  assert.equal(sent.gemini.web_search_country_iso_code, undefined, 'Gemini rejects this field');
+  assert.equal(sent.claude.web_search_country_iso_code, undefined, 'Claude rejects this field');
+  assert.equal(sent.chat_gpt.web_search_country_iso_code, 'AE', 'ChatGPT needs it');
+  assert.equal(sent.perplexity.web_search_country_iso_code, 'AE', 'Perplexity needs it');
+});
+
+await test('a rejected request is not blamed on the provider', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const block = src.slice(src.indexOf('function failureNote'), src.indexOf('function showReport'));
+
+  assert.ok(/invalid field/i.test(block), 'our own rejections must be told apart from outages');
+  assert.ok(/fault on our side/i.test(block), 'and named as ours');
+  // The disable button is the thing that must not appear for our own bug.
+  // Checking the wording is not enough: the honest copy says "not a reason to
+  // switch it off", which contains the word either way.
+  const ourBranch = block.slice(block.indexOf('const ourNote'), block.indexOf('const theirNote'));
+  assert.ok(!/data-goto-setup/.test(ourBranch), 'do not offer to disable a working engine over our bug');
+  assert.ok(/not a reason to switch/i.test(ourBranch), 'and say so plainly');
+
+  const theirBranch = block.slice(block.indexOf('const theirNote'), block.indexOf('const advice'));
+  assert.ok(/data-goto-setup/.test(theirBranch), 'a genuinely broken provider can still be switched off');
+});
+
 console.log('\ncycle progress');
 
 await test('a failed answer still counts towards progress', async () => {

@@ -942,11 +942,28 @@ function failureNote(s) {
     })
     .join('; ');
 
-  const advice = broken.length
-    ? `<br /><br /><b>${broken.map((b) => esc(b.engine)).join(' and ')}</b> ${broken.length === 1 ? 'is' : 'are'} failing most of the time, so ${broken.length === 1 ? 'it is' : 'they are'} adding nothing to your numbers.
-       Switch ${broken.length === 1 ? 'it' : 'them'} off under <b>Where we look</b> until the provider is reliable again, and your remaining surfaces will run faster.
+  /**
+   * "Invalid Field" is the provider rejecting our request, not the provider
+   * being unreliable. Telling a customer to switch an engine off because of
+   * it blames their configuration for our bug, and they lose a working
+   * surface until someone notices.
+   */
+  const ourFault = s.failed.filter((f) => /invalid field/i.test(f.error || ''));
+  const theirs = broken.filter((f) => !/invalid field/i.test(f.error || ''));
+
+  const ourNote = ourFault.length
+    ? `<br /><br /><b>${ourFault.map((f) => esc(f.engine)).join(' and ')}</b> ${ourFault.length === 1 ? 'was' : 'were'} rejected because
+       we sent something the provider does not accept. That is a fault on our side, not yours, and not a reason to switch
+       ${ourFault.length === 1 ? 'it' : 'them'} off. It is already logged for us to fix; the surface will start reporting again once it is.`
+    : '';
+
+  const theirNote = theirs.length
+    ? `<br /><br /><b>${theirs.map((b) => esc(b.engine)).join(' and ')}</b> ${theirs.length === 1 ? 'is' : 'are'} failing most of the time, so ${theirs.length === 1 ? 'it is' : 'they are'} adding nothing to your numbers.
+       Switch ${theirs.length === 1 ? 'it' : 'them'} off under <b>Where we look</b> until the provider is reliable again, and your remaining surfaces will run faster.
        <button class="ghost" data-goto-setup="1" style="margin-left:6px;padding:4px 9px;font-size:10px">Open Setup</button>`
     : '';
+
+  const advice = ourNote + theirNote;
 
   return `<p class="report-warn">${total} of ${s.attempted} calls did not return an answer. ${list}. Those were not charged to your allowance, and the visibility figure above ignores them.${advice}</p>`;
 }

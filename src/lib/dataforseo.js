@@ -59,7 +59,11 @@ export const ENGINES = {
     // "Invalid Field: 'model_name'". Omitting it lets them pick a valid default,
     // which is more durable than chasing their supported list.
     model: process.env.MODEL_GEMINI || null,
-    supportsCountry: true,
+    // Observed: Gemini rejects web_search_country_iso_code the same way Claude
+    // does, failing 100% of calls with "Invalid Field". That is a rejection of
+    // our request, not a provider outage, and it was being reported to
+    // customers as Gemini being unreliable.
+    supportsCountry: false,
     note: 'Favours Google surfaces, so your Business Profile and entity consistency matter here.'
   },
   claude: {

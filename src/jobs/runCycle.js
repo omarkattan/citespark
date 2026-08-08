@@ -176,6 +176,20 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress } = 
 
   await recordUsage(project.org_id, billable, spend);
 
+  // A rejected field is a bug in our request. It should reach us directly
+  // rather than waiting for a customer to report that an engine looks broken.
+  const rejected = [...failures.entries()].filter(([, f]) => /invalid field/i.test(f.error || ''));
+  if (rejected.length) {
+    const { notify } = await import('../lib/notify.js');
+    notify({
+      kind: 'problem',
+      title: `Engine request rejected: ${rejected.map(([e]) => e).join(', ')}`,
+      subject: `Cited: ${rejected.map(([e]) => e).join(', ')} rejecting our requests`,
+      lead: 'The provider rejected the request itself, so this is a bug on our side rather than an outage. Customers see the surface reporting nothing.',
+      rows: rejected.map(([engine, f]) => [engine, `${f.count} failures: ${f.error}`]).concat([['Site', project.name]])
+    });
+  }
+
   const attemptsPerEngine = new Map();
   for (const j of jobs) attemptsPerEngine.set(j.engine, (attemptsPerEngine.get(j.engine) || 0) + 1);
 
