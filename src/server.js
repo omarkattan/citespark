@@ -1459,15 +1459,36 @@ app.get('/api/projects/:id/ga4/connect', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
   if (!oauthConfigured) return res.status(503).json({ error: 'Google sign-in is not configured on this deployment' });
+  // Ask only for what is being connected. "?what=gsc" requests Search
+  // Console alone, and Google adds it to any grant already given.
+  const what = ['ga4', 'gsc', 'both'].includes(String(req.query.what)) ? String(req.query.what) : 'ga4';
   res.json({
     url: authUrl({
       redirectUri: ga4Redirect(req),
-      state: signState({ p: project.id, o: req.session.orgId })
+      state: signState({ p: project.id, o: req.session.orgId, w: what }),
+      what
     })
   });
 }));
 
 // Google sends the visitor back here after the consent screen.
+/**
+ * Google returns a bare code like "access_denied", which tells the person
+ * nothing and tells us less. The most common cause is not the person at all:
+ * analytics.readonly and webmasters.readonly are sensitive scopes, so until
+ * the app is verified only listed test users can connect.
+ */
+const OAUTH_ERRORS = {
+  access_denied:
+    'Google would not allow that connection. Either consent was declined, or this account is not yet permitted to connect. If you did not decline, tell us and we will sort it out, since it is usually something we need to fix rather than you.',
+  admin_policy_enforced:
+    'Your Google Workspace administrator blocks third-party apps from accessing Analytics and Search Console. They can allow it for this app specifically.',
+  disallowed_useragent: 'Google blocks sign-in from inside this browser. Open cited.ae in Chrome or Safari directly and try again.',
+  org_internal: 'This Google account belongs to an organisation that only permits internal apps.',
+  invalid_client: 'Our Google connection is misconfigured. That is on us, and it is already logged.',
+  redirect_uri_mismatch: 'Our Google connection is misconfigured. That is on us, and it is already logged.'
+};
+
 app.get('/api/ga4/callback', wrap(async (req, res) => {
   // The project id rides along so the person lands back where they started
   // rather than on whichever site happens to be first.
@@ -1475,7 +1496,24 @@ app.get('/api/ga4/callback', wrap(async (req, res) => {
   const site = early?.p ? `&site=${early.p}` : '';
   const fail = (msg) => res.redirect(`/app?ga4=error&message=${encodeURIComponent(msg)}${site}`);
 
-  if (req.query.error) return fail(String(req.query.error));
+  if (req.query.error) {
+    const code = String(req.query.error);
+    // Configuration faults are ours to know about, not the customer's to report.
+    if (['invalid_client', 'redirect_uri_mismatch', 'access_denied'].includes(code)) {
+      const { notify } = await import('./lib/notify.js');
+      notify({
+        kind: 'problem',
+        title: `Google connection refused: ${code}`,
+        subject: `Cited: a Google connection was refused (${code})`,
+        lead:
+          code === 'access_denied'
+            ? 'Usually means the OAuth app is still in Testing, so only listed test users can connect. Check the consent screen publishing status.'
+            : 'The OAuth client is misconfigured.',
+        rows: [['Error', code], ['Project', String(early?.p || 'unknown')]]
+      });
+    }
+    return fail(OAUTH_ERRORS[code] || `Google refused the connection (${code}).`);
+  }
   const state = early;
   if (!state) return res.redirect(`/app?ga4=error&message=${encodeURIComponent('That authorisation link expired. Try connecting again.')}`);
   if (!req.session?.orgId || req.session.orgId !== state.o) return fail('Sign in and try connecting again.');
@@ -1694,7 +1732,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes']
   });
 });
 

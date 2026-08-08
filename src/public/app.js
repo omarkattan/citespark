@@ -595,7 +595,17 @@ document.addEventListener('click', async (e) => {
 
   if (e.target.id === 'ga4Connect') {
     e.target.disabled = true;
-    const res = await fetch(`/api/projects/${state.projectId}/ga4/connect`);
+    // Analytics only. Search Console is asked for separately, when it is
+    // actually wanted, rather than bundled into this consent screen.
+    const res = await fetch(`/api/projects/${state.projectId}/ga4/connect?what=ga4`);
+    const d = await res.json();
+    if (!res.ok) { err(d.error); e.target.disabled = false; return; }
+    window.location.href = d.url;
+  }
+
+  if (e.target.id === 'gscGrant') {
+    e.target.disabled = true;
+    const res = await fetch(`/api/projects/${state.projectId}/ga4/connect?what=gsc`);
     const d = await res.json();
     if (!res.ok) { err(d.error); e.target.disabled = false; return; }
     window.location.href = d.url;
@@ -609,7 +619,7 @@ document.addEventListener('click', async (e) => {
 
   if (e.target.id === 'ga4Reconnect') {
     e.target.disabled = true;
-    const res = await fetch(`/api/projects/${state.projectId}/ga4/connect`);
+    const res = await fetch(`/api/projects/${state.projectId}/ga4/connect?what=both`);
     const d = await res.json();
     if (!res.ok) { err(d.error); e.target.disabled = false; return; }
     window.location.href = d.url;
@@ -1566,14 +1576,15 @@ function gscError(d) {
   }
 
   if (d.fix === 'reconnect') {
+    // Search Console is a separate grant now, so this is one more approval
+    // rather than redoing the Analytics connection.
     return `<p class="error">${esc(d.error)}</p>
       <p class="hint" style="margin-top:8px">
-        Add <code>https://www.googleapis.com/auth/webmasters.readonly</code> on your OAuth consent screen first,
-        or Google will grant the connection without it and this will keep asking.
+        Search Console is a separate permission from Analytics. Granting it takes one screen and keeps your
+        existing connection.
       </p>
       <div class="inline-form" style="margin-top:10px">
-        <a class="btn ghost" href="https://console.cloud.google.com/auth/scopes" target="_blank" rel="noopener">Open consent screen</a>
-        <button class="ghost" id="ga4Reconnect">Reconnect Google</button>
+        <button class="btn" id="gscGrant">Allow Search Console</button>
       </div>${detail}`;
   }
 

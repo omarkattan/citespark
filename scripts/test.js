@@ -1308,6 +1308,52 @@ await test('retries transient failures but not permanent ones', async () => {
   global.fetch = realFetch;
 });
 
+console.log('\ngoogle connection');
+
+await test('each connection asks only for the scope it needs', async () => {
+  process.env.GOOGLE_CLIENT_ID = 'cid';
+  process.env.GOOGLE_CLIENT_SECRET = 'sec';
+  const g = await import('../src/lib/ga4.js?scopes=1');
+
+  const scopeFor = (what) =>
+    new URL(g.authUrl({ redirectUri: 'https://cited.ae/cb', state: 's', what })).searchParams.get('scope');
+
+  // Google's unbundled consent policy requires incremental authorisation,
+  // and asking for Search Console to connect Analytics is a worse ask
+  // besides.
+  assert.ok(scopeFor('ga4').includes('analytics.readonly'));
+  assert.ok(!scopeFor('ga4').includes('webmasters'), 'connecting Analytics must not demand Search Console');
+
+  assert.ok(scopeFor('gsc').includes('webmasters.readonly'));
+  assert.ok(!scopeFor('gsc').includes('analytics'), 'and the reverse');
+
+  // A later grant must add to the first rather than replacing it.
+  const url = new URL(g.authUrl({ redirectUri: 'x', state: 's', what: 'gsc' }));
+  assert.equal(url.searchParams.get('include_granted_scopes'), 'true');
+  // The account picker still matters: an agency connecting a second client
+  // must not silently reuse the browser's signed-in account.
+  assert.match(url.searchParams.get('prompt'), /select_account/);
+});
+
+
+
+await test('an OAuth refusal is explained, not echoed as a code', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+
+  // "access_denied" tells the person nothing. The usual cause is that the
+  // app is still in Testing, which is ours to fix, not theirs.
+  const map = src.slice(src.indexOf('const OAUTH_ERRORS'), src.indexOf('app.get(\'/api/ga4/callback\''));
+  for (const code of ['access_denied', 'admin_policy_enforced', 'disallowed_useragent', 'invalid_client']) {
+    assert.ok(map.includes(code), `${code} needs a plain explanation`);
+  }
+  assert.ok(/rather than you/i.test(map), 'and should not imply the customer did something wrong');
+
+  // And we should hear about it without waiting for a support message.
+  const handler = src.slice(src.indexOf('if (req.query.error)'), src.indexOf('const state = early'));
+  assert.ok(/notify\(/.test(handler), 'a refused connection must reach us');
+});
+
 console.log('\nengine parameters');
 
 await test('no engine is sent a field it rejects', async () => {
