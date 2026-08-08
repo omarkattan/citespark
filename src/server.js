@@ -582,7 +582,7 @@ app.patch('/api/recommendations/:recId', requireAuth, wrap(async (req, res) => {
       assignedBy: me?.email || null,
       site: project?.name || project?.domain || 'your site',
       task: row,
-      appUrl: `${req.protocol}://${req.get('host')}/app?site=${row.project_id}`
+      appUrl: tasksLinkFor(row.assignee, req.session.orgId, req)
     });
     await query('UPDATE recommendations SET assigned_notified_at = now() WHERE id = $1', [row.id]);
   }
@@ -1148,6 +1148,111 @@ app.post('/api/projects/:id/rebuild', requireAuth, wrap(async (req, res) => {
   res.json({ ok: true, count: recs.length });
 }));
 
+/* ---------------- assigned tasks ---------------- */
+
+/**
+ * A signed link to everything assigned to one address.
+ *
+ * The person given the work is often outside the account: a contractor, a
+ * client's marketing lead. Sending them to a dashboard they cannot open is
+ * the same as sending them nothing, so the token is the authorisation and it
+ * is scoped to that address alone.
+ */
+function tasksLinkFor(email, orgId, req) {
+  const token = signState({ a: String(email).toLowerCase(), o: orgId });
+  return `${req.protocol}://${req.get('host')}/tasks?t=${encodeURIComponent(token)}`;
+}
+
+app.get('/tasks', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(publicDir, 'tasks.html'));
+});
+
+app.get('/api/tasks', wrap(async (req, res) => {
+  // Thirty days, because a task list is not a session and a link in an email
+  // gets opened days later.
+  const state = readState(req.query.t, 30 * 24 * 60 * 60 * 1000);
+  if (!state?.a) return res.status(401).json({ error: 'That link has expired. Ask for a new one.' });
+
+  const rows = await many(
+    `SELECT r.id, r.title, r.action, r.status, r.due_date, r.notes, r.type, r.priority,
+            r.target_url, r.evidence, p.name AS site, p.domain
+     FROM recommendations r
+     JOIN projects p ON p.id = r.project_id
+     WHERE p.org_id = $1 AND lower(r.assignee) = $2
+     ORDER BY
+       CASE WHEN r.due_date IS NOT NULL AND r.due_date < CURRENT_DATE AND r.status IN ('open','doing') THEN 0 ELSE 1 END,
+       r.due_date NULLS LAST, r.priority DESC`,
+    [state.o, state.a]
+  );
+
+  res.json({ assignee: state.a, tasks: rows });
+}));
+
+/** The assignee can move their own tasks along, which is the point of sending it. */
+app.patch('/api/tasks/:id', wrap(async (req, res) => {
+  const state = readState(req.query.t, 30 * 24 * 60 * 60 * 1000);
+  if (!state?.a) return res.status(401).json({ error: 'That link has expired.' });
+
+  const status = String(req.body?.status || '');
+  if (!['open', 'doing', 'done'].includes(status)) return res.status(400).json({ error: 'Unknown status' });
+
+  const row = await one(
+    `UPDATE recommendations r SET
+       status = $3,
+       started_at = CASE WHEN $3 = 'doing' AND r.started_at IS NULL THEN now() ELSE r.started_at END,
+       completed_at = CASE WHEN $3 = 'done' THEN now() ELSE NULL END,
+       overdue_notified_at = CASE WHEN $3 = 'done' THEN r.overdue_notified_at ELSE NULL END,
+       updated_at = now()
+     FROM projects p
+     WHERE r.id = $1 AND p.id = r.project_id AND p.org_id = $2 AND lower(r.assignee) = $4
+     RETURNING r.id, r.status`,
+    [Number(req.params.id), state.o, status, state.a]
+  );
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  res.json(row);
+}));
+
+/** Everyone with work, across every site on the account. */
+app.get('/api/assigned', requireAuth, wrap(async (req, res) => {
+  const rows = await many(
+    `SELECT r.id, r.title, r.status, r.due_date, r.assignee, r.priority, r.type,
+            p.id AS project_id, p.name AS site,
+            (r.due_date IS NOT NULL AND r.due_date < CURRENT_DATE AND r.status IN ('open','doing')) AS overdue
+     FROM recommendations r
+     JOIN projects p ON p.id = r.project_id
+     WHERE p.org_id = $1 AND r.assignee IS NOT NULL AND r.assignee <> ''
+     ORDER BY lower(r.assignee), r.due_date NULLS LAST, r.priority DESC`,
+    [req.session.orgId]
+  );
+
+  const people = new Map();
+  for (const r of rows) {
+    const key = r.assignee.toLowerCase();
+    if (!people.has(key)) {
+      people.set(key, { assignee: r.assignee, open: 0, doing: 0, done: 0, overdue: 0, tasks: [] });
+    }
+    const p = people.get(key);
+    if (p[r.status] !== undefined) p[r.status] += 1;
+    if (r.overdue) p.overdue += 1;
+    p.tasks.push(r);
+  }
+
+  res.json({
+    people: [...people.values()].sort((a, b) => b.overdue - a.overdue || b.open + b.doing - (a.open + a.doing)),
+    unassigned: (await one(
+      `SELECT COUNT(*)::int AS n FROM recommendations r JOIN projects p ON p.id = r.project_id
+       WHERE p.org_id = $1 AND (r.assignee IS NULL OR r.assignee = '') AND r.status IN ('open','doing')`,
+      [req.session.orgId]
+    )).n
+  });
+}));
+
+/** A fresh link for an assignee, to paste or resend. */
+app.get('/api/assigned/:email/link', requireAuth, wrap(async (req, res) => {
+  res.json({ url: tasksLinkFor(req.params.email, req.session.orgId, req) });
+}));
+
 /* ---------------- feedback ---------------- */
 
 const FEEDBACK_KINDS = ['bug', 'idea', 'confusing', 'praise', 'other'];
@@ -1589,7 +1694,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab']
   });
 });
 

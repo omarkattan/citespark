@@ -229,6 +229,8 @@ export function notifyAssignment({ to, assignedBy, site, task, appUrl }) {
     rows: [
       ['Site', site],
       due ? ['Due', due] : null,
+      // What the assigner actually wrote, above the machine's own reasoning.
+      task.notes ? ['Notes', task.notes] : null,
       ['Why it fired', String(task.type || '').replace(/_/g, ' ')],
       // The exact page, so the recipient can open the thing being talked
       // about rather than a home page and a hunt.
@@ -249,7 +251,7 @@ export function notifyAssignment({ to, assignedBy, site, task, appUrl }) {
         : null,
       assignedBy ? ['Assigned by', assignedBy] : null
     ].filter(Boolean),
-    action: 'Open it in Cited',
+    action: 'See everything assigned to you',
     actionUrl: appUrl
   });
 }
@@ -267,9 +269,10 @@ export function notifyOverdue({ to, site, task, days, appUrl }) {
       ['Site', site],
       ['Was due', new Date(task.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })],
       ['Overdue by', `${days} day${days === 1 ? '' : 's'}`],
+      task.notes ? ['Notes', task.notes] : null,
       task.target_url ? ['Page', task.target_url] : null
     ].filter(Boolean),
-    action: 'Open it in Cited',
+    action: 'See everything assigned to you',
     actionUrl: appUrl
   });
 }

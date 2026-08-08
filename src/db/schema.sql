@@ -400,3 +400,8 @@ CREATE TABLE IF NOT EXISTS recommendation_suppressions (
 -- overdue, so a re-save or a repeated cron does not send it again.
 ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS assigned_notified_at TIMESTAMPTZ;
 ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS overdue_notified_at  TIMESTAMPTZ;
+
+-- Assignees are often outside the account: an agency's contractor, a client's
+-- marketing lead. They get a signed link to their own list rather than a
+-- login they do not have.
+CREATE INDEX IF NOT EXISTS recs_assignee ON recommendations (lower(assignee)) WHERE assignee IS NOT NULL;

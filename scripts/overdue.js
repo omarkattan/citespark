@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { pool, many, query } from '../src/db/index.js';
 import { notifyOverdue, looksLikeEmail, canEmailOthers } from '../src/lib/notify.js';
+import { signState } from '../src/lib/tokens.js';
 
 /**
  * Chase overdue tasks. npm run overdue
@@ -12,7 +13,7 @@ import { notifyOverdue, looksLikeEmail, canEmailOthers } from '../src/lib/notify
 const site = process.env.CANONICAL_HOST ? `https://${process.env.CANONICAL_HOST}` : 'https://cited.ae';
 
 const rows = await many(
-  `SELECT r.*, p.name AS project_name, p.domain AS project_domain, p.id AS pid,
+  `SELECT r.*, p.name AS project_name, p.domain AS project_domain, p.id AS pid, p.org_id,
           (CURRENT_DATE - r.due_date)::int AS days
    FROM recommendations r
    JOIN projects p ON p.id = r.project_id
@@ -47,7 +48,7 @@ if (!rows.length) {
       site: r.project_name || r.project_domain,
       task: r,
       days: r.days,
-      appUrl: `${site}/app?site=${r.pid}`
+      appUrl: `${site}/tasks?t=${encodeURIComponent(signState({ a: r.assignee.toLowerCase(), o: r.org_id }))}`
     });
     // Marked whether or not the send succeeds: the failure is recorded in the
     // notification log, and chasing the same task every morning is worse.

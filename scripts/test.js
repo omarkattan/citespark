@@ -1308,6 +1308,37 @@ await test('retries transient failures but not permanent ones', async () => {
   global.fetch = realFetch;
 });
 
+console.log('\nassignment');
+
+await test('an assignment email carries the notes and the right link', async () => {
+  process.env.RESEND_API_KEY = 'test';
+  const n = await import('../src/lib/notify.js?asg=1');
+  const realFetch = global.fetch;
+  const sent = [];
+  global.fetch = async (url, opts) => { sent.push(JSON.parse(opts.body)); return { ok: true, text: async () => '' }; };
+
+  n.notifyAssignment({
+    to: 'sara@example.com',
+    site: 'Arada',
+    task: {
+      title: 'Claim your profile on clutch.co',
+      action: 'clutch.co is cited across 4 of your questions.',
+      notes: 'Start with the Dubai pages. Omar has the login.',
+      type: 'source_gap'
+    },
+    // Their own list, not a dashboard they may not be able to open.
+    appUrl: 'https://cited.ae/tasks?t=signed'
+  });
+  await new Promise((r) => setTimeout(r, 150));
+  global.fetch = realFetch;
+
+  const html = sent[0].html;
+  assert.ok(/Start with the Dubai pages/.test(html), 'what the assigner wrote must be in the email');
+  assert.ok(/>Notes</.test(html), 'and labelled');
+  assert.ok(html.includes('https://cited.ae/tasks?t=signed'), 'the link goes to their own list');
+  assert.ok(/See everything assigned to you/.test(html));
+});
+
 console.log('\nnotifications');
 
 await test('an assignment email points at the page, not the domain', async () => {

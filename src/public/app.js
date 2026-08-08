@@ -299,6 +299,58 @@ function taskCard(t) {
   </article>`;
 }
 
+/**
+ * Who is doing what, across every site on the account. A task board per site
+ * cannot answer "what has Sara got on", which is the question an agency
+ * actually asks on a Monday.
+ */
+async function viewAssigned() {
+  const data = await api('/api/assigned');
+  if (!data) return '<div class="empty"><h2>Could not load assignments</h2></div>';
+
+  if (!data.people.length) {
+    return `<div class="empty">
+      <h2>Nothing is assigned yet</h2>
+      <p>Assign an action to an email address on the Actions tab. They get the task by email, and a link to their own list that works without a login.</p>
+    </div>`;
+  }
+
+  const person = (p) => {
+    const live = p.tasks.filter((t) => t.status !== 'done' && t.status !== 'dismissed');
+    const rows = live
+      .map(
+        (t) => `<div class="arow${t.overdue ? ' is-overdue' : ''}">
+          <span class="asite">${esc(t.site)}</span>
+          <span class="atitle">${esc(t.title)}</span>
+          <span class="adue">${
+            t.due_date
+              ? `${t.overdue ? '<b>' : ''}${new Date(t.due_date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}${t.overdue ? '</b>' : ''}`
+              : '&mdash;'
+          }</span>
+          <span class="astatus ${t.status}">${t.status === 'doing' ? 'in progress' : t.status}</span>
+        </div>`
+      )
+      .join('');
+
+    return `<div class="panel person">
+      <div class="panel-head">
+        <h2>${esc(p.assignee)}</h2>
+        <div class="spacer"></div>
+        ${p.overdue ? `<span class="tag overdue">${p.overdue} overdue</span>` : ''}
+        <span class="tag">${p.open + p.doing} live</span>
+        ${p.done ? `<span class="tag">${p.done} done</span>` : ''}
+        ${/@/.test(p.assignee) ? `<button class="ghost" data-copy-link="${esc(p.assignee)}">Copy their link</button>` : ''}
+      </div>
+      ${live.length ? `<div class="atable">${rows}</div>` : '<p class="hint" style="margin:0">Nothing open.</p>'}
+    </div>`;
+  };
+
+  return `<p class="dek">Everyone with work on this account, across every site.${
+    data.unassigned ? ` <b>${data.unassigned}</b> open action${data.unassigned === 1 ? ' is' : 's are'} assigned to nobody.` : ''
+  }</p>
+  ${data.people.map(person).join('')}`;
+}
+
 async function viewQuestions() {
   const prompts = await api(`/api/projects/${state.projectId}/prompts`);
   if (!prompts?.length) {
@@ -642,7 +694,11 @@ async function renderFigures() {
 async function render() {
   const view = state.view;
   $('view').innerHTML = '<div class="empty">Loading</div>';
-  const fn = { actions: viewActions, questions: viewQuestions, rivals: viewRivals, sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling, trends: viewTrends, landscape: viewLandscape }[view];
+  const fn = {
+    actions: viewActions, assigned: viewAssigned, questions: viewQuestions, rivals: viewRivals,
+    sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling,
+    trends: viewTrends, landscape: viewLandscape
+  }[view];
   $('view').innerHTML = await fn();
   if (view === 'setup') recalcEstimate();
   if (view === 'traffic' && $('ga4Props')) loadGa4Properties();
@@ -1014,6 +1070,20 @@ document.addEventListener('click', (e) => {
   if (goto) {
     document.querySelector(`.tab[data-view="${goto.dataset.reportGoto}"]`).click();
     document.querySelector('.tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+});
+
+document.addEventListener('click', async (e) => {
+  const copy = e.target.closest('[data-copy-link]');
+  if (copy) {
+    const r = await api(`/api/assigned/${encodeURIComponent(copy.dataset.copyLink)}/link`);
+    if (r?.url) {
+      await navigator.clipboard.writeText(r.url).catch(() => {});
+      const was = copy.textContent;
+      copy.textContent = 'Copied';
+      setTimeout(() => { copy.textContent = was; }, 1800);
+    }
+    return;
   }
 });
 
