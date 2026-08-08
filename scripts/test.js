@@ -32,6 +32,38 @@ const entities = [
 
 console.log('\nsector scoring');
 
+await test('the withheld prompt never reaches a published number', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../src/lib/score.js', import.meta.url), 'utf8');
+
+  // A ranked reputational claim about named companies, from unverified model
+  // output, is a defamation risk. It must be excluded from every query that
+  // feeds the page, not merely hidden at the rendering layer.
+  const queries = src.match(/`[\s\S]*?`/g).filter((q) => /sector_prompts/.test(q));
+  assert.ok(queries.length >= 2, 'expected several queries over prompts');
+  for (const q of queries) {
+    assert.ok(
+      /excluded_from_public/.test(q),
+      `a query reads prompts without excluding the withheld one:\n${q.slice(0, 200)}`
+    );
+  }
+});
+
+await test('a project mention never enters a corporate rate', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../src/lib/score.js', import.meta.url), 'utf8');
+
+  // Every component of the composite counts mentions; each must exclude the
+  // ones matched only via a project name.
+  for (const metric of ['mentions', 'top_three', 'recommendations', 'citations']) {
+    const line = src.split('\n').find((l) => l.includes(`AS ${metric}`));
+    assert.ok(line, `no line computing ${metric}`);
+    assert.ok(/NOT m\.via_project/.test(line), `${metric} counts project mentions: ${line.trim()}`);
+  }
+});
+
+
+
 const sc = await import('../src/lib/score.js');
 
 await test('the composite matches the published weights exactly', () => {

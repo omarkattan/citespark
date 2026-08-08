@@ -71,6 +71,60 @@ export function composite(parts) {
 }
 
 /**
+ * Which domains the engines actually read to answer these questions.
+ *
+ * The most original thing on the page: it is measured from the answers
+ * themselves rather than from a rank tracker, and it shows how much of the
+ * category conversation is mediated by portals and press rather than by the
+ * developers being discussed.
+ */
+export async function citedSources(studyId, cycle) {
+  const rows = await many(
+    `WITH answered AS (
+       SELECT a.id, a.links
+       FROM sector_answers a
+       JOIN sector_prompts p ON p.id = a.prompt_id
+       WHERE a.study_id = $1 AND a.cycle_date = $2
+         AND a.ok AND length(COALESCE(a.answer_text,'')) > 0
+         AND NOT p.excluded_from_public
+     ),
+     flat AS (
+       SELECT an.id AS answer_id, lower(regexp_replace(l->>'domain', '^www\\.', '')) AS domain
+       FROM answered an, jsonb_array_elements(an.links) l
+       WHERE l->>'domain' IS NOT NULL
+     )
+     SELECT domain,
+            COUNT(*)::int AS links,
+            COUNT(DISTINCT answer_id)::int AS answers
+     FROM flat
+     WHERE domain <> ''
+     GROUP BY domain
+     ORDER BY answers DESC, links DESC
+     LIMIT 40`,
+    [studyId, cycle]
+  );
+
+  const total = await one(
+    `SELECT COUNT(*)::int AS n FROM sector_answers a JOIN sector_prompts p ON p.id = a.prompt_id
+     WHERE a.study_id = $1 AND a.cycle_date = $2 AND a.ok
+       AND length(COALESCE(a.answer_text,'')) > 0 AND NOT p.excluded_from_public`,
+    [studyId, cycle]
+  );
+
+  const own = new Set(
+    (await many('SELECT domain FROM sector_companies WHERE study_id = $1 AND active AND domain IS NOT NULL', [studyId]))
+      .map((r) => String(r.domain).replace(/^www\./, '').toLowerCase())
+  );
+
+  return rows.map((r) => ({
+    ...r,
+    share: total.n ? r.answers / total.n : 0,
+    // A developer's own site is a different kind of source from a portal.
+    isDeveloper: own.has(r.domain)
+  }));
+}
+
+/**
  * Score one study. Returns a table per cohort, plus the run-to-run spread on
  * the two metrics where instability is the point.
  */
@@ -167,9 +221,31 @@ export async function scoreStudy(slug = 'property-developers') {
     });
   }
 
+  const sources = await citedSources(study.id, cycle);
+
+  // Per developer, across every cohort they sit in, for the detail section.
+  const detail = await many(
+    `SELECT c.key, c.name, c.domain, c.cohorts,
+            COUNT(m.id) FILTER (WHERE m.mentioned AND NOT m.via_project)::int AS mentions,
+            COUNT(m.id) FILTER (WHERE m.cited AND NOT m.via_project)::int AS citations,
+            COUNT(m.id) FILTER (WHERE m.via_project)::int AS project_mentions,
+            COUNT(m.id) FILTER (WHERE m.recommended AND NOT m.via_project)::int AS recommendations,
+            MIN(m.ordinal) FILTER (WHERE m.mentioned AND NOT m.via_project)::int AS best_position,
+            ROUND(AVG(m.ordinal) FILTER (WHERE m.mentioned AND NOT m.via_project)::numeric, 1)::float AS avg_position
+     FROM sector_companies c
+     LEFT JOIN sector_mentions m ON m.company_id = c.id
+     LEFT JOIN sector_answers a ON a.id = m.answer_id AND a.cycle_date = $2
+     WHERE c.study_id = $1 AND c.active
+     GROUP BY c.key, c.name, c.domain, c.cohorts
+     ORDER BY mentions DESC`,
+    [study.id, cycle]
+  );
+
   return {
     study: { slug: study.slug, name: study.name, market: study.market },
     cycle,
+    sources,
+    developers: detail,
     weights: COMPOSITE_WEIGHTS,
     engines: engines.map((e) => ({
       ...e,

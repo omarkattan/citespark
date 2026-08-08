@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>UAE Property Developers: AI Visibility Index | Cited</title>
+<meta name="description" content="Which UAE property developers AI names when buyers ask. 22 developers, measured across Google AI Mode, AI Overview and ChatGPT, scored within cohorts." />
+<link rel="canonical" href="https://cited.ae/uae/property-developers" />
+<meta property="og:title" content="Which UAE developers does AI actually name?" />
+<meta property="og:description" content="22 developers measured across three AI surfaces. Named often, cited rarely." />
+<meta property="og:url" content="https://cited.ae/uae/property-developers" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta property="og:image" content="https://cited.ae/og-developers.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:image" content="https://cited.ae/og-developers.png" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='8' fill='%2308120d'/%3E%3Cpath d='M15 8H9v24h6M25 8h6v24h-6' stroke='%23e9e3d5' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M20 11l2.6 6.4L29 20l-6.4 2.6L20 29l-2.6-6.4L11 20l6.4-2.6z' fill='%2335e08a'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/landing.css" />
+<link rel="stylesheet" href="/index-page.css" />
+<link rel="stylesheet" href="/study-page.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-in">
+    <a class="logo" href="/" aria-label="Cited home">
+      <svg width="30" height="30" viewBox="0 0 40 40" role="img" aria-hidden="true">
+        <path d="M15 8H9v24h6M25 8h6v24h-6" stroke="var(--sand)" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M20 11l2.6 6.4L29 20l-6.4 2.6L20 29l-2.6-6.4L11 20l6.4-2.6z" fill="var(--spark)"/>
+      </svg>
+      <span class="logo-text">Cit<em>ed</em></span><span class="beta">beta</span>
+    </a>
+    <div class="spacer"></div>
+    <a class="nav-link hide-sm" href="/uae">UAE Index</a>
+    <a class="nav-link hide-sm" href="/mena">MENA Index</a>
+    <a class="btn" href="/app">Sign in</a>
+  </div>
+</nav>
+
+<header class="index-hero">
+  <div class="wrap">
+    <p class="eyebrow"><a href="/uae" class="crumb">UAE AI Visibility Index</a> &rarr; Property Developers</p>
+    <h1>Named by AI, and almost never cited.</h1>
+    <p class="lede">
+      Twenty-two UAE property developers, put to Google AI Mode, Google AI Overview and ChatGPT with the questions
+      buyers actually ask. We record whether a developer is named in the answer, where it appears, whether the answer
+      recommends it, and whether its own website is cited as a source.
+    </p>
+    <div class="index-meta" id="meta"></div>
+  </div>
+</header>
+
+<main>
+  <section class="index-body">
+    <div class="wrap">
+      <div id="headline" class="headline"></div>
+
+      <p class="warn-band" id="cohortWarning">
+        <b>Scores compare developers within a cohort, never across cohorts.</b>
+        A Sharjah developer and a UAE major are answering different questions from different prompt sets. Placing one
+        against the other would rank the questions, not the companies.
+      </p>
+
+      <div id="cohorts"></div>
+    </div>
+  </section>
+
+  <section id="sources">
+    <div class="wrap">
+      <p class="eyebrow dune">What the engines read</p>
+      <h2>The sources behind the answers.</h2>
+      <p class="note">
+        Every domain the three engines linked to while answering these questions, ranked by how many answers it appeared
+        in. This is measured from the answers themselves, not from a rank tracker, and it is the clearest picture of who
+        actually mediates this category.
+      </p>
+      <div id="sourcesTable" class="cross"></div>
+    </div>
+  </section>
+
+  <section id="developers">
+    <div class="wrap">
+      <p class="eyebrow dune">Developer by developer</p>
+      <h2>Every developer in the index.</h2>
+      <p class="note">
+        Totals across all cohorts and all three engines. Cohort scores above are the comparable figures; these are the
+        raw counts behind them.
+      </p>
+      <div class="searchrow" style="max-width:420px">
+        <input type="search" id="devFilter" placeholder="Filter developers" autocomplete="off" />
+        <span class="searchcount" id="devCount"></span>
+      </div>
+      <div id="devTable"></div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <p class="eyebrow">Your turn</p>
+      <h2>Where does your development sit?</h2>
+      <p class="lede">Give us a domain and we will ask an AI a question your buyers actually type. A minute, no account.</p>
+      <a class="btn" href="/#try?from=developers">Check your own domain</a>
+    </div>
+  </section>
+
+  <section id="method">
+    <div class="wrap">
+      <p class="eyebrow dune">Method</p>
+      <h2>How this is measured.</h2>
+      <div class="method-grid">
+        <div>
+          <h3>The score</h3>
+          <p class="note">
+            A composite of four machine-verifiable components:
+            <b>35%</b> mention rate, <b>25%</b> top-three rate, <b>20%</b> recommendation rate, <b>20%</b> citation rate.
+            Every one can be recomputed from the stored answers.
+          </p>
+        </div>
+        <div>
+          <h3>What is not in the score</h3>
+          <p class="note">
+            Accuracy, sentiment, hallucination rate and attribute association are human-annotated. We cannot reproduce
+            them monthly across twenty-two developers, so we cannot defend them, so they do not enter the composite.
+            They are published only where an audit has actually been done.
+          </p>
+        </div>
+        <div>
+          <h3>Runs and spread</h3>
+          <p class="note">
+            Every question is asked three times per engine, because these models are not deterministic. We publish the
+            mean and the range. A developer at 40% from runs of 20, 40 and 60 is a different finding from one at
+            38, 40 and 42.
+          </p>
+        </div>
+        <div>
+          <h3>Denominators</h3>
+          <p class="note">
+            Rates are over answers that were returned, not attempts. Google shows an AI Overview for only some of these
+            questions; counting the silent ones as failures to appear would report a gap in our measurement as an
+            absence of the developer.
+          </p>
+        </div>
+        <div>
+          <h3>Companies, not projects</h3>
+          <p class="note">
+            Naming Al Zahia is not naming Sharjah Holding. Project mentions are recorded separately and do not enter the
+            corporate score. Where a developer has project mentions excluded, the count is shown against it.
+          </p>
+        </div>
+        <div>
+          <h3>Coverage</h3>
+          <p class="note">
+            Google AI Mode, Google AI Overview and ChatGPT. <b>Gemini, Claude, Perplexity and Copilot are not covered in
+            this release.</b> Where a developer is invisible here, that is three surfaces, not the whole market.
+          </p>
+        </div>
+        <div>
+          <h3>What we withheld</h3>
+          <p class="note">
+            One question asked which developers attract the most buyer complaints. We ran it and did not publish it.
+            A ranked reputational claim about named companies, drawn from unverified model output, is not something we
+            are willing to put on a public page.
+          </p>
+        </div>
+        <div>
+          <h3>Corrections</h3>
+          <p class="note">
+            If a developer is missing, a domain is wrong, or a figure looks off, write to
+            <a href="mailto:omar@sandstormdigital.com">omar@sandstormdigital.com</a>. The questions behind each cohort
+            and the raw answers are retained, so any number here can be traced back to the answer that produced it.
+          </p>
+        </div>
+      </div>
+
+      <div class="disclosure" id="disclosure">
+        <p class="eyebrow dune" style="margin-bottom:8px">Disclosure</p>
+        <p class="note" style="margin:0">
+          Sandstorm Digital, which publishes Cited, holds a commercial relationship with <b id="clientNames">at least one
+          developer</b> named in this index. The measurement is automated and the scoring rules were fixed before the
+          data was collected, but you should know this before reading the table.
+        </p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-top">
+      <a class="logo" href="/" aria-label="Cited home">
+        <svg width="28" height="28" viewBox="0 0 40 40" role="img" aria-hidden="true">
+          <path d="M15 8H9v24h6M25 8h6v24h-6" stroke="var(--sand)" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M20 11l2.6 6.4L29 20l-6.4 2.6L20 29l-2.6-6.4L11 20l6.4-2.6z" fill="var(--spark)"/>
+        </svg>
+        <span class="logo-text">Cit<em>ed</em></span>
+      </a>
+      <div class="foot-links">
+        <a href="/uae">UAE Index</a>
+        <a href="/mena">MENA Index</a>
+        <a href="/#try">Check your brand</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+    <div class="foot-base">
+      <p class="copyright">Copyright &copy; 2013-<span id="year">2026</span> Sandstorm Digital&reg;. All rights reserved.</p>
+      <p class="production">
+        Another <a href="https://sandstormdigital.com" target="_blank" rel="noopener">Sandstorm Digital</a> Production
+      </p>
+    </div>
+  </div>
+</footer>
+
+<script id="studySchema" type="application/ld+json"></script>
+<script src="/study-page.js"></script>
+<script src="/feedback.js"></script>
+</body>
+</html>

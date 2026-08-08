@@ -87,6 +87,9 @@ function sectorCard(s) {
     ${absent.length ? `<p class="sector-note">${absent.length} of ${all.length} major companies here ${absent.length === 1 ? 'is' : 'are'} neither named in the answers nor cited as a source.</p>` : ''}
     ${namedNotCited.length ? `<p class="sector-note amber">${namedNotCited.length} ${namedNotCited.length === 1 ? 'is' : 'are'} recommended in the answer but not cited, so another site takes the click.</p>` : ''}
 
+    ${s.slug === 'real-estate-development' ? `<p class="sector-note" style="border-top:none;color:var(--spark)">
+      <a href="/uae/property-developers">A deeper study of 22 UAE developers is published separately &rarr;</a>
+    </p>` : ''}
     <div class="sector-cta">
       <span>Is your company here, or should it be?</span>
       <a class="btn ghost" href="/#try?from=uae&amp;sector=${esc(s.slug)}">Check your own domain free</a>
