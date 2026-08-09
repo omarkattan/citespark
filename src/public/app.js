@@ -1580,8 +1580,8 @@ function gscError(d) {
     // rather than redoing the Analytics connection.
     return `<p class="error">${esc(d.error)}</p>
       <p class="hint" style="margin-top:8px">
-        Search Console is a separate permission from Analytics. Granting it takes one screen and keeps your
-        existing connection.
+        We ask for Analytics and Search Console separately, so you only hand over what you actually want to use.
+        Granting this takes one screen and keeps your existing connection.
       </p>
       <div class="inline-form" style="margin-top:10px">
         <button class="btn" id="gscGrant">Allow Search Console</button>

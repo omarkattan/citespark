@@ -1533,6 +1533,19 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('a missing Search Console grant is not blamed on an old connection', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const block = src.slice(src.indexOf("app.get('/api/projects/:id/gsc/sites'"), src.indexOf('try {', src.indexOf("gsc/sites")));
+
+  // Scopes are requested separately now, so every fresh connection reaches
+  // this branch. Saying the connection predates support would be false and
+  // would contradict the instruction shown underneath it.
+  assert.ok(!/before Search Console was supported/.test(block), 'that message is no longer true');
+  assert.ok(/has not been granted/.test(block));
+  assert.ok(/fix: 'reconnect'/.test(block), 'and the panel must still offer the grant button');
+});
+
 await test('each connection asks only for the scope it needs', async () => {
   process.env.GOOGLE_CLIENT_ID = 'cid';
   process.env.GOOGLE_CLIENT_SECRET = 'sec';
