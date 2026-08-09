@@ -1340,6 +1340,63 @@ await test('no headline names a single developer as best cited', async () => {
   assert.ok(/question mix/i.test(js), 'and the caveat must appear on the sources table');
 });
 
+console.log('\nstructured data');
+
+await test('the landing page publishes what it actually says', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../src/public/landing.html', import.meta.url), 'utf8');
+  const block = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+  assert.ok(block, 'the landing page has no structured data');
+
+  const graph = JSON.parse(block[1])['@graph'];
+  const types = graph.map((n) => n['@type']);
+  for (const t of ['Organization', 'WebSite', 'SoftwareApplication', 'FAQPage']) {
+    assert.ok(types.includes(t), `missing ${t}`);
+  }
+
+  // A product that sells answer engine visibility cannot skip its own FAQ
+  // markup, and the markup must match the questions on the page.
+  const faq = graph.find((n) => n['@type'] === 'FAQPage');
+  const onPage = [...html.matchAll(/<summary[^>]*>([\s\S]*?)<\/summary>/g)].length;
+  assert.equal(faq.mainEntity.length, onPage, 'every visible question must be in the markup');
+  for (const q of faq.mainEntity) {
+    assert.ok(q.name && q.acceptedAnswer.text.length > 30, `thin answer for "${q.name}"`);
+    assert.ok(html.includes(q.name.replace(/&/g, '&amp;')), `"${q.name}" is not on the page`);
+  }
+
+  // Prices that disagree with the page are worse than no prices at all.
+  const offers = graph.find((n) => n['@type'] === 'SoftwareApplication').offers;
+  assert.equal(offers.offerCount, 4);
+  assert.equal(offers.lowPrice, 0);
+  assert.equal(offers.highPrice, 499);
+  for (const o of offers.offers) {
+    assert.ok(html.includes(`data-m="${o.price}"`), `${o.name} at $${o.price} is not the price on the page`);
+  }
+});
+
+await test('the legal pages are not left bare', async () => {
+  const { readFileSync } = await import('node:fs');
+  for (const f of ['privacy', 'terms']) {
+    const html = readFileSync(new URL(`../src/public/${f}.html`, import.meta.url), 'utf8');
+    const graph = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1])['@graph'];
+    const types = graph.map((n) => n['@type']);
+    for (const t of ['Organization', 'WebSite', 'WebPage', 'BreadcrumbList']) {
+      assert.ok(types.includes(t), `${f}.html is missing ${t}`);
+    }
+  }
+});
+
+await test('both indexes describe themselves as datasets', async () => {
+  const { readFileSync } = await import('node:fs');
+  for (const f of ['index-page', 'mena-page']) {
+    const js = readFileSync(new URL(`../src/public/${f}.js`, import.meta.url), 'utf8');
+    assert.ok(/'@graph'/.test(js), `${f}.js publishes a bare node rather than a graph`);
+    assert.ok(/BreadcrumbList/.test(js), `${f}.js has no breadcrumb`);
+    assert.ok(/isAccessibleForFree/.test(js), `${f}.js should say the data is free`);
+    assert.ok(/license/.test(js), `${f}.js should carry a licence`);
+  }
+});
+
 console.log('\nnavigation');
 
 await test('every public page carries the same footer', async () => {

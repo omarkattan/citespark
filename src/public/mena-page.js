@@ -96,6 +96,21 @@ function sectorCard(s) {
 function schema(index) {
   return {
     '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'Cited', item: 'https://cited.ae/' },
+          { '@type': 'ListItem', position: 2, name: 'MENA AI Visibility Index', item: 'https://cited.ae/mena' }
+        ]
+      },
+      dataset(index)
+    ]
+  };
+}
+
+function dataset(index) {
+  return {
     '@type': 'Dataset',
     name: 'MENA AI Visibility Index',
     description:
@@ -104,6 +119,9 @@ function schema(index) {
     dateModified: index.updatedAt,
     spatialCoverage: index.countries.map((c) => ({ '@type': 'Place', name: c.name })),
     creator: { '@type': 'Organization', name: 'Sandstorm Digital', url: 'https://sandstormdigital.com' },
+    publisher: { '@type': 'Organization', name: 'Sandstorm Digital', url: 'https://sandstormdigital.com' },
+    license: 'https://cited.ae/terms',
+    isAccessibleForFree: true,
     hasPart: index.sectors.map((s) => ({
       '@type': 'ItemList',
       name: `${s.name} in MENA, by AI visibility`,

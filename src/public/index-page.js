@@ -109,6 +109,21 @@ function schema(index) {
   // doing the citing.
   return {
     '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'Cited', item: 'https://cited.ae/' },
+          { '@type': 'ListItem', position: 2, name: 'UAE AI Visibility Index', item: 'https://cited.ae/uae' }
+        ]
+      },
+      dataset(index)
+    ]
+  };
+}
+
+function dataset(index) {
+  return {
     '@type': 'Dataset',
     name: 'UAE AI Visibility Index',
     description:
@@ -117,6 +132,9 @@ function schema(index) {
     dateModified: index.updatedAt,
     spatialCoverage: { '@type': 'Place', name: 'United Arab Emirates' },
     creator: { '@type': 'Organization', name: 'Sandstorm Digital', url: 'https://sandstormdigital.com' },
+    publisher: { '@type': 'Organization', name: 'Sandstorm Digital', url: 'https://sandstormdigital.com' },
+    license: 'https://cited.ae/terms',
+    isAccessibleForFree: true,
     hasPart: index.sectors.map((s) => ({
       '@type': 'ItemList',
       name: `${s.name} in the UAE, by AI visibility`,

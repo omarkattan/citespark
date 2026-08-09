@@ -25,23 +25,243 @@
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  "name": "Cited",
-  "url": "https://cited.ae/",
-  "applicationCategory": "BusinessApplication",
-  "operatingSystem": "Web",
-  "description": "Cited measures whether AI assistants name your brand when buyers ask, and turns the gaps into a ranked list of fixes.",
-  "offers": [
-    { "@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "USD" },
-    { "@type": "Offer", "name": "Starter", "price": "79", "priceCurrency": "USD" },
-    { "@type": "Offer", "name": "Growth", "price": "199", "priceCurrency": "USD" },
-    { "@type": "Offer", "name": "Agency", "price": "499", "priceCurrency": "USD" }
-  ],
-  "publisher": {
-    "@type": "Organization",
-    "name": "Sandstorm Digital",
-    "url": "https://sandstormdigital.com"
-  }
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://cited.ae/#organization",
+      "name": "Sandstorm Digital",
+      "url": "https://sandstormdigital.com",
+      "logo": {
+        "@type": "ImageObject",
+        "url": "https://cited.ae/og.png"
+      },
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "Dubai",
+        "addressRegion": "Dubai Media City",
+        "addressCountry": "AE"
+      },
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "contactType": "customer support",
+        "email": "omar@sandstormdigital.com",
+        "areaServed": [
+          "AE",
+          "SA",
+          "EG",
+          "QA",
+          "KW",
+          "GB"
+        ],
+        "availableLanguage": [
+          "en",
+          "ar"
+        ]
+      }
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://cited.ae/#website",
+      "url": "https://cited.ae",
+      "name": "Cited",
+      "description": "Cited measures whether AI assistants name your brand when buyers ask category questions, then turns the gaps into a ranked list of things to fix.",
+      "publisher": {
+        "@id": "https://cited.ae/#organization"
+      },
+      "inLanguage": "en"
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://cited.ae/#software",
+      "name": "Cited",
+      "applicationCategory": "BusinessApplication",
+      "applicationSubCategory": "Search engine optimisation",
+      "operatingSystem": "Web browser",
+      "url": "https://cited.ae",
+      "description": "Cited asks the questions your buyers ask across ChatGPT, Google AI Overview, Google AI Mode, Perplexity, Gemini and Claude, records whether your brand is named and cited, and turns the gaps into a ranked list of actions.",
+      "publisher": {
+        "@id": "https://cited.ae/#organization"
+      },
+      "featureList": [
+        "Answer engine visibility measurement across six AI surfaces",
+        "Share of voice against named competitors",
+        "Citation source analysis",
+        "Fan-out query capture",
+        "Google Analytics and Search Console integration",
+        "Ranked, assignable actions"
+      ],
+      "offers": {
+        "@type": "AggregateOffer",
+        "priceCurrency": "USD",
+        "lowPrice": 0,
+        "highPrice": 499,
+        "offerCount": 4,
+        "offers": [
+          {
+            "@type": "Offer",
+            "name": "Free",
+            "price": 0,
+            "priceCurrency": "USD",
+            "availability": "https://schema.org/InStock",
+            "url": "https://cited.ae/#pricing"
+          },
+          {
+            "@type": "Offer",
+            "name": "Starter",
+            "price": 79,
+            "priceCurrency": "USD",
+            "availability": "https://schema.org/InStock",
+            "url": "https://cited.ae/#pricing",
+            "priceSpecification": {
+              "@type": "UnitPriceSpecification",
+              "price": 66,
+              "priceCurrency": "USD",
+              "billingDuration": 12,
+              "billingIncrement": 1,
+              "unitText": "MONTH",
+              "description": "Effective monthly price when billed annually"
+            }
+          },
+          {
+            "@type": "Offer",
+            "name": "Growth",
+            "price": 199,
+            "priceCurrency": "USD",
+            "availability": "https://schema.org/InStock",
+            "url": "https://cited.ae/#pricing",
+            "priceSpecification": {
+              "@type": "UnitPriceSpecification",
+              "price": 166,
+              "priceCurrency": "USD",
+              "billingDuration": 12,
+              "billingIncrement": 1,
+              "unitText": "MONTH",
+              "description": "Effective monthly price when billed annually"
+            }
+          },
+          {
+            "@type": "Offer",
+            "name": "Agency",
+            "price": 499,
+            "priceCurrency": "USD",
+            "availability": "https://schema.org/InStock",
+            "url": "https://cited.ae/#pricing",
+            "priceSpecification": {
+              "@type": "UnitPriceSpecification",
+              "price": 416,
+              "priceCurrency": "USD",
+              "billingDuration": 12,
+              "billingIncrement": 1,
+              "unitText": "MONTH",
+              "description": "Effective monthly price when billed annually"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://cited.ae/#faq",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What exactly is Cited measuring?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Whether AI assistants name your brand when someone asks a buying question in your category, and where you appear when they do. We ask each tracked question multiple times per engine and report the percentage of answers you appeared in, along with your average position in the list and which domains the engine cited to build the answer."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Which engines do you track?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Six surfaces: ChatGPT, Google AI Overview, Google AI Mode, Perplexity, Gemini and Claude. You choose which to run per site, because each one multiplies the cost of a cycle. Two or three chosen deliberately beats all six switched on."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Why percentages instead of a rank?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Because AI answers are not deterministic. Ask the same question twice and you get different answers, sometimes with different companies in them. Any tool that hands you a single position number is reporting one roll of the dice as though it were a ranking. Cited asks each question several times per cycle and reports how often you appeared. On the questions screen you can see each individual run as a tick mark, so the variance is visible rather than hidden behind an average."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How is this different from rank tracking?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Rank tracking tells you where a page sits in a list of ten blue links. There is no list here. There is one answer, it names three or four companies, and there is no page two to be on. The mechanics of getting into that answer are also different: corroboration across independent sources matters more than on-page optimisation, and being cited as a source is separate from being named as a recommendation."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does it tell me what to do, or just what is wrong?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "It tells you what to do. Every finding becomes an action with a named target, ranked by impact over effort, with the evidence attached so you can check the reasoning. Content gaps, citable assets, entity and schema fixes, comparison pages, third-party sources to get listed on, engine-specific crawler problems, and pages that already convert AI traffic and are worth copying. You can mark actions as started, done or dismissed, and the status survives the next measurement cycle."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What are fan-out queries and why do they matter?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "They are the searches an engine runs before writing its answer. Ask ChatGPT which clinic to use for clear aligners in Dubai and it may search \"orthodontic clinics Dubai clear aligners cost\" first, then write from what it finds. That is an ordinary Google query. If you do not rank for it, you were never a candidate, and rewriting your page for the conversational question will not help. It is the most directly actionable signal in the whole dataset, and we surface every one."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How often does it run?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Weekly by default, which suits the pace at which this actually moves. Daily is available and costs roughly seven times as much, so it is worth it for a handful of high-stakes questions rather than an entire set. You can also trigger a cycle by hand whenever you have shipped a change and want to see whether it landed."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I track competitors?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes, and you should. Share of voice against named rivals is often the number that gets a budget approved. When a competitor consistently beats you, Cited rolls it into a single comparison action rather than repeating itself for every question they win."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does it connect to Google Analytics?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. GA4 added a native AI Assistant channel in 2026, and we read it, but we also run our own classification from session source. That matters because the native channel is not retroactive, so on its own your history starts mid-2026. Our version reaches back across your existing data. Some AI referrals arrive with no referrer at all and land in Direct, so both numbers are a floor rather than a total. We say so in the interface rather than quietly overstating the figure."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What is an answer check, and why price on them?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "One answer check is one question put to one engine, once. Twenty-five questions across two surfaces with three runs each is 150 checks per cycle, or roughly 650 a month at weekly cadence. On multi-site plans the allowance is pooled, so you decide how to spread it. We price this way because it is what the product actually costs us. Every answer requires the engine to run a live web search, and that search carries a real fee. Pretending otherwise would mean either quietly capping you or losing money on heavy users. Your usage is visible in the app at all times, and a cycle trims itself to fit rather than running you over a limit."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I change or cancel my plan?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Any time, from the billing screen inside the app. Upgrades apply immediately and are prorated. Cancellations run to the end of the period you have paid for, then drop to the Free plan with your history intact. No contract, no notice period, and nobody to email."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Who is behind it?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Sandstorm Digital, an award-winning digital marketing agency headquartered in Dubai Media City with teams in Cairo and the DC Metro area, working in search since 2013. Cited sits alongside our other tools including LinkStorm, Landfall and the EEAT Auditor, and we run it on our own clients before we ask anyone else to rely on it."
+          }
+        }
+      ]
+    }
+  ]
 }
 </script>
 </head>
