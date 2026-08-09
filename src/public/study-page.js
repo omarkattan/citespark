@@ -76,7 +76,11 @@ function headline() {
   const named = all.reduce((a, x) => a + x.mention_rate, 0) / all.length;
   const cited = all.reduce((a, x) => a + x.citation_rate, 0) / all.length;
   const portals = D.sources.filter((s) => !s.isDeveloper).slice(0, 3);
-  const topDev = D.sources.find((s) => s.isDeveloper);
+  // Deliberately not "the most cited developer". Raw citation counts follow
+  // the prompt mix: a quarter of the question set is Sharjah, where five
+  // developers compete rather than fifteen, so whoever leads that cohort tops
+  // the table for a reason that has nothing to do with them.
+  const citedAtAll = D.developers.filter((d) => d.citations > 0).length;
 
   return `<div class="figures">
     <div class="figure">
@@ -95,9 +99,9 @@ function headline() {
       <div class="sub">${portals[0] ? `in ${pct(portals[0].share)} of answers` : ''}</div>
     </div>
     <div class="figure">
-      <div class="label">Best-cited developer</div>
-      <div class="value" style="font-size:24px">${topDev ? esc(topDev.domain) : '-'}</div>
-      <div class="sub">${topDev ? `in ${pct(topDev.share)} of answers` : 'none cited'}</div>
+      <div class="label">Developers cited at all</div>
+      <div class="value ${citedAtAll < D.developers.length / 2 ? 'down' : ''}">${citedAtAll}<span style="font-size:20px;color:var(--mute)"> of ${D.developers.length}</span></div>
+      <div class="sub">had their own site used as a source even once</div>
     </div>
   </div>`;
 }
@@ -128,7 +132,12 @@ function render() {
         <span class="val">${pct(s.share)} of answers</span>
       </div>`
     )
-    .join('');
+    .join('') +
+    `<p class="note" style="margin-top:16px">
+      Developer domains are marked. Their position here follows the question mix as much as anything else:
+      a quarter of the questions are about Sharjah, where six developers compete, while the rest cover markets
+      with fifteen or more. Read this table for who mediates the category, not as a ranking of developers.
+    </p>`;
 
   $('devTable').innerHTML = `<div class="table-scroll"><table class="score-table dev-table">
     <thead><tr>

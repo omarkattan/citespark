@@ -1308,6 +1308,38 @@ await test('retries transient failures but not permanent ones', async () => {
   global.fetch = realFetch;
 });
 
+console.log('\nstudy page');
+
+await test('the developers page is not published or linked', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../src/public/property-developers.html', import.meta.url), 'utf8');
+  const robots = readFileSync(new URL('../src/public/robots.txt', import.meta.url), 'utf8');
+  const sitemap = readFileSync(new URL('../src/public/sitemap.xml', import.meta.url), 'utf8');
+
+  // Live at its URL, but not promoted: the numbers are not ready to be a
+  // public claim about named companies.
+  assert.ok(/noindex/.test(html), 'the page must not be indexed');
+  assert.ok(/Disallow: \/uae\/property-developers/.test(robots));
+  assert.ok(!sitemap.includes('property-developers'), 'and must not be in the sitemap');
+
+  for (const f of ['landing', 'uae', 'mena']) {
+    const page = readFileSync(new URL(`../src/public/${f}.html`, import.meta.url), 'utf8');
+    assert.ok(!page.includes('/uae/property-developers'), `${f}.html still links to it`);
+  }
+});
+
+await test('no headline names a single developer as best cited', async () => {
+  const { readFileSync } = await import('node:fs');
+  const js = readFileSync(new URL('../src/public/study-page.js', import.meta.url), 'utf8');
+
+  // Raw citation counts follow the question mix: a quarter of the questions
+  // are Sharjah, where six developers compete rather than fifteen. Naming a
+  // winner from that would be wrong, and worse when the leader is our client.
+  assert.ok(!/Best-cited developer/.test(js), 'that figure was an artefact of the question mix');
+  assert.ok(/Developers cited at all/.test(js), 'a count of who was cited at all is defensible');
+  assert.ok(/question mix/i.test(js), 'and the caveat must appear on the sources table');
+});
+
 console.log('\nnavigation');
 
 await test('every public page carries the same menu', async () => {

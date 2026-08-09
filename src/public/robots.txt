@@ -3,4 +3,6 @@ Allow: /
 Disallow: /app
 Disallow: /api/
 
+Disallow: /uae/property-developers
+
 Sitemap: https://cited.ae/sitemap.xml
