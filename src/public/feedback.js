@@ -68,6 +68,13 @@
     .fb-msg { font-size: 12.5px; color: var(--alert, #e07a5f); margin: 0; flex: 1; }
     .fb-thanks { text-align: center; padding: 12px 0 4px; }
     @media (max-width: 560px) { .fb-launch { right: 14px; bottom: 14px; padding: 10px 14px; } }
+
+    /* Out of the way once the footer, which has its own link, is on screen. */
+    .fb-launch.is-tucked {
+      transform: translateY(140%);
+      opacity: 0;
+      pointer-events: none;
+    }
   `;
   document.head.appendChild(style);
 
@@ -113,11 +120,35 @@
   const $ = (sel) => dialog.querySelector(sel);
   const msg = $('.fb-msg');
 
-  btn.addEventListener('click', () => {
+  const open = () => {
     msg.textContent = '';
     dialog.showModal();
     $('#fbText').focus();
+  };
+
+  btn.addEventListener('click', open);
+
+  // The same dialog from the footer link, so someone reading the legal pages
+  // does not have to hunt for the floating button.
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-open-feedback]')) {
+      e.preventDefault();
+      open();
+    }
   });
+
+  /**
+   * The floating button sits over the footer, where it reads as a stray link
+   * among the real ones. It steps aside once the footer is on screen, since
+   * the footer has its own Feedback link by then.
+   */
+  const footer = document.querySelector('footer');
+  if (footer && 'IntersectionObserver' in window) {
+    new IntersectionObserver(
+      ([entry]) => btn.classList.toggle('is-tucked', entry.isIntersecting),
+      { rootMargin: '0px 0px -40px 0px' }
+    ).observe(footer);
+  }
 
   dialog.addEventListener('click', (e) => {
     const k = e.target.closest('.fb-kind');

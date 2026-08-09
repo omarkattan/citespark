@@ -175,15 +175,32 @@
         </svg>
         <span class="logo-text">Cit<em>ed</em></span>
       </a>
-      <div class="foot-links">
-        <a href="/#try">Check your brand</a>
-        <a href="/#how">How it works</a>
-        <a href="/uae">UAE Index</a>
-        <a href="/#pricing">Pricing</a>
-        <a href="/privacy">Privacy</a>
-        <a href="/terms">Terms</a>
+
+      <div class="foot-cols">
+        <div class="foot-col">
+          <h4>Product</h4>
+          <a href="/#try">Check your brand</a>
+          <a href="/#how">How it works</a>
+          <a href="/#actions">What you get</a>
+          <a href="/#pricing">Pricing</a>
+          <a href="/#faqs">FAQs</a>
+        </div>
+        <div class="foot-col">
+          <h4>Research</h4>
+          <a href="/uae">UAE AI Visibility Index</a>
+          <a href="/mena">MENA AI Visibility Index</a>
+        </div>
+        <div class="foot-col">
+          <h4>Company</h4>
+          <a href="https://sandstormdigital.com" target="_blank" rel="noopener">Sandstorm Digital</a>
+          <a href="https://sandstormdigital.com/contact-us/" target="_blank" rel="noopener">Contact</a>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <button type="button" class="foot-feedback" data-open-feedback>Send feedback</button>
+        </div>
       </div>
     </div>
+
     <div class="foot-base">
       <p class="copyright">Copyright &copy; 2013-<span id="year">2026</span> Sandstorm Digital&reg;. All rights reserved.</p>
       <p class="production">
@@ -196,6 +213,7 @@
 <script id="indexSchema" type="application/ld+json"></script>
 <script src="/mena-page.js"></script>
 <script src="/feedback.js"></script>
+<script>document.getElementById('year').textContent = new Date().getFullYear();</script>
 <script src="/nav.js"></script>
 </body>
 </html>

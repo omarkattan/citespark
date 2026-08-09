@@ -1342,6 +1342,40 @@ await test('no headline names a single developer as best cited', async () => {
 
 console.log('\nnavigation');
 
+await test('every public page carries the same footer', async () => {
+  const { readFileSync } = await import('node:fs');
+  const pages = ['landing', 'uae', 'mena', 'property-developers', 'privacy', 'terms'];
+
+  for (const f of pages) {
+    const html = readFileSync(new URL(`../src/public/${f}.html`, import.meta.url), 'utf8');
+    const footer = html.slice(html.indexOf('<footer'), html.indexOf('</footer>'));
+
+    // Privacy and terms had a stub with one outbound link and no way back
+    // into the site, which is where a reader lands from a consent screen.
+    for (const link of ['/#try', '/uae', '/mena', '/privacy', '/terms']) {
+      assert.ok(footer.includes(`href="${link}"`), `${f}.html footer is missing ${link}`);
+    }
+    for (const heading of ['Product', 'Research', 'Company']) {
+      assert.ok(footer.includes(`>${heading}<`), `${f}.html footer is missing the ${heading} column`);
+    }
+    assert.ok(footer.includes('id="year"'), `${f}.html footer has no year`);
+    // Feedback belongs among the links, not floating over them.
+    assert.ok(footer.includes('data-open-feedback'), `${f}.html footer has no feedback link`);
+    assert.ok(/Sandstorm Digital/.test(footer));
+  }
+});
+
+await test('the floating feedback button steps aside for the footer', async () => {
+  const { readFileSync } = await import('node:fs');
+  const js = readFileSync(new URL('../src/public/feedback.js', import.meta.url), 'utf8');
+
+  // It is fixed to the corner, so it sits over the footer and reads as a
+  // stray link among the real ones.
+  assert.ok(/IntersectionObserver/.test(js), 'it must know when the footer is on screen');
+  assert.ok(/is-tucked/.test(js));
+  assert.ok(/data-open-feedback/.test(js), 'and the footer link must open the same dialog');
+});
+
 await test('every public page carries the same menu', async () => {
   const { readFileSync } = await import('node:fs');
   const pages = ['landing', 'uae', 'mena', 'property-developers', 'privacy', 'terms'];
@@ -1353,8 +1387,9 @@ await test('every public page carries the same menu', async () => {
     assert.ok(html.includes('/nav.js'), `${f}.html does not load the menu script`);
 
     // The point of the change: a phone reaches the indexes without
-    // scrolling to the footer to find them.
-    for (const link of ['/uae', '/mena', '/uae/property-developers', '/privacy', '/terms']) {
+    // scrolling to the footer to find them. The developers study is
+    // deliberately absent, being live but unpublished.
+    for (const link of ['/uae', '/mena', '/privacy', '/terms']) {
       assert.ok(html.includes(`href="${link}"`), `${f}.html menu is missing ${link}`);
     }
     // Accessible by default: closed, labelled, and announcing its state.

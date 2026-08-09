@@ -669,3 +669,70 @@ footer { border-top: 1px solid var(--line); padding: 52px 0 40px; background: va
   }
   body.nav-open { overflow: hidden; }
 }
+
+/* one footer, every page */
+.foot-top {
+  display: flex;
+  gap: 48px;
+  align-items: flex-start;
+  padding-bottom: 34px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.foot-cols {
+  display: flex;
+  gap: 56px;
+  flex: 1;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.foot-col { display: flex; flex-direction: column; gap: 9px; min-width: 130px; }
+.foot-col h4 {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--mute);
+  margin: 0 0 4px;
+}
+.foot-col a { font-size: 14px; color: var(--sand-2); text-decoration: none; }
+.foot-col a:hover { color: var(--spark); }
+
+@media (max-width: 760px) {
+  .foot-top { gap: 28px; }
+  .foot-cols { gap: 28px 40px; justify-content: flex-start; }
+  .foot-col { min-width: 120px; }
+}
+
+/* Feedback sits with the other footer links, not floating over them */
+.foot-feedback {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 14px;
+  color: var(--sand-2);
+  cursor: pointer;
+  text-align: left;
+}
+.foot-feedback:hover { color: var(--spark); }
+
+/* A button in a link row must look like the links beside it. The old footer
+   styled only <a>, so the Feedback button rendered in the body font at full
+   brightness while everything around it was uppercase mono. */
+.foot-links button,
+.foot-links a {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sand-2);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: none;
+}
+.foot-links button:hover,
+.foot-links a:hover { color: var(--spark); }
