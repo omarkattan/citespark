@@ -1365,6 +1365,18 @@ await test('every public page carries the same footer', async () => {
   }
 });
 
+await test('the production line uses the brand green and no decoration', async () => {
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('../src/public/landing.css', import.meta.url), 'utf8');
+  const block = css.slice(css.indexOf('.production {'), css.indexOf('/* ---------- responsive'));
+
+  // It was gold, which belongs to nothing else in the identity, and carried
+  // a decorative rule that read as a stray dash.
+  assert.ok(/\.production a \{ color: var\(--spark\)/.test(block), 'the link is spark green');
+  assert.ok(!/--dune/.test(block), 'nothing here should be gold');
+  assert.ok(!/\.production::before/.test(block), 'no decorative rule before the text');
+});
+
 await test('the floating feedback button steps aside for the footer', async () => {
   const { readFileSync } = await import('node:fs');
   const js = readFileSync(new URL('../src/public/feedback.js', import.meta.url), 'utf8');

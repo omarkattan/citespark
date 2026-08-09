@@ -310,19 +310,9 @@ footer { border-top: 1px solid var(--line); padding: 52px 0 40px; background: va
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--sand-2);
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
 }
-.production a { color: var(--dune); border-bottom: 1px solid transparent; }
-.production a:hover { color: var(--spark); border-bottom-color: var(--spark); text-decoration: none; }
-.production::before {
-  content: '';
-  width: 16px;
-  height: 1px;
-  background: var(--dune);
-  display: inline-block;
-}
+.production a { color: var(--spark); border-bottom: 1px solid transparent; }
+.production a:hover { border-bottom-color: var(--spark); text-decoration: none; }
 
 /* ---------- responsive ---------- */
 
