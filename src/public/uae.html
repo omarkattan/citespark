@@ -34,10 +34,33 @@
       </svg>
       <span class="logo-text">Cit<em>ed</em></span><span class="beta" title="Cited is in beta. Things will change, and your feedback shapes what changes.">beta</span>
     </a>
-    <div class="spacer"></div>
-    <a class="nav-link hide-sm" href="/#try">Check your brand</a>
+        <div class="spacer"></div>
+    <a class="nav-link hide-sm" href="/uae">UAE Index</a>
+    <a class="nav-link hide-sm" href="/mena">MENA Index</a>
+    <a class="nav-link hide-sm" href="/uae/property-developers">Developers</a>
+    <a class="nav-link hide-sm" href="/#how">How it works</a>
     <a class="nav-link hide-sm" href="/#pricing">Pricing</a>
-    <a class="btn" href="/app">Sign in</a>
+    <a class="btn hide-sm" href="/app">Sign in</a>
+
+    <button class="navtoggle" id="navToggle" aria-expanded="false" aria-controls="navMenu" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+
+  <!-- Everything from the header and the footer, so a phone reaches the
+       whole site without scrolling to the bottom of it. -->
+  <div class="navmenu" id="navMenu" hidden>
+    <a href="/#try">Check your brand</a>
+    <a href="/uae">UAE AI Visibility Index</a>
+    <a href="/mena">MENA AI Visibility Index</a>
+    <a href="/uae/property-developers">UAE Property Developers</a>
+    <a href="/#how">How it works</a>
+    <a href="/#actions">What you get</a>
+    <a href="/#pricing">Pricing</a>
+    <a href="/#faqs">FAQs</a>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+    <a class="navmenu-cta" href="/app">Sign in</a>
   </div>
 </nav>
 
@@ -171,5 +194,6 @@
 <script id="indexSchema" type="application/ld+json"></script>
 <script src="/index-page.js"></script>
 <script src="/feedback.js"></script>
+<script src="/nav.js"></script>
 </body>
 </html>

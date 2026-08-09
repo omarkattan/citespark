@@ -1308,6 +1308,29 @@ await test('retries transient failures but not permanent ones', async () => {
   global.fetch = realFetch;
 });
 
+console.log('\nnavigation');
+
+await test('every public page carries the same menu', async () => {
+  const { readFileSync } = await import('node:fs');
+  const pages = ['landing', 'uae', 'mena', 'property-developers', 'privacy', 'terms'];
+
+  for (const f of pages) {
+    const html = readFileSync(new URL(`../src/public/${f}.html`, import.meta.url), 'utf8');
+    assert.ok(html.includes('id="navToggle"'), `${f}.html has no menu control`);
+    assert.ok(html.includes('id="navMenu"'), `${f}.html has no menu`);
+    assert.ok(html.includes('/nav.js'), `${f}.html does not load the menu script`);
+
+    // The point of the change: a phone reaches the indexes without
+    // scrolling to the footer to find them.
+    for (const link of ['/uae', '/mena', '/uae/property-developers', '/privacy', '/terms']) {
+      assert.ok(html.includes(`href="${link}"`), `${f}.html menu is missing ${link}`);
+    }
+    // Accessible by default: closed, labelled, and announcing its state.
+    assert.ok(/id="navMenu" hidden/.test(html), `${f}.html menu must start closed`);
+    assert.ok(/aria-expanded="false"/.test(html), `${f}.html toggle must announce its state`);
+  }
+});
+
 console.log('\ngoogle connection');
 
 await test('each connection asks only for the scope it needs', async () => {

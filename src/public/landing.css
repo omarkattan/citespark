@@ -595,3 +595,77 @@ footer { border-top: 1px solid var(--line); padding: 52px 0 40px; background: va
   text-decoration: none;
 }
 .linklike:hover { color: var(--sand); }
+
+/* ------------------------------------------------------------------
+   Mobile navigation
+   The header wrapped to two rows on a phone because the sign-in button
+   could not fit beside the links. One control now carries everything
+   that was in the header and the footer.
+   ------------------------------------------------------------------ */
+
+.navtoggle {
+  display: none;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: none;
+  cursor: pointer;
+  position: relative;
+}
+.navtoggle span {
+  display: block;
+  position: absolute;
+  left: 11px;
+  width: 18px;
+  height: 1.5px;
+  background: var(--sand);
+  transition: transform .2s ease, opacity .15s ease;
+}
+.navtoggle span:nth-child(1) { top: 14px; }
+.navtoggle span:nth-child(2) { top: 20px; }
+.navtoggle span:nth-child(3) { top: 26px; }
+.navtoggle.is-open span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+.navtoggle.is-open span:nth-child(2) { opacity: 0; }
+.navtoggle.is-open span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+
+.navmenu { display: none; }
+
+@media (max-width: 860px) {
+  .nav-in { gap: 12px; padding: 12px 16px; flex-wrap: nowrap; }
+  .nav-link.hide-sm, .btn.hide-sm { display: none; }
+  .navtoggle { display: block; flex: none; }
+
+  .navmenu {
+    display: block;
+    border-top: 1px solid var(--line);
+    background: var(--deep);
+    padding: 6px 0 14px;
+  }
+  .navmenu[hidden] { display: none; }
+  .navmenu a {
+    display: block;
+    padding: 13px 20px;
+    font-size: 15.5px;
+    color: var(--sand-2);
+    text-decoration: none;
+    border-bottom: 1px solid var(--line-2, rgba(255,255,255,.05));
+  }
+  .navmenu a:last-of-type { border-bottom: none; }
+  .navmenu a:active { background: rgba(255,255,255,.03); }
+  .navmenu .navmenu-cta {
+    margin: 12px 20px 0;
+    padding: 13px 18px;
+    text-align: center;
+    background: var(--spark);
+    color: var(--deeper);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    border-bottom: none;
+  }
+  body.nav-open { overflow: hidden; }
+}
