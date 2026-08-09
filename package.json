@@ -30,7 +30,8 @@
     "study:score": "node scripts/score-study.js",
     "overdue": "node scripts/overdue.js",
     "study:citations": "node scripts/audit-citations.js",
-    "schema": "node scripts/build-schema.js"
+    "schema": "node scripts/build-schema.js",
+    "risc:register": "node scripts/register-risc.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
