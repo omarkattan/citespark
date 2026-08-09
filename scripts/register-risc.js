@@ -18,14 +18,49 @@ const keyPath = args.find((a) => !a.startsWith('--'));
 const statusOnly = args.includes('--status');
 const verifyOnly = args.includes('--verify');
 
-if (!keyPath) {
-  console.error('Usage: npm run risc:register -- /path/to/service-account.json [--status|--verify]');
-  console.error('\nCreate the key in Cloud Console: IAM & Admin > Service Accounts > Create,');
-  console.error('then Keys > Add key > JSON. It must be in the same project as your OAuth client.\n');
+/**
+ * The key can come from an environment variable or a file.
+ *
+ * The variable is the better route: pasting a service account key into a
+ * browser terminal goes through whatever the clipboard picked up, and a key
+ * copied out of a JSON viewer arrives with its braces and quotes replaced by
+ * tabs. Render's environment field takes the text unchanged, and the key
+ * never touches the disk.
+ */
+function loadKey() {
+  const fromEnv = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (fromEnv) {
+    // Also accept a base64 blob, which survives every clipboard.
+    const text = /^\s*{/.test(fromEnv) ? fromEnv : Buffer.from(fromEnv, 'base64').toString('utf8');
+    return { key: JSON.parse(text), source: 'GOOGLE_SERVICE_ACCOUNT_JSON' };
+  }
+  if (keyPath) return { key: JSON.parse(readFileSync(keyPath, 'utf8')), source: keyPath };
+
+  console.error('No service account key found.\n');
+  console.error('Set GOOGLE_SERVICE_ACCOUNT_JSON in Render to the whole contents of the JSON key file,');
+  console.error('then run this again. Alternatively pass a file path:\n');
+  console.error('  npm run risc:register -- /path/to/service-account.json\n');
+  console.error('Create the key in Cloud Console: IAM & Admin > Service Accounts > Create,');
+  console.error('then Keys > Add key > JSON, in the same project as your OAuth client.\n');
   process.exit(1);
 }
 
-const key = JSON.parse(readFileSync(keyPath, 'utf8'));
+const { key, source } = loadKey();
+
+// A key mangled by a clipboard fails later with something unhelpful about
+// signing, so check the shape now and say what is wrong.
+for (const field of ['client_email', 'private_key', 'private_key_id', 'project_id']) {
+  if (!key[field]) {
+    console.error(`The key is missing "${field}".`);
+    console.error('If you copied it from a JSON viewer rather than the raw file, the structure is');
+    console.error('often lost. Open the downloaded file in a plain text editor and copy from there.\n');
+    process.exit(1);
+  }
+}
+if (!key.private_key.includes('BEGIN PRIVATE KEY')) {
+  console.error('The private_key does not look like a PEM block. The key was probably altered in transit.\n');
+  process.exit(1);
+}
 const RECEIVER = `https://${process.env.CANONICAL_HOST || 'cited.ae'}/api/security/risc`;
 const SCOPE = 'https://www.googleapis.com/auth/risc.configuration';
 
@@ -58,7 +93,9 @@ async function call(path, { method = 'GET', body } = {}) {
   return json || {};
 }
 
-console.log(`\nService account: ${key.client_email}`);
+console.log(`\nKey source     : ${source}`);
+console.log(`Service account: ${key.client_email}`);
+console.log(`Cloud project  : ${key.project_id}`);
 console.log(`Receiver       : ${RECEIVER}\n`);
 
 if (statusOnly) {
