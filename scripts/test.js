@@ -1340,6 +1340,70 @@ await test('no headline names a single developer as best cited', async () => {
   assert.ok(/question mix/i.test(js), 'and the caveat must appear on the sources table');
 });
 
+console.log('\ncross-account protection');
+
+await test('only a properly signed Google token is acted upon', async () => {
+  const { generateKeyPairSync, createSign } = await import('node:crypto');
+  process.env.GOOGLE_CLIENT_ID = 'ours.apps.googleusercontent.com';
+
+  const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'k1', alg: 'RS256', use: 'sig' };
+
+  const realFetch = global.fetch;
+  global.fetch = async () => ({ ok: true, json: async () => ({ keys: [jwk] }) });
+  const risc = await import('../src/lib/risc.js?t=1');
+
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const sign = (claims, kid = 'k1') => {
+    const h = b64({ alg: 'RS256', kid, typ: 'secevent+jwt' });
+    const p = b64(claims);
+    const sg = createSign('RSA-SHA256').update(`${h}.${p}`).sign(privateKey).toString('base64url');
+    return `${h}.${p}.${sg}`;
+  };
+
+  const now = Math.floor(Date.now() / 1000);
+  const base = {
+    iss: 'https://accounts.google.com/',
+    aud: 'ours.apps.googleusercontent.com',
+    iat: now,
+    jti: 'j1',
+    events: { 'https://schemas.openid.net/secevent/risc/event-type/tokens-revoked': { subject: { email: 'a@b.com' } } }
+  };
+  const opts = { audience: 'ours.apps.googleusercontent.com' };
+
+  // The endpoint is public, so the signature is the only authentication it
+  // has. Each of these would otherwise let anyone disconnect a customer.
+  await risc.verifyToken(sign(base), opts);
+
+  const rejects = [
+    ['wrong audience', sign({ ...base, aud: 'someone-else' })],
+    ['wrong issuer', sign({ ...base, iss: 'https://evil.example/' })],
+    ['unknown key', sign(base, 'not-a-key')],
+    ['expired', sign({ ...base, exp: now - 600 })],
+    ['not a jwt', 'garbage'],
+    ['tampered', (() => { const t = sign(base).split('.'); t[1] = b64({ ...base, sub: 'attacker' }); return t.join('.'); })()]
+  ];
+  for (const [label, token] of rejects) {
+    await assert.rejects(() => risc.verifyToken(token, opts), `${label} must be rejected`);
+  }
+
+  global.fetch = realFetch;
+});
+
+await test('the events that matter drop the credential', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../src/lib/risc.js', import.meta.url), 'utf8');
+
+  // Losing a working connection is a smaller harm than holding a credential
+  // for an account that has been taken over.
+  for (const e of ['account-disabled', 'account-purged', 'sessions-revoked', 'tokens-revoked']) {
+    assert.ok(src.includes(e), `${e} must be acted upon`);
+  }
+  const applied = src.slice(src.indexOf('export async function applyEvent'), src.indexOf('export async function logEvent'));
+  assert.ok(/ga4_refresh_token = NULL/.test(applied), 'the stored token must be removed');
+  assert.ok(/gsc_site_url = NULL/.test(applied), 'and the Search Console link with it');
+});
+
 console.log('\nstructured data');
 
 await test('the landing page publishes what it actually says', async () => {

@@ -405,3 +405,21 @@ ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS overdue_notified_at  TIMEST
 -- marketing lead. They get a signed link to their own list rather than a
 -- login they do not have.
 CREATE INDEX IF NOT EXISTS recs_assignee ON recommendations (lower(assignee)) WHERE assignee IS NOT NULL;
+
+-- Cross-Account Protection. Every security event Google sends is recorded,
+-- verified or not, so the endpoint can be audited and a flood of rejected
+-- tokens is visible rather than silent.
+CREATE TABLE IF NOT EXISTS security_events (
+  id          SERIAL PRIMARY KEY,
+  verified    BOOLEAN NOT NULL DEFAULT false,
+  jti         TEXT,
+  issued_at   TIMESTAMPTZ,
+  event_types TEXT[] NOT NULL DEFAULT '{}',
+  actions     JSONB NOT NULL DEFAULT '[]',
+  error       TEXT,
+  raw         TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS security_events_recent ON security_events (created_at DESC);
+-- A repeated token must not be acted on twice.
+CREATE UNIQUE INDEX IF NOT EXISTS security_events_jti ON security_events (jti) WHERE jti IS NOT NULL;

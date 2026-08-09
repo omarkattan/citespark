@@ -1148,6 +1148,62 @@ app.post('/api/projects/:id/rebuild', requireAuth, wrap(async (req, res) => {
   res.json({ ok: true, count: recs.length });
 }));
 
+/* ---------------- cross-account protection ---------------- */
+
+/**
+ * Google posts here when one of our users' Google accounts is compromised,
+ * disabled, or has its grants revoked.
+ *
+ * Deliberately unauthenticated: the signature on the token is the
+ * authentication, and anything that does not verify is recorded and
+ * discarded. Always answers 202, because arguing with Google's delivery
+ * retries helps nobody.
+ */
+app.post('/api/security/risc', express.text({ type: '*/*', limit: '256kb' }), wrap(async (req, res) => {
+  const { verifyToken, applyEvent, logEvent } = await import('./lib/risc.js');
+  const raw = typeof req.body === 'string' ? req.body : String(req.body || '');
+
+  let claims = null;
+  try {
+    claims = await verifyToken(raw.trim(), { audience: process.env.GOOGLE_CLIENT_ID });
+  } catch (err) {
+    await logEvent({ verified: false, claims: null, actions: [], error: String(err.message), raw });
+    // 202 even on rejection: a public endpoint should not tell a prober
+    // whether its forgery was close.
+    return res.status(202).end();
+  }
+
+  try {
+    const actions = await applyEvent(claims);
+    await logEvent({ verified: true, claims, actions, raw });
+
+    // A dropped connection is something the customer will notice, so we
+    // should know before they ask.
+    const dropped = actions.filter((a) => /disconnected [1-9]/.test(a.action));
+    if (dropped.length) {
+      const { notify } = await import('./lib/notify.js');
+      notify({
+        kind: 'problem',
+        title: 'Google security event: connections dropped',
+        subject: 'Cited: a Google account event disconnected a customer',
+        lead: 'Google reported a problem with a connected account, so we removed the stored credential. The customer will need to reconnect.',
+        rows: dropped.map((d) => [d.email || 'unknown', d.action])
+      });
+    }
+  } catch (err) {
+    // A duplicate jti means we have already acted on this token.
+    await logEvent({ verified: true, claims, actions: [], error: String(err.message), raw }).catch(() => {});
+  }
+
+  res.status(202).end();
+}));
+
+/** Proof the endpoint is live and what it has seen. */
+app.get('/api/security/risc/status', requireAuth, wrap(async (_req, res) => {
+  const { recentEvents, eventCounts } = await import('./lib/risc.js');
+  res.json({ counts: await eventCounts(), recent: await recentEvents(20) });
+}));
+
 /* ---------------- assigned tasks ---------------- */
 
 /**
@@ -1736,7 +1792,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection']
   });
 });
 
