@@ -1467,6 +1467,27 @@ await test('a persona question shows which buyer type asked it', async () => {
   assert.ok(/data-qfilter/.test(app), 'and the list must be filterable by buyer type');
 });
 
+await test('a persona card shows what it already has', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // The card looked identical whether a buyer type had no questions or
+  // twenty, so the button always read "Add their questions" and the only
+  // feedback was being told it was already done.
+  const route = server.slice(
+    server.indexOf("app.get('/api/projects/:id/personas'"),
+    server.indexOf("app.delete('/api/personas/:personaId/questions")
+  );
+  assert.ok(/JOIN personas pe ON pe\.id = pr\.persona_id/.test(route), 'the questions must come back with the persona');
+
+  const card = app.slice(app.indexOf('function personaCard'), app.indexOf('function loadPersonas'));
+  assert.ok(/Add more questions/.test(card), 'the button must reflect what is already there');
+  assert.ok(/question\$\{qs\.length === 1/.test(card) || /qs\.length/.test(card), 'and the count must be shown');
+  assert.ok(/data-drop-pq/.test(card), 'and one question removable without removing the buyer type');
+  assert.ok(/No questions yet for this buyer type/.test(card), 'and an empty one must say so');
+});
+
 await test('a persona shows its questions before adding them', async () => {
   const { readFileSync } = await import('node:fs');
   const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');

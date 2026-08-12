@@ -1352,3 +1352,14 @@ select { appearance: auto; }
   color: var(--ink-3);
 }
 .paused { color: var(--dune, #a8601b); }
+
+.qrow .qlink { background: none; border: none; padding: 0; cursor: pointer; }
+.qtext .paused {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--dune, #a8601b);
+  margin-left: 6px;
+}

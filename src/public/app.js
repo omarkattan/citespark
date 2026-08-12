@@ -325,18 +325,40 @@ function taskCard(t) {
  */
 function personaCard(p) {
   const conf = p.evidence?.confidence || 'inferred';
+  const qs = p.questions || [];
+
   return `<div class="persona ${p.active ? '' : 'off'}" data-persona="${p.id}">
     <div class="persona-top">
       <span class="pname">${esc(p.name)}</span>
       <span class="tag ${conf === 'evidence' ? 'ok' : ''}" title="${
         conf === 'evidence' ? 'Derived from real search queries' : 'Inferred, not evidenced'
       }">${conf === 'evidence' ? 'from your search data' : 'inferred'}</span>
+      ${qs.length ? `<span class="tag">${qs.length} question${qs.length === 1 ? '' : 's'}</span>` : ''}
       <span class="spacer"></span>
-      <button class="ghost" data-apply-persona="${p.id}">Add their questions</button>
+      <button class="ghost" data-apply-persona="${p.id}">${qs.length ? 'Add more questions' : 'Add their questions'}</button>
       <button class="ghost danger" data-drop-persona="${p.id}">Remove</button>
     </div>
     <p class="pdesc">&ldquo;${esc(p.descriptor)}&rdquo;</p>
     ${p.context ? `<p class="hint" style="margin:6px 0 0">${esc(p.context)}</p>` : ''}
+
+    ${
+      qs.length
+        ? `<details class="qlist" style="margin-top:10px">
+            <summary>The ${qs.length} question${qs.length === 1 ? '' : 's'} they are asking</summary>
+            <div class="qlist-body">
+              ${qs
+                .map(
+                  (q) => `<div class="qrow">
+                    <span class="qhits"></span>
+                    <span class="qtext">${esc(q.text)}${q.active ? '' : ' <i class="paused">paused</i>'}</span>
+                    <button class="qlink" data-drop-pq="${q.id}" data-of-persona="${p.id}">remove</button>
+                  </div>`
+                )
+                .join('')}
+            </div>
+          </details>`
+        : '<p class="hint" style="margin:8px 0 0">No questions yet for this buyer type.</p>'
+    }
   </div>`;
 }
 
@@ -1373,7 +1395,8 @@ document.addEventListener('click', async (e) => {
               <span>${esc(q.text)}</span>
             </label>`
           )
-          .join('') || '<p class="hint" style="margin:0">Every question has already been added for this buyer type.</p>'}
+          .join('') ||
+          '<p class="hint" style="margin:0">Every one of your questions has already been added for this buyer type. Add more questions to the site first, or remove some from the list above.</p>'}
         ${d.questions.length > available.length ? `<p class="hint" style="margin:8px 0 0">${d.questions.length - available.length} already added.</p>` : ''}
         ${available.length ? `<div class="inline-form" style="margin-top:12px">
           <button class="btn" data-confirm-persona="${d.persona.id}">Add selected</button>
@@ -1411,6 +1434,15 @@ document.addEventListener('click', async (e) => {
     await loadPersonas();
     recalcEstimate();
     setupErr('');
+    return;
+  }
+
+  const dropQ = e.target.closest('[data-drop-pq]');
+  if (dropQ) {
+    dropQ.disabled = true;
+    await fetch(`/api/personas/${dropQ.dataset.ofPersona}/questions/${dropQ.dataset.dropPq}`, { method: 'DELETE' });
+    await loadPersonas();
+    recalcEstimate();
     return;
   }
 

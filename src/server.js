@@ -1172,7 +1172,50 @@ app.get('/api/projects/:id/personas', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
   const { listPersonas } = await import('./lib/personas.js');
-  res.json({ personas: await listPersonas(project.id) });
+  const personas = await listPersonas(project.id);
+
+  /**
+   * The questions each buyer type is actually asking.
+   *
+   * Without these the card looks identical whether it has no questions or
+   * twenty, so "Add their questions" reads the same either way and the only
+   * feedback is being told it is already done.
+   */
+  const rows = await many(
+    `SELECT pr.persona_id, pr.id, pr.text, pr.active, pe.descriptor
+     FROM prompts pr JOIN personas pe ON pe.id = pr.persona_id
+     WHERE pr.project_id = $1 ORDER BY pr.id`,
+    [project.id]
+  );
+
+  const byPersona = new Map();
+  for (const r of rows) {
+    if (!byPersona.has(r.persona_id)) byPersona.set(r.persona_id, []);
+    // Stored with the descriptor prefixed, which is unreadable in a list.
+    const prefix = String(r.descriptor || '').replace(/[.]+$/, '');
+    byPersona.get(r.persona_id).push({
+      id: r.id,
+      text: r.text.startsWith(prefix) ? r.text.slice(prefix.length + 2) : r.text,
+      active: r.active
+    });
+  }
+
+  res.json({
+    personas: personas.map((p) => ({ ...p, questions: byPersona.get(p.id) || [] }))
+  });
+}));
+
+/** Remove one question from a buyer type without removing the buyer type. */
+app.delete('/api/personas/:personaId/questions/:promptId', requireAuth, wrap(async (req, res) => {
+  const row = await one(
+    `DELETE FROM prompts pr USING personas pe, projects p
+     WHERE pr.id = $1 AND pr.persona_id = $2 AND pe.id = pr.persona_id
+       AND p.id = pr.project_id AND p.org_id = $3
+     RETURNING pr.id`,
+    [Number(req.params.promptId), Number(req.params.personaId), req.session.orgId]
+  );
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
 }));
 
 /**
@@ -2022,7 +2065,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions']
   });
 });
 
