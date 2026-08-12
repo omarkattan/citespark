@@ -344,6 +344,17 @@ function personaCard(p) {
  * Somebody who knows their own buyers better than a model does should be
  * able to say so, and there needs to be a way forward when suggestion fails.
  */
+/** Keep the cost of the choice in front of the person making it. */
+function updatePqCount(id) {
+  if (!id) return;
+  const el = $(`pqCount-${id}`);
+  if (!el) return;
+  const n = document.querySelectorAll(`[data-preview="${id}"] [data-pq]:checked`).length;
+  el.textContent = n
+    ? `${n} more answer check${n === 1 ? '' : 's'} on every cycle`
+    : 'nothing selected';
+}
+
 function manualPersonaForm() {
   return `<details class="qlist" style="margin-top:14px">
     <summary>Add one yourself</summary>
@@ -1271,7 +1282,7 @@ document.addEventListener('click', async (e) => {
     const name = $('pm_name')?.value.trim();
     const descriptor = $('pm_desc')?.value.trim();
     if (!name || descriptor.length < 15) {
-      err('Give them a name and a sentence describing how they would introduce themselves.');
+      setupErr('Give them a name and a sentence describing how they would introduce themselves.');
       return;
     }
     e.target.disabled = true;
@@ -1294,14 +1305,76 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // Show the questions before adding them. Nobody should agree to something
+  // billable they have not read.
   const applyP = e.target.closest('[data-apply-persona]');
   if (applyP) {
-    if (!confirm('Add this buyer type\'s version of your top 5 questions? That is 5 more questions on every cycle, and it will show on your next bill.')) return;
     applyP.disabled = true;
-    applyP.textContent = 'Adding';
-    const d = await api(`/api/personas/${applyP.dataset.applyPersona}/apply`, { method: 'POST', body: { limit: 5 } });
-    applyP.textContent = d?.added ? `${d.added} added` : 'Already added';
+    applyP.textContent = 'Loading';
+    const d = await api(`/api/personas/${applyP.dataset.applyPersona}/preview`);
+    applyP.disabled = false;
+    applyP.textContent = 'Add their questions';
+    if (!d?.questions?.length) {
+      setupErr('Add some questions to this site first, then a buyer type can be applied to them.');
+      return;
+    }
+
+    const box = document.querySelector(`[data-persona="${d.persona.id}"]`);
+    if (!box) return;
+    const available = d.questions.filter((q) => !q.alreadyAdded);
+
+    box.insertAdjacentHTML(
+      'beforeend',
+      `<div class="pq-preview" data-preview="${d.persona.id}">
+        <p class="hint" style="margin:0 0 10px">
+          These are your questions, asked as <b>${esc(d.persona.name)}</b>. Pick the ones worth measuring twice.
+          Each one adds an answer check on every cycle.
+        </p>
+        ${available
+          .map(
+            (q, i) => `<label class="pq">
+              <input type="checkbox" data-pq="${q.baseId}" ${i < 5 ? 'checked' : ''} />
+              <span>${esc(q.text)}</span>
+            </label>`
+          )
+          .join('') || '<p class="hint" style="margin:0">Every question has already been added for this buyer type.</p>'}
+        ${d.questions.length > available.length ? `<p class="hint" style="margin:8px 0 0">${d.questions.length - available.length} already added.</p>` : ''}
+        ${available.length ? `<div class="inline-form" style="margin-top:12px">
+          <button class="btn" data-confirm-persona="${d.persona.id}">Add selected</button>
+          <button class="ghost" data-cancel-preview="${d.persona.id}">Cancel</button>
+          <span class="hint" id="pqCount-${d.persona.id}"></span>
+        </div>` : ''}
+      </div>`
+    );
+    updatePqCount(d.persona.id);
+    return;
+  }
+
+  if (e.target.matches('[data-pq]')) {
+    updatePqCount(e.target.closest('[data-preview]')?.dataset.preview);
+    return;
+  }
+
+  const cancelPv = e.target.closest('[data-cancel-preview]');
+  if (cancelPv) {
+    document.querySelector(`[data-preview="${cancelPv.dataset.cancelPreview}"]`)?.remove();
+    return;
+  }
+
+  const confirmP = e.target.closest('[data-confirm-persona]');
+  if (confirmP) {
+    const id = confirmP.dataset.confirmPersona;
+    const baseIds = [...document.querySelectorAll(`[data-preview="${id}"] [data-pq]:checked`)].map((c) =>
+      Number(c.dataset.pq)
+    );
+    if (!baseIds.length) { setupErr('Pick at least one question.'); return; }
+    confirmP.disabled = true;
+    confirmP.textContent = 'Adding';
+    const r = await api(`/api/personas/${id}/apply`, { method: 'POST', body: { baseIds } });
+    document.querySelector(`[data-preview="${id}"]`)?.remove();
+    await loadPersonas();
     recalcEstimate();
+    setupErr('');
     return;
   }
 

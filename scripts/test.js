@@ -1434,6 +1434,22 @@ await test('a persona is only called different when the sample supports it', asy
   assert.ok(/not earning its cost/.test(block), 'and say plainly when a persona is useless');
 });
 
+await test('a persona shows its questions before adding them', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Adding billable questions someone has not read is not a reasonable thing
+  // to ask of one click, and the Search Console import already previews.
+  assert.ok(/personas\/:personaId\/preview/.test(server), 'there must be a preview endpoint');
+  assert.ok(/alreadyAdded/.test(server), 'and it must not offer the same question twice');
+
+  // The customer chooses which, rather than taking whatever the top five are.
+  assert.ok(/baseIds/.test(server), 'apply must accept an explicit list');
+  assert.ok(/data-confirm-persona/.test(app), 'and the UI must confirm a chosen set');
+  assert.ok(/more answer check/.test(app), 'with the cost of the choice visible while choosing');
+});
+
 await test('personas are never applied without the customer asking', async () => {
   const { readFileSync } = await import('node:fs');
   const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
@@ -1441,7 +1457,7 @@ await test('personas are never applied without the customer asking', async () =>
 
   // Each persona multiplies the question count and therefore the bill.
   assert.ok(/personas\/:personaId\/apply/.test(server), 'applying must be its own explicit call');
-  assert.ok(/show on your next bill/.test(app), 'and the cost must be stated before they agree');
+  assert.ok(/more answer check/.test(app), 'and the cost must be visible before they agree');
 
   // A suggestion is a guess until someone who knows the business agrees.
   assert.ok(/data-suggested/.test(app), 'suggestions must be chosen, not saved automatically');

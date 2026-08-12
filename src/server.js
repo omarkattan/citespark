@@ -1249,7 +1249,14 @@ app.delete('/api/personas/:personaId', requireAuth, wrap(async (req, res) => {
  * Explicit rather than automatic: each one multiplies the question count and
  * therefore the bill, so the customer chooses and sees the cost first.
  */
-app.post('/api/personas/:personaId/apply', requireAuth, wrap(async (req, res) => {
+/**
+ * Show what would be added before adding it.
+ *
+ * Adding questions someone has not read, to something they are billed for,
+ * is not a reasonable thing to ask of a single click. The Search Console
+ * import already previews; this should have too.
+ */
+app.get('/api/personas/:personaId/preview', requireAuth, wrap(async (req, res) => {
   const persona = await one(
     `SELECT pe.*, p.id AS project_id FROM personas pe JOIN projects p ON p.id = pe.project_id
      WHERE pe.id = $1 AND p.org_id = $2`,
@@ -1259,11 +1266,56 @@ app.post('/api/personas/:personaId/apply', requireAuth, wrap(async (req, res) =>
 
   const { asPersona } = await import('./lib/personas.js');
   const base = await many(
-    `SELECT text, cluster, intent, ai_search_volume FROM prompts
+    `SELECT id, text, cluster, intent, ai_search_volume FROM prompts
      WHERE project_id = $1 AND persona_id IS NULL AND active
-     ORDER BY ai_search_volume DESC NULLS LAST LIMIT $2`,
-    [persona.project_id, Math.min(Number(req.body?.limit) || 5, 15)]
+     ORDER BY ai_search_volume DESC NULLS LAST LIMIT 20`,
+    [persona.project_id]
   );
+
+  // Anything already added should be shown as such rather than offered twice.
+  const existing = new Set(
+    (await many('SELECT text FROM prompts WHERE project_id = $1 AND persona_id = $2', [persona.project_id, persona.id]))
+      .map((r) => r.text)
+  );
+
+  res.json({
+    persona: { id: persona.id, name: persona.name, descriptor: persona.descriptor },
+    questions: base.map((q) => ({
+      baseId: q.id,
+      original: q.text,
+      text: asPersona(q.text, persona),
+      cluster: q.cluster,
+      volume: q.ai_search_volume,
+      alreadyAdded: existing.has(asPersona(q.text, persona))
+    }))
+  });
+}));
+
+app.post('/api/personas/:personaId/apply', requireAuth, wrap(async (req, res) => {
+  const persona = await one(
+    `SELECT pe.*, p.id AS project_id FROM personas pe JOIN projects p ON p.id = pe.project_id
+     WHERE pe.id = $1 AND p.org_id = $2`,
+    [Number(req.params.personaId), req.session.orgId]
+  );
+  if (!persona) return res.status(404).json({ error: 'Not found' });
+
+  const { asPersona } = await import('./lib/personas.js');
+
+  // Explicit ids where the customer has chosen; the old top-N behaviour only
+  // as a fallback.
+  const chosen = Array.isArray(req.body?.baseIds) ? req.body.baseIds.map(Number).filter(Boolean) : null;
+  const base = chosen?.length
+    ? await many(
+        `SELECT text, cluster, intent, ai_search_volume FROM prompts
+         WHERE project_id = $1 AND persona_id IS NULL AND id = ANY($2::int[])`,
+        [persona.project_id, chosen]
+      )
+    : await many(
+        `SELECT text, cluster, intent, ai_search_volume FROM prompts
+         WHERE project_id = $1 AND persona_id IS NULL AND active
+         ORDER BY ai_search_volume DESC NULLS LAST LIMIT $2`,
+        [persona.project_id, Math.min(Number(req.body?.limit) || 5, 15)]
+      );
 
   let added = 0;
   for (const q of base) {
@@ -1952,7 +2004,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview']
   });
 });
 
