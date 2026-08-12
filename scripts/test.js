@@ -1447,6 +1447,38 @@ await test('personas are never applied without the customer asking', async () =>
   assert.ok(/data-suggested/.test(app), 'suggestions must be chosen, not saved automatically');
 });
 
+await test('suggestions are never empty', async () => {
+  process.env.ANTHROPIC_API_KEY = '';
+  const p = await import('../src/lib/personas.js?fb=1');
+  const out = await p.suggestPersonas(
+    { brand_name: 'X', domain: 'x.com', category: 'SEO agency', market: 'AE' },
+    {}
+  );
+
+  // With no key, or a model that returns nothing usable, the panel rendered
+  // empty checkboxes and looked broken. A plain set that says it is generic
+  // is more honest and more useful than nothing.
+  assert.ok(out.length >= 3, 'a fallback set must be offered');
+  for (const x of out) {
+    assert.ok(x.name && x.descriptor.length > 20, 'each needs a name and a descriptor');
+    assert.equal(x.evidence.confidence, 'inferred', 'and must not claim evidence it does not have');
+    assert.equal(x.evidence.fallback, true, 'and must be marked as the fallback');
+  }
+});
+
+await test('the api helper encodes an object body', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const helper = app.slice(app.indexOf('async function api('), app.indexOf('/* ---------- signature element'));
+
+  // Passing a plain object straight to fetch serialises it to
+  // "[object Object]", so the server saw an empty body and the save failed
+  // silently. Every caller passes objects, so the helper must encode them.
+  assert.ok(/JSON\.stringify\(opts\.body\)/.test(helper), 'an object body must be encoded');
+  assert.ok(/'Content-Type': 'application\/json'/.test(helper), 'and the content type set');
+  assert.ok(/FormData/.test(helper), 'without breaking file uploads');
+});
+
 await test('a persona from no evidence is not presented as a finding', async () => {
   const { readFileSync } = await import('node:fs');
   const lib = readFileSync(new URL('../src/lib/personas.js', import.meta.url), 'utf8');

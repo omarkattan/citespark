@@ -37,6 +37,45 @@ Rules:
  * alone is the weakest, and personas from it are marked inferred so nobody
  * mistakes a guess for a finding.
  */
+/**
+ * When the model is unavailable or returns nothing usable, these are offered
+ * instead. Deliberately generic and clearly marked as such: the axes along
+ * which buyers differ (budget, size, urgency, expertise) hold across almost
+ * every category, and a plain fallback is better than an empty panel that
+ * looks broken.
+ */
+function fallbackPersonas(project) {
+  // The category is a noun phrase like "SEO and digital marketing agency",
+  // so these are written to read naturally without it rather than slotting
+  // it awkwardly into the middle of a sentence.
+  return [
+    {
+      name: 'Price-led buyer',
+      descriptor: 'I run a small business and I am watching every dirham, so cost matters more than anything else',
+      context: 'Asks about price first, and tends to be shown cheaper or smaller providers than a neutral question returns.'
+    },
+    {
+      name: 'Enterprise buyer',
+      descriptor: 'I am buying on behalf of a large organisation and I need proven scale, references and compliance',
+      context: 'Asks about track record and process, and tends to be shown established names rather than boutiques.'
+    },
+    {
+      name: 'First-time buyer',
+      descriptor: 'I have never bought anything like this before and I am not sure what I should be asking',
+      context: 'Asks how to choose rather than who to choose, so answers often name guides rather than companies.'
+    },
+    {
+      name: 'Urgent buyer',
+      descriptor: 'I need this sorted within the month, not next quarter',
+      context: 'Time pressure changes which providers are recommended, favouring availability over fit.'
+    }
+  ].map((p) => ({
+    ...p,
+    source: 'suggested',
+    evidence: { from: 'a standard set, not your data', confidence: 'inferred', fallback: true }
+  }));
+}
+
 export async function suggestPersonas(project, { gscQueries = [], pageText = '' } = {}) {
   const evidence = [];
 
@@ -55,11 +94,21 @@ ${evidence.length ? evidence.join('\n\n') : 'No search or site evidence availabl
 
 Identify the buyer types whose questions would produce different answers.`;
 
-  const raw = await complete(ask, { system: SYSTEM, maxTokens: 1600 });
-  const parsed = parseJsonArray(raw) || [];
+  let parsed = [];
+  try {
+    const raw = await complete(ask, { system: SYSTEM, maxTokens: 1600 });
+    parsed = parseJsonArray(raw) || [];
+  } catch (err) {
+    console.warn(`persona suggestion failed, falling back: ${err.message}`);
+  }
 
-  return parsed
-    .filter((p) => p?.name && p?.descriptor && p.descriptor.length > 15)
+  const usable = parsed.filter((p) => p?.name && p?.descriptor && p.descriptor.length > 15);
+
+  // An empty panel reads as a broken feature. Offering a plain set that is
+  // labelled as generic is more honest and more useful than nothing.
+  if (!usable.length) return fallbackPersonas(project);
+
+  return usable
     .slice(0, 5)
     .map((p) => ({
       name: String(p.name).trim().slice(0, 60),

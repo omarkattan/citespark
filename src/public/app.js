@@ -8,8 +8,20 @@ const esc = (s) =>
 
 const pct = (n) => `${Math.round((n || 0) * 100)}%`;
 
-async function api(path, options) {
-  const res = await fetch(path, options);
+/**
+ * Every call goes through here.
+ *
+ * A plain object passed as `body` serialises to "[object Object]" and the
+ * server sees an empty request, which fails silently rather than loudly.
+ * Accepting an object and encoding it here removes the trap.
+ */
+async function api(path, options = {}) {
+  const opts = { ...options };
+  if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
+    opts.body = JSON.stringify(opts.body);
+    opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  }
+  const res = await fetch(path, opts);
   if (res.status === 401) { window.location.href = '/login'; return null; }
   return res.json();
 }
@@ -328,6 +340,28 @@ function personaCard(p) {
   </div>`;
 }
 
+/**
+ * Somebody who knows their own buyers better than a model does should be
+ * able to say so, and there needs to be a way forward when suggestion fails.
+ */
+function manualPersonaForm() {
+  return `<details class="qlist" style="margin-top:14px">
+    <summary>Add one yourself</summary>
+    <div class="field" style="margin-top:10px">
+      <label for="pm_name">What to call them</label>
+      <input id="pm_name" placeholder="Price-led SME" />
+    </div>
+    <div class="field">
+      <label for="pm_desc">How they would describe themselves</label>
+      <input id="pm_desc" placeholder="I run a five-person agency and I am watching every dirham" />
+      <span class="hint" style="display:block;margin-top:5px">
+        First person, as they would say it. This gets put in front of your questions.
+      </span>
+    </div>
+    <button class="ghost" id="addPersonaManual">Add buyer type</button>
+  </details>`;
+}
+
 async function loadPersonas() {
   const box = $('personaList');
   if (!box) return;
@@ -337,7 +371,7 @@ async function loadPersonas() {
   const lift = await api(`/api/projects/${state.projectId}/personas/lift`).catch(() => null);
   const byId = new Map((lift?.lift || []).map((l) => [l.personaId, l]));
 
-  box.innerHTML = rows.length
+  box.innerHTML = (rows.length
     ? rows
         .map((p) => {
           const l = byId.get(p.id);
@@ -350,7 +384,8 @@ async function loadPersonas() {
           return personaCard(p) + verdict;
         })
         .join('')
-    : '<p class="hint" style="margin:0">No buyer types yet. Suggest some, and we will use your Search Console data if it is connected.</p>';
+    : '<p class="hint" style="margin:0">No buyer types yet. Suggest some, and we will use your Search Console data if it is connected.</p>') +
+    manualPersonaForm();
 }
 
 async function viewAssigned() {
@@ -1201,7 +1236,12 @@ document.addEventListener('click', async (e) => {
     const d = await api(`/api/projects/${state.projectId}/personas/suggest`, { method: 'POST' });
     btn.disabled = false;
     btn.textContent = 'Suggest buyer types';
-    if (!d?.personas?.length) return;
+    if (!d?.personas?.length) {
+      $('personaList').innerHTML =
+        '<p class="hint" style="margin:0">Could not suggest buyer types just now. Try again in a moment, or add one yourself below.</p>' +
+        manualPersonaForm();
+      return;
+    }
 
     // Shown for approval rather than saved: a suggested persona is a guess
     // until someone who knows the business agrees with it.
@@ -1221,8 +1261,25 @@ document.addEventListener('click', async (e) => {
         .join('') +
       `<div class="inline-form" style="margin-top:12px">
          <button class="btn" id="savePersonas">Save selected</button>
-       </div>`;
+       </div>` +
+      manualPersonaForm();
     window.__suggestedPersonas = d.personas;
+    return;
+  }
+
+  if (e.target.id === 'addPersonaManual') {
+    const name = $('pm_name')?.value.trim();
+    const descriptor = $('pm_desc')?.value.trim();
+    if (!name || descriptor.length < 15) {
+      err('Give them a name and a sentence describing how they would introduce themselves.');
+      return;
+    }
+    e.target.disabled = true;
+    await api(`/api/projects/${state.projectId}/personas`, {
+      method: 'POST',
+      body: { personas: [{ name, descriptor, source: 'manual', evidence: { from: 'you', confidence: 'stated' } }] }
+    });
+    await loadPersonas();
     return;
   }
 
