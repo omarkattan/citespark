@@ -762,3 +762,12 @@ footer { border-top: 1px solid var(--line); padding: 52px 0 40px; background: va
   .pd-row { grid-template-columns: minmax(0, 1fr) 46px; row-gap: 8px; }
   .pd-bar { grid-column: 1 / -1; }
 }
+
+/* Cited is an unregistered mark, so it carries TM rather than R. */
+.wordmark-tm {
+  font-size: 0.36em;
+  vertical-align: super;
+  letter-spacing: 0;
+  margin-left: 1px;
+  opacity: .75;
+}

@@ -1680,6 +1680,25 @@ await test('both indexes describe themselves as datasets', async () => {
 
 console.log('\nnavigation');
 
+await test('Cited claims no registration it does not have', async () => {
+  const { readFileSync } = await import('node:fs');
+  const pages = ['landing', 'uae', 'mena', 'property-developers', 'privacy', 'terms'];
+
+  for (const f of pages) {
+    const html = readFileSync(new URL(`../src/public/${f}.html`, import.meta.url), 'utf8');
+
+    // R asserts a registered trademark. Sandstorm Digital is registered and
+    // keeps it; Cited is not, and claiming registration it does not have is
+    // an offence in several jurisdictions and something a competitor could
+    // raise.
+    for (const m of html.matchAll(/Cit(ed)?[^<]{0,40}(&reg;|\u00ae)/gi)) {
+      assert.fail(`${f}.html asserts registration for Cited: ${m[0]}`);
+    }
+    assert.ok(/Sandstorm Digital&reg;/.test(html), `${f}.html should keep the registered mark that is registered`);
+    assert.ok(/wordmark-tm/.test(html), `${f}.html should mark Cited as an unregistered mark`);
+  }
+});
+
 await test('every public page carries the same footer', async () => {
   const { readFileSync } = await import('node:fs');
   const pages = ['landing', 'uae', 'mena', 'property-developers', 'privacy', 'terms'];
