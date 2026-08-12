@@ -726,3 +726,39 @@ footer { border-top: 1px solid var(--line); padding: 52px 0 40px; background: va
 }
 .foot-links button:hover,
 .foot-links a:hover { color: var(--spark); }
+
+/* who is asking */
+.persona-demo {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--deep);
+  padding: 26px 28px;
+}
+.pd-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 52px;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line-2, rgba(255,255,255,.05));
+}
+.pd-row:last-of-type { border-bottom: none; }
+.pd-who { font-size: 14px; line-height: 1.5; color: var(--sand-2); }
+.pd-row.down .pd-who { color: var(--sand); }
+.pd-bar { display: block; height: 10px; background: var(--deeper); border-radius: 2px; overflow: hidden; }
+.pd-bar span { display: block; height: 100%; background: var(--spark); border-radius: 2px; }
+.pd-row.down .pd-bar span { background: var(--alert); }
+.pd-val { font-family: var(--serif); font-size: 26px; text-align: right; color: var(--spark); }
+.pd-row.down .pd-val { color: var(--alert); }
+.pd-note {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--mute);
+  margin: 18px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 620px) {
+  .pd-row { grid-template-columns: minmax(0, 1fr) 46px; row-gap: 8px; }
+  .pd-bar { grid-column: 1 / -1; }
+}

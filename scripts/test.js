@@ -1466,18 +1466,21 @@ await test('suggestions are never empty', async () => {
   }
 });
 
-await test('a checkbox in a flex row cannot swallow the row', async () => {
+await test('the persona row uses a stated grid, not flex', async () => {
   const { readFileSync } = await import('node:fs');
   const css = readFileSync(new URL('../src/public/styles.css', import.meta.url), 'utf8');
   const block = css.slice(css.indexOf('.persona.choose {'), css.indexOf('.plift {'));
 
-  // A checkbox with no stated width stretches to fill its flex line. This
-  // one grew to 516px and squeezed the persona text into 64px beside it,
-  // which read as a blank box covering the content. flex:none is not enough.
-  assert.ok(/flex: 0 0 18px/.test(block), 'the checkbox must have a fixed basis');
-  assert.ok(/min-width: 18px/.test(block), 'and a floor, since flex can shrink it');
-  assert.ok(/min-height: 18px/.test(block), 'and one for height, or the mobile input rule inflates it');
-  assert.ok(/min-width: 0/.test(block), 'and the text column must be allowed to shrink');
+  // Flex lost this twice: first the checkbox stretched to fill the row, then
+  // the text column was pushed outside the panel and wrapped two words per
+  // line. A stated grid cannot be pushed around by the surrounding layout.
+  assert.ok(/display: grid/.test(block), 'the row must be a grid');
+  assert.ok(/grid-template-columns: 18px minmax\(0, 1fr\)/.test(block), 'a fixed control column and a flexible text column');
+  assert.ok(!/display: flex/.test(block), 'flex has failed here twice');
+
+  // The control must not be able to grow, whatever else applies to inputs.
+  assert.ok(/min-width: 18px/.test(block) && /min-height: 18px/.test(block), 'the checkbox needs floors');
+  assert.ok(/overflow-wrap: anywhere/.test(block), 'a long unbroken word must not widen the column');
 });
 
 await test('the api helper encodes an object body', async () => {
@@ -1559,6 +1562,27 @@ await test('the landing page publishes what it actually says', async () => {
   for (const o of offers.offers) {
     assert.ok(html.includes(`data-m="${o.price}"`), `${o.name} at $${o.price} is not the price on the page`);
   }
+});
+
+await test('the homepage explains buyer types and the FAQ backs it', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../src/public/landing.html', import.meta.url), 'utf8');
+
+  assert.ok(html.includes('id="who-asks"'), 'the section must exist');
+  assert.ok(/Search Console/.test(html.slice(html.indexOf('id="who-asks"'), html.indexOf('id="how"'))),
+    'and say where the buyer types come from, since a made-up persona is not a feature');
+
+  // The claim that a useless persona is called out is the honest half of
+  // this, and the FAQ has to carry it or the page is only selling the good bit.
+  const faq = html.slice(html.indexOf('id="faqs"'));
+  assert.ok(/different types of buyer/i.test(faq), 'the FAQ must cover it');
+  assert.ok(/tell you to remove it|changes nothing/i.test(faq), 'including when a buyer type is not worth keeping');
+
+  // And it must reach the structured data, or it is invisible to the engines
+  // this product measures.
+  const graph = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1])['@graph'];
+  const page = graph.find((n) => n['@type'] === 'FAQPage');
+  assert.ok(page.mainEntity.some((q) => /buyer/i.test(q.name)), 'the buyer question must be in the FAQ markup');
 });
 
 await test('the legal pages are not left bare', async () => {
