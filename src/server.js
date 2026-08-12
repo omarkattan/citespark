@@ -1148,6 +1148,147 @@ app.post('/api/projects/:id/rebuild', requireAuth, wrap(async (req, res) => {
   res.json({ ok: true, count: recs.length });
 }));
 
+/* ---------------- buyer personas ---------------- */
+
+app.get('/api/projects/:id/personas', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  const { listPersonas } = await import('./lib/personas.js');
+  res.json({ personas: await listPersonas(project.id) });
+}));
+
+/**
+ * Suggest personas from whatever evidence exists. Search Console first,
+ * because those are questions real people typed on their way here.
+ */
+app.post('/api/projects/:id/personas/suggest', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+
+  const { suggestPersonas } = await import('./lib/personas.js');
+
+  let gscQueries = [];
+  try {
+    if (project.gsc_site_url && project.ga4_refresh_token) {
+      const { fetchQueries } = await import('./lib/gsc.js');
+      gscQueries = await fetchQueries(project, { days: 90, limit: 200 });
+    }
+  } catch {
+    // Personas are still worth suggesting without it; they are just weaker.
+  }
+
+  let pageText = '';
+  try {
+    const { fetchPage } = await import('./lib/discover.js');
+    const page = await fetchPage(`https://${project.domain}`);
+    pageText = page?.text || '';
+  } catch {
+    /* the site may be unreachable */
+  }
+
+  const personas = await suggestPersonas(project, { gscQueries, pageText });
+  res.json({
+    personas,
+    evidence: {
+      searchConsole: gscQueries.length,
+      site: Boolean(pageText),
+      // Said plainly, because a persona from a category name is a guess and
+      // the customer should know which of these they are looking at.
+      note: gscQueries.length
+        ? `Derived from ${gscQueries.length} real search queries.`
+        : pageText
+          ? 'Derived from your site, since Search Console is not connected. Connecting it makes these considerably better.'
+          : 'Derived from your category alone. These are guesses until Search Console is connected.'
+    }
+  });
+}));
+
+app.post('/api/projects/:id/personas', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  const { savePersona } = await import('./lib/personas.js');
+
+  const chosen = Array.isArray(req.body?.personas) ? req.body.personas : [];
+  if (!chosen.length) return res.status(400).json({ error: 'Nothing to save' });
+
+  const saved = [];
+  for (const p of chosen.slice(0, 6)) {
+    if (!p?.name || !p?.descriptor) continue;
+    saved.push(await savePersona(project.id, p));
+  }
+  res.json({ saved: saved.length, personas: saved });
+}));
+
+app.patch('/api/personas/:personaId', requireAuth, wrap(async (req, res) => {
+  const row = await one(
+    `UPDATE personas pe SET
+       active = COALESCE($3, pe.active),
+       descriptor = COALESCE(NULLIF($4,''), pe.descriptor)
+     FROM projects p
+     WHERE pe.id = $1 AND p.id = pe.project_id AND p.org_id = $2
+     RETURNING pe.*`,
+    [Number(req.params.personaId), req.session.orgId, req.body?.active ?? null, req.body?.descriptor ?? '']
+  );
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  res.json(row);
+}));
+
+app.delete('/api/personas/:personaId', requireAuth, wrap(async (req, res) => {
+  const row = await one(
+    `DELETE FROM personas pe USING projects p
+     WHERE pe.id = $1 AND p.id = pe.project_id AND p.org_id = $2 RETURNING pe.id`,
+    [Number(req.params.personaId), req.session.orgId]
+  );
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
+}));
+
+/**
+ * Add a persona's version of the questions already being tracked.
+ *
+ * Explicit rather than automatic: each one multiplies the question count and
+ * therefore the bill, so the customer chooses and sees the cost first.
+ */
+app.post('/api/personas/:personaId/apply', requireAuth, wrap(async (req, res) => {
+  const persona = await one(
+    `SELECT pe.*, p.id AS project_id FROM personas pe JOIN projects p ON p.id = pe.project_id
+     WHERE pe.id = $1 AND p.org_id = $2`,
+    [Number(req.params.personaId), req.session.orgId]
+  );
+  if (!persona) return res.status(404).json({ error: 'Not found' });
+
+  const { asPersona } = await import('./lib/personas.js');
+  const base = await many(
+    `SELECT text, cluster, intent, ai_search_volume FROM prompts
+     WHERE project_id = $1 AND persona_id IS NULL AND active
+     ORDER BY ai_search_volume DESC NULLS LAST LIMIT $2`,
+    [persona.project_id, Math.min(Number(req.body?.limit) || 5, 15)]
+  );
+
+  let added = 0;
+  for (const q of base) {
+    const r = await query(
+      `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume, source, persona_id, active)
+       VALUES ($1,$2,$3,$4,$5,'persona',$6,true)
+       ON CONFLICT (project_id, text) DO NOTHING`,
+      [persona.project_id, asPersona(q.text, persona), q.cluster, q.intent, q.ai_search_volume, persona.id]
+    );
+    added += r.rowCount;
+  }
+
+  res.json({ added, persona: persona.name });
+}));
+
+/** Whether each persona is actually changing the answer. */
+app.get('/api/projects/:id/personas/lift', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  const { personaLift } = await import('./lib/personas.js');
+  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1', [project.id]))?.d;
+  if (!cycle) return res.json({ lift: [], note: 'Nothing measured yet.' });
+  res.json({ lift: await personaLift(project.id, cycle), cycle });
+}));
+
 /* ---------------- cross-account protection ---------------- */
 
 /**
@@ -1811,7 +1952,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas']
   });
 });
 

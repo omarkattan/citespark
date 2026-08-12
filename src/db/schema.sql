@@ -423,3 +423,22 @@ CREATE TABLE IF NOT EXISTS security_events (
 CREATE INDEX IF NOT EXISTS security_events_recent ON security_events (created_at DESC);
 -- A repeated token must not be acted on twice.
 CREATE UNIQUE INDEX IF NOT EXISTS security_events_jti ON security_events (jti) WHERE jti IS NOT NULL;
+
+-- Buyer personas. The same category question gets a different answer
+-- depending on who is asking, so visibility is measured per persona rather
+-- than as one number for the whole business.
+CREATE TABLE IF NOT EXISTS personas (
+  id          SERIAL PRIMARY KEY,
+  project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  descriptor  TEXT NOT NULL,          -- the clause prefixed to a question
+  context     TEXT,                   -- why this persona exists, for the reader
+  evidence    JSONB NOT NULL DEFAULT '{}',
+  source      TEXT NOT NULL DEFAULT 'suggested',  -- suggested | search-console | manual
+  active      BOOLEAN NOT NULL DEFAULT true,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (project_id, name)
+);
+
+ALTER TABLE prompts ADD COLUMN IF NOT EXISTS persona_id INTEGER REFERENCES personas(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS prompts_persona ON prompts (persona_id) WHERE persona_id IS NOT NULL;

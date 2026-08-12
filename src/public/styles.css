@@ -1244,3 +1244,27 @@ select { appearance: auto; }
   .frow { grid-template-columns: 1fr auto; row-gap: 2px; padding: 8px 11px; }
   .fengine { grid-column: 1 / -1; }
 }
+
+/* buyer personas */
+.persona { padding: 14px 0; border-bottom: 1px solid var(--line-2); }
+.persona:last-of-type { border-bottom: none; }
+.persona.off { opacity: .5; }
+.persona-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pname { font-size: 15px; font-weight: 500; color: var(--ink); }
+.pdesc { font-size: 14px; line-height: 1.55; color: var(--ink-2); margin: 7px 0 0; font-style: italic; }
+.persona .tag.ok { border-color: var(--you); color: var(--you); }
+.persona.choose { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
+.persona.choose input { margin-top: 4px; flex: none; }
+.persona.choose span { display: block; }
+.persona.choose .pdesc { margin-top: 4px; }
+.plift {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  background: var(--line-2);
+  color: var(--ink-2);
+}
+.plift.good { border-left: 2px solid var(--you); }
+.plift.flat { border-left: 2px solid var(--ink-3); color: var(--ink-3); }

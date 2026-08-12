@@ -1404,6 +1404,83 @@ await test('the events that matter drop the credential', async () => {
   assert.ok(/gsc_site_url = NULL/.test(applied), 'and the Search Console link with it');
 });
 
+console.log('\nbuyer personas');
+
+const pers = await import('../src/lib/personas.js');
+
+await test('a persona prefixes the question rather than rewriting it', () => {
+  const persona = { name: 'Price-led SME', descriptor: 'I run a five-person agency and I am watching every dirham.' };
+  const q = 'Which SEO agencies are worth considering in the UAE?';
+  const out = pers.asPersona(q, persona);
+
+  // The measured question must stay comparable to the neutral one, or a
+  // difference in the answer cannot be attributed to the persona rather
+  // than to different wording.
+  assert.ok(out.endsWith(q), 'the original question must survive intact');
+  assert.ok(out.startsWith('I run a five-person agency'));
+  assert.ok(!/\.\./.test(out), 'no doubled full stop where the descriptor already ended in one');
+});
+
+await test('a persona is only called different when the sample supports it', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../src/lib/personas.js', import.meta.url), 'utf8');
+  const block = src.slice(src.indexOf('export async function personaLift'));
+
+  // These models are not deterministic, so two identical question sets
+  // differ by chance. A fixed threshold called eight runs of pure noise a
+  // finding, which is the failure this guards against.
+  assert.ok(/Math\.sqrt\(runs\)/.test(block), 'the threshold must scale with the sample');
+  assert.ok(/too few answers to tell yet/.test(block), 'and say so when the sample is too small');
+  assert.ok(/not earning its cost/.test(block), 'and say plainly when a persona is useless');
+});
+
+await test('personas are never applied without the customer asking', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Each persona multiplies the question count and therefore the bill.
+  assert.ok(/personas\/:personaId\/apply/.test(server), 'applying must be its own explicit call');
+  assert.ok(/show on your next bill/.test(app), 'and the cost must be stated before they agree');
+
+  // A suggestion is a guess until someone who knows the business agrees.
+  assert.ok(/data-suggested/.test(app), 'suggestions must be chosen, not saved automatically');
+});
+
+await test('a persona from no evidence is not presented as a finding', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/personas.js', import.meta.url), 'utf8');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+
+  assert.ok(/confidence: gscQueries\.length \|\| pageText \? p\.confidence \|\| 'inferred' : 'inferred'/.test(lib),
+    'without evidence nothing can be evidence-backed, whatever the model claims');
+  assert.ok(/These are guesses until Search Console is connected/.test(server),
+    'and the customer must be told which they are looking at');
+});
+
+console.log('\nposter');
+
+await test('a poster cannot be drawn from thin or absent data', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../scripts/poster.js', import.meta.url), 'utf8');
+
+  // A shareable image outlives the page it came from, so it must not be
+  // possible to produce one from two data points or from nothing.
+  assert.ok(/ranked\.length < 3/.test(src), 'it must refuse fewer than three measured brands');
+  assert.ok(/No stored data/.test(src), 'and refuse when the sector was never measured');
+
+  // Logos are trademarks; a colour is not protectable in this use. Check the
+  // template rather than the file, so the comment explaining this does not
+  // trip its own test.
+  const template = src.slice(src.indexOf('const html = `'), src.indexOf('mkdirSync'));
+  assert.ok(!/<img/i.test(template), 'no third-party images in the poster');
+  assert.ok(/BRAND\[r\.domain\]|r\.colour/.test(src), 'brands are shown by colour');
+
+  // The method has to travel with the number.
+  assert.ok(/Method\./.test(src));
+  assert.ok(/Not a measure of market\s+share/.test(src), 'and say what it is not');
+});
+
 console.log('\nstructured data');
 
 await test('the landing page publishes what it actually says', async () => {

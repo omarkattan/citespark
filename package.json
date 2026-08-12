@@ -31,7 +31,8 @@
     "overdue": "node scripts/overdue.js",
     "study:citations": "node scripts/audit-citations.js",
     "schema": "node scripts/build-schema.js",
-    "risc:register": "node scripts/register-risc.js"
+    "risc:register": "node scripts/register-risc.js",
+    "poster": "node scripts/poster.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

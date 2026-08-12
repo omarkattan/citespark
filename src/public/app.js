@@ -304,6 +304,55 @@ function taskCard(t) {
  * cannot answer "what has Sara got on", which is the question an agency
  * actually asks on a Monday.
  */
+/**
+ * Buyer personas in Setup.
+ *
+ * Each persona multiplies the question count and therefore the bill, so
+ * nothing is applied automatically: the customer picks, and sees the cost
+ * before agreeing to it.
+ */
+function personaCard(p) {
+  const conf = p.evidence?.confidence || 'inferred';
+  return `<div class="persona ${p.active ? '' : 'off'}" data-persona="${p.id}">
+    <div class="persona-top">
+      <span class="pname">${esc(p.name)}</span>
+      <span class="tag ${conf === 'evidence' ? 'ok' : ''}" title="${
+        conf === 'evidence' ? 'Derived from real search queries' : 'Inferred, not evidenced'
+      }">${conf === 'evidence' ? 'from your search data' : 'inferred'}</span>
+      <span class="spacer"></span>
+      <button class="ghost" data-apply-persona="${p.id}">Add their questions</button>
+      <button class="ghost danger" data-drop-persona="${p.id}">Remove</button>
+    </div>
+    <p class="pdesc">&ldquo;${esc(p.descriptor)}&rdquo;</p>
+    ${p.context ? `<p class="hint" style="margin:6px 0 0">${esc(p.context)}</p>` : ''}
+  </div>`;
+}
+
+async function loadPersonas() {
+  const box = $('personaList');
+  if (!box) return;
+  const d = await api(`/api/projects/${state.projectId}/personas`);
+  const rows = d?.personas || [];
+
+  const lift = await api(`/api/projects/${state.projectId}/personas/lift`).catch(() => null);
+  const byId = new Map((lift?.lift || []).map((l) => [l.personaId, l]));
+
+  box.innerHTML = rows.length
+    ? rows
+        .map((p) => {
+          const l = byId.get(p.id);
+          // Whether it is earning its cost, said plainly.
+          const verdict = l
+            ? `<p class="plift ${l.differentBrands.length || l.missingBrands.length ? 'good' : 'flat'}">${esc(l.verdict)}${
+                l.differentBrands.length ? `. They see: ${l.differentBrands.slice(0, 4).map(esc).join(', ')}` : ''
+              }${l.missingBrands.length ? `. They do not see: ${l.missingBrands.slice(0, 4).map(esc).join(', ')}` : ''}</p>`
+            : '';
+          return personaCard(p) + verdict;
+        })
+        .join('')
+    : '<p class="hint" style="margin:0">No buyer types yet. Suggest some, and we will use your Search Console data if it is connected.</p>';
+}
+
 async function viewAssigned() {
   const data = await api('/api/assigned');
   if (!data) return '<div class="empty"><h2>Could not load assignments</h2></div>';
@@ -710,7 +759,7 @@ async function render() {
     trends: viewTrends, landscape: viewLandscape
   }[view];
   $('view').innerHTML = await fn();
-  if (view === 'setup') recalcEstimate();
+  if (view === 'setup') { recalcEstimate(); loadPersonas(); }
   if (view === 'traffic' && $('ga4Props')) loadGa4Properties();
   if (view === 'actions' && state.people?.length) {
     const dl = document.createElement('datalist');
@@ -1145,6 +1194,68 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('click', async (e) => {
+  if (e.target.id === 'suggestPersonas') {
+    const btn = e.target;
+    btn.disabled = true;
+    btn.textContent = 'Reading your data';
+    const d = await api(`/api/projects/${state.projectId}/personas/suggest`, { method: 'POST' });
+    btn.disabled = false;
+    btn.textContent = 'Suggest buyer types';
+    if (!d?.personas?.length) return;
+
+    // Shown for approval rather than saved: a suggested persona is a guess
+    // until someone who knows the business agrees with it.
+    $('personaList').innerHTML =
+      `<p class="hint" style="margin:0 0 12px">${esc(d.evidence.note)} Pick the ones that match how people actually buy from you.</p>` +
+      d.personas
+        .map(
+          (p, i) => `<label class="persona choose">
+            <input type="checkbox" data-suggested="${i}" checked />
+            <span>
+              <span class="pname">${esc(p.name)}</span>
+              <span class="pdesc">&ldquo;${esc(p.descriptor)}&rdquo;</span>
+              ${p.context ? `<span class="hint">${esc(p.context)}</span>` : ''}
+            </span>
+          </label>`
+        )
+        .join('') +
+      `<div class="inline-form" style="margin-top:12px">
+         <button class="btn" id="savePersonas">Save selected</button>
+       </div>`;
+    window.__suggestedPersonas = d.personas;
+    return;
+  }
+
+  if (e.target.id === 'savePersonas') {
+    const chosen = [...document.querySelectorAll('[data-suggested]:checked')].map(
+      (c) => window.__suggestedPersonas[Number(c.dataset.suggested)]
+    );
+    if (!chosen.length) return;
+    e.target.disabled = true;
+    await api(`/api/projects/${state.projectId}/personas`, { method: 'POST', body: { personas: chosen } });
+    await loadPersonas();
+    return;
+  }
+
+  const applyP = e.target.closest('[data-apply-persona]');
+  if (applyP) {
+    if (!confirm('Add this buyer type\'s version of your top 5 questions? That is 5 more questions on every cycle, and it will show on your next bill.')) return;
+    applyP.disabled = true;
+    applyP.textContent = 'Adding';
+    const d = await api(`/api/personas/${applyP.dataset.applyPersona}/apply`, { method: 'POST', body: { limit: 5 } });
+    applyP.textContent = d?.added ? `${d.added} added` : 'Already added';
+    recalcEstimate();
+    return;
+  }
+
+  const dropP = e.target.closest('[data-drop-persona]');
+  if (dropP) {
+    if (!confirm('Remove this buyer type? Questions already asked as them stay in your history.')) return;
+    await fetch(`/api/personas/${dropP.dataset.dropPersona}`, { method: 'DELETE' });
+    await loadPersonas();
+    return;
+  }
+
   const copy = e.target.closest('[data-copy-link]');
   if (copy) {
     const r = await api(`/api/assigned/${encodeURIComponent(copy.dataset.copyLink)}/link`);
@@ -1469,6 +1580,19 @@ async function viewSetup() {
     </div>
 
     <div>
+    <div class="panel" id="personaPanel">
+      <div class="panel-head">
+        <h2>Who is asking</h2>
+        <div class="spacer"></div>
+        <button class="ghost" id="suggestPersonas">Suggest buyer types</button>
+      </div>
+      <p class="hint">
+        The same question gets a different answer depending on who asks it. A price-led buyer and an enterprise
+        buyer are shown different companies. One number for both hides which of them cannot see you.
+      </p>
+      <div id="personaList"></div>
+    </div>
+
     <div class="panel" id="gscPanel">
       <div class="panel-head">
         <h2>From Search Console</h2>

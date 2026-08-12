@@ -15,6 +15,17 @@ const args = process.argv.slice(2);
 const kind = args.find((a) => Number.isNaN(Number(a)));
 const limit = Number(args.find((a) => !Number.isNaN(Number(a)))) || 50;
 
+/**
+ * Security events live in their own table because they arrive unauthenticated
+ * and are kept whether or not they verify. Nobody reading a log should have to
+ * know that, so they are shown here too.
+ */
+const security = await many(
+  `SELECT id, verified, event_types, actions, error, created_at
+   FROM security_events ORDER BY created_at DESC LIMIT $1`,
+  [Math.min(limit, 20)]
+).catch(() => []);
+
 const rows = await many(
   `SELECT id, kind, title, detail, emailed, email_error, created_at
    FROM notifications ${kind ? 'WHERE kind = $1' : ''}
@@ -36,5 +47,24 @@ if (!rows.length) {
 
   const failed = rows.filter((r) => r.email_error).length;
   if (failed) console.log(`\n${failed} email(s) failed to send. The events themselves are safe here.`);
+}
+
+if (security.length) {
+  console.log(`\nGoogle security events (${security.length})\n`);
+  for (const s of security) {
+    const when = new Date(s.created_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' });
+    const types = (s.event_types || []).map((t) => t.split('/').pop()).join(', ') || 'unreadable';
+    console.log(`  ${when}  ${s.verified ? 'verified' : 'REJECTED'}  ${types}`);
+    for (const a of s.actions || []) console.log(`     ${a.action}${a.email ? ` (${a.email})` : ''}`);
+    if (s.error) console.log(`     ${s.error.slice(0, 90)}`);
+  }
+  const rejected = security.filter((s) => !s.verified).length;
+  if (rejected) {
+    console.log(`\n  ${rejected} were rejected. Unsigned posts to a public endpoint are expected;`);
+    console.log('  a lot of them at once is worth looking at.');
+  }
+} else {
+  console.log('\nNo Google security events yet. If Cross-Account Protection was just registered,');
+  console.log('the verification event usually arrives within a minute.');
 }
 await pool.end();
