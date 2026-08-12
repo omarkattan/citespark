@@ -1322,3 +1322,33 @@ select { appearance: auto; }
   margin: 2px 0 0; accent-color: var(--you);
 }
 .pq > span { font-size: 13.5px; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }
+
+/* questions not yet asked, and which buyer type asked them */
+.prompt.unmeasured { opacity: .85; }
+.notrun {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .05em;
+  color: var(--ink-3);
+  padding: 7px 0 2px;
+}
+.rate.none { color: var(--ink-3); }
+.asked-as {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--you);
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  padding: 3px 10px;
+}
+.asked-as span {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.paused { color: var(--dune, #a8601b); }

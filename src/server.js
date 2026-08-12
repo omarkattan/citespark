@@ -234,17 +234,26 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
 
   const cycleRow = await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [project.id]);
   const cycle = cycleRow?.d;
-  if (!cycle) return res.json([]);
 
+  /**
+   * Every question on the project, whether or not it has been asked.
+   *
+   * This used to join on runs, so a question added since the last cycle was
+   * simply absent: someone adds five questions for a buyer type, opens this
+   * tab, and finds nothing. A question that exists but has not run yet is a
+   * legitimate state and the list should show it as such.
+   */
   const rows = await many(
-    `SELECT p.id, p.text, p.cluster, p.intent, p.ai_search_volume,
+    `SELECT p.id, p.text, p.cluster, p.intent, p.ai_search_volume, p.active, p.source,
+            p.persona_id, pe.name AS persona, pe.descriptor AS persona_descriptor,
             r.id AS run_id, r.engine, r.run_index, m.mentioned, m.ordinal, m.snippet
      FROM prompts p
-     JOIN runs r ON r.prompt_id = p.id AND r.cycle_date = $2 AND r.ok
-     JOIN mentions m ON m.run_id = r.id
-     JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
+     LEFT JOIN personas pe ON pe.id = p.persona_id
+     LEFT JOIN runs r ON r.prompt_id = p.id AND r.cycle_date = $2 AND r.ok
+     LEFT JOIN mentions m ON m.run_id = r.id
+       AND m.entity_id = (SELECT id FROM entities WHERE project_id = $1 AND kind = 'owned' LIMIT 1)
      WHERE p.project_id = $1
-     ORDER BY p.ai_search_volume DESC, p.id, r.engine, r.run_index`,
+     ORDER BY p.persona_id NULLS FIRST, p.ai_search_volume DESC NULLS LAST, p.id, r.engine, r.run_index`,
     [project.id, cycle]
   );
 
@@ -273,6 +282,11 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
         cluster: row.cluster,
         intent: row.intent,
         volume: row.ai_search_volume,
+        active: row.active,
+        source: row.source,
+        personaId: row.persona_id,
+        persona: row.persona,
+        personaDescriptor: row.persona_descriptor,
         runs: [],
         snippet: null,
         citations: [],
@@ -280,7 +294,8 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
       });
     }
     const p = byPrompt.get(row.id);
-    p.runs.push({ engine: row.engine, mentioned: row.mentioned, ordinal: row.ordinal });
+    // A left join produces a row with no run for a question never asked.
+    if (row.run_id) p.runs.push({ engine: row.engine, mentioned: row.mentioned, ordinal: row.ordinal });
     if (!p.snippet && row.snippet) p.snippet = row.snippet;
   }
   for (const c of citations) {
@@ -294,7 +309,10 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
 
   const out = [...byPrompt.values()].map((p) => ({
     ...p,
-    rate: p.runs.length ? p.runs.filter((r) => r.mentioned).length / p.runs.length : 0
+    // Never asked is not the same as asked and not named, and a rate of zero
+    // would say the second.
+    measured: p.runs.length > 0,
+    rate: p.runs.length ? p.runs.filter((r) => r.mentioned).length / p.runs.length : null
   }));
 
   res.json(out);
@@ -2004,7 +2022,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona']
   });
 });
 

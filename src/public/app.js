@@ -449,7 +449,7 @@ async function viewAssigned() {
 async function viewQuestions() {
   const prompts = await api(`/api/projects/${state.projectId}/prompts`);
   if (!prompts?.length) {
-    return `<div class="empty"><h2>No measured questions yet</h2><p>Run a cycle to ask every tracked question across the engines.</p></div>`;
+    return `<div class="empty"><h2>No questions yet</h2><p>Add some in Setup, or let us suggest them from your site.</p></div>`;
   }
   const brand = state.overview?.project?.brand_name;
   const rows = prompts
@@ -457,26 +457,51 @@ async function viewQuestions() {
       const chips = p.citations
         .map((c) => `<span class="chip ${c.domain === state.overview?.project?.domain?.replace(/^www\./, '') ? 'own' : ''}">${esc(c.domain)}</span>`)
         .join('');
+      // A persona question carries its descriptor as a prefix, which makes
+      // the list unreadable. Show the question, and the buyer type beside it.
+      const asked = p.persona && p.personaDescriptor && p.text.startsWith(p.personaDescriptor.replace(/[.]+$/, ''))
+        ? p.text.slice(p.personaDescriptor.replace(/[.]+$/, '').length + 2)
+        : p.text;
+
       return `
-      <div class="prompt" data-filter-text="${esc(`${p.text} ${p.cluster} ${p.intent} ${p.citations.map((c) => c.domain).join(' ')}`.toLowerCase())}">
+      <div class="prompt ${p.measured ? '' : 'unmeasured'}" data-persona="${p.personaId || ''}" data-filter-text="${esc(`${p.text} ${p.cluster} ${p.intent} ${p.persona || ''} ${p.citations.map((c) => c.domain).join(' ')}`.toLowerCase())}">
         <div>
-          <p class="prompt-q">${esc(p.text)}</p>
-          <div class="prompt-tags">${esc(p.cluster)} &middot; ${esc(p.intent)} &middot; est. AI volume <b>${p.volume}</b></div>
-          ${runStrip(p.runs)}
+          <p class="prompt-q">${esc(asked)}</p>
+          ${p.persona ? `<div class="asked-as" title="${esc(p.personaDescriptor || '')}"><span>asked as</span> ${esc(p.persona)}</div>` : ''}
+          <div class="prompt-tags">
+            ${esc(p.cluster)} &middot; ${esc(p.intent)} &middot; est. AI volume <b>${p.volume ?? '-'}</b>
+            ${p.active ? '' : ' &middot; <span class="paused">paused</span>'}
+          </div>
+          ${p.measured ? runStrip(p.runs) : '<div class="notrun">not asked yet, it will run on the next cycle</div>'}
           ${p.snippet ? `<div class="excerpt">${highlight(p.snippet, brand)}</div>` : ''}
           ${chips ? `<div class="chips">${chips}</div>` : ''}
           ${p.fanOut?.length ? `<div class="fanout"><span class="fanout-label">searched for</span>${p.fanOut.map((q) => `<span class="chip">${esc(q)}</span>`).join('')}</div>` : ''}
         </div>
-        <div class="rate ${rateClass(p.rate)}">${pct(p.rate)}</div>
+        <div class="rate ${p.measured ? rateClass(p.rate) : 'none'}">${p.measured ? pct(p.rate) : '&mdash;'}</div>
       </div>`;
     })
     .join('');
+  // Let someone read the list one buyer type at a time, which is the point
+  // of having them.
+  const personas = [...new Map(prompts.filter((p) => p.persona).map((p) => [p.personaId, p.persona])).entries()];
+  const waiting = prompts.filter((p) => !p.measured).length;
+
+  const filters = personas.length
+    ? `<div class="taskbar" style="margin-bottom:14px">
+        <button class="tfilter is-on" data-qfilter="all">All ${prompts.length}</button>
+        <button class="tfilter" data-qfilter="none">Asked plainly ${prompts.filter((p) => !p.persona).length}</button>
+        ${personas.map(([id, name]) => `<button class="tfilter" data-qfilter="${id}">${esc(name)} ${prompts.filter((p) => p.personaId === id).length}</button>`).join('')}
+      </div>`
+    : '';
+
   return `<div class="panel">
     <div class="panel-head">
-      <h2>Every tracked question</h2>
+      <h2>Every question on this site</h2>
       <div class="spacer"></div>
       <span class="meta" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">filled tick = you were named</span>
     </div>
+    ${waiting ? `<p class="hint" style="margin:0 0 12px">${waiting} question${waiting === 1 ? ' has' : 's have'} not been asked yet. Run a cycle to measure ${waiting === 1 ? 'it' : 'them'}.</p>` : ''}
+    ${filters}
     ${prompts.length > 8 ? searchBox('promptFilter', 'Filter by question, cluster or cited domain', 'promptFilterCount') : ''}
     <div id="promptList">
       ${rows}
@@ -1236,6 +1261,17 @@ document.addEventListener('click', (e) => {
   if (goto) {
     document.querySelector(`.tab[data-view="${goto.dataset.reportGoto}"]`).click();
     document.querySelector('.tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+});
+
+document.addEventListener('click', (e) => {
+  const qf = e.target.closest('[data-qfilter]');
+  if (!qf) return;
+  for (const b of document.querySelectorAll('[data-qfilter]')) b.classList.toggle('is-on', b === qf);
+  const want = qf.dataset.qfilter;
+  for (const row of document.querySelectorAll('.prompt')) {
+    const id = row.dataset.persona || '';
+    row.hidden = want === 'all' ? false : want === 'none' ? Boolean(id) : id !== want;
   }
 });
 

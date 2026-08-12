@@ -1434,6 +1434,39 @@ await test('a persona is only called different when the sample supports it', asy
   assert.ok(/not earning its cost/.test(block), 'and say plainly when a persona is useless');
 });
 
+await test('a question that has not run yet is still listed', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const block = server.slice(server.indexOf("app.get('/api/projects/:id/prompts'"), server.indexOf('res.json(out)'));
+
+  // This joined on runs, so a question added since the last cycle was simply
+  // absent: someone adds five for a buyer type, opens the tab, finds nothing.
+  assert.ok(/LEFT JOIN runs/.test(block), 'questions must not be dropped for having no runs');
+  assert.ok(/if \(row\.run_id\)/.test(block), 'and an empty run row must not be counted as a run');
+
+  // Never asked is not the same as asked and not named. A rate of zero would
+  // say the second, so it is null and the UI shows a dash.
+  assert.ok(/rate: p\.runs\.length \? [\s\S]{0,60}: null/.test(block), 'an unmeasured question has no rate');
+  assert.ok(/measured: p\.runs\.length > 0/.test(block));
+
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  assert.ok(/not asked yet/.test(app), 'and the UI must say so');
+});
+
+await test('a persona question shows which buyer type asked it', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  assert.ok(/LEFT JOIN personas pe/.test(server), 'the persona must come back with the question');
+  assert.ok(/asked-as/.test(app), 'and be shown against it');
+
+  // The descriptor is prefixed to the question text, which makes a list of
+  // them unreadable. Strip it for display and show the buyer type instead.
+  assert.ok(/p\.text\.startsWith\(p\.personaDescriptor/.test(app), 'the prefix must be stripped for reading');
+  assert.ok(/data-qfilter/.test(app), 'and the list must be filterable by buyer type');
+});
+
 await test('a persona shows its questions before adding them', async () => {
   const { readFileSync } = await import('node:fs');
   const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
