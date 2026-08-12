@@ -1254,9 +1254,26 @@ select { appearance: auto; }
 .pdesc { font-size: 14px; line-height: 1.55; color: var(--ink-2); margin: 7px 0 0; font-style: italic; }
 .persona .tag.ok { border-color: var(--you); color: var(--you); }
 .persona.choose { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
-.persona.choose input { margin-top: 4px; flex: none; }
-.persona.choose span { display: block; }
+
+/*
+ * A checkbox with no width stretches to fill its flex line: this one grew to
+ * 516px and squeezed the text into 64px beside it, which read as a blank box
+ * covering the persona. flex:none alone does not prevent it; the size has to
+ * be stated.
+ */
+.persona.choose > input[type='checkbox'] {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  margin: 3px 0 0;
+  accent-color: var(--you);
+}
+.persona.choose > span { display: block; flex: 1 1 auto; min-width: 0; }
+.persona.choose .pname { display: block; }
 .persona.choose .pdesc { margin-top: 4px; }
+.persona.choose .hint { display: block; margin-top: 5px; }
 .plift {
   font-size: 13px;
   line-height: 1.5;

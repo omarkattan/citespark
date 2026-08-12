@@ -1466,6 +1466,20 @@ await test('suggestions are never empty', async () => {
   }
 });
 
+await test('a checkbox in a flex row cannot swallow the row', async () => {
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('../src/public/styles.css', import.meta.url), 'utf8');
+  const block = css.slice(css.indexOf('.persona.choose {'), css.indexOf('.plift {'));
+
+  // A checkbox with no stated width stretches to fill its flex line. This
+  // one grew to 516px and squeezed the persona text into 64px beside it,
+  // which read as a blank box covering the content. flex:none is not enough.
+  assert.ok(/flex: 0 0 18px/.test(block), 'the checkbox must have a fixed basis');
+  assert.ok(/min-width: 18px/.test(block), 'and a floor, since flex can shrink it');
+  assert.ok(/min-height: 18px/.test(block), 'and one for height, or the mobile input rule inflates it');
+  assert.ok(/min-width: 0/.test(block), 'and the text column must be allowed to shrink');
+});
+
 await test('the api helper encodes an object body', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
