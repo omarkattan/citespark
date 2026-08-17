@@ -55,7 +55,7 @@ const website = {
   url: SITE,
   name: 'Cited',
   description:
-    'Cited measures whether AI assistants name your brand when buyers ask category questions, then turns the gaps into a ranked list of things to fix.',
+    'Cited is an AI visibility tool that measures whether AI assistants name your brand when buyers ask category questions, then turns each gap into a ranked list of things to fix.',
   publisher: { '@id': `${SITE}/#organization` },
   inLanguage: 'en'
 };
@@ -109,11 +109,14 @@ function landing() {
       '@id': `${SITE}/#software`,
       name: 'Cited',
       applicationCategory: 'BusinessApplication',
-      applicationSubCategory: 'Search engine optimisation',
+      applicationSubCategory: 'AI visibility and answer engine optimisation',
+      alternateName: ['AI visibility tool', 'Answer engine optimisation tool'],
       operatingSystem: 'Web browser',
       url: SITE,
+      // Leads with what the thing is, because this string is what an engine
+      // quotes when asked to describe the product.
       description:
-        'Cited asks the questions your buyers ask across ChatGPT, Google AI Overview, Google AI Mode, Perplexity, Gemini and Claude, records whether your brand is named and cited, and turns the gaps into a ranked list of actions.',
+        'Cited is an AI visibility tool. It asks the questions your buyers ask across ChatGPT, Google AI Overview, Google AI Mode, Perplexity, Gemini and Claude, records whether your brand is named and whether your own site is cited, and turns each gap into a ranked, assignable action.',
       publisher: { '@id': `${SITE}/#organization` },
       featureList: [
         'Answer engine visibility measurement across six AI surfaces',

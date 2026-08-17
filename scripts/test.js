@@ -1602,6 +1602,32 @@ await test('a poster cannot be drawn from thin or absent data', async () => {
 
 console.log('\nstructured data');
 
+await test('the page can be found by what it is called', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../src/public/landing.html', import.meta.url), 'utf8');
+  const visible = html.replace(/<script[\s\S]*?<\/script>/g, '').toLowerCase();
+
+  // Buyers and engines both call this an "AI visibility tool". The page never
+  // used the phrase, which made it hard to find and hard to quote.
+  assert.ok(/<title>[^<]*ai visibility tool/i.test(html), 'the title should say what this is');
+  assert.ok(/name="description"[^>]*ai visibility tool/i.test(html), 'and the description');
+
+  // A definitional answer is what an engine lifts when asked "what is an
+  // AI visibility tool", so it has to stand alone without the page around it.
+  assert.ok(/what is an ai visibility tool\?/i.test(visible), 'the definitional question must be asked');
+  const graph = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1])['@graph'];
+  const def = graph
+    .find((n) => n['@type'] === 'FAQPage')
+    .mainEntity.find((q) => /what is an ai visibility tool/i.test(q.name));
+  assert.ok(def, 'and be in the structured data');
+  assert.ok(def.acceptedAnswer.text.startsWith('An AI visibility tool'), 'the answer must open with the definition');
+  assert.ok(def.acceptedAnswer.text.length > 200, 'and be substantial enough to be worth citing');
+
+  // Repetition is not optimisation. Every use should be doing work.
+  const uses = (visible.match(/ai visibility tool/g) || []).length;
+  assert.ok(uses >= 3 && uses <= 12, `the phrase appears ${uses} times, which is either too few or stuffed`);
+});
+
 await test('the landing page publishes what it actually says', async () => {
   const { readFileSync } = await import('node:fs');
   const html = readFileSync(new URL('../src/public/landing.html', import.meta.url), 'utf8');
