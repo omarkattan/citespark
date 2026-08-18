@@ -447,3 +447,21 @@ CREATE INDEX IF NOT EXISTS prompts_persona ON prompts (persona_id) WHERE persona
 -- our own use, while keeping a spend backstop so a runaway loop cannot drain
 -- the provider balance.
 ALTER TABLE orgs ADD COLUMN IF NOT EXISTS internal BOOLEAN NOT NULL DEFAULT false;
+
+-- Recommendations are upserted on fingerprint, so the table holds only the
+-- current state. An action that has recurred every cycle for two months and
+-- one that appeared today look identical, and the difference is exactly what
+-- a report over time needs to say.
+CREATE TABLE IF NOT EXISTS recommendation_history (
+  id          SERIAL PRIMARY KEY,
+  project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  cycle_date  DATE NOT NULL,
+  fingerprint TEXT NOT NULL,
+  type        TEXT NOT NULL,
+  title       TEXT NOT NULL,
+  target_url  TEXT,
+  priority    NUMERIC(8,2) NOT NULL DEFAULT 0,
+  evidence    JSONB NOT NULL DEFAULT '{}',
+  UNIQUE (project_id, cycle_date, fingerprint)
+);
+CREATE INDEX IF NOT EXISTS rec_history_project ON recommendation_history (project_id, cycle_date DESC);

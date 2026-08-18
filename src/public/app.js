@@ -71,6 +71,11 @@ async function viewActions() {
   const tab = (id, label, n) =>
     `<button class="tfilter ${filter === id ? 'is-on' : ''}" data-task-filter="${id}">${label}${n !== null ? ` <span>${n}</span>` : ''}</button>`;
 
+  const reportBar = `<div class="row" style="justify-content:flex-end;gap:8px;margin-bottom:12px">
+    <a class="ghost" href="/api/projects/${state.projectId}/report" target="_blank" rel="noopener">Open the full report</a>
+    <a class="ghost" href="/api/projects/${state.projectId}/report?format=csv" download>Actions as CSV</a>
+  </div>`;
+
   const bar = `<div class="taskbar">
       ${tab('active', 'To do', c.open + c.doing)}
       ${tab('doing', 'In progress', c.doing)}
@@ -101,7 +106,7 @@ async function viewActions() {
     }</p></div>` + suppressedPanel;
   }
 
-  return bar + data.tasks.map(taskCard).join('') + suppressedPanel;
+  return reportBar + bar + data.tasks.map(taskCard).join('') + suppressedPanel;
 }
 
 const STATUS_LABEL = { open: 'To do', doing: 'In progress', done: 'Done', dismissed: 'Dismissed' };

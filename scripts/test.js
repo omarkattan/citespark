@@ -2595,6 +2595,43 @@ await test('running every site has to be asked for explicitly', async () => {
   assert.ok(/Nothing run/.test(job), 'and a bare invocation must refuse and say so');
 });
 
+console.log('\naggregated report');
+
+await test('the report can tell a recurring problem from a new one', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');
+  const rec = readFileSync(new URL('../src/lib/recommend.js', import.meta.url), 'utf8');
+
+  // Recommendations upsert on fingerprint, so the live table holds only what
+  // is true today. Without a per-cycle record, "this has been true for eight
+  // weeks" cannot be said, which is the whole point of a report over time.
+  assert.ok(/recommendation_history/.test(rec), 'each cycle must be recorded');
+  assert.ok(/COUNT\(DISTINCT cycle_date\)/.test(lib), 'and counted');
+  assert.ok(/standing/.test(lib) && /recurring/.test(lib), 'and classified by how long it has persisted');
+});
+
+await test('the report does not claim a fix caused a change', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');
+
+  // Completed work and a visibility change sitting side by side invites the
+  // reader to join them. Too much moves at once in these systems to attribute
+  // a change to a single edit, and a report that implies otherwise is selling.
+  assert.ok(/do not claim one caused the other/i.test(lib), 'the caveat must be explicit');
+  assert.ok(/measurement did not run rather than returning zero/i.test(lib), 'and absence must not read as zero');
+});
+
+await test('the report is readable without the app', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../src/lib/report-html.js', import.meta.url), 'utf8');
+
+  // It gets printed, emailed and forwarded, so it has to stand alone.
+  assert.ok(/@page/.test(html), 'it must be printable');
+  assert.ok(/page-break/.test(html), 'without splitting tables across pages');
+  assert.ok(/How to read this/.test(html), 'and carry its own caveats');
+  assert.ok(!/<script/.test(html), 'and need no javascript');
+});
+
 console.log('\ninternal accounts');
 
 await test('an internal account lifts the allowance but not the spend cap', async () => {

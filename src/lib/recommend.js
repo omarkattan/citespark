@@ -738,6 +738,15 @@ export async function persistRecommendations(projectId, recs) {
     const key = r.evidence.prompt_id || r.evidence.domain || r.target_url || r.title;
     const fingerprint = `${r.type}:${key}`;
     if (suppressed.has(fingerprint)) continue;
+
+    // Keep a record per cycle. Without it the table shows only what is true
+    // today, and "this has been true for eight weeks" cannot be said.
+    await query(
+      `INSERT INTO recommendation_history (project_id, cycle_date, fingerprint, type, title, target_url, priority, evidence)
+       VALUES ($1, CURRENT_DATE, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (project_id, cycle_date, fingerprint) DO UPDATE SET priority = EXCLUDED.priority, evidence = EXCLUDED.evidence`,
+      [projectId, fingerprint, r.type, r.title, r.targetUrl || null, r.priority || 0, JSON.stringify(r.evidence || {})]
+    );
     await query(
       `INSERT INTO recommendations
          (project_id, fingerprint, type, title, action, target_url, impact, effort, priority, evidence, updated_at)
