@@ -1487,3 +1487,61 @@ select { appearance: auto; }
   .pcp-q { grid-template-columns: 16px minmax(0, 1fr) 60px; }
   .pcp-pos { display: none; }
 }
+
+/* what to pull before choosing */
+.pcscope {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--line-2);
+}
+.pcscope .field { margin: 0; flex: 1 1 auto; min-width: 150px; }
+.pcscope .field:first-child { flex: 2 1 260px; }
+.pcscope label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 5px;
+}
+.pcscope input, .pcscope select {
+  width: 100%;
+  font-size: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+/* collapsible page groups */
+.pcp-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+}
+.pcp-toggle::before { content: '\2212'; font-family: var(--mono); color: var(--ink-3); font-size: 11px; }
+.pcp-group.is-shut .pcp-toggle::before { content: '+'; }
+.pcp-group.is-shut .pcp-q { display: none; }
+.pcp-qn {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  padding: 1px 7px;
+  flex: none;
+}

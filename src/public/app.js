@@ -481,6 +481,34 @@ async function viewAssigned() {
  * problems: no overview shown at all, one shown without you, and one citing
  * your site but through a different page than the one that earns the search.
  */
+/**
+ * What to pull from Search Console before anything is chosen.
+ *
+ * A path is how someone asks about one section of a site, which is usually
+ * how content is actually organised and reviewed.
+ */
+function pcScope() {
+  return `<div class="pcscope">
+    <div class="field">
+      <label for="pcPath">Only pages containing</label>
+      <input id="pcPath" placeholder="/insights/articles" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label for="pcDays">Last</label>
+      <select id="pcDays">
+        <option value="28">28 days</option>
+        <option value="90" selected>90 days</option>
+        <option value="180">6 months</option>
+        <option value="480">16 months</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="pcMin">Minimum impressions</label>
+      <input id="pcMin" type="number" min="1" value="1" />
+    </div>
+  </div>`;
+}
+
 /** Keep the count and the cost in front of the person choosing. */
 function updatePcCount() {
   const el = document.getElementById('pcCount');
@@ -513,7 +541,8 @@ async function viewPages() {
         records whether an AI Overview appears above the results, and whether it cites you.
         Ranking third and being absent from the answer above the third result are different problems.
       </p>
-      <div class="inline-form" style="justify-content:center;margin-top:16px">
+      ${pcScope()}
+      <div class="inline-form" style="justify-content:center;margin-top:14px">
         <button class="btn" id="pcPreview">See what it would check</button>
       </div>
       <div id="pcPanel" style="margin-top:18px"></div>
@@ -581,6 +610,7 @@ async function viewPages() {
         <span class="meta" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">checked ${esc(new Date(d.checkedOn).toLocaleDateString())}</span>
         <button class="ghost" id="pcPreview">Run again</button>
       </div>
+      ${pcScope()}
       <div id="pcPanel"></div>
       <div class="searchrow" style="max-width:420px;margin-bottom:10px">
         <input type="search" id="pcFilter" placeholder="Filter searches or pages" autocomplete="off" />
@@ -1580,9 +1610,12 @@ document.addEventListener('input', (e) => {
     for (const q of document.querySelectorAll('.pcp-q')) {
       q.hidden = Boolean(needle) && !q.dataset.text.includes(needle);
     }
-    // A page with nothing left to show is noise.
+    // A page with nothing left to show is noise, and a match inside a shut
+    // group would otherwise be invisible.
     for (const g of document.querySelectorAll('.pcp-group')) {
-      g.hidden = ![...g.querySelectorAll('.pcp-q')].some((q) => !q.hidden);
+      const anyVisible = [...g.querySelectorAll('.pcp-q')].some((q) => !q.hidden);
+      g.hidden = !anyVisible;
+      if (needle && anyVisible) g.classList.remove('is-shut');
     }
     return;
   }
@@ -1598,7 +1631,12 @@ document.addEventListener('click', async (e) => {
     const btn = e.target;
     btn.disabled = true;
     btn.textContent = 'Reading Search Console';
-    const d = await api(`/api/projects/${state.projectId}/page-checks/preview?limit=50`);
+    const q = new URLSearchParams({
+      path: $('pcPath')?.value.trim() || '',
+      days: $('pcDays')?.value || '90',
+      min: $('pcMin')?.value || '1'
+    });
+    const d = await api(`/api/projects/${state.projectId}/page-checks/preview?${q}`);
     btn.disabled = false;
     btn.textContent = 'See what it would check';
 
@@ -1618,6 +1656,10 @@ document.addEventListener('click', async (e) => {
     // unticked by default: an AI Overview naming you for your own brand
     // confirms nothing, and on some brands that is most of the list.
     window.__pcPages = d.pages;
+    // With hundreds of searches across dozens of pages, an open list is
+    // unreadable. Groups collapse once there are enough of them to matter.
+    const collapse = d.pages.length > 6;
+
     panel.innerHTML = `<div class="pq-preview" id="pcPicker">
       <div class="pcp-head">
         <p class="hint" style="margin:0">
@@ -1639,12 +1681,15 @@ document.addEventListener('click', async (e) => {
       <div class="pcp-list">
         ${d.pages
           .map(
-            (g) => `<div class="pcp-group" data-page="${esc(g.page)}">
-              <label class="pcp-grouphead">
+            (g) => `<div class="pcp-group ${collapse ? 'is-shut' : ''}" data-page="${esc(g.page)}">
+              <div class="pcp-grouphead">
                 <input type="checkbox" data-pcgroup="${esc(g.page)}" />
-                <span class="pcp-url">${esc(g.page === 'unknown' ? 'No page recorded' : g.page.replace(/^https?:\/\/(www\.)?/, ''))}</span>
+                <button class="pcp-toggle" data-pctoggle aria-label="Show searches">
+                  <span class="pcp-url">${esc(g.page === 'unknown' ? 'No page recorded' : g.page.replace(/^https?:\/\/(www\.)?/, ''))}</span>
+                  <span class="pcp-qn">${g.queries.length}</span>
+                </button>
                 <span class="pcp-imp">${g.impressions.toLocaleString()}</span>
-              </label>
+              </div>
               ${g.queries
                 .map(
                   (q) => `<label class="pcp-q" data-text="${esc(`${q.query} ${g.page}`.toLowerCase())}">
@@ -1690,6 +1735,12 @@ document.addEventListener('click', async (e) => {
         how === 'all' ? true : how === 'none' ? false : how === 'top20' ? top.has(q) : !branded.has(q);
     }
     updatePcCount();
+    return;
+  }
+
+  const toggle = e.target.closest('[data-pctoggle]');
+  if (toggle) {
+    toggle.closest('.pcp-group').classList.toggle('is-shut');
     return;
   }
 

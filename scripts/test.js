@@ -2690,6 +2690,46 @@ await test('a branded search is flagged, not silently checked', async () => {
   assert.equal(isBranded('how to choose a family office', project), false);
 });
 
+await test('every search is fetched, not the first page of them', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/pagecheck.js', import.meta.url), 'utf8');
+  const fn = lib.slice(lib.indexOf('export async function fetchPageQueries'), lib.indexOf('export async function checkQuery'));
+
+  // A single request capped the list at whatever came back first, so a site
+  // with a thousand searches saw a fraction and had no way to know what was
+  // missing.
+  assert.ok(/startRow/.test(fn), 'the fetch must paginate');
+  assert.ok(/rows\.length < PAGE/.test(fn), 'and stop when a short page comes back');
+
+  // One impression is a real impression. Ten was us deciding the tail did
+  // not matter on the customer's behalf.
+  assert.ok(/minImpressions = 1/.test(fn), 'the floor must not silently drop the tail');
+});
+
+await test('a section of a site can be checked on its own', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/pagecheck.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Filtering at Search Console rather than pulling everything and throwing
+  // most of it away, and it is how someone actually asks the question.
+  assert.ok(/dimensionFilterGroups/.test(lib), 'the path filter must go to the API');
+  assert.ok(/dimension: 'page', operator: 'contains'/.test(lib));
+  assert.ok(/pcPath/.test(app), 'and be offered in the interface');
+  assert.ok(/insights\/articles/.test(app), 'with an example that shows what it is for');
+});
+
+await test('a long list opens shut', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Hundreds of searches across dozens of pages is unreadable fully expanded.
+  assert.ok(/d\.pages\.length > 6/.test(app), 'groups must collapse once there are enough to matter');
+  assert.ok(/data-pctoggle/.test(app), 'and be openable');
+  // A match inside a shut group would otherwise be invisible.
+  assert.ok(/if \(needle && anyVisible\) g\.classList\.remove\('is-shut'\)/.test(app), 'searching must open what it finds');
+});
+
 await test('the picker decides what runs, not the server', async () => {
   const { readFileSync } = await import('node:fs');
   const lib = readFileSync(new URL('../src/lib/pagecheck.js', import.meta.url), 'utf8');

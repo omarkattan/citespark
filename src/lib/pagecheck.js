@@ -51,28 +51,53 @@ export function isBranded(queryText, project) {
   });
 }
 
-export async function fetchPageQueries(project, { days = 90, limit = 250, minImpressions = 10 } = {}) {
+export async function fetchPageQueries(
+  project,
+  { days = 90, limit = 5000, minImpressions = 1, path = '' } = {}
+) {
   const site = project.gsc_site_url;
   if (!site) throw new Error('No Search Console property chosen for this site');
 
   const token = await accessTokenFor(project);
   const iso = (d) => d.toISOString().slice(0, 10);
+  const startDate = iso(new Date(Date.now() - days * 86400000));
+  const endDate = iso(new Date());
 
-  const res = await fetch(`${API}/sites/${encodeURIComponent(site)}/searchAnalytics/query`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      startDate: iso(new Date(Date.now() - days * 86400000)),
-      endDate: iso(new Date()),
-      dimensions: ['query', 'page'],
-      rowLimit: Math.min(limit * 4, 5000),
-      dataState: 'final'
-    })
-  });
-  if (!res.ok) throw new Error(`Search Console query failed: ${res.status}`);
+  /**
+   * Search Console returns 25,000 rows a page and most sites have more than
+   * one page of them. A single request capped the list at whatever came back
+   * first, so a site with a thousand searches only ever saw a fraction and
+   * had no way to know what was missing.
+   */
+  const all = [];
+  const PAGE = 25000;
+  for (let startRow = 0; startRow < 100000; startRow += PAGE) {
+    const res = await fetch(`${API}/sites/${encodeURIComponent(site)}/searchAnalytics/query`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        startDate,
+        endDate,
+        dimensions: ['query', 'page'],
+        rowLimit: PAGE,
+        startRow,
+        dataState: 'final',
+        // Filtering server side is far cheaper than pulling everything and
+        // discarding it, and it is how someone asks for one section of a site.
+        ...(path
+          ? { dimensionFilterGroups: [{ filters: [{ dimension: 'page', operator: 'contains', expression: path }] }] }
+          : {})
+      })
+    });
+    if (!res.ok) throw new Error(`Search Console query failed: ${res.status}`);
 
-  const json = await res.json();
-  const rows = (json.rows || [])
+    const json = await res.json();
+    const rows = json.rows || [];
+    all.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+
+  const rows = all
     .map((r) => ({
       query: r.keys[0],
       page: r.keys[1],
