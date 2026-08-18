@@ -2654,6 +2654,25 @@ await test('no overview is kept apart from not being cited', async () => {
   assert.ok(/Google's choice rather than yours/.test(app), 'and the absent case must not read as a failure');
 });
 
+await test('a page check never fails as a generic 500', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const start = server.indexOf("app.get('/api/projects/:id/page-checks/preview'");
+  const block = server.slice(start, start + 1800);
+
+  // Checking only for the chosen property let a project with a property and
+  // no working token throw inside the Google client, where it became
+  // "Something went wrong on our side" with nothing to act on.
+  assert.ok(/ga4_refresh_token/.test(block), 'the credential must be checked, not just the property');
+  assert.ok(/gsc_site_url/.test(block), 'and the property too');
+  assert.ok(/try \{[\s\S]*?catch/.test(block), 'and anything Google throws must be caught here');
+  assert.ok(/no longer valid/.test(block), 'with a message that names the actual problem');
+
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const panel = app.slice(app.indexOf("const panel = $('pcPanel')"), app.indexOf("const panel = $('pcPanel')") + 900);
+  assert.ok(/d\.fix === 'connect'/.test(panel), 'and every error must offer its fix');
+});
+
 await test('a page check states its cost before running', async () => {
   const { readFileSync } = await import('node:fs');
   const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');

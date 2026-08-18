@@ -1184,12 +1184,32 @@ app.get('/api/projects/:id/page-checks/preview', requireAuth, wrap(async (req, r
   const project = await assertProject(req, res);
   if (!project) return;
 
+  /**
+   * Both halves have to be there. Checking only for the property let a
+   * project with a chosen property and no working token throw inside the
+   * Google client, where it became a generic 500 with nothing to act on.
+   */
+  if (!project.ga4_refresh_token) {
+    return res.status(400).json({ error: 'Google is not connected for this site yet.', fix: 'connect' });
+  }
   if (!project.gsc_site_url) {
     return res.status(400).json({ error: 'Choose a Search Console property first.', fix: 'gsc' });
   }
 
   const { fetchPageQueries } = await import('./lib/pagecheck.js');
-  const rows = await fetchPageQueries(project, { limit: Number(req.query.limit) || 50 });
+  let rows;
+  try {
+    rows = await fetchPageQueries(project, { limit: Number(req.query.limit) || 50 });
+  } catch (err) {
+    // Google's own words are more use than ours, and the fix differs by cause.
+    const msg = String(err.message || err);
+    return res.status(400).json({
+      error: /not connected/i.test(msg)
+        ? 'The Google connection for this site is no longer valid. Reconnecting takes one screen.'
+        : `Search Console would not return data: ${msg}`,
+      fix: /not connected|invalid|401|403/i.test(msg) ? 'connect' : null
+    });
+  }
   res.json({
     queries: rows.length,
     estimateUsd: Math.round(rows.length * 0.0025 * 100) / 100,
@@ -1201,14 +1221,26 @@ app.post('/api/projects/:id/page-checks/run', requireAuth, wrap(async (req, res)
   const project = await assertProject(req, res);
   if (!project) return;
 
+  if (!project.ga4_refresh_token) {
+    return res.status(400).json({ error: 'Google is not connected for this site yet.', fix: 'connect' });
+  }
   if (!project.gsc_site_url) {
     return res.status(400).json({ error: 'Choose a Search Console property first.', fix: 'gsc' });
   }
 
   const { runPageChecks } = await import('./lib/pagecheck.js');
   const limit = Math.min(Number(req.body?.limit) || 50, 250);
-  const result = await runPageChecks(project.id, { limit });
-  res.json(result);
+  try {
+    res.json(await runPageChecks(project.id, { limit }));
+  } catch (err) {
+    const msg = String(err.message || err);
+    res.status(400).json({
+      error: /not connected/i.test(msg)
+        ? 'The Google connection for this site is no longer valid. Reconnecting takes one screen.'
+        : `The check could not run: ${msg}`,
+      fix: /not connected|invalid|401|403/i.test(msg) ? 'connect' : null
+    });
+  }
 }));
 
 /* ---------------- aggregated report ---------------- */
@@ -2154,7 +2186,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions', 'trademark-tm', 'ai-visibility-copy', 'gsc-connect-prompt', 'internal-accounts', 'aggregated-report', 'page-checks', 'question-filters']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions', 'trademark-tm', 'ai-visibility-copy', 'gsc-connect-prompt', 'internal-accounts', 'aggregated-report', 'page-checks', 'question-filters', 'page-check-errors']
   });
 });
 

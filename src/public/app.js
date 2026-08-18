@@ -1572,7 +1572,14 @@ document.addEventListener('click', async (e) => {
 
     const panel = $('pcPanel');
     if (d?.error) {
-      panel.innerHTML = `<p class="error">${esc(d.error)}</p>`;
+      // Every error here has a fix, so every error should show one.
+      const fix =
+        d.fix === 'connect'
+          ? '<button class="btn" id="gscGrant">Connect Search Console</button>'
+          : d.fix === 'gsc'
+            ? '<button class="ghost" data-goto-setup="1">Choose a property in Setup</button>'
+            : '';
+      panel.innerHTML = `<p class="error">${esc(d.error)}</p>${fix ? `<div class="inline-form" style="margin-top:10px">${fix}</div>` : ''}`;
       return;
     }
     panel.innerHTML = `<div class="pq-preview">
