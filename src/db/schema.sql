@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS projects (
   aliases     TEXT[] NOT NULL DEFAULT '{}',
   market      TEXT NOT NULL DEFAULT 'GB',
   language    TEXT NOT NULL DEFAULT 'en',
-  runs_per_cycle INTEGER NOT NULL DEFAULT 3,
+  runs_per_cycle INTEGER NOT NULL DEFAULT 1,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -465,3 +465,11 @@ CREATE TABLE IF NOT EXISTS recommendation_history (
   UNIQUE (project_id, cycle_date, fingerprint)
 );
 CREATE INDEX IF NOT EXISTS rec_history_project ON recommendation_history (project_id, cycle_date DESC);
+
+-- One run per question per engine by default.
+--
+-- Three runs bought a variance figure, and variance is worth having, but not
+-- at three times the cost for every customer by default. It remains available
+-- per site, and the copy no longer claims something the default does not do.
+ALTER TABLE projects ALTER COLUMN runs_per_cycle SET DEFAULT 1;
+UPDATE projects SET runs_per_cycle = 1 WHERE runs_per_cycle = 3;

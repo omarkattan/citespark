@@ -1694,7 +1694,7 @@ async function viewSetup() {
 
   const chosen = p.engines?.length ? p.engines : ['chatgpt'];
   const allowed = billing?.plan?.engines ?? 1;
-  const cost = active * chosen.length * (p.runs_per_cycle || 3);
+  const cost = active * chosen.length * (p.runs_per_cycle || 1);
 
   const engineRows = engines
     .map((e) => {
@@ -1720,7 +1720,14 @@ async function viewSetup() {
         <div class="field"><label for="s_category">What the business does</label><input id="s_category" value="${esc(p.category || '')}" /></div>
         <div class="field"><label for="s_qualifier">Who the customer is</label><input id="s_qualifier" value="${esc(p.qualifier || '')}" /></div>
         <div class="field"><label for="s_market">Market</label><select id="s_market">${window.countryOptions(p.market)}</select></div>
-        <div class="field"><label for="s_runs">Runs per question, per engine</label><input id="s_runs" type="number" min="1" max="10" value="${p.runs_per_cycle}" /></div>
+        <div class="field">
+          <label for="s_runs">Runs per question, per engine</label>
+          <input id="s_runs" type="number" min="1" max="10" value="${p.runs_per_cycle}" />
+          <span class="hint" style="display:block;margin-top:5px">
+            One is enough to see whether you are named. Raising it measures how much the answer wobbles
+            between identical asks, and multiplies what each cycle costs.
+          </span>
+        </div>
         <div class="field">
           <label>Automatic weekly cycle</label>
           <label class="eng" style="padding:4px 0">

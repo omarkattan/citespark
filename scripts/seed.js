@@ -23,7 +23,7 @@ const CONFIG = {
     language: 'en',
     category: 'SEO and digital marketing agency',
     qualifier: 'UK small and mid-sized business',
-    runsPerCycle: 3
+    runsPerCycle: 1
   },
 
   // Swap these for the businesses you actually lose deals to.

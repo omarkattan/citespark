@@ -2595,6 +2595,29 @@ await test('running every site has to be asked for explicitly', async () => {
   assert.ok(/Nothing run/.test(job), 'and a bare invocation must refuse and say so');
 });
 
+console.log('\nrun cadence');
+
+await test('one run per question is the default, and the copy agrees', async () => {
+  const { readFileSync } = await import('node:fs');
+  const schema = readFileSync(new URL('../src/db/schema.sql', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../src/public/landing.html', import.meta.url), 'utf8');
+  const visible = html.replace(/<script[\s\S]*?<\/script>/g, '');
+
+  assert.ok(/runs_per_cycle INTEGER NOT NULL DEFAULT 1/.test(schema), 'one run by default');
+
+  // Three runs bought a variance figure. Charging every customer three times
+  // over for it by default is a different decision, and the copy must not go
+  // on claiming something the product no longer does.
+  assert.ok(!/One run is noise/.test(visible), 'that line contradicts the default');
+  assert.ok(!/asks each question several times/.test(visible), 'and so does that one');
+  assert.ok(!/with three runs\s+each/.test(visible), 'and the pricing example');
+
+  // The honest argument for percentages does not depend on repeat runs.
+  assert.ok(/there is no rank to report/i.test(visible), 'percentages need a reason that is still true');
+  // And repeat runs remain available, described for what they actually buy.
+  assert.ok(/raise the runs per question/i.test(visible), 'variance should still be offered');
+});
+
 console.log('\naggregated report');
 
 await test('the report can tell a recurring problem from a new one', async () => {

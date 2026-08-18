@@ -196,7 +196,7 @@
           "name": "Why percentages instead of a rank?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Because AI answers are not deterministic. Ask the same question twice and you get different answers, sometimes with different companies in them. Any tool that hands you a single position number is reporting one roll of the dice as though it were a ranking. Cited asks each question several times per cycle and reports how often you appeared. On the questions screen you can see each individual run as a tick mark, so the variance is visible rather than hidden behind an average."
+            "text": "Because there is no rank to report. An AI answer names three or four companies in a sentence, so the honest measurement is how often you are one of them across your whole question set and every engine, not what position you hold. It also survives the fact that these models are not deterministic: ask the same question twice and you can get different companies back, so a single position number would be one roll of the dice presented as a ranking. On the questions screen every run shows as a tick mark, so you can see what the percentage is made of. If the wobble itself is what you want to measure, raise the runs per question in setup and Cited reports the spread alongside the mean."
           }
         },
         {
@@ -260,7 +260,7 @@
           "name": "What is an answer check, and why price on them?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "One answer check is one question put to one engine, once. Twenty-five questions across two surfaces with three runs each is 150 checks per cycle, or roughly 650 a month at weekly cadence. On multi-site plans the allowance is pooled, so you decide how to spread it. We price this way because it is what the product actually costs us. Every answer requires the engine to run a live web search, and that search carries a real fee. Pretending otherwise would mean either quietly capping you or losing money on heavy users. Your usage is visible in the app at all times, and a cycle trims itself to fit rather than running you over a limit."
+            "text": "One answer check is one question put to one engine, once. Twenty-five questions across two surfaces is 50 checks per cycle, or roughly 200 a month at weekly cadence. Raising the runs per question multiplies that, which is why it is a choice rather than a default. On multi-site plans the allowance is pooled, so you decide how to spread it. We price this way because it is what the product actually costs us. Every answer requires the engine to run a live web search, and that search carries a real fee. Pretending otherwise would mean either quietly capping you or losing money on heavy users. Your usage is visible in the app at all times, and a cycle trims itself to fit rather than running you over a limit."
           }
         },
         {
@@ -486,7 +486,7 @@
       <div class="step">
         <div class="step-n">02</div>
         <h3>Ask, repeatedly</h3>
-        <p>Every question goes to each engine several times, because models are not deterministic. One run is noise.</p>
+        <p>Every question goes to each engine on every cycle. Repeat runs are available where you want to measure how much an answer wobbles.</p>
       </div>
       <div class="step">
         <div class="step-n">03</div>
@@ -680,13 +680,16 @@
       <details class="faq">
         <summary>Why percentages instead of a rank?</summary>
         <p class="faq-a">
-          Because AI answers are not deterministic. Ask the same question twice and you get different answers, sometimes
-          with different companies in them. Any tool that hands you a single position number is reporting one roll of the
-          dice as though it were a ranking.
+          Because there is no rank to report. An AI answer names three or four companies in a sentence, so the honest
+          measurement is how often you are one of them across your whole question set and every engine, not what
+          position you hold.
         </p>
         <p class="faq-a">
-          Cited asks each question several times per cycle and reports how often you appeared. On the questions screen
-          you can see each individual run as a tick mark, so the variance is visible rather than hidden behind an average.
+          It also survives the fact that these models are not deterministic: ask the same question twice and you can get
+          different companies back, so a single position number would be one roll of the dice presented as a ranking.
+          On the questions screen every run shows as a tick mark, so you can see what the percentage is made of. If the
+          wobble itself is what you want to measure, raise the runs per question in setup and Cited reports the spread
+          alongside the mean.
         </p>
       </details>
 
@@ -774,8 +777,9 @@
       <details class="faq">
         <summary>What is an answer check, and why price on them?</summary>
         <p class="faq-a">
-          One answer check is one question put to one engine, once. Twenty-five questions across two surfaces with three runs
-          each is 150 checks per cycle, or roughly 650 a month at weekly cadence. On multi-site plans the allowance is pooled,
+          One answer check is one question put to one engine, once. Twenty-five questions across two surfaces is 50 checks
+          per cycle, or roughly 200 a month at weekly cadence. Raising the runs per question multiplies that, which is why
+          it is a choice rather than a default. On multi-site plans the allowance is pooled,
           so you decide how to spread it.
         </p>
         <p class="faq-a">
