@@ -2595,6 +2595,47 @@ await test('running every site has to be asked for explicitly', async () => {
   assert.ok(/Nothing run/.test(job), 'and a bare invocation must refuse and say so');
 });
 
+console.log('\nquestion list');
+
+await test('filters narrow together rather than replacing each other', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const fn = app.slice(app.indexOf('function applyQuestionView'), app.indexOf('document.addEventListener(\'click\', (e) => {\n  const chip'));
+
+  // Picking one filter and having it silently clear another is the usual way
+  // a list like this stops being trustworthy.
+  for (const g of ['state', 'persona', 'cluster', 'intent']) {
+    assert.ok(new RegExp(`qState\\.${g}`).test(fn), `${g} must take part in the same test`);
+  }
+  assert.ok(/qState\.text/.test(fn), 'and the search box with them');
+
+  // Leaving a filter set when moving between sites would quietly hide rows.
+  assert.ok(/state: 'all', persona: 'all'/.test(app), 'the view must reset when it opens');
+});
+
+await test('an unmeasured question does not sort as the worst performer', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const i = app.indexOf('function applyQuestionView');
+  const fn = app.slice(i, app.indexOf('document.addEventListener', i));
+
+  // Never asked carries -1 so it is distinguishable from a measured zero.
+  // Sorting least-visible-first must not put "not asked yet" at the top as
+  // though it were the biggest problem.
+  assert.ok(fn.includes("< 0 ? 2 :"), 'unmeasured must sort last when ranking by visibility');
+  assert.ok(fn.includes("< 0 ? 0 :"), 'and score zero for opportunity rather than maximum');
+});
+
+await test('the default sort puts the work first', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Most asked and least visible is where the work is. Alphabetical or raw
+  // insertion order tells someone nothing about where to start.
+  assert.ok(/sort: 'opportunity'/.test(app), 'opportunity must be the default');
+  assert.ok(/1 - num\(r, 'rate'\)/.test(app), 'and combine visibility with volume');
+});
+
 console.log('\npage checks');
 
 await test('no overview is kept apart from not being cited', async () => {

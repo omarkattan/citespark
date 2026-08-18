@@ -592,7 +592,15 @@ async function viewQuestions() {
         : p.text;
 
       return `
-      <div class="prompt ${p.measured ? '' : 'unmeasured'}" data-persona="${p.personaId || ''}" data-filter-text="${esc(`${p.text} ${p.cluster} ${p.intent} ${p.persona || ''} ${p.citations.map((c) => c.domain).join(' ')}`.toLowerCase())}">
+      <div class="prompt ${p.measured ? '' : 'unmeasured'}"
+        data-persona="${p.personaId || ''}"
+        data-cluster="${esc(p.cluster || '')}"
+        data-intent="${esc(p.intent || '')}"
+        data-state="${p.measured ? (p.rate === 0 ? 'invisible' : p.rate < 0.5 ? 'weak' : 'strong') : 'unrun'}"
+        data-rate="${p.measured ? p.rate : -1}"
+        data-volume="${p.volume || 0}"
+        data-title="${esc((p.persona ? p.text.slice(-80) : p.text).toLowerCase())}"
+        data-filter-text="${esc(`${p.text} ${p.cluster} ${p.intent} ${p.persona || ''} ${p.citations.map((c) => c.domain).join(' ')}`.toLowerCase())}">
         <div>
           <p class="prompt-q">${esc(asked)}</p>
           ${p.persona ? `<div class="asked-as" title="${esc(p.personaDescriptor || '')}"><span>asked as</span> ${esc(p.persona)}</div>` : ''}
@@ -614,13 +622,81 @@ async function viewQuestions() {
   const personas = [...new Map(prompts.filter((p) => p.persona).map((p) => [p.personaId, p.persona])).entries()];
   const waiting = prompts.filter((p) => !p.measured).length;
 
-  const filters = personas.length
-    ? `<div class="taskbar" style="margin-bottom:14px">
-        <button class="tfilter is-on" data-qfilter="all">All ${prompts.length}</button>
-        <button class="tfilter" data-qfilter="none">Asked plainly ${prompts.filter((p) => !p.persona).length}</button>
-        ${personas.map(([id, name]) => `<button class="tfilter" data-qfilter="${id}">${esc(name)} ${prompts.filter((p) => p.personaId === id).length}</button>`).join('')}
-      </div>`
-    : '';
+  /**
+   * The list is long and every question is one of several kinds. Sorting and
+   * grouping are the difference between a list and something you can work
+   * through, and everything needed is already on each row.
+   */
+  const clusters = [...new Set(prompts.map((p) => p.cluster).filter(Boolean))].sort();
+  const intents = [...new Set(prompts.map((p) => p.intent).filter(Boolean))].sort();
+
+  const count = (fn) => prompts.filter(fn).length;
+  const chip = (group, value, label, n) =>
+    `<button class="tfilter${value === 'all' ? ' is-on' : ''}" data-group="${group}" data-value="${esc(value)}">${esc(label)}${
+      n === undefined ? '' : ` ${n}`
+    }</button>`;
+
+  const filters = `
+    <div class="qtools">
+      <div class="qtool">
+        <span class="qtool-k">Show</span>
+        <div class="taskbar">
+          ${chip('state', 'all', 'All', prompts.length)}
+          ${count((p) => p.measured && p.rate === 0) ? chip('state', 'invisible', 'Never named', count((p) => p.measured && p.rate === 0)) : ''}
+          ${count((p) => p.measured && p.rate > 0 && p.rate < 0.5) ? chip('state', 'weak', 'Named sometimes', count((p) => p.measured && p.rate > 0 && p.rate < 0.5)) : ''}
+          ${count((p) => p.measured && p.rate >= 0.5) ? chip('state', 'strong', 'Named often', count((p) => p.measured && p.rate >= 0.5)) : ''}
+          ${count((p) => !p.measured) ? chip('state', 'unrun', 'Not asked yet', count((p) => !p.measured)) : ''}
+        </div>
+      </div>
+
+      ${
+        personas.length
+          ? `<div class="qtool">
+              <span class="qtool-k">Buyer</span>
+              <div class="taskbar">
+                ${chip('persona', 'all', 'Anyone')}
+                ${chip('persona', 'none', 'Asked plainly', count((p) => !p.persona))}
+                ${personas.map(([id, name]) => chip('persona', String(id), name, count((p) => p.personaId === id))).join('')}
+              </div>
+            </div>`
+          : ''
+      }
+
+      ${
+        clusters.length > 1
+          ? `<div class="qtool">
+              <span class="qtool-k">Topic</span>
+              <div class="taskbar">
+                ${chip('cluster', 'all', 'Everything')}
+                ${clusters.map((c) => chip('cluster', c, c.replace(/-/g, ' '), count((p) => p.cluster === c))).join('')}
+              </div>
+            </div>`
+          : ''
+      }
+
+      ${
+        intents.length > 1
+          ? `<div class="qtool">
+              <span class="qtool-k">Intent</span>
+              <div class="taskbar">
+                ${chip('intent', 'all', 'Any')}
+                ${intents.map((i) => chip('intent', i, i, count((p) => p.intent === i))).join('')}
+              </div>
+            </div>`
+          : ''
+      }
+
+      <div class="qtool">
+        <span class="qtool-k">Sort</span>
+        <select id="qsort" class="qsort">
+          <option value="opportunity">Biggest opportunity</option>
+          <option value="rate-asc">Least visible first</option>
+          <option value="rate-desc">Most visible first</option>
+          <option value="volume">Most asked first</option>
+          <option value="az">A to Z</option>
+        </select>
+      </div>
+    </div>`;
 
   return `<div class="panel">
     <div class="panel-head">
@@ -959,6 +1035,11 @@ async function render() {
   }[view];
   $('view').innerHTML = await fn();
   if (view === 'setup') { recalcEstimate(); loadPersonas(); }
+  if (view === 'questions') {
+    // Reset, or a filter from a previous site silently narrows this one.
+    Object.assign(qState, { state: 'all', persona: 'all', cluster: 'all', intent: 'all', sort: 'opportunity', text: '' });
+    applyQuestionView();
+  }
   if (view === 'traffic' && $('ga4Props')) loadGa4Properties();
   if (view === 'actions' && state.people?.length) {
     const dl = document.createElement('datalist');
@@ -1392,15 +1473,84 @@ document.addEventListener('click', (e) => {
   }
 });
 
-document.addEventListener('click', (e) => {
-  const qf = e.target.closest('[data-qfilter]');
-  if (!qf) return;
-  for (const b of document.querySelectorAll('[data-qfilter]')) b.classList.toggle('is-on', b === qf);
-  const want = qf.dataset.qfilter;
-  for (const row of document.querySelectorAll('.prompt')) {
-    const id = row.dataset.persona || '';
-    row.hidden = want === 'all' ? false : want === 'none' ? Boolean(id) : id !== want;
+/**
+ * Filters combine rather than replace each other, so "never named" and
+ * "pricing" and "enterprise buyer" narrow to the intersection. Picking one
+ * filter and having it silently clear another is the usual way these become
+ * untrustworthy.
+ */
+const qState = { state: 'all', persona: 'all', cluster: 'all', intent: 'all', sort: 'opportunity', text: '' };
+
+function applyQuestionView() {
+  const list = document.getElementById('promptList');
+  if (!list) return;
+
+  const rows = [...list.querySelectorAll('.prompt')];
+  let shown = 0;
+
+  for (const r of rows) {
+    const d = r.dataset;
+    const ok =
+      (qState.state === 'all' || d.state === qState.state) &&
+      (qState.persona === 'all' ||
+        (qState.persona === 'none' ? !d.persona : d.persona === qState.persona)) &&
+      (qState.cluster === 'all' || d.cluster === qState.cluster) &&
+      (qState.intent === 'all' || d.intent === qState.intent) &&
+      (!qState.text || d.filterText.includes(qState.text));
+    r.hidden = !ok;
+    if (ok) shown++;
   }
+
+  const num = (r, k) => Number(r.dataset[k]);
+  const sorted = rows.slice().sort((a, b) => {
+    switch (qState.sort) {
+      case 'rate-asc':
+        // Unmeasured questions carry -1 so they sort last rather than
+        // appearing as the worst performers.
+        return (num(a, 'rate') < 0 ? 2 : num(a, 'rate')) - (num(b, 'rate') < 0 ? 2 : num(b, 'rate'));
+      case 'rate-desc':
+        return num(b, 'rate') - num(a, 'rate');
+      case 'volume':
+        return num(b, 'volume') - num(a, 'volume');
+      case 'az':
+        return a.dataset.title.localeCompare(b.dataset.title);
+      default: {
+        // Most asked and least visible first, which is where the work is.
+        const score = (r) => (num(r, 'rate') < 0 ? 0 : (1 - num(r, 'rate')) * Math.log10((num(r, 'volume') || 10) + 10));
+        return score(b) - score(a);
+      }
+    }
+  });
+  for (const r of sorted) list.appendChild(r);
+
+  const empty = list.querySelector('[data-filter-empty]');
+  if (empty) {
+    empty.hidden = shown > 0;
+    list.appendChild(empty);
+  }
+  const counter = document.getElementById('promptFilterCount');
+  if (counter) counter.textContent = shown === rows.length ? '' : `${shown} of ${rows.length}`;
+}
+
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-group]');
+  if (!chip) return;
+  const group = chip.dataset.group;
+  for (const b of document.querySelectorAll(`[data-group="${group}"]`)) b.classList.toggle('is-on', b === chip);
+  qState[group] = chip.dataset.value;
+  applyQuestionView();
+});
+
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'qsort') return;
+  qState.sort = e.target.value;
+  applyQuestionView();
+});
+
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'promptFilter') return;
+  qState.text = e.target.value.trim().toLowerCase();
+  applyQuestionView();
 });
 
 document.addEventListener('input', (e) => {
