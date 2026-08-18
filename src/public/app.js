@@ -1897,6 +1897,13 @@ function gscError(d) {
       </div>${detail}`;
   }
 
+  if (d.fix === 'connect') {
+    return `<p class="hint" style="margin:0 0 10px">${esc(d.error)} Connecting takes one screen, and we only ask for Search Console.</p>
+      <div class="inline-form">
+        <button class="btn" id="gscGrant">Connect Search Console</button>
+      </div>${detail}`;
+  }
+
   if (d.fix === 'reconnect') {
     // Search Console is a separate grant now, so this is one more approval
     // rather than redoing the Analytics connection.

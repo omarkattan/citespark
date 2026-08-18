@@ -1795,6 +1795,26 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('a dead end is never the answer to "connect Google"', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // No connection at all fell through to a generic error with no button, so
+  // the one case where the fix is a single click had no way forward.
+  const start = server.indexOf("app.get('/api/projects/:id/gsc/candidates'");
+  const route = server.slice(start, start + 1400);
+  assert.ok(/fix: 'connect'/.test(route), 'not connected must be its own case');
+  assert.ok(/ga4_refresh_token/.test(route), 'and be detected before calling Google');
+
+  // Every branch of this error must offer something to click.
+  const fn = app.slice(app.indexOf('function gscError'), app.indexOf('async function loadGscCandidates'));
+  for (const fix of ['connect', 'enable-api', 'reconnect']) {
+    const branch = fn.slice(fn.indexOf(`d.fix === '${fix}'`));
+    assert.ok(/<button|<a class="btn/.test(branch.slice(0, 700)), `the ${fix} branch has no way forward`);
+  }
+});
+
 await test('a missing Search Console grant is not blamed on an old connection', async () => {
   const { readFileSync } = await import('node:fs');
   const src = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
