@@ -2595,6 +2595,46 @@ await test('running every site has to be asked for explicitly', async () => {
   assert.ok(/Nothing run/.test(job), 'and a bare invocation must refuse and say so');
 });
 
+console.log('\npage checks');
+
+await test('no overview is kept apart from not being cited', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/pagecheck.js', import.meta.url), 'utf8');
+
+  // Three different outcomes: Google showed no overview, showed one without
+  // you, or cited your site through a different page. Collapsing the first
+  // into the second reports a Google decision as a failure of the page.
+  assert.ok(/overview: false/.test(lib), 'a missing overview must be its own state');
+  assert.ok(/noOverview/.test(lib), 'and detected rather than inferred from an empty answer');
+  assert.ok(/pageCited: Boolean\(exact\)/.test(lib), 'the exact page must be matched, not just the domain');
+
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  assert.ok(/another page cited/.test(app), 'the middle case needs its own label');
+  assert.ok(/Google's choice rather than yours/.test(app), 'and the absent case must not read as a failure');
+});
+
+await test('a page check states its cost before running', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  assert.ok(/page-checks\/preview/.test(server), 'there must be a preview before the spend');
+  assert.ok(/estimateUsd/.test(server), 'with a figure');
+  assert.ok(/costs about/.test(app), 'shown to the person clicking');
+});
+
+await test('a url is matched exactly, not by domain', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/pagecheck.js', import.meta.url), 'utf8');
+
+  // A trailing slash or a www should not decide whether a page counts as
+  // cited, and neither should a scheme.
+  const strip = new Function('u', 'return String(u || "").replace(/^https?:\\/\\//, "").replace(/^www\\./, "").replace(/\\/$/, "").toLowerCase();');
+  assert.equal(strip('https://www.x.com/a/'), strip('http://x.com/a'));
+  assert.notEqual(strip('https://x.com/a'), strip('https://x.com/b'));
+  assert.ok(/sameUrl/.test(lib), 'and the comparison must be a named thing, not inline');
+});
+
 console.log('\nrun cadence');
 
 await test('one run per question is the default, and the copy agrees', async () => {

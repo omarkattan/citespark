@@ -473,3 +473,32 @@ CREATE INDEX IF NOT EXISTS rec_history_project ON recommendation_history (projec
 -- per site, and the copy no longer claims something the default does not do.
 ALTER TABLE projects ALTER COLUMN runs_per_cycle SET DEFAULT 1;
 UPDATE projects SET runs_per_cycle = 1 WHERE runs_per_cycle = 3;
+
+-- Page-level AI Overview checks.
+--
+-- Search Console says which pages earn which searches. This asks, for those
+-- same searches, whether Google shows an AI Overview and whether it cites the
+-- page. Ranking for a term and being in the answer above it are different
+-- things, and this is where they can be compared directly.
+CREATE TABLE IF NOT EXISTS page_checks (
+  id            SERIAL PRIMARY KEY,
+  project_id    INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  checked_on    DATE NOT NULL DEFAULT CURRENT_DATE,
+  query         TEXT NOT NULL,
+  page          TEXT,                    -- the URL Search Console says earns it
+  impressions   INTEGER NOT NULL DEFAULT 0,
+  clicks        INTEGER NOT NULL DEFAULT 0,
+  position      NUMERIC(6,2),
+  -- Three separate states, deliberately: no overview shown, shown without us,
+  -- shown citing us. Collapsing the first two would report a Google decision
+  -- as a failure of the page.
+  overview      BOOLEAN NOT NULL DEFAULT false,
+  domain_cited  BOOLEAN NOT NULL DEFAULT false,
+  page_cited    BOOLEAN NOT NULL DEFAULT false,
+  cited_url     TEXT,
+  competitors   JSONB NOT NULL DEFAULT '[]',
+  cost_usd      NUMERIC(10,6) NOT NULL DEFAULT 0,
+  error         TEXT,
+  UNIQUE (project_id, checked_on, query)
+);
+CREATE INDEX IF NOT EXISTS page_checks_project ON page_checks (project_id, checked_on DESC);

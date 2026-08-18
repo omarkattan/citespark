@@ -1363,3 +1363,34 @@ select { appearance: auto; }
   color: var(--dune, #a8601b);
   margin-left: 6px;
 }
+
+/* page checks */
+.pchead, .pcrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 100px 78px 150px;
+  gap: 14px;
+  align-items: baseline;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line-2);
+}
+.pchead {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border-bottom-color: var(--line);
+}
+.pcrow:last-child { border-bottom: none; }
+.pcq { font-size: 14px; color: var(--ink); }
+.pcp { display: block; font-family: var(--mono); font-size: 11px; color: var(--ink-3); margin-top: 3px; word-break: break-all; }
+.pcp:hover { color: var(--you); }
+.pcrivals { font-size: 11.5px; color: var(--alert); margin-top: 4px; }
+.pcnum { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); text-align: right; }
+.tag.ok { border-color: var(--you); color: var(--you); }
+.tag.bad { border-color: var(--alert); color: var(--alert); }
+@media (max-width: 780px) {
+  .pchead { display: none; }
+  .pcrow { grid-template-columns: minmax(0, 1fr) auto; row-gap: 6px; }
+  .pcnum { text-align: left; font-size: 11px; }
+}

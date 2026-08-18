@@ -40,7 +40,7 @@ function conversational(q) {
   return 0;
 }
 
-async function accessTokenFor(project) {
+export async function accessTokenFor(project) {
   const stored = project?.ga4_refresh_token ? decrypt(project.ga4_refresh_token) : null;
   const refresh = stored || process.env.GOOGLE_REFRESH_TOKEN;
   if (!refresh) throw new Error('Google is not connected for this site');

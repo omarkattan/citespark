@@ -473,6 +473,107 @@ async function viewAssigned() {
   ${data.people.map(person).join('')}`;
 }
 
+/**
+ * Search Console says which pages earn which searches. This says whether the
+ * AI Overview above those searches cites them.
+ *
+ * Three outcomes are kept apart throughout, because they are three different
+ * problems: no overview shown at all, one shown without you, and one citing
+ * your site but through a different page than the one that earns the search.
+ */
+async function viewPages() {
+  const d = await api(`/api/projects/${state.projectId}/page-checks`);
+
+  if (!d || !d.total) {
+    return `<div class="empty">
+      <h2>Check your pages against the AI Overview</h2>
+      <p>
+        Search Console knows which of your pages earns which searches. This asks Google those same searches and
+        records whether an AI Overview appears above the results, and whether it cites you.
+        Ranking third and being absent from the answer above the third result are different problems.
+      </p>
+      <div class="inline-form" style="justify-content:center;margin-top:16px">
+        <button class="btn" id="pcPreview">See what it would check</button>
+      </div>
+      <div id="pcPanel" style="margin-top:18px"></div>
+    </div>`;
+  }
+
+  const rate = (n) => (d.withOverview ? Math.round((n / d.withOverview) * 100) : 0);
+
+  const row = (r) => {
+    const verdict = !r.overview
+      ? '<span class="tag">no overview</span>'
+      : r.page_cited
+        ? '<span class="tag ok">this page cited</span>'
+        : r.domain_cited
+          ? '<span class="tag warn" title="Your site was cited, but through a different page">another page cited</span>'
+          : '<span class="tag bad">not cited</span>';
+
+    const rivals = (r.competitors || []).filter((c) => c.tracked);
+
+    return `<div class="pcrow" data-filter-text="${esc(`${r.query} ${r.page || ''}`.toLowerCase())}">
+      <div>
+        <div class="pcq">${esc(r.query)}</div>
+        ${r.page ? `<a class="pcp" href="${esc(r.page)}" target="_blank" rel="noopener">${esc(r.page.replace(/^https?:\/\/(www\.)?/, ''))}</a>` : ''}
+        ${rivals.length ? `<div class="pcrivals">tracked competitor cited: ${rivals.map((c) => esc(c.domain)).join(', ')}</div>` : ''}
+      </div>
+      <div class="pcnum">${r.impressions.toLocaleString()}</div>
+      <div class="pcnum">${r.position ?? '-'}</div>
+      <div>${verdict}</div>
+    </div>`;
+  };
+
+  return `<div class="figures">
+      <div class="figure">
+        <div class="label">Searches checked</div>
+        <div class="value">${d.total}</div>
+        <div class="sub">from Search Console, by impressions</div>
+      </div>
+      <div class="figure">
+        <div class="label">Show an AI Overview</div>
+        <div class="value">${d.withOverview}</div>
+        <div class="sub">${d.noOverview} showed none, which is Google's choice rather than yours</div>
+      </div>
+      <div class="figure">
+        <div class="label">Cite you</div>
+        <div class="value ${rate(d.cited) < 25 ? 'down' : ''}">${rate(d.cited)}%</div>
+        <div class="sub">${d.cited} of ${d.withOverview} overviews</div>
+      </div>
+      <div class="figure">
+        <div class="label">Impressions with no mention</div>
+        <div class="value ${d.missedImpressions ? 'down' : ''}">${d.missedImpressions.toLocaleString()}</div>
+        <div class="sub">searches you already rank for, answered above you without you</div>
+      </div>
+    </div>
+
+    ${d.wrongPage ? `<p class="warn-band" style="margin:18px 0 0">
+      <b>${d.wrongPage} ${d.wrongPage === 1 ? 'search cites' : 'searches cite'} your site through a different page</b>
+      than the one earning the search. The site is trusted for those questions; the page doing the ranking is not the
+      one being quoted.
+    </p>` : ''}
+
+    <div class="panel" style="margin-top:18px">
+      <div class="panel-head">
+        <h2>Every search checked</h2>
+        <div class="spacer"></div>
+        <span class="meta" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">checked ${esc(new Date(d.checkedOn).toLocaleDateString())}</span>
+        <button class="ghost" id="pcPreview">Run again</button>
+      </div>
+      <div id="pcPanel"></div>
+      <div class="searchrow" style="max-width:420px;margin-bottom:10px">
+        <input type="search" id="pcFilter" placeholder="Filter searches or pages" autocomplete="off" />
+      </div>
+      <div class="pchead">
+        <div>Search and the page that earns it</div>
+        <div class="pcnum">Impressions</div>
+        <div class="pcnum">Position</div>
+        <div>In the overview</div>
+      </div>
+      ${d.rows.map(row).join('')}
+    </div>`;
+}
+
 async function viewQuestions() {
   const prompts = await api(`/api/projects/${state.projectId}/prompts`);
   if (!prompts?.length) {
@@ -852,7 +953,7 @@ async function render() {
   const view = state.view;
   $('view').innerHTML = '<div class="empty">Loading</div>';
   const fn = {
-    actions: viewActions, assigned: viewAssigned, questions: viewQuestions, rivals: viewRivals,
+    actions: viewActions, assigned: viewAssigned, pages: viewPages, questions: viewQuestions, rivals: viewRivals,
     sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling,
     trends: viewTrends, landscape: viewLandscape
   }[view];
@@ -1302,7 +1403,49 @@ document.addEventListener('click', (e) => {
   }
 });
 
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'pcFilter') return;
+  const needle = e.target.value.trim().toLowerCase();
+  for (const r of document.querySelectorAll('.pcrow')) {
+    r.hidden = Boolean(needle) && !r.dataset.filterText.includes(needle);
+  }
+});
+
 document.addEventListener('click', async (e) => {
+  if (e.target.id === 'pcPreview') {
+    const btn = e.target;
+    btn.disabled = true;
+    btn.textContent = 'Reading Search Console';
+    const d = await api(`/api/projects/${state.projectId}/page-checks/preview?limit=50`);
+    btn.disabled = false;
+    btn.textContent = 'See what it would check';
+
+    const panel = $('pcPanel');
+    if (d?.error) {
+      panel.innerHTML = `<p class="error">${esc(d.error)}</p>`;
+      return;
+    }
+    panel.innerHTML = `<div class="pq-preview">
+      <p class="hint" style="margin:0 0 10px">
+        ${d.queries} searches from the last 90 days, most seen first. Checking them costs about
+        <b>$${d.estimateUsd.toFixed(2)}</b>, and each one is an answer check against your allowance.
+      </p>
+      ${d.sample.map((s) => `<div class="qrow"><span class="qhits">${s.impressions}</span><span class="qtext">${esc(s.query)}</span></div>`).join('')}
+      <div class="inline-form" style="margin-top:12px">
+        <button class="btn" id="pcRun">Check these ${d.queries} searches</button>
+      </div>
+    </div>`;
+    return;
+  }
+
+  if (e.target.id === 'pcRun') {
+    e.target.disabled = true;
+    e.target.textContent = 'Checking';
+    const r = await api(`/api/projects/${state.projectId}/page-checks/run`, { method: 'POST', body: { limit: 50 } });
+    if (r?.checked) await render();
+    return;
+  }
+
   if (e.target.id === 'suggestPersonas') {
     const btn = e.target;
     btn.disabled = true;
