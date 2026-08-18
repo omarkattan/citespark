@@ -2673,6 +2673,39 @@ await test('a page check never fails as a generic 500', async () => {
   assert.ok(/d\.fix === 'connect'/.test(panel), 'and every error must offer its fix');
 });
 
+await test('a branded search is flagged, not silently checked', async () => {
+  const { isBranded } = await import('../src/lib/pagecheck.js?b=1');
+  const project = { brand_name: 'The Family Office', name: 'The Family Office', domain: 'tfoco.com', aliases: ['TFO'] };
+
+  // An AI Overview naming you for your own brand confirms nothing, and on
+  // some brands those searches are most of the list.
+  assert.equal(isBranded('the family office bahrain', project), true);
+  assert.equal(isBranded('the family office company', project), true);
+  assert.equal(isBranded('tfoco reviews', project), true, 'the domain stem counts too');
+
+  // The generic category term is the one worth checking, and it must not be
+  // caught just because the brand is made of ordinary words.
+  assert.equal(isBranded('family office dubai', project), false);
+  assert.equal(isBranded('family offices in uae', project), false);
+  assert.equal(isBranded('how to choose a family office', project), false);
+});
+
+await test('the picker decides what runs, not the server', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/pagecheck.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Taking the top N whatever the customer ticked would make the picker
+  // decorative and spend money on searches they excluded.
+  assert.ok(/queries\?\.length/.test(lib), 'an explicit list must win over the default');
+  assert.ok(/queries: \[\.\.\.document\.querySelectorAll\('\[data-pcq\]:checked'\)\]/.test(app.replace(/\s+/g, ' ')) || /data-pcq\]:checked/.test(app), 'the UI must send what was ticked');
+
+  // A group box that starts unchecked while its children are ticked appears
+  // to do nothing on first click.
+  assert.ok(/const allOn = kids\.every/.test(app), 'the group toggle must follow its children');
+  assert.ok(/indeterminate/.test(app), 'and show a partial state');
+});
+
 await test('a page check states its cost before running', async () => {
   const { readFileSync } = await import('node:fs');
   const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');

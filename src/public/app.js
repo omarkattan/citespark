@@ -481,6 +481,27 @@ async function viewAssigned() {
  * problems: no overview shown at all, one shown without you, and one citing
  * your site but through a different page than the one that earns the search.
  */
+/** Keep the count and the cost in front of the person choosing. */
+function updatePcCount() {
+  const el = document.getElementById('pcCount');
+  if (!el) return;
+
+  // Each group box reflects its children, so the state is readable at a glance.
+  for (const g of document.querySelectorAll('.pcp-group')) {
+    const kids = [...g.querySelectorAll('[data-pcq]')];
+    const head = g.querySelector('[data-pcgroup]');
+    if (!head || !kids.length) continue;
+    const on = kids.filter((b) => b.checked).length;
+    head.checked = on === kids.length;
+    head.indeterminate = on > 0 && on < kids.length;
+  }
+
+  const n = document.querySelectorAll('[data-pcq]:checked').length;
+  el.textContent = n ? `${n} searches, about $${(n * 0.0025).toFixed(2)}` : 'nothing selected';
+  const btn = document.getElementById('pcRun');
+  if (btn) btn.disabled = n === 0;
+}
+
 async function viewPages() {
   const d = await api(`/api/projects/${state.projectId}/page-checks`);
 
@@ -1554,6 +1575,17 @@ document.addEventListener('input', (e) => {
 });
 
 document.addEventListener('input', (e) => {
+  if (e.target.id === 'pcSearch') {
+    const needle = e.target.value.trim().toLowerCase();
+    for (const q of document.querySelectorAll('.pcp-q')) {
+      q.hidden = Boolean(needle) && !q.dataset.text.includes(needle);
+    }
+    // A page with nothing left to show is noise.
+    for (const g of document.querySelectorAll('.pcp-group')) {
+      g.hidden = ![...g.querySelectorAll('.pcp-q')].some((q) => !q.hidden);
+    }
+    return;
+  }
   if (e.target.id !== 'pcFilter') return;
   const needle = e.target.value.trim().toLowerCase();
   for (const r of document.querySelectorAll('.pcrow')) {
@@ -1582,23 +1614,107 @@ document.addEventListener('click', async (e) => {
       panel.innerHTML = `<p class="error">${esc(d.error)}</p>${fix ? `<div class="inline-form" style="margin-top:10px">${fix}</div>` : ''}`;
       return;
     }
-    panel.innerHTML = `<div class="pq-preview">
-      <p class="hint" style="margin:0 0 10px">
-        ${d.queries} searches from the last 90 days, most seen first. Checking them costs about
-        <b>$${d.estimateUsd.toFixed(2)}</b>, and each one is an answer check against your allowance.
-      </p>
-      ${d.sample.map((s) => `<div class="qrow"><span class="qhits">${s.impressions}</span><span class="qtext">${esc(s.query)}</span></div>`).join('')}
-      <div class="inline-form" style="margin-top:12px">
-        <button class="btn" id="pcRun">Check these ${d.queries} searches</button>
+    // Every search, grouped by the page that earns it. Branded ones are
+    // unticked by default: an AI Overview naming you for your own brand
+    // confirms nothing, and on some brands that is most of the list.
+    window.__pcPages = d.pages;
+    panel.innerHTML = `<div class="pq-preview" id="pcPicker">
+      <div class="pcp-head">
+        <p class="hint" style="margin:0">
+          ${d.queries} searches from the last 90 days${
+            d.branded ? `, of which <b>${d.branded}</b> mention your brand and are unticked` : ''
+          }. Each check costs about $${d.costPerQuery.toFixed(4)}.
+        </p>
+        <div class="taskbar" style="margin-top:10px">
+          <button class="tfilter" data-pcpick="unbranded">Unbranded only</button>
+          <button class="tfilter" data-pcpick="all">Everything</button>
+          <button class="tfilter" data-pcpick="top20">Top 20 by impressions</button>
+          <button class="tfilter" data-pcpick="none">Clear</button>
+        </div>
+        <div class="searchrow" style="max-width:340px;margin-top:10px">
+          <input type="search" id="pcSearch" placeholder="Filter searches or pages" autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="pcp-list">
+        ${d.pages
+          .map(
+            (g) => `<div class="pcp-group" data-page="${esc(g.page)}">
+              <label class="pcp-grouphead">
+                <input type="checkbox" data-pcgroup="${esc(g.page)}" />
+                <span class="pcp-url">${esc(g.page === 'unknown' ? 'No page recorded' : g.page.replace(/^https?:\/\/(www\.)?/, ''))}</span>
+                <span class="pcp-imp">${g.impressions.toLocaleString()}</span>
+              </label>
+              ${g.queries
+                .map(
+                  (q) => `<label class="pcp-q" data-text="${esc(`${q.query} ${g.page}`.toLowerCase())}">
+                    <input type="checkbox" data-pcq="${esc(q.query)}" ${q.branded ? '' : 'checked'} />
+                    <span class="pcp-qt">${esc(q.query)}${q.branded ? '<i class="pcp-brand">brand</i>' : ''}</span>
+                    <span class="pcp-imp">${q.impressions.toLocaleString()}</span>
+                    <span class="pcp-pos">${q.position ?? ''}</span>
+                  </label>`
+                )
+                .join('')}
+            </div>`
+          )
+          .join('')}
+      </div>
+
+      <div class="inline-form pcp-foot">
+        <button class="btn" id="pcRun">Check selected</button>
+        <span class="hint" id="pcCount"></span>
       </div>
     </div>`;
+    updatePcCount();
     return;
   }
 
+  const pick = e.target.closest('[data-pcpick]');
+  if (pick) {
+    const how = pick.dataset.pcpick;
+    const boxes = [...document.querySelectorAll('[data-pcq]')];
+    const branded = new Set(
+      (window.__pcPages || []).flatMap((g) => g.queries.filter((q) => q.branded).map((q) => q.query))
+    );
+    const top = new Set(
+      (window.__pcPages || [])
+        .flatMap((g) => g.queries)
+        .filter((q) => !q.branded)
+        .sort((a, b) => b.impressions - a.impressions)
+        .slice(0, 20)
+        .map((q) => q.query)
+    );
+    for (const b of boxes) {
+      const q = b.dataset.pcq;
+      b.checked =
+        how === 'all' ? true : how === 'none' ? false : how === 'top20' ? top.has(q) : !branded.has(q);
+    }
+    updatePcCount();
+    return;
+  }
+
+  const group = e.target.closest('[data-pcgroup]');
+  if (group) {
+    // The group box starts unchecked while its children may be ticked, so
+    // clicking it once appeared to do nothing. Toggle on what the children
+    // are, not on the box's own state.
+    const box = group.closest('.pcp-group');
+    const kids = [...box.querySelectorAll('[data-pcq]')];
+    const allOn = kids.every((b) => b.checked);
+    for (const b of kids) b.checked = !allOn;
+    group.checked = !allOn;
+    updatePcCount();
+    return;
+  }
+
+  if (e.target.matches('[data-pcq]')) { updatePcCount(); return; }
+
   if (e.target.id === 'pcRun') {
+    const queries = [...document.querySelectorAll('[data-pcq]:checked')].map((b) => b.dataset.pcq);
+    if (!queries.length) return;
     e.target.disabled = true;
-    e.target.textContent = 'Checking';
-    const r = await api(`/api/projects/${state.projectId}/page-checks/run`, { method: 'POST', body: { limit: 50 } });
+    e.target.textContent = `Checking ${queries.length}`;
+    const r = await api(`/api/projects/${state.projectId}/page-checks/run`, { method: 'POST', body: { queries } });
     if (r?.checked) await render();
     return;
   }

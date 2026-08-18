@@ -23,6 +23,34 @@ const sameUrl = (a, b) => strip(a) === strip(b);
  * Query and page together, which the existing query-only fetch cannot give.
  * Ordered by impressions because a page nobody sees is not worth a call.
  */
+/**
+ * Is this search really about the brand?
+ *
+ * Of course an AI Overview names you for your own name. Checking branded
+ * searches spends the allowance to confirm something already known, and on a
+ * brand like "The Family Office" they can be most of the list. Flagged rather
+ * than dropped, because the answer to a branded search is occasionally a
+ * surprise worth seeing.
+ */
+export function isBranded(queryText, project) {
+  const terms = [project.brand_name, project.name, ...(project.aliases || [])]
+    .filter(Boolean)
+    .map((t) => String(t).toLowerCase().trim())
+    .filter((t) => t.length > 2);
+
+  // The domain without its suffix catches "sandstormdigital" in a query.
+  const host = String(project.domain || '').replace(/^www\./, '').split('.')[0].toLowerCase();
+  if (host.length > 3) terms.push(host);
+
+  const q = String(queryText).toLowerCase();
+  return terms.some((t) => {
+    if (q.includes(t)) return true;
+    // "sandstorm digital" should match "sandstormdigital" and vice versa.
+    const squashed = t.replace(/\s+/g, '');
+    return squashed.length > 4 && q.replace(/\s+/g, '').includes(squashed);
+  });
+}
+
 export async function fetchPageQueries(project, { days = 90, limit = 250, minImpressions = 10 } = {}) {
   const site = project.gsc_site_url;
   if (!site) throw new Error('No Search Console property chosen for this site');
@@ -62,7 +90,10 @@ export async function fetchPageQueries(project, { days = 90, limit = 250, minImp
     if (!prev || r.impressions > prev.impressions) best.set(r.query, r);
   }
 
-  return [...best.values()].sort((a, b) => b.impressions - a.impressions).slice(0, limit);
+  return [...best.values()]
+    .map((r) => ({ ...r, branded: isBranded(r.query, project) }))
+    .sort((a, b) => b.impressions - a.impressions)
+    .slice(0, limit);
 }
 
 /**
@@ -108,7 +139,7 @@ export async function checkQuery({ query, page, market, ownDomain, competitorDom
 }
 
 /** Run a batch and store it. */
-export async function runPageChecks(projectId, { limit = 50, days = 90 } = {}) {
+export async function runPageChecks(projectId, { limit = 50, days = 90, queries = null } = {}) {
   const project = await one('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!project) throw new Error('Project not found');
 
@@ -116,7 +147,12 @@ export async function runPageChecks(projectId, { limit = 50, days = 90 } = {}) {
     await many("SELECT domain FROM entities WHERE project_id = $1 AND kind = 'competitor' AND domain IS NOT NULL", [projectId])
   ).map((r) => r.domain);
 
-  const rows = await fetchPageQueries(project, { days, limit });
+  // An explicit list where the customer has chosen. Taking the top N whatever
+  // they picked would make the picker decorative.
+  const all = await fetchPageQueries(project, { days, limit: 250 });
+  const rows = queries?.length
+    ? all.filter((r) => queries.includes(r.query))
+    : all.filter((r) => !r.branded).slice(0, limit);
   const results = [];
   let spend = 0;
 

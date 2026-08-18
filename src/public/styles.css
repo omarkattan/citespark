@@ -1430,3 +1430,60 @@ select { appearance: auto; }
   .qtool { align-items: flex-start; }
   .qtool-k { width: auto; }
 }
+
+/* choosing which searches to check */
+.pcp-head { padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.pcp-list { max-height: 460px; overflow-y: auto; margin: 12px 0; }
+.pcp-group { margin-bottom: 14px; }
+.pcp-grouphead {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 80px;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line-2);
+  cursor: pointer;
+}
+.pcp-url {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  /* Left, so the eye can run down the list. A centred column of URLs of
+     different lengths cannot be scanned. */
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pcp-q {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 80px 44px;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 0 6px 22px;
+  cursor: pointer;
+}
+.pcp-q:hover { background: rgba(0,0,0,.015); }
+.pcp-grouphead input, .pcp-q input {
+  width: 16px; height: 16px; min-width: 16px; min-height: 16px;
+  margin: 0; accent-color: var(--you);
+}
+.pcp-qt { font-size: 13.5px; color: var(--ink); text-align: left; overflow-wrap: anywhere; }
+.pcp-brand {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 1px 4px;
+  margin-left: 7px;
+}
+.pcp-imp, .pcp-pos { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); text-align: right; }
+.pcp-foot { padding-top: 12px; border-top: 1px solid var(--line); align-items: center; }
+@media (max-width: 700px) {
+  .pcp-q { grid-template-columns: 16px minmax(0, 1fr) 60px; }
+  .pcp-pos { display: none; }
+}
