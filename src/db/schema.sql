@@ -442,3 +442,8 @@ CREATE TABLE IF NOT EXISTS personas (
 
 ALTER TABLE prompts ADD COLUMN IF NOT EXISTS persona_id INTEGER REFERENCES personas(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS prompts_persona ON prompts (persona_id) WHERE persona_id IS NOT NULL;
+
+-- Internal accounts. Not a plan: a flag that lifts the sold allowance for
+-- our own use, while keeping a spend backstop so a runaway loop cannot drain
+-- the provider balance.
+ALTER TABLE orgs ADD COLUMN IF NOT EXISTS internal BOOLEAN NOT NULL DEFAULT false;

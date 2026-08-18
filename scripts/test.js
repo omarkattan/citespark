@@ -2595,6 +2595,30 @@ await test('running every site has to be asked for explicitly', async () => {
   assert.ok(/Nothing run/.test(job), 'and a bare invocation must refuse and say so');
 });
 
+console.log('\ninternal accounts');
+
+await test('an internal account lifts the allowance but not the spend cap', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../src/lib/billing.js', import.meta.url), 'utf8');
+
+  // The allowance protects margin on a sold plan, and there is no margin to
+  // protect on our own account. The spend cap protects the provider balance
+  // from a bug, and a bug does not care whose account it runs on.
+  assert.ok(/monthlyCalls: Number\.MAX_SAFE_INTEGER/.test(src), 'checks must be unlimited');
+  assert.ok(/monthlyBudgetUsd: INTERNAL_BUDGET/.test(src), 'spend must still be capped');
+  assert.ok(/INTERNAL_MONTHLY_BUDGET/.test(src), 'and the cap must be raisable');
+
+  // MAX_SAFE_INTEGER rendered in a usage pill is nonsense.
+  assert.ok(/limit: internal \? null/.test(src), 'an internal account reports no limit rather than a huge one');
+
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  assert.ok(/b\.internal/.test(app), 'and the pill must handle it');
+
+  // The message when it does stop has to point at the right cause.
+  assert.ok(/something is looping/.test(src), 'hitting the internal cap means a bug, not an upsell');
+  assert.ok(!/upgrade now[\s\S]{0,80}internal/.test(src), 'never sell an upgrade to ourselves');
+});
+
 console.log('\nplans and margins');
 
 await test('every plan is internally consistent', () => {

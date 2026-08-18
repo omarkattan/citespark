@@ -65,9 +65,37 @@ export async function recordUsage(orgId, calls, spendUsd) {
 }
 
 /** Everything the UI and the enforcement checks need, in one read. */
+/**
+ * An internal account is our own, not a customer's.
+ *
+ * It lifts the answer-check allowance, because that ceiling exists to protect
+ * margin on a sold plan and there is no margin to protect here. It does not
+ * lift the spend cap: the allowance is a commercial limit, the spend cap is a
+ * safety limit, and a loop that runs away costs real money at the provider
+ * whoever owns the account. INTERNAL_MONTHLY_BUDGET raises it when needed.
+ */
+const INTERNAL_BUDGET = Number(process.env.INTERNAL_MONTHLY_BUDGET || 250);
+
+async function isInternal(orgId) {
+  const row = await one('SELECT internal FROM orgs WHERE id = $1', [orgId]);
+  return Boolean(row?.internal);
+}
+
 export async function getEntitlements(orgId) {
   const sub = await getSubscription(orgId);
-  const plan = planFor(sub.effectivePlan);
+  const basePlan = planFor(sub.effectivePlan);
+  const internal = await isInternal(orgId);
+
+  const plan = internal
+    ? {
+        ...basePlan,
+        name: `${basePlan.name} (internal)`,
+        monthlyCalls: Number.MAX_SAFE_INTEGER,
+        monthlyBudgetUsd: INTERNAL_BUDGET,
+        internal: true
+      }
+    : basePlan;
+
   const usage = await getUsage(orgId);
   const counts = await one(
     `SELECT
@@ -86,14 +114,18 @@ export async function getEntitlements(orgId) {
     cancelAtPeriodEnd: sub.cancel_at_period_end,
     currentPeriodEnd: sub.current_period_end,
     hasStripeCustomer: Boolean(sub.stripe_customer_id),
+    internal,
     usage: {
       calls: usage.calls,
       remaining,
-      limit: plan.monthlyCalls,
+      // A ceiling of MAX_SAFE_INTEGER rendered as a number is nonsense in a
+      // usage pill, so an internal account reports no limit rather than a
+      // very large one.
+      limit: internal ? null : plan.monthlyCalls,
       spend: usage.spend,
       budget: plan.monthlyBudgetUsd ?? null,
       budgetLeft,
-      percent: plan.monthlyCalls ? Math.min(100, Math.round((usage.calls / plan.monthlyCalls) * 100)) : 0,
+      percent: internal ? 0 : plan.monthlyCalls ? Math.min(100, Math.round((usage.calls / plan.monthlyCalls) * 100)) : 0,
       budgetPercent: plan.monthlyBudgetUsd
         ? Math.min(100, Math.round((usage.spend / plan.monthlyBudgetUsd) * 100))
         : 0
@@ -191,7 +223,9 @@ export async function budgetForCycle(orgId, { questions, engines, runs }) {
   if (e.usage.budgetLeft <= 0) {
     return {
       ok: false,
-      reason: `This month's usage limit has been reached on the ${e.plan.name} plan. It resets on the 1st, or you can upgrade now.`,
+      reason: e.internal
+        ? `The internal spend backstop of $${e.plan.monthlyBudgetUsd} for this month has been reached. Raise INTERNAL_MONTHLY_BUDGET if that is deliberate; if it is not, something is looping.`
+        : `This month's usage limit has been reached on the ${e.plan.name} plan. It resets on the 1st, or you can upgrade now.`,
       entitlements: e
     };
   }

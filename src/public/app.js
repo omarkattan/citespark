@@ -2684,7 +2684,10 @@ async function refreshUsagePill() {
   state.billing = b;
   const pill = $('usagePill');
   pill.hidden = false;
-  pill.textContent = `${b.plan.name} \u00b7 ${b.usage.calls}/${b.usage.limit}`;
+  // An internal account has no sold allowance, so showing one is misleading.
+  pill.textContent = b.internal
+    ? `${b.plan.name} \u00b7 ${b.usage.calls} checks \u00b7 $${(b.usage.spend || 0).toFixed(2)}`
+    : `${b.plan.name} \u00b7 ${b.usage.calls}/${b.usage.limit}`;
   pill.className = 'pill' + (b.usage.percent >= 90 ? ' over' : b.usage.percent >= 70 ? ' warn' : '');
 }
 
