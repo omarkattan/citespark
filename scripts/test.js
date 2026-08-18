@@ -2706,6 +2706,26 @@ await test('every search is fetched, not the first page of them', async () => {
   assert.ok(/minImpressions = 1/.test(fn), 'the floor must not silently drop the tail');
 });
 
+await test('the folders offered are the site\'s own, not an example', async () => {
+  const { sectionsFrom } = await import('../src/lib/pagecheck.js?sec=1');
+
+  const rows = [];
+  for (let i = 0; i < 6; i++) rows.push({ page: `https://x.com/en/insights/articles/p${i}`, impressions: 100 });
+  for (let i = 0; i < 4; i++) rows.push({ page: `https://x.com/en/insights/reports/r${i}`, impressions: 80 });
+  rows.push({ page: 'https://x.com/en/', impressions: 500 });
+
+  const found = sectionsFrom(rows).map((s) => s.path);
+
+  // A hardcoded example is wrong for everyone except the site it came from,
+  // and /insights/articles appeared on every project because it came from one.
+  assert.ok(found.includes('/en/insights'), 'the real folders must be discovered');
+  assert.ok(found.includes('/en/insights/articles'), 'at more than one depth');
+
+  // A segment covering a single page is just that page, and offering it as a
+  // section is noise.
+  assert.ok(!sectionsFrom([{ page: 'https://x.com/only', impressions: 5 }]).length);
+});
+
 await test('a section of a site can be checked on its own', async () => {
   const { readFileSync } = await import('node:fs');
   const lib = readFileSync(new URL('../src/lib/pagecheck.js', import.meta.url), 'utf8');
@@ -2716,7 +2736,11 @@ await test('a section of a site can be checked on its own', async () => {
   assert.ok(/dimensionFilterGroups/.test(lib), 'the path filter must go to the API');
   assert.ok(/dimension: 'page', operator: 'contains'/.test(lib));
   assert.ok(/pcPath/.test(app), 'and be offered in the interface');
-  assert.ok(/insights\/articles/.test(app), 'with an example that shows what it is for');
+
+  // The placeholder must not be one site's paths shown to every customer.
+  assert.ok(!/placeholder="\/insights\/articles"/.test(app), 'no hardcoded example path');
+  assert.ok(/a folder, or one full URL/.test(app), 'and it must say a full URL works');
+  assert.ok(/data-pcsection/.test(app), 'with the site\'s own sections offered');
 });
 
 await test('a long list opens shut', async () => {

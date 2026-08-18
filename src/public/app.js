@@ -491,7 +491,10 @@ function pcScope() {
   return `<div class="pcscope">
     <div class="field">
       <label for="pcPath">Only pages containing</label>
-      <input id="pcPath" placeholder="/insights/articles" autocomplete="off" />
+      <input id="pcPath" placeholder="a folder, or one full URL" autocomplete="off" />
+      <span class="hint" style="display:block;margin-top:5px">
+        Any part of a URL works: a folder such as <code>/insights</code>, or a single page pasted in full.
+      </span>
     </div>
     <div class="field">
       <label for="pcDays">Last</label>
@@ -1678,6 +1681,21 @@ document.addEventListener('click', async (e) => {
         </div>
       </div>
 
+      ${
+        d.sections?.length
+          ? `<div class="pcp-sections">
+              <span class="qtool-k">Sections</span>
+              ${d.sections
+                .map(
+                  (sec) => `<button class="tfilter" data-pcsection="${esc(sec.path)}" title="${sec.pages} pages, ${sec.impressions.toLocaleString()} impressions">
+                    ${esc(sec.path)} <i>${sec.queries}</i>
+                  </button>`
+                )
+                .join('')}
+            </div>`
+          : ''
+      }
+
       <div class="pcp-list">
         ${d.pages
           .map(
@@ -1735,6 +1753,18 @@ document.addEventListener('click', async (e) => {
         how === 'all' ? true : how === 'none' ? false : how === 'top20' ? top.has(q) : !branded.has(q);
     }
     updatePcCount();
+    return;
+  }
+
+  // A section chip re-scopes the fetch rather than filtering what is already
+  // on screen, so the counts and the cost are for the section itself.
+  const section = e.target.closest('[data-pcsection]');
+  if (section) {
+    const field = $('pcPath');
+    if (field) {
+      field.value = section.dataset.pcsection;
+      $('pcPreview')?.click();
+    }
     return;
   }
 

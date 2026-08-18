@@ -122,6 +122,46 @@ export async function fetchPageQueries(
 }
 
 /**
+ * The sections this site actually has, counted from its own pages.
+ *
+ * A hardcoded example is wrong for everyone except the site it came from.
+ * These are the real path segments, so someone can pick a folder rather than
+ * guess at the shape of their own URLs.
+ */
+export function sectionsFrom(rows) {
+  const counts = new Map();
+
+  for (const r of rows) {
+    let path;
+    try {
+      path = new URL(r.page).pathname;
+    } catch {
+      continue;
+    }
+    const parts = path.split('/').filter(Boolean);
+    // Both depths, because /en/insights and /en/insights/articles are both
+    // things someone might want to scope to.
+    for (const depth of [1, 2, 3]) {
+      if (parts.length < depth) continue;
+      const seg = '/' + parts.slice(0, depth).join('/');
+      if (!counts.has(seg)) counts.set(seg, { path: seg, pages: new Set(), queries: 0, impressions: 0 });
+      const c = counts.get(seg);
+      c.pages.add(r.page);
+      c.queries += 1;
+      c.impressions += r.impressions;
+    }
+  }
+
+  return [...counts.values()]
+    .map((c) => ({ path: c.path, pages: c.pages.size, queries: c.queries, impressions: c.impressions }))
+    // A segment covering everything says nothing, and one covering a single
+    // page is just that page.
+    .filter((c) => c.pages > 1 && c.queries >= 3)
+    .sort((a, b) => b.impressions - a.impressions)
+    .slice(0, 12);
+}
+
+/**
  * Check one search. Returns the three states separately, because "Google
  * showed no overview" is a fact about Google and "showed one without you" is
  * a fact about the page, and reporting them as one number would be wrong.
