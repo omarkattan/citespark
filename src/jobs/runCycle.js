@@ -214,6 +214,24 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
 
   await recordUsage(project.org_id, billable, spend);
 
+  /**
+   * Read the pages that shaped this cycle's answers.
+   *
+   * Without this the report's "what cited pages have in common" section is
+   * built from whatever someone clicked, which is a selection rather than a
+   * sample. Five pages is a few cents and makes the section mean something.
+   * Failure here must not fail the cycle: the measurement is already stored.
+   */
+  if (!only) {
+    try {
+      const { teardownTopCited } = await import('../lib/teardown.js');
+      const td = await teardownTopCited(project.id, { limit: Number(process.env.TEARDOWN_PER_CYCLE || 5), cycle });
+      if (td.torn) console.log(`  read ${td.torn} of the most cited pages`);
+    } catch (err) {
+      console.warn(`could not read cited pages: ${err.message}`);
+    }
+  }
+
   // A rejected field is a bug in our request. It should reach us directly
   // rather than waiting for a customer to report that an engine looks broken.
   const rejected = [...failures.entries()].filter(([, f]) => /invalid field/i.test(f.error || ''));

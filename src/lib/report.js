@@ -106,7 +106,26 @@ async function citedPagePatterns(projectId) {
     [projectId]
   );
 
-  if (!rows.length) return { pages: 0, features: [], note: 'No page teardowns have been run yet.' };
+  // How many pages exist to be read, so the sample can be stated as a share
+  // rather than a bare number. A pattern from three of forty is a hint; the
+  // same three presented alone read as a finding.
+  const universe = (
+    await one(
+      `SELECT COUNT(DISTINCT c.url)::int AS n
+       FROM citations c JOIN runs r ON r.id = c.run_id
+       WHERE r.project_id = $1 AND c.url IS NOT NULL`,
+      [projectId]
+    )
+  )?.n || 0;
+
+  if (!rows.length) {
+    return {
+      pages: 0,
+      universe,
+      features: [],
+      note: 'No cited pages have been read yet. They are read automatically at the end of each cycle.'
+    };
+  }
 
   const counts = {
     schema: 0,
@@ -142,6 +161,9 @@ async function citedPagePatterns(projectId) {
 
   return {
     pages: n,
+    universe,
+    // Below this, the reader should treat the shares as indicative.
+    thin: n < 8,
     medianWords: words.length ? words.sort((a, b) => a - b)[Math.floor(words.length / 2)] : null,
     schemaTypes: [...schemaTypes.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6),
     features: [

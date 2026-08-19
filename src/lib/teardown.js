@@ -377,3 +377,62 @@ export async function teardown({ url, question, kind, ownBrand, useCache = true 
   );
   return result;
 }
+
+/**
+ * Tear down the pages that are actually shaping answers, rather than the ones
+ * somebody happened to click.
+ *
+ * The report's "what cited pages have in common" section was built only from
+ * manual teardowns, so a pattern drawn from three hand-picked pages was
+ * presented with the same confidence as one drawn from thirty. This takes the
+ * most-cited pages the brand is absent from and reads those, which is a
+ * sample rather than a selection.
+ */
+export async function teardownTopCited(projectId, { limit = 5, cycle = null } = {}) {
+  const { many, one } = await import('../db/index.js');
+
+  const project = await one('SELECT * FROM projects WHERE id = $1', [projectId]);
+  if (!project) throw new Error('Project not found');
+
+  const day =
+    cycle || (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [projectId]))?.d;
+  if (!day) return { torn: 0, pages: [], reason: 'Nothing measured yet.' };
+
+  const own = String(project.domain || '').replace(/^www\./, '').toLowerCase();
+
+  // Most cited first, our own pages excluded: the question is what everyone
+  // else is doing that gets them quoted.
+  const pages = await many(
+    `SELECT c.url,
+            lower(regexp_replace(c.domain, '^www\\.', '')) AS domain,
+            COUNT(*)::int AS citations,
+            (ARRAY_AGG(p.text ORDER BY c.position))[1] AS question
+     FROM citations c
+     JOIN runs r ON r.id = c.run_id
+     JOIN prompts p ON p.id = r.prompt_id
+     WHERE r.project_id = $1 AND r.cycle_date = $2 AND c.url IS NOT NULL
+       AND lower(regexp_replace(c.domain, '^www\\.', '')) <> $3
+     GROUP BY 1, 2
+     ORDER BY COUNT(*) DESC
+     LIMIT $4`,
+    [projectId, day, own, limit]
+  );
+
+  const done = [];
+  for (const p of pages) {
+    try {
+      const result = await teardown({
+        url: p.url,
+        question: p.question,
+        kind: classifySource(p.domain, { ownDomain: own }),
+        ownBrand: project.brand_name
+      });
+      done.push({ url: p.url, citations: p.citations, ok: Boolean(result && !result.error) });
+    } catch (err) {
+      // One unreachable page must not stop the rest.
+      done.push({ url: p.url, citations: p.citations, ok: false, error: String(err.message || err) });
+    }
+  }
+
+  return { torn: done.filter((d) => d.ok).length, attempted: done.length, pages: done, cycle: day };
+}

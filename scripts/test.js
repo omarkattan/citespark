@@ -2977,6 +2977,34 @@ await test('the report can tell a recurring problem from a new one', async () =>
   assert.ok(/standing/.test(lib) && /recurring/.test(lib), 'and classified by how long it has persisted');
 });
 
+await test('the cited-page sample says how it was gathered', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../src/lib/report-html.js', import.meta.url), 'utf8');
+
+  // This section was built only from pages someone had clicked, so a pattern
+  // from three hand-picked pages read exactly like one from thirty.
+  assert.ok(/universe/.test(lib), 'the report must know how many pages could have been read');
+  assert.ok(/thin: n < 8/.test(lib), 'and flag a sample too small to lean on');
+  assert.ok(/How this was measured/.test(html), 'the page must state its own sample');
+  assert.ok(/indicative rather than settled/.test(html), 'and say when to distrust it');
+});
+
+await test('cited pages are read automatically, not only on request', async () => {
+  const { readFileSync } = await import('node:fs');
+  const td = readFileSync(new URL('../src/lib/teardown.js', import.meta.url), 'utf8');
+  const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
+
+  assert.ok(/export async function teardownTopCited/.test(td), 'there must be an automatic pass');
+  assert.ok(/ORDER BY COUNT\(\*\) DESC/.test(td), 'over the most cited pages');
+  assert.ok(/<> \$3/.test(td), 'excluding our own, since the question is what others do');
+
+  // The measurement is already stored by this point; a failed fetch must not
+  // lose a cycle.
+  const block = job.slice(job.indexOf('teardownTopCited'), job.indexOf('teardownTopCited') + 500);
+  assert.ok(/catch/.test(block), 'and a failure here must not fail the cycle');
+});
+
 await test('the report does not claim a fix caused a change', async () => {
   const { readFileSync } = await import('node:fs');
   const lib = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');
