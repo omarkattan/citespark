@@ -2964,6 +2964,26 @@ await test('one run per question is the default, and the copy agrees', async () 
 
 console.log('\ncitation sources');
 
+await test('an action the evidence no longer supports is withdrawn', async () => {
+  const { readFileSync } = await import('node:fs');
+  const rec = readFileSync(new URL('../src/lib/recommend.js', import.meta.url), 'utf8');
+  const fn = rec.slice(rec.indexOf('export async function persistRecommendations'));
+
+  // Recommendations were only ever written, never withdrawn, so an action
+  // outlived the thing behind it. Repointing citations away from a redirect
+  // wrapper left the old action in place with nothing underneath it.
+  assert.ok(/DELETE FROM recommendations/.test(fn), 'stale actions must be removed');
+  assert.ok(/status = 'open'/.test(fn), 'but only open ones');
+
+  // Someone who has started or finished a task should not find it vanished
+  // because this cycle read the world slightly differently.
+  assert.ok(!/status IN \('open', 'doing'\)/.test(fn), 'work in progress must survive a rebuild');
+
+  // A rebuild that produced nothing is a failure, not a reason to empty the
+  // board.
+  assert.ok(/if \(!written\.length\) return/.test(fn), 'an empty build must not wipe the list');
+});
+
 await test('a redirect wrapper is recognised, and a real page is not', async () => {
   const { isWrapper } = await import('../src/lib/resolve.js?w=1');
 

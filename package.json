@@ -34,7 +34,9 @@
     "risc:register": "node scripts/register-risc.js",
     "poster": "node scripts/poster.js",
     "internal": "node scripts/internal.js",
-    "resolve": "node scripts/resolve-citations.js"
+    "resolve": "node scripts/resolve-citations.js",
+    "rebuild": "node scripts/rebuild.js",
+    "sources": "node scripts/sources.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

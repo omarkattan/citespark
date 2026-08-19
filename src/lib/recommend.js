@@ -735,6 +735,7 @@ export function evaluateRules({
 
 /** Upsert into the recommendations table, keeping human status changes intact. */
 export async function persistRecommendations(projectId, recs) {
+  const written = [];
   // Anything the customer deleted outright stays gone, rather than returning
   // on the next cycle under the same fingerprint.
   const suppressed = new Set(
@@ -746,6 +747,7 @@ export async function persistRecommendations(projectId, recs) {
     const key = r.evidence.prompt_id || r.evidence.domain || r.target_url || r.title;
     const fingerprint = `${r.type}:${key}`;
     if (suppressed.has(fingerprint)) continue;
+    written.push(fingerprint);
 
     // Keep a record per cycle. Without it the table shows only what is true
     // today, and "this has been true for eight weeks" cannot be said.
@@ -780,5 +782,40 @@ export async function persistRecommendations(projectId, recs) {
       ]
     );
   }
-  return recs.length;
+
+  /**
+   * Remove actions the evidence no longer supports.
+   *
+   * Recommendations were only ever written, never withdrawn, so an action
+   * survived after the thing behind it was gone. Repointing citations away
+   * from a redirect wrapper left "vertexaisearch.cloud.google.com shapes 53
+   * of your questions" sitting in the list with nothing underneath it.
+   *
+   * Work in progress is kept: someone who has started or finished a task
+   * should not find it vanished because this cycle read the world slightly
+   * differently.
+   */
+  // Collected as each one is written, since the fingerprint is derived in the
+  // loop above rather than carried on the recommendation.
+
+  // A rebuild that produced nothing is a failure, not a reason to empty the
+  // board.
+  if (!written.length) return { written: 0, withdrawn: 0 };
+
+  const stale = await many(
+    `SELECT id, title FROM recommendations
+     WHERE project_id = $1 AND status = 'open' AND NOT (fingerprint = ANY($2::text[]))`,
+    [projectId, written]
+  );
+
+  if (stale.length) {
+    await query(
+      `DELETE FROM recommendations
+       WHERE project_id = $1 AND status = 'open' AND NOT (fingerprint = ANY($2::text[]))`,
+      [projectId, written]
+    );
+  }
+
+  return { written: recs.length, withdrawn: stale.length };
+
 }
