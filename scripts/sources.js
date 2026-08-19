@@ -14,6 +14,18 @@ import { isWrapper } from '../src/lib/resolve.js';
  */
 const id = Number(process.argv.find((a) => /^\d+$/.test(a)));
 
+if (id) {
+  const exists = await many('SELECT id FROM projects WHERE id = $1', [id]);
+  if (!exists.length) {
+    const rows = await many('SELECT id, name FROM projects ORDER BY id');
+    console.error(`\nNo site with id ${id}. These exist:\n`);
+    for (const r of rows) console.error(`  ${String(r.id).padStart(3)}  ${r.name}`);
+    console.error('');
+    await pool.end();
+    process.exit(1);
+  }
+}
+
 const rows = await many(
   `SELECT c.domain, COUNT(*)::int AS n, COUNT(DISTINCT c.url)::int AS urls, MAX(r.cycle_date) AS last_seen
    FROM citations c JOIN runs r ON r.id = c.run_id
@@ -22,7 +34,8 @@ const rows = await many(
   id ? [id] : []
 );
 
-console.log(`\ncitation sources${id ? ` for site ${id}` : ''}\n`);
+console.log(`\ncitation sources${id ? ` for site ${id}` : ' across every site'}\n`);
+if (!rows.length) console.log('  none stored');
 console.log('  citations  links  last seen    domain');
 for (const r of rows) {
   const flag = isWrapper(`https://${r.domain}/`) ? '  <- redirect wrapper' : '';
@@ -40,7 +53,8 @@ const stale = await many(
 if (stale.length) {
   console.log(`\n${stale.length} action(s) still name a redirect wrapper:`);
   for (const s of stale.slice(0, 6)) console.log(`  site ${s.project_id}: ${s.title.slice(0, 66)}`);
-  console.log('\nThese were written by an earlier cycle. Rebuild them:  npm run rebuild -- <id>');
+  console.log('\nThese were written by an earlier cycle. Rebuild all of them at once:');
+  console.log('  npm run rebuild -- --stale');
 }
 console.log('');
 await pool.end();
