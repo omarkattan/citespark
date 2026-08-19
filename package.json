@@ -33,7 +33,8 @@
     "schema": "node scripts/build-schema.js",
     "risc:register": "node scripts/register-risc.js",
     "poster": "node scripts/poster.js",
-    "internal": "node scripts/internal.js"
+    "internal": "node scripts/internal.js",
+    "resolve": "node scripts/resolve-citations.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

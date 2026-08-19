@@ -256,7 +256,15 @@ export async function buildRecommendations(projectId) {
    * you can see the fifteen. One sample question was the least useful part
    * of an otherwise specific action.
    */
-  const sourceRows = await many(
+  const { isWrapper } = await import('./resolve.js');
+
+  /**
+   * A redirect wrapper is not a source. Telling someone that
+   * "vertexaisearch.cloud.google.com shapes 53 of your questions" is a bug
+   * presented as a finding, and there is nothing they could do about it.
+   * Filtered here rather than downstream so no later rule can reintroduce it.
+   */
+  const sourceRows = (await many(
     `WITH per_prompt AS (
        SELECT c.domain, r.prompt_id, p.text AS question,
               COUNT(*)::int AS hits,
@@ -281,7 +289,7 @@ export async function buildRecommendations(projectId) {
      GROUP BY domain
      ORDER BY n DESC`,
     [projectId, cycle]
-  );
+  )).filter((s) => !isWrapper(`https://${s.domain}/`));
 
   const ownCited = await many(
     `SELECT r.prompt_id, COUNT(*)::int AS n

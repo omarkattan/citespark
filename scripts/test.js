@@ -2962,6 +2962,54 @@ await test('one run per question is the default, and the copy agrees', async () 
   assert.ok(/raise the runs per question/i.test(visible), 'variance should still be offered');
 });
 
+console.log('\ncitation sources');
+
+await test('a redirect wrapper is recognised, and a real page is not', async () => {
+  const { isWrapper } = await import('../src/lib/resolve.js?w=1');
+
+  // Google's AI surfaces cite a grounding redirect rather than the publisher,
+  // so every one of those was recorded as a citation for Google: one invented
+  // source with a huge count, and every genuine publisher missing.
+  assert.equal(isWrapper('https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC'), true);
+  assert.equal(isWrapper('https://www.google.com/url?q=https://navira.com/blog'), true);
+  assert.equal(isWrapper('https://t.co/abc'), true);
+
+  // Precision matters as much: a genuine page on a host that also wraps must
+  // not be discarded.
+  assert.equal(isWrapper('https://cloud.google.com/vertex-ai/docs'), false);
+  assert.equal(isWrapper('https://www.naviracorporate.com/blog/difc-vs-adgm'), false);
+  assert.equal(isWrapper('https://clutch.co/ae/agencies'), false);
+});
+
+await test('a wrapper never appears as a source to act on', async () => {
+  const { readFileSync } = await import('node:fs');
+  const rec = readFileSync(new URL('../src/lib/recommend.js', import.meta.url), 'utf8');
+
+  // "vertexaisearch.cloud.google.com shapes 53 of your questions" is a bug
+  // wearing a finding, and there is nothing the customer could do about it.
+  assert.ok(/isWrapper/.test(rec), 'the rules must know what a wrapper is');
+  // Filtered at the query so no later rule can reintroduce it, which is what
+  // happened when it was filtered halfway down.
+  const q = rec.slice(rec.indexOf('const sourceRows'), rec.indexOf('const ownCited'));
+  assert.ok(/\)\)\.filter\(\(s\) => !isWrapper/.test(q), 'and filter at the source, not downstream');
+});
+
+await test('a citation is stored against the publisher', async () => {
+  const { readFileSync } = await import('node:fs');
+  const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
+  const lib = readFileSync(new URL('../src/lib/resolve.js', import.meta.url), 'utf8');
+
+  assert.ok(/resolveAll/.test(job), 'wrappers must be followed before storing');
+  assert.ok(/domain: domainOf\(r\.url\)/.test(job), 'and the domain taken from where it lands');
+
+  // The same grounding link appears across many answers; asking fifty times
+  // is slow and rude.
+  assert.ok(/url_resolutions/.test(lib), 'resolutions must be remembered');
+  // A failed follow must leave the honest wrapper rather than inventing a
+  // publisher.
+  assert.ok(/target \|\| url/.test(lib), 'an unresolved link stays as it is');
+});
+
 console.log('\naggregated report');
 
 await test('the report can tell a recurring problem from a new one', async () => {

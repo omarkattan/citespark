@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import { many, one, query, pool } from '../db/index.js';
-import { askEngine, MOCK } from '../lib/dataforseo.js';
+import { askEngine, domainOf, MOCK } from '../lib/dataforseo.js';
 import { analyseRun } from '../lib/analyze.js';
+import { isWrapper, resolveAll } from '../lib/resolve.js';
 import { buildRecommendations, persistRecommendations } from '../lib/recommend.js';
 import { hasAnthropic } from '../lib/anthropic.js';
 import { budgetForCycle, recordUsage } from '../lib/billing.js';
@@ -193,7 +194,27 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
       );
     }
 
-    for (const c of answer.citations) {
+    /**
+     * Follow any redirect wrapper before storing.
+     *
+     * Google's AI surfaces cite vertexaisearch.cloud.google.com rather than
+     * the publisher, so stored as-is every Google citation is attributed to
+     * Google: one invented source with a huge count, and every real one
+     * missing. Resolutions are cached, so the same link is followed once.
+     */
+    let cites = answer.citations;
+    if (cites.some((c) => isWrapper(c.url))) {
+      const resolved = await resolveAll(cites.map((c) => c.url));
+      cites = cites.map((c) => {
+        const r = resolved.get(c.url);
+        // A link we could not follow keeps the honest wrapper. Guessing a
+        // publisher would be worse than admitting we do not know.
+        if (!r?.resolved) return c;
+        return { ...c, url: r.url, domain: domainOf(r.url) || c.domain, via: c.domain };
+      });
+    }
+
+    for (const c of cites) {
       await query('INSERT INTO citations (run_id, domain, url, position) VALUES ($1,$2,$3,$4)', [
         run.id,
         c.domain,

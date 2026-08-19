@@ -502,3 +502,12 @@ CREATE TABLE IF NOT EXISTS page_checks (
   UNIQUE (project_id, checked_on, query)
 );
 CREATE INDEX IF NOT EXISTS page_checks_project ON page_checks (project_id, checked_on DESC);
+
+-- Where a redirect wrapper actually goes. Google's AI surfaces cite
+-- vertexaisearch.cloud.google.com rather than the publisher, and the same
+-- link appears across many answers, so the answer is worth remembering.
+CREATE TABLE IF NOT EXISTS url_resolutions (
+  source      TEXT PRIMARY KEY,
+  target      TEXT,
+  resolved_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
