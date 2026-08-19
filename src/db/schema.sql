@@ -515,3 +515,23 @@ CREATE TABLE IF NOT EXISTS url_resolutions (
 -- Why a resolution failed, so an unresolved wrapper can be diagnosed rather
 -- than silently retried forever.
 ALTER TABLE url_resolutions ADD COLUMN IF NOT EXISTS reason TEXT;
+
+-- What happened to a prompt and when.
+--
+-- Prompts are hard-deleted and the text is the unique key, so a reworded
+-- prompt is a new row with a new id. Neither fact was recorded anywhere, which
+-- makes "what changed since tracking began" unanswerable after the event.
+-- Logged from here on; anything before this is reconstructed from created_at
+-- and is marked as such.
+CREATE TABLE IF NOT EXISTS prompt_events (
+  id          SERIAL PRIMARY KEY,
+  project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  prompt_id   INTEGER,
+  event       TEXT NOT NULL,          -- added | removed | paused | resumed | reworded
+  text        TEXT NOT NULL,
+  previous    TEXT,
+  persona     TEXT,
+  source      TEXT,
+  at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS prompt_events_project ON prompt_events (project_id, at);

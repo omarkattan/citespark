@@ -2962,6 +2962,53 @@ await test('one run per question is the default, and the copy agrees', async () 
   assert.ok(/raise the runs per question/i.test(visible), 'variance should still be offered');
 });
 
+console.log('\nexport');
+
+await test('the export keeps misses and never merges cited with mentioned', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../scripts/export.js', import.meta.url), 'utf8');
+
+  // A file filtered to citations answers the easy question and hides the
+  // useful one. Misses are the point.
+  assert.ok(/LEFT JOIN mentions/.test(src), 'a run with no mention must still produce a row');
+  assert.ok(/mine \? 'TRUE' : 'FALSE'/.test(src), 'cited is TRUE or FALSE, never absent');
+  assert.ok(/r\.mentioned \? 'TRUE' : 'FALSE'/.test(src));
+
+  // An answer can name a brand without linking to it, which is the more
+  // common case and the whole reason these are two columns.
+  const header = src.slice(src.indexOf('const header = ['), src.indexOf('if (withAnswers) header.push'));
+  assert.ok(/'cited'/.test(header) && /'mentioned'/.test(header), 'both columns are required');
+  assert.ok(header.indexOf("'cited'") < header.indexOf("'mentioned'"));
+});
+
+await test('the export says what it does not cover', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../scripts/export.js', import.meta.url), 'utf8');
+
+  // Copilot and Grok are not queried at all. Silence would read as a nil
+  // return rather than no measurement, which is a different claim.
+  assert.ok(/Copilot and Grok are not covered/.test(src));
+  assert.ok(/not a nil return, it is no measurement/.test(src));
+  assert.ok(/Bing Webmaster Tools/.test(src), 'and the overlap question must be answered');
+
+  // A reworded prompt is a delete and an add, so ids do not carry across.
+  assert.ok(/reworded prompt is a delete and an add/.test(src), 'the id limitation must be stated');
+  assert.ok(/inferred from created_at/.test(src), 'and reconstructed history labelled as such');
+});
+
+await test('prompt changes are recorded as they happen', async () => {
+  const { readFileSync } = await import('node:fs');
+  const schema = readFileSync(new URL('../src/db/schema.sql', import.meta.url), 'utf8');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+
+  assert.ok(/CREATE TABLE IF NOT EXISTS prompt_events/.test(schema));
+
+  // A removal must be read before the row goes, or there is nothing to log.
+  const del = server.slice(server.indexOf("app.delete('/api/prompts/:promptId'"), server.indexOf("app.post('/api/projects/:id/generate-prompts'"));
+  assert.ok(del.indexOf('SELECT p.id, p.text') < del.indexOf('DELETE FROM prompts'), 'read it before deleting it');
+  assert.ok(/'removed'/.test(del));
+});
+
 console.log('\ncitation sources');
 
 await test('an action the evidence no longer supports is withdrawn', async () => {

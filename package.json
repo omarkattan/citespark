@@ -36,7 +36,8 @@
     "internal": "node scripts/internal.js",
     "resolve": "node scripts/resolve-citations.js",
     "rebuild": "node scripts/rebuild.js",
-    "sources": "node scripts/sources.js"
+    "sources": "node scripts/sources.js",
+    "export": "node scripts/export.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
