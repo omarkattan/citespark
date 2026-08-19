@@ -86,11 +86,22 @@ export async function getEntitlements(orgId) {
   const basePlan = planFor(sub.effectivePlan);
   const internal = await isInternal(orgId);
 
+  /**
+   * Every commercial ceiling goes, not just the answer checks.
+   *
+   * Sites, questions, engines and competitors are all limits that exist to
+   * price a plan. Lifting one and leaving the rest was inconsistent and meant
+   * the account we use most kept hitting walls built for customers. The spend
+   * cap stays, because that one guards the provider balance against a bug.
+   */
   const plan = internal
     ? {
         ...basePlan,
         name: `${basePlan.name} (internal)`,
         monthlyCalls: Number.MAX_SAFE_INTEGER,
+        sites: Number.MAX_SAFE_INTEGER,
+        questions: Number.MAX_SAFE_INTEGER,
+        engines: ENGINE_IDS.length,
         monthlyBudgetUsd: INTERNAL_BUDGET,
         internal: true
       }

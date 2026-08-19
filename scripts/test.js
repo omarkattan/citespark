@@ -3008,7 +3008,13 @@ await test('an internal account lifts the allowance but not the spend cap', asyn
   // The allowance protects margin on a sold plan, and there is no margin to
   // protect on our own account. The spend cap protects the provider balance
   // from a bug, and a bug does not care whose account it runs on.
+  // Every commercial ceiling goes, not just the answer checks. Lifting one
+  // and leaving the rest meant the account we use most kept hitting walls
+  // built for customers.
   assert.ok(/monthlyCalls: Number\.MAX_SAFE_INTEGER/.test(src), 'checks must be unlimited');
+  assert.ok(/sites: Number\.MAX_SAFE_INTEGER/.test(src), 'and sites');
+  assert.ok(/questions: Number\.MAX_SAFE_INTEGER/.test(src), 'and questions per site');
+  assert.ok(/engines: ENGINE_IDS\.length/.test(src), 'and every engine available');
   assert.ok(/monthlyBudgetUsd: INTERNAL_BUDGET/.test(src), 'spend must still be capped');
   assert.ok(/INTERNAL_MONTHLY_BUDGET/.test(src), 'and the cap must be raisable');
 
