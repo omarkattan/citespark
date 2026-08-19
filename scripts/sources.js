@@ -60,15 +60,33 @@ const rows = await many(
   id ? [id] : []
 );
 
-console.log(`\ncitation sources${id ? ` for site ${id}` : ' across every site'}\n`);
-if (!rows.length) console.log('  none stored');
-console.log('  citations  links  last seen    domain');
-for (const r of rows) {
-  const flag = isWrapper(`https://${r.domain}/`) ? '  <- redirect wrapper' : '';
-  console.log(
-    `  ${String(r.n).padStart(9)}  ${String(r.urls).padStart(5)}  ${new Date(r.last_seen).toISOString().slice(0, 10)}   ${r.domain}${flag}`
+/**
+ * Printed after any cleaning, not before.
+ *
+ * Showing the table first meant a clean that removed 8,352 citations was
+ * followed by the old numbers, and read as though nothing had happened.
+ */
+async function printSources() {
+  const current = await many(
+    `SELECT c.domain, COUNT(*)::int AS n, COUNT(DISTINCT c.url)::int AS urls, MAX(r.cycle_date) AS last_seen
+     FROM citations c JOIN runs r ON r.id = c.run_id
+     ${id ? 'WHERE r.project_id = $1' : ''}
+     GROUP BY c.domain ORDER BY n DESC LIMIT 40`,
+    id ? [id] : []
   );
+
+  console.log(`\ncitation sources${id ? ` for site ${id}` : ' across every site'}\n`);
+  if (!current.length) console.log('  none stored');
+  console.log('  citations  links  last seen    domain');
+  for (const r of current) {
+    const flag = isWrapper(`https://${r.domain}/`) ? '  <- redirect wrapper' : '';
+    console.log(
+      `  ${String(r.n).padStart(9)}  ${String(r.urls).padStart(5)}  ${new Date(r.last_seen).toISOString().slice(0, 10)}   ${r.domain}${flag}`
+    );
+  }
 }
+
+if (!clean) await printSources();
 
 // The action list is written during a cycle and then left alone, so it can
 // disagree with the citations underneath it.
@@ -104,8 +122,9 @@ if (clean) {
     for (let i = 0; i < remove.length; i += 2000) {
       await query('DELETE FROM citations WHERE id = ANY($1::int[])', [remove.slice(i, i + 2000)]);
     }
-    console.log(`Removed ${remove.length} citations that were never sources.`);
-    console.log('Rebuild the action lists so they reflect it:  npm run rebuild -- --all\n');
+    console.log(`\nRemoved ${remove.length} citations that were never sources.`);
+    await printSources();
+    console.log('\nRebuild the action lists so they reflect it:  npm run rebuild -- --all');
   }
 } else {
   const junk = await many(

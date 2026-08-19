@@ -59,15 +59,21 @@ if (all || stale) {
       );
 
       const after = (await one('SELECT COUNT(*)::int AS n FROM recommendations WHERE project_id = $1', [t.id])).n;
+      t.idle = recs.length === 0;
       console.log(
         `  ${String(t.id).padStart(3)}  ${t.name.padEnd(30)} ${before} -> ${after}` +
           (swept.rowCount ? `   (${swept.rowCount} wrapper action removed)` : '') +
-          (recs.length === 0 ? '   [no recent measurement, so nothing rebuilt]' : '')
+          (t.idle ? '   [never measured]' : '')
       );
     } catch (err) {
       // One broken site must not stop the rest.
       console.log(`  ${String(t.id).padStart(3)}  ${t.name.padEnd(30)} failed: ${String(err.message).slice(0, 50)}`);
     }
+  }
+  const idle = targets.filter((t) => t.idle);
+  if (idle.length) {
+    console.log(`\n${idle.length} site(s) have never been measured, so there was nothing to rebuild.`);
+    console.log('If they are duplicates or abandoned, deleting them from Setup keeps this list honest.');
   }
   console.log('');
   await pool.end();
