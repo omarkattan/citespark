@@ -2626,6 +2626,26 @@ await test('an unmeasured question does not sort as the worst performer', async 
   assert.ok(fn.includes("< 0 ? 0 :"), 'and score zero for opportunity rather than maximum');
 });
 
+await test('long filter lists are dropdowns, and still combine', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Topic and intent can each run to a dozen values. As chips they filled
+  // three rows of the toolbar before a single question was visible.
+  assert.ok(/id="qcluster" data-select-group="cluster"/.test(app), 'topic must be a dropdown');
+  assert.ok(/id="qintent" data-select-group="intent"/.test(app), 'and intent');
+
+  // The point of the filters is that they narrow together. Moving two of
+  // them into dropdowns must not quietly take them out of that.
+  const handler = app.slice(app.indexOf("if (e.target.id === 'qsort')"), app.indexOf("if (e.target.id === 'qsort')") + 700);
+  assert.ok(/dataset\?\.selectGroup/.test(handler), 'a dropdown must feed the same filter state');
+  assert.ok(/qState\[group\] = e\.target\.value/.test(handler));
+
+  // And reopening the view must reset the controls, not just the state
+  // behind them, or a stale selection would show while everything is listed.
+  assert.ok(/data-select-group\]'\)\) el\.value = 'all'/.test(app), 'the dropdowns must reset with the rest');
+});
+
 await test('the default sort puts the work first', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

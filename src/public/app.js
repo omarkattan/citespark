@@ -716,39 +716,43 @@ async function viewQuestions() {
           : ''
       }
 
-      ${
-        clusters.length > 1
-          ? `<div class="qtool">
-              <span class="qtool-k">Topic</span>
-              <div class="taskbar">
-                ${chip('cluster', 'all', 'Everything')}
-                ${clusters.map((c) => chip('cluster', c, c.replace(/-/g, ' '), count((p) => p.cluster === c))).join('')}
-              </div>
-            </div>`
-          : ''
-      }
-
-      ${
-        intents.length > 1
-          ? `<div class="qtool">
-              <span class="qtool-k">Intent</span>
-              <div class="taskbar">
-                ${chip('intent', 'all', 'Any')}
-                ${intents.map((i) => chip('intent', i, i, count((p) => p.intent === i))).join('')}
-              </div>
-            </div>`
-          : ''
-      }
-
-      <div class="qtool">
-        <span class="qtool-k">Sort</span>
-        <select id="qsort" class="qsort">
-          <option value="opportunity">Biggest opportunity</option>
-          <option value="rate-asc">Least visible first</option>
-          <option value="rate-desc">Most visible first</option>
-          <option value="volume">Most asked first</option>
-          <option value="az">A to Z</option>
-        </select>
+      <div class="qtool qtool-row">
+        ${
+          clusters.length > 1
+            ? `<span class="qpick">
+                <label for="qcluster">Topic</label>
+                <select id="qcluster" data-select-group="cluster">
+                  <option value="all">Everything</option>
+                  ${clusters
+                    .map((c) => `<option value="${esc(c)}">${esc(c.replace(/-/g, ' '))} (${count((p) => p.cluster === c)})</option>`)
+                    .join('')}
+                </select>
+              </span>`
+            : ''
+        }
+        ${
+          intents.length > 1
+            ? `<span class="qpick">
+                <label for="qintent">Intent</label>
+                <select id="qintent" data-select-group="intent">
+                  <option value="all">Any</option>
+                  ${intents
+                    .map((i) => `<option value="${esc(i)}">${esc(i)} (${count((p) => p.intent === i)})</option>`)
+                    .join('')}
+                </select>
+              </span>`
+            : ''
+        }
+        <span class="qpick">
+          <label for="qsort">Sort</label>
+          <select id="qsort">
+            <option value="opportunity">Biggest opportunity</option>
+            <option value="rate-asc">Least visible first</option>
+            <option value="rate-desc">Most visible first</option>
+            <option value="volume">Most asked first</option>
+            <option value="az">A to Z</option>
+          </select>
+        </span>
       </div>
     </div>`;
 
@@ -1092,6 +1096,7 @@ async function render() {
   if (view === 'questions') {
     // Reset, or a filter from a previous site silently narrows this one.
     Object.assign(qState, { state: 'all', persona: 'all', cluster: 'all', intent: 'all', sort: 'opportunity', text: '' });
+    for (const el of document.querySelectorAll('[data-select-group]')) el.value = 'all';
     applyQuestionView();
   }
   if (view === 'traffic' && $('ga4Props')) loadGa4Properties();
@@ -1596,8 +1601,16 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('change', (e) => {
-  if (e.target.id !== 'qsort') return;
-  qState.sort = e.target.value;
+  if (e.target.id === 'qsort') {
+    qState.sort = e.target.value;
+    applyQuestionView();
+    return;
+  }
+  // Topic and intent are long lists that read badly as chips, so they are
+  // dropdowns. They still narrow alongside everything else.
+  const group = e.target.dataset?.selectGroup;
+  if (!group) return;
+  qState[group] = e.target.value;
   applyQuestionView();
 });
 
