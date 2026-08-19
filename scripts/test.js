@@ -2984,6 +2984,30 @@ await test('an action the evidence no longer supports is withdrawn', async () =>
   assert.ok(/if \(!written\.length\) return/.test(fn), 'an empty build must not wipe the list');
 });
 
+await test('our own plumbing is never a source', async () => {
+  const { isSourceUrl } = await import('../src/lib/dataforseo.js?src=1');
+
+  // The collector walks the whole response for keys containing "url", which
+  // swept up the API's own envelope and every image thumbnail. 873 citations
+  // for api.dataforseo.com is our plumbing showing through into a customer's
+  // findings.
+  assert.equal(isSourceUrl('https://api.dataforseo.com/v3/serp/task_get/1'), false);
+  assert.equal(isSourceUrl('https://lh3.googleusercontent.com/p/AF1QipN'), false);
+  assert.equal(isSourceUrl('https://www.gstatic.com/images/x.png'), false);
+  assert.equal(isSourceUrl('https://example.com/photo.jpg'), false, 'an asset is not a page');
+
+  // A search results page is navigation, not a publisher answering.
+  assert.equal(isSourceUrl('https://www.google.com/search?q=family+office'), false);
+  assert.equal(isSourceUrl('https://www.google.com/'), false);
+
+  // And the real ones must survive, including platforms that genuinely get
+  // cited.
+  assert.equal(isSourceUrl('https://en.wikipedia.org/wiki/Family_office'), true);
+  assert.equal(isSourceUrl('https://www.youtube.com/watch?v=abc'), true);
+  assert.equal(isSourceUrl('https://www.linkedin.com/company/x'), true);
+  assert.equal(isSourceUrl('https://titinroundtheworld.com/apps-for-traveling'), true);
+});
+
 await test('a redirect wrapper is recognised, and a real page is not', async () => {
   const { isWrapper } = await import('../src/lib/resolve.js?w=1');
 

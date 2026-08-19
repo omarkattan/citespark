@@ -256,6 +256,57 @@ function collectUrls(node, out = []) {
   return out;
 }
 
+/**
+ * Things that are never a source.
+ *
+ * The collector walks the whole response for keys containing "url", which
+ * sweeps up the API's own envelope, image CDNs and asset hosts alongside the
+ * actual citations. api.dataforseo.com appeared 873 times as a "source",
+ * which is our plumbing showing through into a customer's findings.
+ */
+const NOT_A_SOURCE = [
+  // our own infrastructure and the provider's
+  'api.dataforseo.com',
+  'dataforseo.com',
+  'cited.ae',
+  // image and asset CDNs
+  'lh3.googleusercontent.com',
+  'lh4.googleusercontent.com',
+  'lh5.googleusercontent.com',
+  'lh6.googleusercontent.com',
+  'googleusercontent.com',
+  'gstatic.com',
+  'ggpht.com',
+  'ytimg.com',
+  'fbcdn.net',
+  'cdninstagram.com',
+  'licdn.com',
+  'twimg.com',
+  'w3.org',
+  'schema.org'
+];
+
+/** Search and account pages are navigation, not a publisher's answer. */
+const NOT_A_PAGE = [
+  /^https?:\/\/(www\.)?google\.[a-z.]+\/search/i,
+  /^https?:\/\/(www\.)?google\.[a-z.]+\/maps/i,
+  /^https?:\/\/(www\.)?google\.[a-z.]+\/?$/i,
+  /^https?:\/\/(www\.)?bing\.com\/search/i,
+  /\.(png|jpe?g|gif|webp|svg|ico|css|js|woff2?|mp4|pdf)(\?|$)/i
+];
+
+export function isSourceUrl(url) {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase().replace(/^www\./, '');
+    if (NOT_A_SOURCE.some((d) => host === d || host.endsWith(`.${d}`))) return false;
+    if (NOT_A_PAGE.some((re) => re.test(url))) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function urlsFromText(text) {
   const matches = text.match(/https?:\/\/[^\s)\]<>"']+/gi) || [];
   return matches.map((u) => u.replace(/[.,;:]+$/, ''));
@@ -292,6 +343,8 @@ function dedupeCitations(items) {
     const url = cleanUrl(typeof item === 'string' ? item : item.url);
     const domain = domainOf(url);
     if (!domain) continue;
+    // Our plumbing, image CDNs and search pages are not sources.
+    if (!isSourceUrl(url)) continue;
     if (seen.has(url)) continue;
     seen.add(url);
     out.push({ url, domain, position: out.length + 1, title: item.title || null });

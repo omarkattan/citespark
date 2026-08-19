@@ -1,6 +1,7 @@
 import 'dotenv/config';
-import { pool, many } from '../src/db/index.js';
-import { isWrapper } from '../src/lib/resolve.js';
+import { pool, many, query } from '../src/db/index.js';
+import { isWrapper, resolveUrl } from '../src/lib/resolve.js';
+import { isSourceUrl } from '../src/lib/dataforseo.js';
 
 /**
  * What domains are actually stored as citation sources.
@@ -13,6 +14,31 @@ import { isWrapper } from '../src/lib/resolve.js';
  * the data rather than reason about it.
  */
 const id = Number(process.argv.find((a) => /^\d+$/.test(a)));
+const clean = process.argv.includes('--clean');
+const show = process.argv.find((a) => a.startsWith('--show='))?.slice(7);
+
+/**
+ * What a domain's stored URLs actually look like.
+ *
+ *   npm run sources -- --show=google.com
+ *
+ * 7,759 citations for google.com is not a finding about Google, it is a
+ * question about what got stored, and the answer is in the URLs.
+ */
+if (show) {
+  const rows = await many(
+    `SELECT url, COUNT(*)::int AS n FROM citations WHERE domain = $1 GROUP BY url ORDER BY n DESC LIMIT 12`,
+    [show]
+  );
+  console.log(`\nstored URLs for ${show}\n`);
+  for (const r of rows) {
+    const verdict = !isSourceUrl(r.url) ? '  <- not a source' : isWrapper(r.url) ? '  <- redirect wrapper' : '';
+    console.log(`  ${String(r.n).padStart(5)}  ${r.url.slice(0, 96)}${verdict}`);
+  }
+  console.log('');
+  await pool.end();
+  process.exit(0);
+}
 
 if (id) {
   const exists = await many('SELECT id FROM projects WHERE id = $1', [id]);
@@ -56,5 +82,42 @@ if (stale.length) {
   console.log('\nThese were written by an earlier cycle. Rebuild all of them at once:');
   console.log('  npm run rebuild -- --stale');
 }
+/**
+ * Remove what should never have been stored.
+ *
+ * The collector walks the response for any key containing "url", which sweeps
+ * up the API's own envelope, image CDNs and search pages alongside the real
+ * citations. Those inflate source counts and produce actions about domains
+ * nobody could ever approach.
+ */
+if (clean) {
+  const junk = await many(
+    `SELECT c.id, c.url FROM citations c ${id ? 'JOIN runs r ON r.id = c.run_id WHERE r.project_id = $1' : ''}`,
+    id ? [id] : []
+  );
+  const remove = junk.filter((c) => !isSourceUrl(c.url)).map((c) => c.id);
+
+  if (!remove.length) {
+    console.log('Nothing stored that is not a source.\n');
+  } else {
+    // In batches, since this can be tens of thousands of rows.
+    for (let i = 0; i < remove.length; i += 2000) {
+      await query('DELETE FROM citations WHERE id = ANY($1::int[])', [remove.slice(i, i + 2000)]);
+    }
+    console.log(`Removed ${remove.length} citations that were never sources.`);
+    console.log('Rebuild the action lists so they reflect it:  npm run rebuild -- --all\n');
+  }
+} else {
+  const junk = await many(
+    `SELECT c.url FROM citations c ${id ? 'JOIN runs r ON r.id = c.run_id WHERE r.project_id = $1' : ''}`,
+    id ? [id] : []
+  );
+  const bad = junk.filter((c) => !isSourceUrl(c.url)).length;
+  if (bad) {
+    console.log(`${bad} stored citations are not sources at all: our own API, image CDNs, search pages.`);
+    console.log('Remove them:  npm run sources -- --clean\n');
+  }
+}
+
 console.log('');
 await pool.end();
