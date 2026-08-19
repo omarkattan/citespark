@@ -2999,6 +2999,12 @@ await test('our own plumbing is never a source', async () => {
   // A search results page is navigation, not a publisher answering.
   assert.equal(isSourceUrl('https://www.google.com/search?q=family+office'), false);
   assert.equal(isSourceUrl('https://www.google.com/'), false);
+  assert.equal(isSourceUrl('https://www.google.com/searchviewer/10?svid=CAwS'), false);
+
+  // These matched only because "searchviewer" happens to start with "search",
+  // and a publisher whose name starts the same way must not be caught by it.
+  assert.equal(isSourceUrl('https://searchengineland.com/agency-guide'), true);
+  assert.equal(isSourceUrl('https://www.searchenginejournal.com/guide'), true);
 
   // And the real ones must survive, including platforms that genuinely get
   // cited.
@@ -3006,6 +3012,20 @@ await test('our own plumbing is never a source', async () => {
   assert.equal(isSourceUrl('https://www.youtube.com/watch?v=abc'), true);
   assert.equal(isSourceUrl('https://www.linkedin.com/company/x'), true);
   assert.equal(isSourceUrl('https://titinroundtheworld.com/apps-for-traveling'), true);
+});
+
+await test('a local listing is separated, not silently binned', async () => {
+  const { isLocalListing, isSourceUrl } = await import('../src/lib/dataforseo.js?loc=1');
+
+  // Nobody can pitch a Maps listing, so it does not belong in the sources
+  // table. But an answer built from business profiles rather than articles is
+  // a different problem with a different fix, and deleting it quietly would
+  // hide that.
+  assert.equal(isLocalListing('https://www.google.com/maps/search/WRISE+Middle+East'), true);
+  assert.equal(isLocalListing('https://www.google.com/searchviewer/10?svid=CAwS'), true);
+  assert.equal(isLocalListing('https://en.wikipedia.org/wiki/Family_office'), false);
+
+  assert.equal(isSourceUrl('https://www.google.com/maps/search/WRISE'), false, 'still not a source');
 });
 
 await test('a redirect wrapper is recognised, and a real page is not', async () => {

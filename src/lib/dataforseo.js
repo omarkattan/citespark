@@ -288,12 +288,27 @@ const NOT_A_SOURCE = [
 
 /** Search and account pages are navigation, not a publisher's answer. */
 const NOT_A_PAGE = [
-  /^https?:\/\/(www\.)?google\.[a-z.]+\/search/i,
+  /^https?:\/\/(www\.)?google\.[a-z.]+\/search(\?|\/|$)/i,
+  // Google's own answer viewer, which is the surface rather than a publisher.
+  // Matched explicitly rather than relying on it starting with "search".
+  /^https?:\/\/(www\.)?google\.[a-z.]+\/searchviewer/i,
   /^https?:\/\/(www\.)?google\.[a-z.]+\/maps/i,
   /^https?:\/\/(www\.)?google\.[a-z.]+\/?$/i,
   /^https?:\/\/(www\.)?bing\.com\/search/i,
   /\.(png|jpe?g|gif|webp|svg|ico|css|js|woff2?|mp4|pdf)(\?|$)/i
 ];
+
+/**
+ * A Maps reference is not a publisher, but it is not noise either.
+ *
+ * When an answer points at a Maps listing for a competitor, the question is
+ * being answered from business profiles rather than from articles. Nobody can
+ * pitch a Maps listing, so it does not belong in the sources table, but it is
+ * worth knowing about and is counted separately.
+ */
+export function isLocalListing(url) {
+  return /^https?:\/\/(www\.)?google\.[a-z.]+\/(maps|searchviewer)/i.test(url);
+}
 
 export function isSourceUrl(url) {
   try {

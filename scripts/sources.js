@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { pool, many, query } from '../src/db/index.js';
 import { isWrapper, resolveUrl } from '../src/lib/resolve.js';
-import { isSourceUrl } from '../src/lib/dataforseo.js';
+import { isSourceUrl, isLocalListing } from '../src/lib/dataforseo.js';
 
 /**
  * What domains are actually stored as citation sources.
