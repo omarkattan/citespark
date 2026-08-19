@@ -1617,3 +1617,28 @@ select { appearance: auto; }
   overflow-y: auto;
 }
 .tag.warn { border-color: var(--dune, #a8601b); color: var(--dune, #a8601b); }
+
+/* adding a question, or a topic to build them from */
+.qcompose {
+  display: grid;
+  /* Stated columns rather than wrapping: the buttons dropping onto their own
+     line put them under the floating feedback control. */
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+.qcompose input { min-width: 0; }
+.qcompose button { white-space: nowrap; }
+@media (max-width: 760px) {
+  .qcompose { grid-template-columns: 1fr 1fr; }
+  .qcompose input { grid-column: 1 / -1; }
+}
+.qcompose code, .panel .hint code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--line-2);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+.pq.is-dupe { opacity: .55; }
+#qTopicPanel:empty { display: none; }

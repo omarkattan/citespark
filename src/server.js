@@ -1346,6 +1346,46 @@ app.get('/api/projects/:id/report', requireAuth, wrap(async (req, res) => {
   res.send(reportHtml(report));
 }));
 
+/**
+ * Questions from a topic. Returned for approval rather than saved: a generated
+ * question is a suggestion until someone who knows the business agrees.
+ */
+app.post('/api/projects/:id/prompts/from-topic', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+
+  const topic = String(req.body?.topic || '').trim();
+  if (topic.length < 3) return res.status(400).json({ error: 'Give it a topic to work from.' });
+
+  const { questionsForTopic } = await import('./lib/prompts.js');
+  const existing = new Set(
+    (await many('SELECT lower(text) AS t FROM prompts WHERE project_id = $1', [project.id])).map((r) => r.t)
+  );
+
+  let questions = [];
+  try {
+    questions = await questionsForTopic({
+      topic,
+      brand: project.brand_name,
+      domain: project.domain,
+      category: project.category,
+      market: project.market,
+      qualifier: project.qualifier
+    });
+  } catch (err) {
+    return res.status(502).json({ error: `Could not generate questions: ${err.message}` });
+  }
+
+  if (!questions.length) {
+    return res.status(502).json({ error: 'Nothing usable came back. Try a more specific topic, or write the question yourself.' });
+  }
+
+  res.json({
+    topic,
+    questions: questions.map((q) => ({ text: q, duplicate: existing.has(q.toLowerCase()) }))
+  });
+}));
+
 /* ---------------- buyer personas ---------------- */
 
 app.get('/api/projects/:id/personas', requireAuth, wrap(async (req, res) => {
@@ -2257,7 +2297,7 @@ app.get('/api/version', (_req, res) => {
     dataforseo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
     stripe: stripeEnabled,
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions', 'trademark-tm', 'ai-visibility-copy', 'gsc-connect-prompt', 'internal-accounts', 'aggregated-report', 'page-checks', 'question-filters', 'page-check-errors', 'page-check-picker', 'brand-filter', 'gsc-pagination', 'path-filter', 'site-sections', 'question-dropdowns', 'read-the-answer', 'longer-answers']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions', 'trademark-tm', 'ai-visibility-copy', 'gsc-connect-prompt', 'internal-accounts', 'aggregated-report', 'page-checks', 'question-filters', 'page-check-errors', 'page-check-picker', 'brand-filter', 'gsc-pagination', 'path-filter', 'site-sections', 'question-dropdowns', 'read-the-answer', 'longer-answers', 'questions-from-topic']
   });
 });
 

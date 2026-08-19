@@ -44,6 +44,46 @@ function templateSet({ category, market, qualifier }) {
   }));
 }
 
+/**
+ * Questions a buyer would ask about one topic.
+ *
+ * A keyword is not a question, and the gap between them is where this
+ * measurement lives: nobody asks an assistant "retirement planning", they ask
+ * something a person would say out loud. This turns the topic into those
+ * questions, using what the project already knows about the brand and who it
+ * sells to.
+ */
+export async function questionsForTopic({ topic, brand, domain, category, market, qualifier, count = 8 }) {
+  const system = `You write the questions a real buyer types into an AI assistant.
+
+Rules:
+- Never include the brand name. We are measuring whether the assistant volunteers it.
+- Write what a person would actually say, not a search keyword. "retirement planning" becomes "how much do I need saved before I can retire in the UAE".
+- Stay on the topic given. Do not drift into the wider category.
+- Vary the intent: what it is, how to choose, what it costs, who is best, what goes wrong.
+- Include the market where a buyer naturally would, and leave it out where they would not.
+- Return ONLY a JSON array of strings. No preamble, no markdown fences.`;
+
+  const ask = `Topic: ${topic}
+Brand being measured: ${brand} (${domain})
+What the business does: ${category}
+Who the customer is: ${qualifier || 'not stated'}
+Market: ${market}
+
+Write ${count} questions this buyer would ask an AI assistant about "${topic}".`;
+
+  const raw = await complete(ask, { system, maxTokens: 900 });
+  const parsed = parseJsonArray(raw) || [];
+
+  return parsed
+    .map((q) => String(q).trim())
+    .filter((q) => q.length > 12 && q.length < 220)
+    // A question containing the brand name measures nothing: of course the
+    // answer names them when the question already did.
+    .filter((q) => !new RegExp(String(brand).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(q))
+    .slice(0, count);
+}
+
 export async function generatePrompts({ brand, domain, category, market = 'the UK', qualifier = 'small business', count = 20 }) {
   const ask = `Business: ${brand} (${domain})
 Category: ${category}

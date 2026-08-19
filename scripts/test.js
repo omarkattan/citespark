@@ -2595,6 +2595,48 @@ await test('running every site has to be asked for explicitly', async () => {
   assert.ok(/Nothing run/.test(job), 'and a bare invocation must refuse and say so');
 });
 
+console.log('\ntopic questions');
+
+await test('a generated question never contains the brand name', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/prompts.js', import.meta.url), 'utf8');
+  const fn = lib.slice(lib.indexOf('export async function questionsForTopic'), lib.indexOf('export async function generatePrompts'));
+
+  // A question that already names the brand measures nothing: of course the
+  // answer mentions them when the question did.
+  assert.ok(/Never include the brand name/.test(fn), 'the instruction must say so');
+  assert.ok(/new RegExp\(String\(brand\)/.test(fn), 'and the output must be filtered regardless');
+
+  // A keyword is not a question, and the gap between them is where this
+  // measurement lives.
+  assert.ok(/not a search keyword/.test(fn), 'a topic must become something a person would say');
+});
+
+await test('generated questions are approved, not saved', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  assert.ok(/prompts\/from-topic/.test(server), 'generation must be its own call');
+  assert.ok(/duplicate: existing\.has/.test(server), 'and flag what is already tracked');
+  assert.ok(/data-topicq/.test(app), 'with each suggestion chosen rather than saved');
+  assert.ok(/already tracked/.test(app), 'and duplicates shown as such');
+
+  // Nothing usable back is a real outcome and must not look like a silent
+  // failure, which is how the persona panel first broke.
+  assert.ok(/Nothing usable came back/.test(server), 'an empty result must say so');
+});
+
+await test('the composer sits above the list it adds to', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const panel = app.slice(app.indexOf('class="qcompose"'), app.indexOf('id="qList"'));
+
+  // It was at the bottom, below sixty questions, which is where nobody looks.
+  assert.ok(panel.length > 0 && panel.length < 1400, 'the composer must come before the list');
+  assert.ok(/q_topic/.test(panel) && /q_add/.test(panel), 'with both actions together');
+});
+
 console.log('\nanswer evidence');
 
 await test('a truncated answer cannot support "not named"', async () => {

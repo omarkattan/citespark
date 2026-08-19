@@ -2371,17 +2371,25 @@ async function viewSetup() {
         </div>
         <button class="ghost" id="q_generate">Suggest 10 more</button>
       </div>
-      <p class="dek" style="margin:0 0 4px;font-size:13px">Write these the way a customer types them, never with the brand name in. Paused questions stay in the record but are not asked.</p>
+      <p class="dek" style="margin:0 0 12px;font-size:13px">Write these the way a customer types them, never with the brand name in. Paused questions stay in the record but are not asked.</p>
+
+      <div class="qcompose">
+        <input id="q_text" placeholder="A question a buyer would type, or a topic to build questions from" autocomplete="off" />
+        <button class="ghost" id="q_topic" title="Turn a topic into the questions a buyer would actually ask">Generate from topic</button>
+        <button id="q_add">Add as written</button>
+      </div>
+      <p class="hint" style="margin:6px 0 0">
+        A topic such as <code>retirement planning</code> becomes the questions your buyers would ask about it, using
+        what this site already knows about your category and audience.
+      </p>
+      <div id="qTopicPanel"></div>
+      <p class="error" id="setupError" role="alert"></p>
+
       ${data.prompts.length > 8 ? searchBox('qFilter', 'Filter questions', 'qFilterCount') : ''}
       <div id="qList">
         ${promptRows}
         <p class="hint" data-filter-empty hidden>No question matches that.</p>
       </div>
-      <div class="inline-form">
-        <input id="q_text" placeholder="Write it exactly as a customer would type it, without your brand name" />
-        <button id="q_add">Add</button>
-      </div>
-      <p class="error" id="setupError" role="alert"></p>
     </div>
     </div>
   </div>`;
@@ -2825,6 +2833,66 @@ document.addEventListener('click', async (e) => {
   if (t.dataset.delEntity) {
     await fetch(`/api/entities/${t.dataset.delEntity}`, { method: 'DELETE' });
     await render();
+  }
+
+  if (t.id === 'q_topic') {
+    const topic = $('q_text').value.trim();
+    if (topic.length < 3) return setupErr('Give it a topic, such as retirement planning.');
+
+    t.disabled = true;
+    t.textContent = 'Thinking';
+    const d = await api(`/api/projects/${state.projectId}/prompts/from-topic`, { method: 'POST', body: { topic } });
+    t.disabled = false;
+    t.textContent = 'Generate from topic';
+
+    if (d?.error) return setupErr(d.error);
+    setupErr('');
+
+    // Shown for approval. A generated question is a suggestion until someone
+    // who knows the business agrees with it.
+    $('qTopicPanel').innerHTML = `<div class="pq-preview">
+      <p class="hint" style="margin:0 0 10px">
+        Questions a buyer might ask about <b>${esc(d.topic)}</b>. Pick the ones worth tracking; each one is an answer
+        check on every cycle.
+      </p>
+      ${d.questions
+        .map(
+          (q, i) => `<label class="pq${q.duplicate ? ' is-dupe' : ''}">
+            <input type="checkbox" data-topicq="${i}" ${q.duplicate ? 'disabled' : 'checked'} />
+            <span>${esc(q.text)}${q.duplicate ? '<i class="pcp-brand">already tracked</i>' : ''}</span>
+          </label>`
+        )
+        .join('')}
+      <div class="inline-form" style="margin-top:12px">
+        <button class="btn" id="q_topic_add">Add selected</button>
+        <button class="ghost" id="q_topic_cancel">Cancel</button>
+      </div>
+    </div>`;
+    window.__topicQuestions = d.questions;
+    return;
+  }
+
+  if (t.id === 'q_topic_cancel') {
+    $('qTopicPanel').innerHTML = '';
+    return;
+  }
+
+  if (t.id === 'q_topic_add') {
+    const chosen = [...document.querySelectorAll('[data-topicq]:checked')].map(
+      (c) => window.__topicQuestions[Number(c.dataset.topicq)].text
+    );
+    if (!chosen.length) return setupErr('Pick at least one.');
+    t.disabled = true;
+    t.textContent = 'Adding';
+    for (const text of chosen) {
+      await fetch(`/api/projects/${state.projectId}/prompts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+    }
+    await render();
+    return;
   }
 
   if (t.id === 'q_add') {
