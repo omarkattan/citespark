@@ -59,28 +59,66 @@ function fromQuery(url) {
  * Deliberately does not follow the chain automatically: we want the first
  * real destination, and an unbounded chain is somebody else's redirect loop.
  */
-async function fromRedirect(url, { timeoutMs = 8000 } = {}) {
+/**
+ * Google serves these differently depending on who is asking. Without a
+ * browser user agent the redirector answers 403 and no Location header, which
+ * looks identical to a dead link.
+ */
+const BROWSER_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-GB,en;q=0.9'
+};
+
+/** Pull a destination out of a page that redirects with markup or script. */
+function fromBody(body) {
+  const patterns = [
+    /<meta[^>]+http-equiv=['"]?refresh['"]?[^>]+url=['"]?(https?:\/\/[^'"\s>]+)/i,
+    /window\.location(?:\.href)?\s*=\s*['"](https?:\/\/[^'"]+)['"]/i,
+    /location\.replace\(\s*['"](https?:\/\/[^'"]+)['"]/i,
+    /<link[^>]+rel=['"]?canonical['"]?[^>]+href=['"](https?:\/\/[^'"]+)['"]/i
+  ];
+  for (const re of patterns) {
+    const m = body.match(re);
+    if (m?.[1] && !isWrapper(m[1])) return m[1];
+  }
+  return null;
+}
+
+async function fromRedirect(url, { timeoutMs = 12000 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let lastStatus = null;
 
   try {
-    for (let hop = 0; hop < 4; hop++) {
-      const res = await fetch(url, { method: 'GET', redirect: 'manual', signal: controller.signal });
+    for (let hop = 0; hop < 5; hop++) {
+      const res = await fetch(url, {
+        method: 'GET',
+        redirect: 'manual',
+        headers: BROWSER_HEADERS,
+        signal: controller.signal
+      });
+      lastStatus = res.status;
+
       const next = res.headers.get('location');
-      if (!next) {
-        // Some wrappers bounce with a meta refresh or a script instead of a
-        // header, so the body is worth a look before giving up.
-        const body = await res.text().catch(() => '');
-        const meta = body.match(/url=['"]?(https?:\/\/[^'"\s>]+)/i);
-        return meta?.[1] || null;
+      if (next) {
+        const abs = new URL(next, url).toString();
+        if (!isWrapper(abs)) return { target: abs };
+        url = abs;
+        continue;
       }
-      const abs = new URL(next, url).toString();
-      if (!isWrapper(abs)) return abs;
-      url = abs;
+
+      // Some wrappers bounce with markup or script rather than a header.
+      const body = await res.text().catch(() => '');
+      const found = fromBody(body);
+      if (found) return { target: found };
+
+      return { target: null, reason: `HTTP ${res.status}, no redirect in the response` };
     }
-    return null;
-  } catch {
-    return null;
+    return { target: null, reason: 'too many hops' };
+  } catch (err) {
+    return { target: null, reason: err.name === 'AbortError' ? 'timed out' : String(err.message || err) };
   } finally {
     clearTimeout(timer);
   }
@@ -92,21 +130,39 @@ async function fromRedirect(url, { timeoutMs = 8000 } = {}) {
  * The same grounding link appears across many answers, and asking Google
  * where it goes fifty times for one page is rude and slow.
  */
-export async function resolveUrl(url) {
+export async function resolveUrl(url, { retryFailures = true } = {}) {
   if (!url || !isWrapper(url)) return { url, resolved: false };
 
-  const cached = await one('SELECT target FROM url_resolutions WHERE source = $1', [url]).catch(() => null);
-  if (cached) return { url: cached.target || url, resolved: Boolean(cached.target), cached: true };
+  /**
+   * A success is remembered forever; a failure only briefly.
+   *
+   * Caching failures permanently meant one bad afternoon, or one missing
+   * header, froze a link as unresolvable for good. Nothing would ever try
+   * again, and the wrapper would sit in the data looking like a real source.
+   */
+  const cached = await one(
+    `SELECT target, resolved_at FROM url_resolutions WHERE source = $1`,
+    [url]
+  ).catch(() => null);
 
-  const target = fromQuery(url) || (await fromRedirect(url));
+  if (cached?.target) return { url: cached.target, resolved: true, cached: true };
+
+  if (cached && !retryFailures) return { url, resolved: false, cached: true, reason: cached.reason };
+
+  if (cached && Date.now() - new Date(cached.resolved_at).getTime() < 6 * 3600_000) {
+    return { url, resolved: false, cached: true };
+  }
+
+  const direct = fromQuery(url);
+  const { target, reason } = direct ? { target: direct } : await fromRedirect(url);
 
   await query(
-    `INSERT INTO url_resolutions (source, target) VALUES ($1, $2)
-     ON CONFLICT (source) DO UPDATE SET target = EXCLUDED.target, resolved_at = now()`,
-    [url, target]
+    `INSERT INTO url_resolutions (source, target, reason) VALUES ($1, $2, $3)
+     ON CONFLICT (source) DO UPDATE SET target = EXCLUDED.target, reason = EXCLUDED.reason, resolved_at = now()`,
+    [url, target, reason || null]
   ).catch(() => {});
 
-  return { url: target || url, resolved: Boolean(target) };
+  return { url: target || url, resolved: Boolean(target), reason };
 }
 
 /** Resolve a batch, in small groups so we are not hammering anyone. */

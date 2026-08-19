@@ -2994,6 +2994,33 @@ await test('a wrapper never appears as a source to act on', async () => {
   assert.ok(/\)\)\.filter\(\(s\) => !isWrapper/.test(q), 'and filter at the source, not downstream');
 });
 
+await test('a failed resolution is retried, not frozen', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/resolve.js', import.meta.url), 'utf8');
+  const fn = lib.slice(lib.indexOf('export async function resolveUrl'), lib.indexOf('export async function resolveAll'));
+
+  // Caching failures permanently meant one missing header froze a link as
+  // unresolvable for good, and the wrapper sat in the data looking like a
+  // real source with nothing ever trying again.
+  assert.ok(/cached\?\.target\) return/.test(fn), 'a success is trusted');
+  assert.ok(/6 \* 3600_000/.test(fn), 'a failure is only trusted briefly');
+  assert.ok(/reason/.test(fn), 'and the reason recorded so it can be diagnosed');
+});
+
+await test('the redirector is asked the way a browser asks', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/resolve.js', import.meta.url), 'utf8');
+
+  // Without a browser user agent Google answers 403 and no Location header,
+  // which is indistinguishable from a dead link.
+  assert.ok(/User-Agent/.test(lib), 'a user agent must be sent');
+  assert.ok(/Mozilla\/5\.0/.test(lib));
+
+  // And some wrappers bounce with markup or script rather than a header.
+  assert.ok(/http-equiv/.test(lib), 'a meta refresh must be read');
+  assert.ok(/window\\.location/.test(lib) || /window\.location/.test(lib), 'and a script redirect');
+});
+
 await test('a citation is stored against the publisher', async () => {
   const { readFileSync } = await import('node:fs');
   const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');

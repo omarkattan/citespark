@@ -511,3 +511,7 @@ CREATE TABLE IF NOT EXISTS url_resolutions (
   target      TEXT,
   resolved_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Why a resolution failed, so an unresolved wrapper can be diagnosed rather
+-- than silently retried forever.
+ALTER TABLE url_resolutions ADD COLUMN IF NOT EXISTS reason TEXT;
