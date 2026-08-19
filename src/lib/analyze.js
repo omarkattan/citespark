@@ -61,6 +61,26 @@ function heuristicSentiment(snippet) {
  * Analyse a single answer against all tracked entities.
  * Returns [{ entity_id, mentioned, ordinal, sentiment, snippet }]
  */
+/**
+ * Does this answer look like it stopped mid-flow?
+ *
+ * A truncated answer cannot support "not named": the brand may simply be in
+ * the part that never arrived. Better to know the measurement is unreliable
+ * than to record an absence that is really a token limit.
+ */
+export function looksTruncated(text, maxTokens = 2000) {
+  const t = String(text || '').trimEnd();
+  if (!t) return false;
+
+  // Roughly four characters to a token. Well short of the ceiling means it
+  // ended because the model finished, not because it ran out of room.
+  const approxTokens = t.length / 4;
+  if (approxTokens < maxTokens * 0.9) return false;
+
+  // Ending on a sentence, a list item or a closed table reads as finished.
+  return !/[.!?)\]"'\u201d]$/.test(t) || /\|\s*$/.test(t);
+}
+
 export async function analyseRun({ text, entities, useModel = false }) {
   const found = entities.map((entity) => ({
     entity,

@@ -663,6 +663,8 @@ async function viewQuestions() {
             ${p.active ? '' : ' &middot; <span class="paused">paused</span>'}
           </div>
           ${p.measured ? runStrip(p.runs) : '<div class="notrun">not asked yet, it will run on the next cycle</div>'}
+          ${p.measured ? `<button class="seeanswer" data-see-answer="${p.id}">Read what each engine said</button>` : ''}
+          <div class="answers" id="answers-${p.id}" hidden></div>
           ${p.snippet ? `<div class="excerpt">${highlight(p.snippet, brand)}</div>` : ''}
           ${chips ? `<div class="chips">${chips}</div>` : ''}
           ${p.fanOut?.length ? `<div class="fanout"><span class="fanout-label">searched for</span>${p.fanOut.map((q) => `<span class="chip">${esc(q)}</span>`).join('')}</div>` : ''}
@@ -1591,7 +1593,40 @@ function applyQuestionView() {
   if (counter) counter.textContent = shown === rows.length ? '' : `${shown} of ${rows.length}`;
 }
 
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
+  const see = e.target.closest('[data-see-answer]');
+  if (see) {
+    const id = see.dataset.seeAnswer;
+    const box = document.getElementById(`answers-${id}`);
+    if (!box.hidden) { box.hidden = true; see.textContent = 'Read what each engine said'; return; }
+
+    see.textContent = 'Loading';
+    const d = await api(`/api/prompts/${id}/answers`);
+    see.textContent = 'Hide the answers';
+    box.hidden = false;
+    box.innerHTML = (d?.runs || [])
+      .map((r) => {
+        const verdict = r.mentioned
+          ? `<span class="tag ok">named${r.ordinal ? `, ${r.ordinal}${r.ordinal === 1 ? 'st' : r.ordinal === 2 ? 'nd' : r.ordinal === 3 ? 'rd' : 'th'}` : ''}</span>`
+          : '<span class="tag">not named</span>';
+        return `<div class="ans">
+          <div class="ans-head">
+            <span class="ans-engine">${esc(r.engine)}</span>
+            ${r.model ? `<span class="ans-model">${esc(r.model)}</span>` : ''}
+            ${verdict}
+            ${r.truncated ? '<span class="tag warn" title="The answer stopped at our length limit, so anything after that was not measured">cut short</span>' : ''}
+          </div>
+          ${
+            r.response_text
+              ? `<div class="ans-body">${esc(r.response_text)}</div>`
+              : `<p class="hint" style="margin:0">${esc(r.error || 'No answer was returned.')}</p>`
+          }
+        </div>`;
+      })
+      .join('') || '<p class="hint" style="margin:0">Nothing stored for this question yet.</p>';
+    return;
+  }
+
   const chip = e.target.closest('[data-group]');
   if (!chip) return;
   const group = chip.dataset.group;

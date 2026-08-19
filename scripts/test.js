@@ -2595,6 +2595,44 @@ await test('running every site has to be asked for explicitly', async () => {
   assert.ok(/Nothing run/.test(job), 'and a bare invocation must refuse and say so');
 });
 
+console.log('\nanswer evidence');
+
+await test('a truncated answer cannot support "not named"', async () => {
+  const { looksTruncated } = await import('../src/lib/analyze.js?t=1');
+  const atCeiling = 'x'.repeat(7300);
+
+  // A category question often returns a long list, and the brand being
+  // measured is frequently near the bottom of it. 700 tokens cut answers off
+  // mid-table and recorded a confident absence from a fragment.
+  assert.equal(looksTruncated(atCeiling + ' | The Family Office | Bahrain', 2000), true);
+  assert.equal(looksTruncated(atCeiling + ' and that is the full picture.', 2000), false);
+  assert.equal(looksTruncated('A short, complete answer.', 2000), false);
+  assert.equal(looksTruncated('', 2000), false);
+});
+
+await test('the answer ceiling is high enough to hold a list', async () => {
+  const { readFileSync } = await import('node:fs');
+  const df = readFileSync(new URL('../src/lib/dataforseo.js', import.meta.url), 'utf8');
+  const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
+
+  assert.ok(/maxTokens = 2000/.test(df), 'the default must not cut a long answer short');
+  assert.ok(/MAX_OUTPUT_TOKENS \|\| 2000/.test(job), 'and the cycle must use the same figure');
+});
+
+await test('any verdict can be checked against the answer', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // A percentage nobody can check is a claim. The answers were stored all
+  // along and simply never shown.
+  assert.ok(/prompts\/:promptId\/answers/.test(server), 'the stored answers must be reachable');
+  assert.ok(/response_text/.test(server), 'in full, not as a snippet');
+  assert.ok(/truncated: looksTruncated/.test(server), 'and flagged when they were cut off');
+  assert.ok(/data-see-answer/.test(app), 'with a way to read them from the question');
+  assert.ok(/cut short/.test(app), 'and the truncation shown where the verdict is');
+});
+
 console.log('\nquestion list');
 
 await test('filters narrow together rather than replacing each other', async () => {

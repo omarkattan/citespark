@@ -1580,3 +1580,40 @@ select { appearance: auto; }
   padding: 1px 4px;
   border-radius: 2px;
 }
+
+/* reading the answer behind a verdict */
+.seeanswer {
+  background: none;
+  border: none;
+  padding: 6px 0 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.seeanswer:hover { color: var(--you); }
+.seeanswer::before { content: '+ '; color: var(--you); }
+.answers { margin-top: 10px; }
+.ans { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 8px; overflow: hidden; }
+.ans-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--line-2);
+  border-bottom: 1px solid var(--line);
+}
+.ans-engine { font-family: var(--mono); font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink); }
+.ans-model { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
+.ans-body {
+  padding: 12px 14px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.tag.warn { border-color: var(--dune, #a8601b); color: var(--dune, #a8601b); }

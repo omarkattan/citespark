@@ -99,7 +99,7 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress } = 
       engine,
       prompt: prompt.text,
       market: project.market,
-      maxTokens: Number(process.env.MAX_OUTPUT_TOKENS || 700)
+      maxTokens: Number(process.env.MAX_OUTPUT_TOKENS || 2000)
     });
 
     spend += answer.costUsd || 0;

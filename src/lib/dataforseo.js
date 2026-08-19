@@ -317,7 +317,16 @@ function isTransient(result) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 700, attempt = 0 }) {
+/**
+ * 700 tokens was too few.
+ *
+ * A category question often returns a long list or a table, and the brand
+ * being measured is frequently near the bottom of it. A truncated answer
+ * produces a confident "not named" from a fragment, which is a measurement
+ * error reported as a finding. Tokens are cheap next to the cost of a wrong
+ * answer, so the ceiling is now high enough that truncation is rare.
+ */
+export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 2000, attempt = 0 }) {
   const cfg = ENGINES[engine];
   if (!cfg) return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, error: `Unknown engine ${engine}` };
 
