@@ -2597,6 +2597,25 @@ await test('running every site has to be asked for explicitly', async () => {
 
 console.log('\npartial runs');
 
+await test('nothing spends money on a single ambiguous click', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // The button ran everything on click with a separate arrow for the options,
+  // so someone reaching for the menu spent a full cycle by accident.
+  assert.ok(!/id="runMoreBtn"/.test(html), 'the separate arrow is gone');
+  assert.ok(/id="runBtn" aria-haspopup="true"/.test(html), 'the whole control opens the menu');
+  assert.ok(/id="runFullBtn"/.test(html), 'running everything is now an explicit choice');
+
+  const handler = app.slice(app.indexOf("$('runBtn').addEventListener"), app.indexOf("$('runFullBtn')"));
+  assert.ok(!/startCycle/.test(handler), 'the button itself must not start a cycle');
+  assert.ok(/runMenu'\)\.hidden = open/.test(handler), 'it toggles the menu');
+
+  // Both options carry their size, so neither is chosen blind.
+  assert.ok(/checksAll/.test(app) && /checksUnrun/.test(app), 'each choice shows what it costs');
+});
+
 await test('a partial run joins the last cycle rather than starting one', async () => {
   const { readFileSync } = await import('node:fs');
   const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');

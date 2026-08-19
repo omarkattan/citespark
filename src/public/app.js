@@ -1121,8 +1121,8 @@ async function loadProject(id) {
   $('cycleMeta').textContent = state.overview.cycle ? `cycle ${state.overview.cycle}` : 'no data';
   const cap = window.innerWidth < 760 ? 12 : 18;
   const short = p.name.length > cap ? p.name.slice(0, cap - 1) + '\u2026' : p.name;
-  $('runBtn').textContent = `Run ${short}`;
-  $('runBtn').title = `Runs a cycle for ${p.name} only`;
+  $('runBtn').innerHTML = `Run ${esc(short)} <span class="caret">&#9662;</span>`;
+  $('runBtn').title = `Choose what to run for ${esc(p.name)}`;
   refreshRunScope();
   await renderFigures();
   await render();
@@ -1235,7 +1235,9 @@ function resetRunLabel() {
   const name = state.overview?.project?.name || 'cycle';
   const cap = window.innerWidth < 760 ? 12 : 18;
   const short = name.length > cap ? name.slice(0, cap - 1) + '\u2026' : name;
-  $('runBtn').textContent = `Run ${short}`;
+  // The caret has to come back with the label, or the control stops looking
+  // like the menu it is.
+  $('runBtn').innerHTML = `Run ${esc(short)} <span class="caret">&#9662;</span>`;
 }
 
 const PHASE_LABEL = {
@@ -1490,7 +1492,23 @@ async function startCycle(only = null) {
   setTimeout(tick, 1200);
 }
 
-$('runBtn').addEventListener('click', () => startCycle(null));
+$('runBtn').addEventListener('click', (e) => {
+  // The caret is a child span, so a tap landing on it bubbles to the
+  // document handler that closes the menu, and the control appears dead.
+  e.stopPropagation();
+  e.preventDefault();
+  // Opens the menu. Nothing spends money until an item is chosen.
+  const open = !$('runMenu').hidden;
+  $('runMenu').hidden = open;
+  $('runBtn').setAttribute('aria-expanded', String(!open));
+  if (!open) refreshRunScope();
+});
+
+$('runFullBtn').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  $('runMenu').hidden = true;
+  await startCycle(null);
+});
 
 $('runUnrunBtn').addEventListener('click', async (e) => {
   e.stopPropagation();
@@ -1500,24 +1518,31 @@ $('runUnrunBtn').addEventListener('click', async (e) => {
 
 /** Say how many are waiting, so the menu item is a decision rather than a guess. */
 async function refreshRunScope() {
-  const el = $('runUnrunCount');
-  if (!el || !state.projectId) return;
+  if (!state.projectId) return;
   const d = await api(`/api/projects/${state.projectId}/run-scope`);
   if (!d) return;
-  el.textContent = d.unrun ? ` (${d.unrun}, ${d.checksUnrun} checks)` : ' (none waiting)';
-  $('runUnrunBtn').disabled = d.unrun === 0;
-}
 
-$('runMoreBtn').addEventListener('click', (e) => {
-  e.stopPropagation();
-  const open = !$('runMenu').hidden;
-  $('runMenu').hidden = open;
-  $('runMoreBtn').setAttribute('aria-expanded', String(!open));
-});
+  // Both options carry their size, so neither is chosen blind.
+  const full = $('runFullCount');
+  if (full) full.textContent = d.all ? ` (${d.all}, ${d.checksAll} checks)` : ' (no questions yet)';
+  if ($('runFullBtn')) $('runFullBtn').disabled = d.all === 0;
+
+  const el = $('runUnrunCount');
+  if (el) el.textContent = d.unrun ? ` (${d.unrun}, ${d.checksUnrun} checks)` : ' (none waiting)';
+  if ($('runUnrunBtn')) $('runUnrunBtn').disabled = d.unrun === 0;
+}
 
 document.addEventListener('click', () => {
   $('runMenu').hidden = true;
-  $('runMoreBtn').setAttribute('aria-expanded', 'false');
+  $('runBtn').setAttribute('aria-expanded', 'false');
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('runMenu').hidden) {
+    $('runMenu').hidden = true;
+    $('runBtn').setAttribute('aria-expanded', 'false');
+    $('runBtn').focus();
+  }
 });
 
 $('runAllBtn').addEventListener('click', async (e) => {

@@ -700,13 +700,6 @@ select { appearance: auto; }
 
 /* split run button */
 .runwrap { position: relative; display: inline-flex; }
-.runwrap #runBtn { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.runmore {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-  border-left: none;
-  padding: 8px 9px;
-}
 .runmenu {
   position: absolute;
   top: calc(100% + 4px);
@@ -1063,8 +1056,7 @@ select { appearance: auto; }
   .masthead-inner .runwrap { flex: 1 1 auto; }
   .runwrap { display: flex; }
   .runwrap #runBtn { flex: 1; min-height: 44px; white-space: nowrap; }
-  .runmore { min-height: 44px; }
-  .usage-pill { order: 9; font-size: 10px; padding: 5px 9px; }
+    .usage-pill { order: 9; font-size: 10px; padding: 5px 9px; }
   #addSiteBtn, #signOutBtn { padding: 11px 12px; font-size: 10.5px; }
 
   main { padding: 20px 16px 90px; }
@@ -1645,3 +1637,8 @@ select { appearance: auto; }
 
 .runmenu button[disabled] { opacity: .45; cursor: default; }
 .runmenu button span { color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; }
+
+/* the run control is a menu, and should look like one */
+.runwrap #runBtn { display: inline-flex; align-items: center; gap: 7px; }
+.runwrap .caret { font-size: 9px; color: var(--ink-3); pointer-events: none; }
+.runmenu-rule { height: 1px; background: var(--line); margin: 4px 0; }

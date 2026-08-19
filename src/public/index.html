@@ -24,10 +24,14 @@
     <span id="usagePill" class="pill" title="Answer checks used this month" hidden></span>
     <button class="ghost" id="addSiteBtn">Add site</button>
     <div class="runwrap">
-      <button class="ghost" id="runBtn">Run cycle</button>
-      <button class="ghost runmore" id="runMoreBtn" aria-label="More run options" aria-haspopup="true" aria-expanded="false">&#9662;</button>
+      <!-- The whole control opens the menu. It used to run everything on
+           click with a separate arrow for the options, so someone reaching
+           for the menu spent a full cycle by accident. -->
+      <button class="ghost" id="runBtn" aria-haspopup="true" aria-expanded="false">Run cycle <span class="caret">&#9662;</span></button>
       <div class="runmenu" id="runMenu" hidden>
+        <button id="runFullBtn">Every question<span id="runFullCount"></span></button>
         <button id="runUnrunBtn">Only questions never asked<span id="runUnrunCount"></span></button>
+        <div class="runmenu-rule"></div>
         <button id="runAllBtn">Run every site on this account</button>
       </div>
     </div>
