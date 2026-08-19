@@ -1642,3 +1642,6 @@ select { appearance: auto; }
 }
 .pq.is-dupe { opacity: .55; }
 #qTopicPanel:empty { display: none; }
+
+.runmenu button[disabled] { opacity: .45; cursor: default; }
+.runmenu button span { color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; }

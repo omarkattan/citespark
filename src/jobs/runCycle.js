@@ -32,12 +32,50 @@ async function pooled(items, worker, limit = CONCURRENCY) {
   await Promise.all(workers);
 }
 
-export async function runCycleForProject(projectId, { cycleDate, onProgress } = {}) {
+/**
+ * Run everything, or only the questions that have never been asked.
+ *
+ * "only" is for the common case of adding questions after a cycle: nobody
+ * wants to pay to re-ask the sixty that already have answers.
+ *
+ * A partial run joins the most recent cycle rather than starting its own.
+ * Its own cycle would produce a trend point measured over eight questions
+ * where the one before it covered sixty, and that shows up as a collapse or
+ * a spike that never happened.
+ */
+export async function runCycleForProject(projectId, { cycleDate, onProgress, only = null } = {}) {
   const project = await one('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!project) throw new Error(`No project ${projectId}`);
 
-  const cycle = cycleDate || new Date().toISOString().slice(0, 10);
-  const prompts = await many('SELECT * FROM prompts WHERE project_id = $1 AND active', [projectId]);
+  const latest = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [projectId]))?.d;
+
+  const cycle =
+    cycleDate ||
+    (only === 'unrun' && latest
+      ? new Date(latest).toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10));
+
+  const prompts =
+    only === 'unrun'
+      ? await many(
+          `SELECT p.* FROM prompts p
+           WHERE p.project_id = $1 AND p.active
+             AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.prompt_id = p.id AND r.ok)
+           ORDER BY p.id`,
+          [projectId]
+        )
+      : await many('SELECT * FROM prompts WHERE project_id = $1 AND active', [projectId]);
+
+  if (!prompts.length) {
+    return {
+      runs: 0,
+      spend: 0,
+      recommendations: 0,
+      cycle,
+      nothingToDo: true,
+      reason: only === 'unrun' ? 'Every active question has already been asked.' : 'This site has no active questions.'
+    };
+  }
   const entities = await many('SELECT * FROM entities WHERE project_id = $1', [projectId]);
 
   // A plan is a call budget. Trim the cycle to fit rather than overspending,

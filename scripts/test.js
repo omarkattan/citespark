@@ -2595,6 +2595,34 @@ await test('running every site has to be asked for explicitly', async () => {
   assert.ok(/Nothing run/.test(job), 'and a bare invocation must refuse and say so');
 });
 
+console.log('\npartial runs');
+
+await test('a partial run joins the last cycle rather than starting one', async () => {
+  const { readFileSync } = await import('node:fs');
+  const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
+  const fn = job.slice(job.indexOf('export async function runCycleForProject'), job.indexOf('const budget'));
+
+  // Its own cycle would produce a trend point measured over three questions
+  // where the one before covered sixty, which reads as a collapse or a spike
+  // that never happened.
+  assert.ok(/only === 'unrun' && latest/.test(fn), 'a partial run must reuse the latest cycle date');
+  assert.ok(/NOT EXISTS \(SELECT 1 FROM runs/.test(fn), 'and select only questions with no answers');
+});
+
+await test('a partial run with nothing to do says so', async () => {
+  const { readFileSync } = await import('node:fs');
+  const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
+
+  // Silently running zero questions and reporting success would look like a
+  // cycle that measured nothing.
+  assert.ok(/nothingToDo: true/.test(job));
+  assert.ok(/Every active question has already been asked/.test(job));
+
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  assert.ok(/none waiting/.test(app), 'and the menu must show when there is nothing waiting');
+  assert.ok(/checksUnrun/.test(app), 'with the cost of the choice attached');
+});
+
 console.log('\ntopic questions');
 
 await test('a generated question never contains the brand name', async () => {

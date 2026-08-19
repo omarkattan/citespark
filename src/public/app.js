@@ -1123,6 +1123,7 @@ async function loadProject(id) {
   const short = p.name.length > cap ? p.name.slice(0, cap - 1) + '\u2026' : p.name;
   $('runBtn').textContent = `Run ${short}`;
   $('runBtn').title = `Runs a cycle for ${p.name} only`;
+  refreshRunScope();
   await renderFigures();
   await render();
 }
@@ -1443,13 +1444,23 @@ async function pollCycle() {
   return false;
 }
 
-$('runBtn').addEventListener('click', async () => {
+/**
+ * Start a cycle, optionally only over questions never asked.
+ *
+ * A partial run joins the most recent cycle rather than opening a new one,
+ * so the trend keeps comparing like with like.
+ */
+async function startCycle(only = null) {
   const btn = $('runBtn');
   btn.disabled = true;
   btn.textContent = 'Starting';
   $('cycleReport').hidden = true;
 
-  const res = await fetch(`/api/projects/${state.projectId}/run`, { method: 'POST' });
+  const res = await fetch(`/api/projects/${state.projectId}/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ only })
+  });
   const json = await res.json();
 
   if (!res.ok) {
@@ -1477,7 +1488,25 @@ $('runBtn').addEventListener('click', async () => {
     }
   };
   setTimeout(tick, 1200);
+}
+
+$('runBtn').addEventListener('click', () => startCycle(null));
+
+$('runUnrunBtn').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  $('runMenu').hidden = true;
+  await startCycle('unrun');
 });
+
+/** Say how many are waiting, so the menu item is a decision rather than a guess. */
+async function refreshRunScope() {
+  const el = $('runUnrunCount');
+  if (!el || !state.projectId) return;
+  const d = await api(`/api/projects/${state.projectId}/run-scope`);
+  if (!d) return;
+  el.textContent = d.unrun ? ` (${d.unrun}, ${d.checksUnrun} checks)` : ' (none waiting)';
+  $('runUnrunBtn').disabled = d.unrun === 0;
+}
 
 $('runMoreBtn').addEventListener('click', (e) => {
   e.stopPropagation();
