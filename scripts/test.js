@@ -1946,6 +1946,20 @@ await test('progress reports what is being asked, not just a count', async () =>
 
 console.log('\nassignment');
 
+await test('a failed assignment email is not reported as sent', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Sending is fire and forget so a mail outage cannot break the task board.
+  // The cost is that a broken sender stays invisible until someone says they
+  // never got it, which is what happened.
+  assert.ok(/notifications\/last-assignment/.test(server), 'the result must be checkable');
+  assert.ok(/email_error/.test(server));
+  assert.ok(/email failed/.test(app), 'and a failure shown where the assignment was made');
+  assert.ok(/>sending</.test(app), 'with an honest interim state rather than a premature success');
+});
+
 await test('an assignment email carries the notes and the right link', async () => {
   process.env.RESEND_API_KEY = 'test';
   const n = await import('../src/lib/notify.js?asg=1');

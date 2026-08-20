@@ -2168,7 +2168,24 @@ document.addEventListener('click', async (e) => {
       replaceCard(id, updated);
       if (updated.notified) {
         const note = document.querySelector(`[data-task="${id}"] .task-meta`);
-        if (note) note.insertAdjacentHTML('beforeend', '<span class="tag ok">emailed</span>');
+        if (note) note.insertAdjacentHTML('beforeend', '<span class="tag" data-mailtag>sending</span>');
+
+        // The send resolves after the response, so the result is checked a
+        // moment later. Saying "emailed" when nothing sent is worse than
+        // saying nothing.
+        setTimeout(async () => {
+          const last = await api('/api/notifications/last-assignment');
+          const tag = document.querySelector(`[data-task="${id}"] [data-mailtag]`);
+          if (!tag) return;
+          if (last?.emailed) {
+            tag.textContent = 'emailed';
+            tag.classList.add('ok');
+          } else {
+            tag.textContent = 'email failed';
+            tag.classList.add('bad');
+            tag.title = last?.email_error || 'The message could not be sent.';
+          }
+        }, 2500);
       }
     } else {
       const j = await res.json();

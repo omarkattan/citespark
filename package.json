@@ -37,7 +37,8 @@
     "resolve": "node scripts/resolve-citations.js",
     "rebuild": "node scripts/rebuild.js",
     "sources": "node scripts/sources.js",
-    "export": "node scripts/export.js"
+    "export": "node scripts/export.js",
+    "mailcheck": "node scripts/mailcheck.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
