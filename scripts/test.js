@@ -2698,6 +2698,38 @@ await test('the composer sits above the list it adds to', async () => {
   assert.ok(/q_topic/.test(panel) && /q_add/.test(panel), 'with both actions together');
 });
 
+console.log('\nre-asking one question');
+
+await test('a sound answer is kept, a broken one is replaced', async () => {
+  const { readFileSync } = await import('node:fs');
+  const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
+  const fn = job.slice(job.indexOf('export async function reaskPrompt'));
+
+  // Two things could be true when a stored answer disagrees with a manual
+  // check: the measurement was broken, or the engine genuinely varies. Those
+  // want different treatment.
+  assert.ok(/looksTruncated/.test(fn), 'a truncated answer must be recognised');
+  assert.ok(/const broken = existing\.filter\(\(r\) => !r\.ok \|\| looksTruncated/.test(fn));
+  assert.ok(/DELETE FROM runs WHERE id = ANY/.test(fn), 'and a failed measurement replaced');
+
+  // A completed answer that simply did not name the brand is evidence.
+  // Deleting it because someone dislikes the result would be dishonest.
+  assert.ok(/sound\.length \? Math\.max/.test(fn), 'a sound answer is kept and the new one added alongside');
+});
+
+await test('re-asking is charged and bounded like anything else', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const route = server.slice(server.indexOf("app.post('/api/prompts/:promptId/reask'"), server.indexOf('/* ---------------- page checks'));
+
+  assert.ok(/budgetForCycle/.test(route), 'it must count against the allowance');
+  assert.ok(/org_id = \$2/.test(route), 'and be scoped to the account');
+
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  // Silently changing a number would hide which of the two cases happened.
+  assert.ok(/have been replaced/.test(app), 'the UI must say what happened to the old answers');
+});
+
 console.log('\nanswer evidence');
 
 await test('a truncated answer cannot support "not named"', async () => {

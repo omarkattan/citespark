@@ -398,3 +398,116 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   for (const id of ids) await runCycleForProject(id);
   await pool.end();
 }
+
+/**
+ * Ask one question again, now.
+ *
+ * For the case where a stored answer disagrees with what the engine plainly
+ * says when you check it by hand. Two things could be true: the measurement
+ * was broken, or the engine genuinely varies. Those want different treatment,
+ * so this distinguishes them rather than quietly overwriting.
+ *
+ *   A run that was truncated or errored is a failed measurement, not a data
+ *   point, and is replaced.
+ *
+ *   A run that completed and simply did not name the brand is evidence. It is
+ *   kept, and the new answer is stored alongside it as another sample.
+ */
+export async function reaskPrompt(promptId, { engine = null } = {}) {
+  const prompt = await one(
+    `SELECT p.*, pr.id AS project_id FROM prompts p JOIN projects pr ON pr.id = p.project_id WHERE p.id = $1`,
+    [promptId]
+  );
+  if (!prompt) throw new Error('Question not found');
+
+  const project = await one('SELECT * FROM projects WHERE id = $1', [prompt.project_id]);
+  const entities = await many('SELECT id, name, aliases, domain, kind FROM entities WHERE project_id = $1', [project.id]);
+  const ownedIds = new Set(entities.filter((e) => e.kind === 'owned').map((e) => e.id));
+
+  const engines = engine ? [engine] : project.engines || [];
+  if (!engines.length) throw new Error('No engines configured for this site');
+
+  const cycle =
+    (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [project.id]))?.d ||
+    new Date().toISOString().slice(0, 10);
+  const cycleDay = new Date(cycle).toISOString().slice(0, 10);
+
+  const { looksTruncated } = await import('../lib/analyze.js');
+  const ceiling = Number(process.env.MAX_OUTPUT_TOKENS || 2000);
+  const results = [];
+  let spend = 0;
+
+  for (const eng of engines) {
+    const existing = await many(
+      'SELECT id, ok, response_text, run_index FROM runs WHERE prompt_id = $1 AND engine = $2 AND cycle_date = $3 ORDER BY run_index',
+      [promptId, eng, cycleDay]
+    );
+
+    // A broken measurement is replaced; a completed one is kept as evidence.
+    const broken = existing.filter((r) => !r.ok || looksTruncated(r.response_text, ceiling));
+    const sound = existing.filter((r) => r.ok && !looksTruncated(r.response_text, ceiling));
+
+    const answer = await askEngine({
+      engine: eng,
+      prompt: prompt.text,
+      market: project.market,
+      maxTokens: ceiling
+    });
+    spend += answer.costUsd || 0;
+
+    if (!answer.ok) {
+      results.push({ engine: eng, ok: false, error: answer.error });
+      continue;
+    }
+
+    if (broken.length) {
+      await query('DELETE FROM runs WHERE id = ANY($1::int[])', [broken.map((r) => r.id)]);
+    }
+
+    const runIndex = sound.length ? Math.max(...sound.map((r) => r.run_index)) + 1 : 0;
+
+    const run = await one(
+      `INSERT INTO runs (prompt_id, project_id, engine, model, cycle_date, run_index, response_text, ok, cost_usd)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8) RETURNING id`,
+      [promptId, project.id, eng, answer.model || null, cycleDay, runIndex, answer.text, answer.costUsd || 0]
+    );
+
+    const analysed = await analyseRun({ text: answer.text, entities, useModel: hasAnthropic });
+    for (const r of analysed) {
+      await query(
+        `INSERT INTO mentions (run_id, entity_id, mentioned, ordinal, sentiment, snippet)
+         VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (run_id, entity_id) DO NOTHING`,
+        [run.id, r.entity_id, r.mentioned, r.ordinal, r.sentiment, r.snippet]
+      );
+    }
+
+    let cites = answer.citations || [];
+    if (cites.some((c) => isWrapper(c.url))) {
+      const resolved = await resolveAll(cites.map((c) => c.url));
+      cites = cites.map((c) => {
+        const r = resolved.get(c.url);
+        return r?.resolved ? { ...c, url: r.url, domain: domainOf(r.url) || c.domain } : c;
+      });
+    }
+    for (const c of cites) {
+      await query('INSERT INTO citations (run_id, domain, url, position) VALUES ($1,$2,$3,$4)', [
+        run.id,
+        c.domain,
+        c.url,
+        c.position
+      ]);
+    }
+
+    results.push({
+      engine: eng,
+      ok: true,
+      named: analysed.some((r) => r.mentioned && ownedIds.has(r.entity_id)),
+      replaced: broken.length,
+      keptAlongside: sound.length,
+      truncated: looksTruncated(answer.text, ceiling)
+    });
+  }
+
+  await recordUsage(project.org_id, results.length, spend);
+  return { prompt: prompt.text, cycle: cycleDay, spend: Math.round(spend * 10000) / 10000, results };
+}

@@ -664,6 +664,7 @@ async function viewQuestions() {
           </div>
           ${p.measured ? runStrip(p.runs) : '<div class="notrun">not asked yet, it will run on the next cycle</div>'}
           ${p.measured ? `<button class="seeanswer" data-see-answer="${p.id}">Read what each engine said</button>` : ''}
+          ${p.measured ? `<button class="seeanswer" data-reask="${p.id}">Ask again now</button>` : ''}
           <div class="answers" id="answers-${p.id}" hidden></div>
           ${p.snippet ? `<div class="excerpt">${highlight(p.snippet, brand)}</div>` : ''}
           ${chips ? `<div class="chips">${chips}</div>` : ''}
@@ -1648,6 +1649,35 @@ function applyQuestionView() {
 }
 
 document.addEventListener('click', async (e) => {
+  const again = e.target.closest('[data-reask]');
+  if (again) {
+    const id = again.dataset.reask;
+    again.disabled = true;
+    again.textContent = 'Asking';
+    const d = await api(`/api/prompts/${id}/reask`, { method: 'POST' });
+    again.disabled = false;
+
+    if (d?.error) {
+      again.textContent = 'Ask again now';
+      setupErr(d.error);
+      return;
+    }
+
+    // Say what happened to the old answers rather than silently changing a
+    // number: a replaced run and an added one mean different things.
+    const named = (d.results || []).filter((r) => r.named).map((r) => r.engine);
+    const replaced = (d.results || []).reduce((n, r) => n + (r.replaced || 0), 0);
+    again.textContent = named.length
+      ? `named by ${named.join(', ')}`
+      : 'still not named';
+    again.title = replaced
+      ? `${replaced} earlier answer${replaced === 1 ? ' was' : 's were'} incomplete and have been replaced. Sound answers were kept.`
+      : 'Kept alongside the earlier answers as another sample.';
+
+    await render();
+    return;
+  }
+
   const see = e.target.closest('[data-see-answer]');
   if (see) {
     const id = see.dataset.seeAnswer;
