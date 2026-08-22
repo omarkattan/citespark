@@ -1817,6 +1817,81 @@ document.addEventListener('input', (e) => {
   applyQuestionView();
 });
 
+/**
+ * Switching a series off hides it and rescales nothing.
+ *
+ * Rescaling on toggle would make the remaining lines jump, which reads as the
+ * data changing rather than the view. The axis stays fixed at 0 to 100.
+ */
+document.addEventListener('click', (e) => {
+  const key = e.target.closest('[data-series][data-chart]');
+  if (!key) return;
+
+  key.classList.toggle('is-on');
+  const wrap = document.querySelector(`[data-chart-id="${key.dataset.chart}"]`);
+  const line = wrap?.querySelector(`.seriesline[data-series="${key.dataset.series}"]`);
+  if (line) line.style.display = key.classList.contains('is-on') ? '' : 'none';
+});
+
+/** Read out every visible series at whichever date the pointer is nearest. */
+function chartHover(wrap, date) {
+  const id = wrap.dataset.chartId;
+  const data = window.__charts?.[id];
+  if (!data) return;
+
+  const readout = wrap.querySelector('.readout');
+  const on = new Set(
+    [...wrap.querySelectorAll('.serieskey.is-on')].map((k) => Number(k.dataset.series))
+  );
+
+  const rows = data.series
+    .map((s, i) => ({ ...s, i }))
+    .filter((s) => on.has(s.i) && s.values[date] != null)
+    .sort((a, b) => b.values[date] - a.values[date]);
+
+  if (!rows.length) {
+    readout.hidden = true;
+    return;
+  }
+
+  readout.hidden = false;
+  readout.innerHTML =
+    `<div class="readout-date">${esc(shortDate(date))}</div>` +
+    rows
+      .map(
+        (r) => `<div class="readout-row${r.own ? ' own' : ''}">
+          <span class="swatch" style="--k:${r.colour}"></span>
+          <span class="readout-label">${esc(r.label)}</span>
+          <span class="readout-value">${Math.round(r.values[date] * 100)}%</span>
+        </div>`
+      )
+      .join('');
+}
+
+document.addEventListener('mouseover', (e) => {
+  const zone = e.target.closest('.hitzone');
+  if (!zone) return;
+  const wrap = zone.closest('.chartwrap');
+  if (!wrap) return;
+
+  const cross = wrap.querySelector('.crosshair');
+  if (cross) {
+    const x = Number(zone.getAttribute('x')) + Number(zone.getAttribute('width')) / 2;
+    cross.setAttribute('x1', x);
+    cross.setAttribute('x2', x);
+    cross.style.display = '';
+  }
+  chartHover(wrap, zone.dataset.date);
+});
+
+document.addEventListener('mouseout', (e) => {
+  const wrap = e.target.closest('.chartwrap');
+  if (!wrap || wrap.contains(e.relatedTarget)) return;
+  wrap.querySelector('.readout')?.setAttribute('hidden', '');
+  const cross = wrap.querySelector('.crosshair');
+  if (cross) cross.style.display = 'none';
+});
+
 document.addEventListener('input', (e) => {
   if (e.target.id === 'pcSearch') {
     const needle = e.target.value.trim().toLowerCase();
@@ -3505,7 +3580,15 @@ const shortDate = (d) => new Date(d).toLocaleDateString(undefined, DATE_FMT);
  * points on a shared date axis, and a dependency would cost more than it
  * saves while fighting the design tokens.
  */
-function lineChart(series, { height = 220, showAxis = true } = {}) {
+/**
+ * A line chart you can interrogate.
+ *
+ * Six overlapping lines and a native SVG tooltip is a picture, not an
+ * instrument. Series can be switched off, and hovering anywhere reads out
+ * every visible value at that date rather than requiring an exact hit on a
+ * three-pixel dot.
+ */
+function lineChart(series, { height = 220, showAxis = true, id = 'chart' } = {}) {
   const dates = [...new Set(series.flatMap((s) => s.points.map((p) => p.date)))].sort();
   if (dates.length < 2) return null;
 
@@ -3527,6 +3610,14 @@ function lineChart(series, { height = 220, showAxis = true } = {}) {
     .map((d) => `<text x="${x(d)}" y="${H - 6}" class="axis" text-anchor="middle">${shortDate(d)}</text>`)
     .join('');
 
+  // Handed to the hover readout so it does not have to parse the SVG back.
+  const dataForHover = series.map((s) => ({
+    label: s.label,
+    colour: s.colour,
+    own: Boolean(s.own),
+    values: Object.fromEntries(s.points.filter((p) => p.value != null).map((p) => [p.date, p.value]))
+  }));
+
   const lines = series
     .map((s) => {
       const pts = s.points.filter((p) => p.value !== null && p.value !== undefined).sort((a, b) => (a.date < b.date ? -1 : 1));
@@ -3539,13 +3630,43 @@ function lineChart(series, { height = 220, showAxis = true } = {}) {
                   </circle>`
         )
         .join('');
-      return `<path d="${path}" class="line ${s.own ? 'own' : ''}" style="stroke:${s.colour}" />${dots}`;
+      return `<g class="seriesline" data-series="${series.indexOf(s)}">
+        <path d="${path}" class="line ${s.own ? 'own' : ''}" style="stroke:${s.colour}" />${dots}
+      </g>`;
     })
     .join('');
 
-  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Visibility over time">
-    ${grid}${xLabels}${lines}
-  </svg>`;
+  // A hit area per date, so the pointer never has to find the dot itself.
+  const step = (W - pad.l - pad.r) / Math.max(dates.length - 1, 1);
+  const zones = dates
+    .map(
+      (d, i) => `<rect class="hitzone" data-date="${esc(d)}" x="${(x(d) - step / 2).toFixed(1)}" y="${pad.t}"
+        width="${step.toFixed(1)}" height="${(H - pad.t - pad.b).toFixed(1)}" fill="transparent" />`
+    )
+    .join('');
+
+  const marker = `<line class="crosshair" x1="0" y1="${pad.t}" x2="0" y2="${H - pad.b}" style="display:none" />`;
+
+  const toggles = series
+    .map(
+      (s, i) => `<button class="serieskey is-on" data-series="${i}" data-chart="${id}" style="--k:${s.colour}">
+        <span class="swatch"></span>${esc(s.label)}
+      </button>`
+    )
+    .join('');
+
+  window.__charts = window.__charts || {};
+  window.__charts[id] = { series: dataForHover, dates };
+
+  return `<div class="chartwrap" data-chart-id="${id}">
+    <div class="serieskeys">${toggles}</div>
+    <div class="chartbox">
+      <svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Visibility over time" preserveAspectRatio="xMidYMid meet">
+        ${grid}${xLabels}${marker}${lines}${zones}
+      </svg>
+      <div class="readout" hidden></div>
+    </div>
+  </div>`;
 }
 
 function legend(series) {
@@ -3643,7 +3764,7 @@ async function viewTrends() {
 
   <div class="panel">
     <div class="panel-head"><h2>You against the field</h2></div>
-    ${lineChart(series) || '<p class="hint">Not enough cycles yet.</p>'}
+    ${lineChart(series, { id: 'rivals' }) || '<p class="hint">Not enough cycles yet.</p>'}
     ${legend(series)}
     <p class="hint" style="margin-top:12px">Share of answers each brand was named in, cycle by cycle. Hover a point for the exact figure.</p>
   </div>
@@ -3651,7 +3772,7 @@ async function viewTrends() {
   <div class="setup-grid">
     <div class="panel">
       <div class="panel-head"><h2>By surface</h2></div>
-      ${lineChart(engineSeries, { height: 190 }) || '<p class="hint">Not enough cycles yet.</p>'}
+      ${lineChart(engineSeries, { height: 190, id: 'engines' }) || '<p class="hint">Not enough cycles yet.</p>'}
       ${legend(engineSeries)}
       <p class="hint" style="margin-top:12px">A surface that moves alone usually points at a crawler or freshness problem rather than your content.</p>
     </div>

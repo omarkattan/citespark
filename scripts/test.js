@@ -2877,6 +2877,39 @@ await test('any verdict can be checked against the answer', async () => {
   assert.ok(/cut short/.test(app), 'and the truncation shown where the verdict is');
 });
 
+console.log('\ntrend chart');
+
+await test('a series can be switched off without moving the others', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Six overlapping lines is a picture rather than an instrument.
+  assert.ok(/data-series="\$\{i\}"/.test(app), 'each series needs a toggle');
+  assert.ok(/class="seriesline" data-series/.test(app), 'and a line it can hide');
+
+  // Rescaling on toggle would make the remaining lines jump, which reads as
+  // the data changing rather than the view.
+  const handler = app.slice(app.indexOf("const key = e.target.closest('[data-series][data-chart]')"), app.indexOf('function chartHover'));
+  assert.ok(/style\.display =/.test(handler), 'hiding is display only');
+  assert.ok(!/y\(|rescale|Math\.max/.test(handler), 'the axis must not move');
+});
+
+await test('hovering reads out every visible value at that date', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // A native SVG title needs an exact hit on a three-pixel dot, which on a
+  // touchscreen is no tooltip at all.
+  assert.ok(/class="hitzone"/.test(app), 'a hit area per date, not per dot');
+  assert.ok(/crosshair/.test(app), 'with a marker showing which date');
+
+  // The readout must follow what is switched on, or it reports lines that
+  // are not on screen.
+  const fn = app.slice(app.indexOf('function chartHover'), app.indexOf("document.addEventListener('mouseover'"));
+  assert.ok(/serieskey\.is-on/.test(fn), 'only visible series are listed');
+  assert.ok(/sort\(\(a, b\) => b\.values\[date\] - a\.values\[date\]\)/.test(fn), 'ordered by value at that date');
+});
+
 console.log('\nquestion list');
 
 await test('filters narrow together rather than replacing each other', async () => {
