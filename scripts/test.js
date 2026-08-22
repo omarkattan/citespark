@@ -2700,6 +2700,28 @@ await test('the composer sits above the list it adds to', async () => {
 
 console.log('\nre-asking one question');
 
+await test('an action about a question can open that question', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const card = app.slice(app.indexOf('<div class="rec-foot">'), app.indexOf('data-task-edit'));
+
+  // A decline alert had no button at all: it said visibility fell and left
+  // the reader to go and find out where, which is the part that needed doing.
+  assert.ok(/ev\.prompt_id/.test(card), 'a question-level action must offer its question');
+  assert.ok(/data-see-answer="\$\{ev\.prompt_id\}"/.test(card), 'to read the answers');
+  assert.ok(/data-reask="\$\{ev\.prompt_id\}"/.test(card), 'and to ask again');
+});
+
+await test('two views of one question do not fill each other', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // The same question appears on the Questions tab and on an action card. A
+  // shared element id meant clicking one filled the other, invisibly.
+  assert.ok(!/id="answers-\$\{/.test(app), 'no shared id between the two');
+  assert.ok(/see\.closest\('\.rec, \.prompt'\)/.test(app), 'the panel is found relative to its button');
+});
+
 await test('a sound answer is kept, a broken one is replaced', async () => {
   const { readFileSync } = await import('node:fs');
   const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
@@ -2731,6 +2753,43 @@ await test('re-asking is charged and bounded like anything else', async () => {
 });
 
 console.log('\nanswer evidence');
+
+await test('a brand made of ordinary words is still detected', async () => {
+  const { analyseRun } = await import('../src/lib/analyze.js?det=1');
+
+  // "The Family Office" is a generic phrase and a real brand. If a table row
+  // naming it first were read as not named, every finding for that customer
+  // would be wrong.
+  const text = [
+    'Several established firms provide family wealth management services in Riyadh.',
+    'Firm\tMain strengths',
+    'The Family Office\tIndependent wealth management, private markets',
+    'UBS Saudi Arabia\tFamily-office advisory, estate planning',
+    'Jadwa Investment\tShariah-compliant public markets'
+  ].join('\n');
+
+  const entities = [
+    { id: 1, name: 'The Family Office', aliases: ['TFO'], domain: 'tfoco.com', kind: 'owned' },
+    { id: 2, name: 'UBS', aliases: [], domain: 'ubs.com', kind: 'competitor' }
+  ];
+
+  const out = await analyseRun({ text, entities, useModel: false });
+  const mine = out.find((r) => r.entity_id === 1);
+  assert.equal(mine.mentioned, true, 'the brand is named in the table');
+  assert.equal(mine.ordinal, 1, 'and named first');
+});
+
+await test('the answer panel explains why a manual check differs', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Everyone checks a surprising result by asking the engine themselves and
+  // finds a different answer. Without this the tool looks broken when it is
+  // measuring the thing it says it measures.
+  assert.ok(/fresh, signed-out session/.test(app), 'the panel must say what was measured');
+  assert.ok(/history, saved memories and location/.test(app), 'and why a personal check differs');
+  assert.ok(/only this one describes what a stranger sees/.test(app), 'without implying the customer is wrong');
+});
 
 await test('a truncated answer cannot support "not named"', async () => {
   const { looksTruncated } = await import('../src/lib/analyze.js?t=1');

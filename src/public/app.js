@@ -280,6 +280,18 @@ function taskCard(t) {
       ${ev.analysable && ev.url && ev.question
         ? `<button class="ghost" data-teardown="${t.id}" data-url="${esc(ev.url)}" data-question="${esc(ev.question)}">Why were they cited?</button>`
         : ''}
+      ${
+        /**
+         * An action about one question should open that question's answers.
+         * A decline alert had no button at all: it said visibility fell and
+         * then left the reader to go and find out where, which is the part
+         * that needed doing.
+         */
+        ev.prompt_id
+          ? `<button class="ghost" data-see-answer="${ev.prompt_id}">Read the answers</button>
+             <button class="ghost" data-reask="${ev.prompt_id}">Ask again now</button>`
+          : ''
+      }
       <button class="ghost" data-task-edit="${t.id}">${t.assignee || t.due_date || t.notes ? 'Edit' : 'Assign'}</button>
       ${buttons.map(([st, label]) => `<button class="ghost" data-rec="${t.id}" data-status="${st}">${label}</button>`).join('')}
       ${canDelete ? `<button class="ghost danger" data-delete-rec="${t.id}" title="Remove it and stop it coming back">Delete</button>` : ''}
@@ -288,6 +300,7 @@ function taskCard(t) {
     ${evidenceDetails(t)}
 
     <div class="teardown" id="teardown-${t.id}" hidden></div>
+    ${ev.prompt_id ? '<div class="answers" data-answers hidden></div>' : ''}
 
     <div class="task-edit" id="edit-${t.id}" hidden>
       <div class="task-edit-row">
@@ -665,7 +678,7 @@ async function viewQuestions() {
           ${p.measured ? runStrip(p.runs) : '<div class="notrun">not asked yet, it will run on the next cycle</div>'}
           ${p.measured ? `<button class="seeanswer" data-see-answer="${p.id}">Read what each engine said</button>` : ''}
           ${p.measured ? `<button class="seeanswer" data-reask="${p.id}">Ask again now</button>` : ''}
-          <div class="answers" id="answers-${p.id}" hidden></div>
+          <div class="answers" data-answers hidden></div>
           ${p.snippet ? `<div class="excerpt">${highlight(p.snippet, brand)}</div>` : ''}
           ${chips ? `<div class="chips">${chips}</div>` : ''}
           ${p.fanOut?.length ? `<div class="fanout"><span class="fanout-label">searched for</span>${p.fanOut.map((q) => `<span class="chip">${esc(q)}</span>`).join('')}</div>` : ''}
@@ -1681,14 +1694,32 @@ document.addEventListener('click', async (e) => {
   const see = e.target.closest('[data-see-answer]');
   if (see) {
     const id = see.dataset.seeAnswer;
-    const box = document.getElementById(`answers-${id}`);
+    /**
+     * Found relative to the button, not by id. The same question can appear
+     * on the Questions tab and on an action card, and a shared id meant
+     * clicking one filled the other.
+     */
+    const box = see.closest('.rec, .prompt')?.querySelector('[data-answers]');
+    if (!box) return;
     if (!box.hidden) { box.hidden = true; see.textContent = 'Read what each engine said'; return; }
 
     see.textContent = 'Loading';
     const d = await api(`/api/prompts/${id}/answers`);
     see.textContent = 'Hide the answers';
     box.hidden = false;
-    box.innerHTML = (d?.runs || [])
+    /**
+     * Everyone checks a surprising result by asking the engine themselves,
+     * and then finds a different answer. That is not usually a fault in the
+     * measurement, and saying so here saves the same conversation every time.
+     */
+    const preamble = `<p class="hint" style="margin:0 0 10px">
+      This is what the engine returned to a fresh, signed-out session in ${esc(state.overview?.project?.market || 'your market')}.
+      Asking the same question in your own account can differ: your history, saved memories and location all shape
+      what comes back, and a brand you have been researching is far more likely to appear. Neither answer is wrong,
+      but only this one describes what a stranger sees.
+    </p>`;
+
+    box.innerHTML = preamble + (d?.runs || [])
       .map((r) => {
         const verdict = r.mentioned
           ? `<span class="tag ok">named${r.ordinal ? `, ${r.ordinal}${r.ordinal === 1 ? 'st' : r.ordinal === 2 ? 'nd' : r.ordinal === 3 ? 'rd' : 'th'}` : ''}</span>`
