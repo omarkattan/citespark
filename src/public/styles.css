@@ -1642,3 +1642,43 @@ select { appearance: auto; }
 .runwrap #runBtn { display: inline-flex; align-items: center; gap: 7px; }
 .runwrap .caret { font-size: 9px; color: var(--ink-3); pointer-events: none; }
 .runmenu-rule { height: 1px; background: var(--line); margin: 4px 0; }
+
+/*
+ * The kind of action is a category, not a control.
+ *
+ * Rendered as a bordered pill beside real buttons it read as one, so it was
+ * clicked and appeared broken. Flat, quieter, and clearly not pressable.
+ */
+.tag.kind {
+  border: none;
+  border-left: 2px solid var(--line);
+  border-radius: 0;
+  padding: 1px 0 1px 8px;
+  color: var(--ink-3);
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--sans);
+  font-size: 12px;
+  cursor: default;
+}
+
+/*
+ * Cited but not named is its own outcome.
+ *
+ * It used to render as a miss, so an AI Overview linking to you first showed
+ * as no visibility at all. A ring rather than a filled tick: present, but a
+ * different kind of present.
+ */
+.tick.cited {
+  background: transparent;
+  border: 2px solid var(--you);
+}
+.rates { text-align: right; }
+.ratesplit {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .04em;
+  color: var(--ink-3);
+  margin-top: 3px;
+  white-space: nowrap;
+}

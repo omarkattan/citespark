@@ -1434,6 +1434,28 @@ await test('a persona is only called different when the sample supports it', asy
   assert.ok(/not earning its cost/.test(block), 'and say plainly when a persona is useless');
 });
 
+await test('being linked without being named is not zero visibility', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // An AI Overview linked to the brand as its first source without naming it
+  // in the sentence, and the question showed 0% visibility. The link is
+  // usually the more valuable outcome of the two.
+  const q = server.slice(server.indexOf("app.get('/api/projects/:id/prompts'"), server.indexOf('res.json(out)'));
+  assert.ok(/AS cited/.test(q), 'the query must know whether our own site was cited');
+  assert.ok(/citedRate/.test(q) && /seenRate/.test(q), 'and report it');
+
+  // Kept as separate numbers: an answer can name you without linking, or
+  // link without naming, and the fixes for those differ.
+  assert.ok(/rate: p\.runs\.length \? p\.runs\.filter\(\(r\) => r\.mentioned\)/.test(q), 'named stays its own figure');
+  assert.ok(/r\.mentioned \|\| r\.cited/.test(q), 'and seen counts either');
+
+  // Three tick states, not two, or the middle case is invisible again.
+  assert.ok(/r\.mentioned \? 'hit' : r\.cited \? 'cited' : 'miss'/.test(app));
+  assert.ok(/linked as a source, but not named/.test(app), 'and says which it was');
+});
+
 await test('a question that has not run yet is still listed', async () => {
   const { readFileSync } = await import('node:fs');
   const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
@@ -1464,7 +1486,10 @@ await test('a persona question shows which buyer type asked it', async () => {
   // The descriptor is prefixed to the question text, which makes a list of
   // them unreadable. Strip it for display and show the buyer type instead.
   assert.ok(/p\.text\.startsWith\(p\.personaDescriptor/.test(app), 'the prefix must be stripped for reading');
-  assert.ok(/data-qfilter/.test(app), 'and the list must be filterable by buyer type');
+  // The filter attribute was renamed when the toolbar became grouped, so this
+  // checks the behaviour rather than the old attribute name.
+  assert.ok(/chip\('persona', 'all'/.test(app), 'and the list must be filterable by buyer type');
+  assert.ok(/qState\.persona/.test(app), 'with the choice feeding the same filter state');
 });
 
 await test('a persona card shows what it already has', async () => {
@@ -2720,6 +2745,31 @@ await test('two views of one question do not fill each other', async () => {
   // shared element id meant clicking one filled the other, invisibly.
   assert.ok(!/id="answers-\$\{/.test(app), 'no shared id between the two');
   assert.ok(/see\.closest\('\.rec, \.prompt'\)/.test(app), 'the panel is found relative to its button');
+});
+
+await test('an action says what it is, in words, and does not look pressable', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../src/public/styles.css', import.meta.url), 'utf8');
+  const rec = readFileSync(new URL('../src/lib/recommend.js', import.meta.url), 'utf8');
+
+  // "decline alert" is a field name. Shown raw, styled like the buttons
+  // beside it, it read as a control that did nothing when clicked.
+  assert.ok(/TYPE_LABEL/.test(app), 'types need readable labels');
+  assert.ok(!/t\.type\.replace\(\/_\/g, ' '\)}<\/span>/.test(app), 'the raw type must not be the visible text');
+
+  // Every type the rules can produce needs one, or a new rule silently ships
+  // jargon to customers.
+  const types = [...rec.matchAll(/type: '([a-z_]+)'/g)].map((m) => m[1]);
+  const labels = app.slice(app.indexOf('const TYPE_LABEL'), app.indexOf('function taskCard'));
+  for (const t of new Set(types)) {
+    assert.ok(labels.includes(`${t}:`), `${t} has no readable label`);
+  }
+
+  // And it must not look like something you can press.
+  const style = css.slice(css.indexOf('.tag.kind {'), css.indexOf('.tag.kind {') + 400);
+  assert.ok(/cursor: default/.test(style));
+  assert.ok(/border: none/.test(style));
 });
 
 await test('a sound answer is kept, a broken one is replaced', async () => {

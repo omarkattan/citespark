@@ -246,7 +246,15 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
   const rows = await many(
     `SELECT p.id, p.text, p.cluster, p.intent, p.ai_search_volume, p.active, p.source,
             p.persona_id, pe.name AS persona, pe.descriptor AS persona_descriptor,
-            r.id AS run_id, r.engine, r.run_index, m.mentioned, m.ordinal, m.snippet
+            r.id AS run_id, r.engine, r.run_index, m.mentioned, m.ordinal, m.snippet,
+            -- Being linked as a source is a different outcome from being named
+            -- in the text, and the more valuable one. Reporting only the second
+            -- made a citation with no mention read as no visibility at all.
+            EXISTS (
+              SELECT 1 FROM citations c
+              WHERE c.run_id = r.id
+                AND lower(regexp_replace(c.domain, '^www\.', '')) = lower(regexp_replace($3, '^www\.', ''))
+            ) AS cited
      FROM prompts p
      LEFT JOIN personas pe ON pe.id = p.persona_id
      LEFT JOIN runs r ON r.prompt_id = p.id AND r.cycle_date = $2 AND r.ok
@@ -254,7 +262,7 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
        AND m.entity_id = (SELECT id FROM entities WHERE project_id = $1 AND kind = 'owned' LIMIT 1)
      WHERE p.project_id = $1
      ORDER BY p.persona_id NULLS FIRST, p.ai_search_volume DESC NULLS LAST, p.id, r.engine, r.run_index`,
-    [project.id, cycle]
+    [project.id, cycle, project.domain]
   );
 
   const citations = await many(
@@ -295,7 +303,9 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
     }
     const p = byPrompt.get(row.id);
     // A left join produces a row with no run for a question never asked.
-    if (row.run_id) p.runs.push({ engine: row.engine, mentioned: row.mentioned, ordinal: row.ordinal });
+    if (row.run_id) {
+      p.runs.push({ engine: row.engine, mentioned: row.mentioned, ordinal: row.ordinal, cited: row.cited });
+    }
     if (!p.snippet && row.snippet) p.snippet = row.snippet;
   }
   for (const c of citations) {
@@ -312,7 +322,11 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
     // Never asked is not the same as asked and not named, and a rate of zero
     // would say the second.
     measured: p.runs.length > 0,
-    rate: p.runs.length ? p.runs.filter((r) => r.mentioned).length / p.runs.length : null
+    rate: p.runs.length ? p.runs.filter((r) => r.mentioned).length / p.runs.length : null,
+    // Kept separate rather than folded into one number: an answer can name you
+    // without linking, or link without naming, and the fixes differ.
+    citedRate: p.runs.length ? p.runs.filter((r) => r.cited).length / p.runs.length : null,
+    seenRate: p.runs.length ? p.runs.filter((r) => r.mentioned || r.cited).length / p.runs.length : null
   }));
 
   res.json(out);

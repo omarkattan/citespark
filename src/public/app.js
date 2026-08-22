@@ -28,6 +28,13 @@ async function api(path, options = {}) {
 
 /* ---------- signature element ---------- */
 
+/**
+ * A tick means named. A ring means linked as a source but not named.
+ *
+ * These were collapsed into one mark, so being cited first in an AI Overview
+ * without being named in the sentence showed as nothing at all. The link is
+ * usually the more valuable outcome of the two.
+ */
 function runStrip(runs) {
   const byEngine = new Map();
   for (const r of runs) {
@@ -37,7 +44,16 @@ function runStrip(runs) {
   const groups = [...byEngine.entries()]
     .map(([engine, list]) => {
       const ticks = list
-        .map((r) => `<span class="tick ${r.mentioned ? 'hit' : 'miss'}" title="${r.mentioned ? `named at position ${r.ordinal}` : 'not named'}"></span>`)
+        .map((r) => {
+          // Three states, not two: named, linked but not named, neither.
+          const state = r.mentioned ? 'hit' : r.cited ? 'cited' : 'miss';
+          const label = r.mentioned
+            ? `named at position ${r.ordinal}`
+            : r.cited
+              ? 'linked as a source, but not named in the answer'
+              : 'neither named nor linked';
+          return `<span class="tick ${state}" title="${label}"></span>`;
+        })
         .join('');
       return `<div class="runstrip-group"><div class="ticks">${ticks}</div><div class="runstrip-label">${esc(engine)}</div></div>`;
     })
@@ -233,6 +249,28 @@ function evidenceDetails(t) {
   return out.map(([label, rows], i) => detailPanel(`${t.id}-${i}`, label, rows)).join('');
 }
 
+/**
+ * What each kind of action is, in words rather than in our field names.
+ *
+ * "decline alert" is our type identifier, and shown raw it reads as a broken
+ * button: jargon, styled like the controls beside it, doing nothing when
+ * clicked. These say what the action is about instead.
+ */
+const TYPE_LABEL = {
+  decline_alert: 'visibility dropped',
+  source_gap: 'a source that ignores you',
+  content_gap: 'a question you lose',
+  engine_gap: 'strong on one engine, absent on another',
+  competitor_comparison: 'a competitor ahead of you',
+  ordinal_push: 'named late in the answer',
+  citable_asset: 'nothing worth quoting',
+  entity_authority: 'who you are is unclear',
+  fanout_target: 'the search behind the question',
+  replicate_winner: 'something working, worth repeating',
+  sentiment_correction: 'how you are described',
+  named_not_cited: 'named, but the link went elsewhere'
+};
+
 function taskCard(t) {
   const ev = t.evidence || {};
   const bits = [];
@@ -273,7 +311,7 @@ function taskCard(t) {
     ${ev.snippet ? `<div class="excerpt">${highlight(ev.snippet, state.overview?.project?.brand_name)}</div>` : ''}
 
     <div class="rec-foot">
-      <span class="tag">${esc(t.type.replace(/_/g, ' '))}</span>
+      <span class="tag kind">${esc(TYPE_LABEL[t.type] || t.type.replace(/_/g, ' '))}</span>
       ${bits.join('')}
       ${t.target_url ? `<a class="tag" href="${esc(t.target_url)}" target="_blank" rel="noopener">open source</a>` : ''}
       <span style="flex:1"></span>
@@ -683,7 +721,16 @@ async function viewQuestions() {
           ${chips ? `<div class="chips">${chips}</div>` : ''}
           ${p.fanOut?.length ? `<div class="fanout"><span class="fanout-label">searched for</span>${p.fanOut.map((q) => `<span class="chip">${esc(q)}</span>`).join('')}</div>` : ''}
         </div>
-        <div class="rate ${p.measured ? rateClass(p.rate) : 'none'}">${p.measured ? pct(p.rate) : '&mdash;'}</div>
+        <div class="rates">
+          <div class="rate ${p.measured ? rateClass(p.seenRate ?? p.rate) : 'none'}">${p.measured ? pct(p.seenRate ?? p.rate) : '&mdash;'}</div>
+          ${
+            p.measured && (p.citedRate || p.rate)
+              ? `<div class="ratesplit" title="Named means the answer said your name. Cited means it linked to your site as a source.">
+                  named ${pct(p.rate)} &middot; cited ${pct(p.citedRate || 0)}
+                </div>`
+              : ''
+          }
+        </div>
       </div>`;
     })
     .join('');
