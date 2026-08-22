@@ -131,8 +131,51 @@ Identify the buyer types whose questions would produce different answers.`;
  * attributable to the persona rather than to different wording.
  */
 export function asPersona(question, persona) {
-  const d = persona.descriptor.trim().replace(/[.]+$/, '');
+  // A descriptor written as a clause often ends in a comma, and stripping
+  // only full stops left "investments,. How do I..." going to the engines.
+  const d = persona.descriptor.trim().replace(/[.,;:\s]+$/, '');
   return `${d}. ${question}`;
+}
+
+/**
+ * The question underneath a persona's version of it.
+ *
+ * Two personas asking the same thing store two rows with different text, so
+ * the uniqueness constraint never fires and the duplication is invisible
+ * until someone reads the list.
+ */
+export function baseQuestion(text, personas = []) {
+  for (const p of personas) {
+    const d = String(p.descriptor || '').trim().replace(/[.,;:\s]+$/, '');
+    if (d && text.startsWith(d)) return text.slice(d.length).replace(/^[.,;:\s]+/, '');
+  }
+  return text;
+}
+
+/**
+ * Are two personas different enough to be worth measuring separately?
+ *
+ * Suggestion can produce near-synonyms: "Alternative Investment Focused" and
+ * "Asset Class Specialists" ask the same questions and get the same answers,
+ * at twice the cost.
+ */
+export function personaOverlap(a, b) {
+  const words = (s) =>
+    new Set(
+      String(s || '')
+        .toLowerCase()
+        .replace(/[^a-z\s]/g, ' ')
+        .split(/\s+/)
+        .filter((w) => w.length > 3)
+    );
+
+  const wa = words(`${a.name} ${a.descriptor}`);
+  const wb = words(`${b.name} ${b.descriptor}`);
+  if (!wa.size || !wb.size) return 0;
+
+  let shared = 0;
+  for (const w of wa) if (wb.has(w)) shared++;
+  return shared / Math.min(wa.size, wb.size);
 }
 
 export const listPersonas = (projectId) =>

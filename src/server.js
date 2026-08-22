@@ -1326,6 +1326,48 @@ app.post('/api/prompts/:promptId/reask', requireAuth, wrap(async (req, res) => {
   }
 }));
 
+/**
+ * Questions being asked more than once under different buyer types.
+ *
+ * Each persona's version is stored with its descriptor prefixed, so the rows
+ * differ and the uniqueness constraint never fires. The duplication only
+ * shows up when somebody reads the list.
+ */
+app.get('/api/projects/:id/duplicate-questions', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+
+  const { baseQuestion } = await import('./lib/personas.js');
+  const personas = await many('SELECT id, name, descriptor FROM personas WHERE project_id = $1', [project.id]);
+  const prompts = await many(
+    `SELECT p.id, p.text, p.active, pe.name AS persona
+     FROM prompts p LEFT JOIN personas pe ON pe.id = p.persona_id
+     WHERE p.project_id = $1 ORDER BY p.id`,
+    [project.id]
+  );
+
+  const groups = new Map();
+  for (const p of prompts) {
+    const base = baseQuestion(p.text, personas).toLowerCase().trim();
+    if (!groups.has(base)) groups.set(base, []);
+    groups.get(base).push(p);
+  }
+
+  const dupes = [...groups.entries()]
+    .filter(([, rows]) => rows.length > 1)
+    .map(([base, rows]) => ({
+      question: rows[0].text,
+      base,
+      copies: rows.map((r) => ({ id: r.id, persona: r.persona || 'asked plainly', active: r.active }))
+    }))
+    .sort((a, b) => b.copies.length - a.copies.length);
+
+  res.json({
+    duplicates: dupes,
+    wasted: dupes.reduce((n, d) => n + d.copies.length - 1, 0)
+  });
+}));
+
 /* ---------------- page checks ---------------- */
 
 app.get('/api/projects/:id/page-checks', requireAuth, wrap(async (req, res) => {
@@ -1609,12 +1651,32 @@ app.post('/api/projects/:id/personas', requireAuth, wrap(async (req, res) => {
   const chosen = Array.isArray(req.body?.personas) ? req.body.personas : [];
   if (!chosen.length) return res.status(400).json({ error: 'Nothing to save' });
 
+  const { personaOverlap } = await import('./lib/personas.js');
+  const existing = await many('SELECT name, descriptor FROM personas WHERE project_id = $1', [project.id]);
+
   const saved = [];
+  const overlapping = [];
+
   for (const p of chosen.slice(0, 6)) {
     if (!p?.name || !p?.descriptor) continue;
+
+    // Two personas that ask the same questions cost twice and measure once.
+    // Saved anyway, because the customer may know something we do not, but
+    // said out loud rather than discovered later in the question list.
+    const near = [...existing, ...saved].find((e) => personaOverlap(e, p) >= 0.4);
+    if (near) overlapping.push({ name: p.name, like: near.name });
+
     saved.push(await savePersona(project.id, p));
   }
-  res.json({ saved: saved.length, personas: saved });
+
+  res.json({
+    saved: saved.length,
+    personas: saved,
+    overlapping,
+    note: overlapping.length
+      ? `${overlapping.map((o) => `"${o.name}" overlaps heavily with "${o.like}"`).join('; ')}. They will ask similar questions and are likely to get the same answers, at twice the cost. Worth keeping only one unless you know they buy differently.`
+      : null
+  });
 }));
 
 app.patch('/api/personas/:personaId', requireAuth, wrap(async (req, res) => {

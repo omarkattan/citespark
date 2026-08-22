@@ -1741,3 +1741,10 @@ select { appearance: auto; }
 @media (max-width: 620px) {
   .readout { position: static; margin-top: 10px; min-width: 0; box-shadow: none; }
 }
+
+.dupewho {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+}

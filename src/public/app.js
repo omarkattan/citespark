@@ -739,6 +739,9 @@ async function viewQuestions() {
   const personas = [...new Map(prompts.filter((p) => p.persona).map((p) => [p.personaId, p.persona])).entries()];
   const waiting = prompts.filter((p) => !p.measured).length;
 
+  // Two buyer types asking the same thing costs twice and measures once.
+  const dupes = await api(`/api/projects/${state.projectId}/duplicate-questions`).catch(() => null);
+
   /**
    * The list is long and every question is one of several kinds. Sorting and
    * grouping are the difference between a list and something you can work
@@ -826,6 +829,31 @@ async function viewQuestions() {
       <span class="meta" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">filled tick = you were named</span>
     </div>
     ${waiting ? `<p class="hint" style="margin:0 0 12px">${waiting} question${waiting === 1 ? ' has' : 's have'} not been asked yet. Run a cycle to measure ${waiting === 1 ? 'it' : 'them'}.</p>` : ''}
+    ${
+      dupes?.wasted
+        ? `<div class="callout warn" style="margin:0 0 14px">
+            <b>${dupes.wasted} question${dupes.wasted === 1 ? ' is' : 's are'} being asked more than once</b>
+            under different buyer types. Each copy costs an answer check every cycle, and near-identical buyer types
+            usually get near-identical answers.
+            <details class="qlist" style="margin-top:8px">
+              <summary>Show them</summary>
+              <div class="qlist-body">
+                ${dupes.duplicates
+                  .map(
+                    (d) => `<div class="qrow">
+                      <span class="qhits">${d.copies.length}&times;</span>
+                      <span class="qtext">${esc(d.base.slice(0, 90))}<br />
+                        <i class="dupewho">${d.copies.map((c) => esc(c.persona)).join(' &middot; ')}</i>
+                      </span>
+                      <span class="qlink"></span>
+                    </div>`
+                  )
+                  .join('')}
+              </div>
+            </details>
+          </div>`
+        : ''
+    }
     ${filters}
     ${prompts.length > 8 ? searchBox('promptFilter', 'Filter by question, cluster or cited domain', 'promptFilterCount') : ''}
     <div id="promptList">
@@ -2145,8 +2173,9 @@ document.addEventListener('click', async (e) => {
     );
     if (!chosen.length) return;
     e.target.disabled = true;
-    await api(`/api/projects/${state.projectId}/personas`, { method: 'POST', body: { personas: chosen } });
+    const r = await api(`/api/projects/${state.projectId}/personas`, { method: 'POST', body: { personas: chosen } });
     await loadPersonas();
+    if (r?.note) setupErr(r.note);
     return;
   }
 

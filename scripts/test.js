@@ -1408,6 +1408,46 @@ console.log('\nbuyer personas');
 
 const pers = await import('../src/lib/personas.js');
 
+await test('a descriptor ending in a comma does not produce ",."', () => {
+  const persona = {
+    name: 'Alternative Investment Focused',
+    descriptor: 'As an investor prioritizing private equity and alternative assets in the Gulf region,'
+  };
+  const out = pers.asPersona('How do I ensure confidentiality?', persona);
+
+  // Stripping only full stops left "in the Gulf region,. How do I..." going
+  // to the engines, which is what they were actually asked.
+  assert.ok(!out.includes(',.'), 'the join must not leave a comma before the stop');
+  assert.ok(out.includes('Gulf region. How do I'), 'and should read as a sentence');
+});
+
+await test('two buyer types asking the same thing are found', () => {
+  const personas = [
+    { name: 'A', descriptor: 'As an investor prioritizing private equity in the Gulf,' },
+    { name: 'B', descriptor: 'As a specialist in private equity asset classes in the Gulf,' }
+  ];
+  const q = 'How do I ensure confidentiality with wealth advisors?';
+
+  // Each version is stored with its descriptor prefixed, so the rows differ
+  // and the uniqueness constraint never fires. The duplication is invisible
+  // until somebody reads the list.
+  const a = pers.asPersona(q, personas[0]);
+  const b = pers.asPersona(q, personas[1]);
+  assert.notEqual(a, b, 'the stored rows genuinely differ');
+  assert.equal(pers.baseQuestion(a, personas), pers.baseQuestion(b, personas), 'but the question underneath is the same');
+});
+
+await test('near-identical buyer types are called out before they cost anything', () => {
+  const a = { name: 'Alternative Investment Focused', descriptor: 'As an investor prioritizing private equity and alternative assets in the Gulf region,' };
+  const b = { name: 'Asset Class Specialists', descriptor: 'As a specialist in private equity and alternative asset classes in the Gulf,' };
+  const c = { name: 'Price-led buyer', descriptor: 'I run a small business and I am watching every dirham' };
+
+  // Suggestion can produce near-synonyms that ask the same questions and get
+  // the same answers, at twice the cost.
+  assert.ok(pers.personaOverlap(a, b) >= 0.4, 'these two are the same buyer in different words');
+  assert.ok(pers.personaOverlap(a, c) < 0.2, 'and a genuinely different one is not flagged');
+});
+
 await test('a persona prefixes the question rather than rewriting it', () => {
   const persona = { name: 'Price-led SME', descriptor: 'I run a five-person agency and I am watching every dirham.' };
   const q = 'Which SEO agencies are worth considering in the UAE?';
