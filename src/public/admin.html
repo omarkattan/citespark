@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Accounts | Cited</title>
+<meta name="robots" content="noindex, nofollow" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/styles.css" />
+<style>
+  body { background: var(--paper); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 34px 22px 80px; }
+  h1 { font-family: var(--serif); font-weight: 400; font-size: 30px; margin: 0 0 4px; }
+  .dek { color: var(--ink-2); font-size: 14px; margin: 0 0 26px; }
+  .cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 22px; }
+  .card { flex: 1 1 140px; border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; background: var(--panel); }
+  .card .k { font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+  .card .v { font-size: 26px; font-weight: 600; margin-top: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); }
+  td { padding: 11px 10px 11px 0; border-bottom: 1px solid var(--line-2); vertical-align: top; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .em { font-weight: 500; color: var(--ink); }
+  .sub { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+  .pill { display: inline-block; font-family: var(--mono); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; border: 1px solid var(--line); border-radius: 3px; padding: 1px 6px; color: var(--ink-3); }
+  .pill.paid { border-color: var(--you); color: var(--you); }
+  .pill.unverified { border-color: var(--dune, #a8601b); color: var(--dune, #a8601b); }
+  .pill.internal { border-color: var(--ink-3); }
+  .danger { color: var(--alert); border-color: var(--line); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Accounts</h1>
+  <p class="dek">Everyone who has signed up, and what it has cost.</p>
+  <div id="body"><p class="hint">Loading</p></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+const day = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }) : '');
+
+async function load() {
+  const res = await fetch('/api/admin/accounts');
+  if (res.status === 404) {
+    $('body').innerHTML = '<p class="hint">Not available on this account.</p>';
+    return;
+  }
+  if (!res.ok) { $('body').innerHTML = '<p class="error">Could not load.</p>'; return; }
+
+  const d = await res.json();
+  const s = d.summary;
+
+  $('body').innerHTML = `
+    <div class="cards">
+      <div class="card"><div class="k">Accounts</div><div class="v">${s.total}</div></div>
+      <div class="card"><div class="k">Confirmed</div><div class="v">${s.verified}</div></div>
+      <div class="card"><div class="k">Have run a cycle</div><div class="v">${s.active}</div></div>
+      <div class="card"><div class="k">Paying</div><div class="v">${s.paying}</div></div>
+      <div class="card"><div class="k">Our spend this month</div><div class="v">$${s.spend.toFixed(2)}</div></div>
+    </div>
+
+    <table>
+      <thead><tr>
+        <th>Account</th><th>Plan</th>
+        <th class="num">Sites</th><th class="num">Questions</th><th class="num">Runs</th>
+        <th class="num">Checks</th><th class="num">Cost</th><th class="num">Last run</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${d.accounts.map(row).join('')}
+      </tbody>
+    </table>`;
+}
+
+function row(a) {
+  const paid = a.plan && a.plan !== 'free' && a.sub_status === 'active';
+  return `<tr data-org="${a.org_id}">
+    <td>
+      <span class="em">${esc(a.email)}</span>
+      ${a.email_verified_at ? '' : ' <span class="pill unverified">unconfirmed</span>'}
+      ${a.internal ? ' <span class="pill internal">internal</span>' : ''}
+      <div class="sub">${esc(a.org)} &middot; joined ${day(a.created_at)}</div>
+    </td>
+    <td>${paid ? `<span class="pill paid">${esc(a.plan)}</span>` : `<span class="pill">${esc(a.plan || 'free')}</span>`}</td>
+    <td class="num">${a.sites}</td>
+    <td class="num">${a.questions}</td>
+    <td class="num">${a.runs}</td>
+    <td class="num">${a.calls_this_month}</td>
+    <td class="num">$${Number(a.spend_this_month || 0).toFixed(2)}</td>
+    <td class="num">${day(a.last_run) || '&mdash;'}</td>
+    <td class="num">${a.internal ? '' : `<button class="ghost danger" data-remove="${a.org_id}" data-email="${esc(a.email)}">Remove</button>`}</td>
+  </tr>`;
+}
+
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-remove]');
+  if (!btn) return;
+
+  // Names what goes, because this cascades through every table.
+  if (!confirm(`Remove ${btn.dataset.email} and every site, question and answer under it? This cannot be undone.`)) return;
+
+  btn.disabled = true;
+  let res = await fetch(`/api/admin/accounts/${btn.dataset.remove}`, { method: 'DELETE' });
+  let d = await res.json();
+
+  if (res.status === 409 && d.needsForce) {
+    if (!confirm(`${d.error}\n\nRemove anyway?`)) { btn.disabled = false; return; }
+    res = await fetch(`/api/admin/accounts/${btn.dataset.remove}?force=1`, { method: 'DELETE' });
+    d = await res.json();
+  }
+
+  if (!res.ok) { alert(d.error || 'Could not remove that account.'); btn.disabled = false; return; }
+  await load();
+});
+
+load();
+</script>
+</body>
+</html>

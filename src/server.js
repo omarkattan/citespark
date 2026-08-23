@@ -104,6 +104,20 @@ function requireAuth(req, res, next) {
   next();
 }
 
+/**
+ * Admin access is the internal flag, not an email address.
+ *
+ * Matching on a string means anyone who changes their address to it gets in,
+ * and it scatters a hardcoded identity through the codebase. The flag is
+ * already how we lift billing ceilings, so it is the same idea of trust.
+ */
+async function requireAdmin(req, res, next) {
+  if (!req.session?.userId) return res.status(401).json({ error: 'Sign in to continue' });
+  const row = await one('SELECT internal FROM orgs WHERE id = $1', [req.session.orgId]).catch(() => null);
+  if (!row?.internal) return res.status(404).end();
+  next();
+}
+
 async function assertProject(req, res) {
   const project = await one('SELECT * FROM projects WHERE id = $1 AND org_id = $2', [
     Number(req.params.id),
@@ -2109,6 +2123,82 @@ app.get('/api/assigned', requireAuth, wrap(async (req, res) => {
 /** A fresh link for an assignee, to paste or resend. */
 app.get('/api/assigned/:email/link', requireAuth, wrap(async (req, res) => {
   res.json({ url: tasksLinkFor(req.params.email, req.session.orgId, req) });
+}));
+
+/* ---------------- admin ---------------- */
+
+app.get('/admin', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.sendFile(path.join(publicDir, 'admin.html'));
+});
+
+/** Everyone who has signed up, with what they have done since. */
+app.get('/api/admin/accounts', requireAdmin, wrap(async (_req, res) => {
+  const month = new Date().toISOString().slice(0, 7) + '-01';
+
+  const rows = await many(
+    `SELECT o.id AS org_id, o.name AS org, o.internal,
+            u.id AS user_id, u.email, u.created_at, u.email_verified_at,
+            s.plan, s.status AS sub_status, s.current_period_end,
+            (SELECT COUNT(*)::int FROM projects p WHERE p.org_id = o.id) AS sites,
+            (SELECT COUNT(*)::int FROM prompts pr JOIN projects p ON p.id = pr.project_id WHERE p.org_id = o.id) AS questions,
+            (SELECT COUNT(*)::int FROM runs r JOIN projects p ON p.id = r.project_id WHERE p.org_id = o.id) AS runs,
+            (SELECT MAX(r.created_at) FROM runs r JOIN projects p ON p.id = r.project_id WHERE p.org_id = o.id) AS last_run,
+            COALESCE(um.calls, 0) AS calls_this_month,
+            COALESCE(um.spend_usd, 0) AS spend_this_month
+     FROM orgs o
+     JOIN users u ON u.org_id = o.id
+     LEFT JOIN subscriptions s ON s.org_id = o.id
+     LEFT JOIN usage_monthly um ON um.org_id = o.id AND um.month = $1
+     ORDER BY u.created_at DESC`,
+    [month]
+  );
+
+  const paying = rows.filter((r) => r.plan && r.plan !== 'free' && r.sub_status === 'active');
+
+  res.json({
+    accounts: rows,
+    summary: {
+      total: rows.length,
+      verified: rows.filter((r) => r.email_verified_at).length,
+      paying: paying.length,
+      active: rows.filter((r) => r.runs > 0).length,
+      // What this month has cost us at the provider, which is the number that
+      // decides whether the free tier is affordable.
+      spend: Math.round(rows.reduce((n, r) => n + Number(r.spend_this_month || 0), 0) * 100) / 100
+    }
+  });
+}));
+
+/**
+ * Remove an account and everything under it.
+ *
+ * Irreversible and cascading, so it names what will go and refuses the two
+ * cases that are almost always a mistake: your own account, and a paying one.
+ */
+app.delete('/api/admin/accounts/:orgId', requireAdmin, wrap(async (req, res) => {
+  const orgId = Number(req.params.orgId);
+  if (orgId === req.session.orgId) {
+    return res.status(400).json({ error: 'That is the account you are signed in with.' });
+  }
+
+  const sub = await one("SELECT plan, status FROM subscriptions WHERE org_id = $1", [orgId]);
+  if (sub && sub.plan !== 'free' && sub.status === 'active' && req.query.force !== '1') {
+    return res.status(409).json({
+      error: `That account is on the ${sub.plan} plan and still active. Cancel the subscription in Stripe first, or repeat with force if you are certain.`,
+      needsForce: true
+    });
+  }
+
+  const counts = await one(
+    `SELECT (SELECT COUNT(*)::int FROM projects WHERE org_id = $1) AS sites,
+            (SELECT COUNT(*)::int FROM runs r JOIN projects p ON p.id = r.project_id WHERE p.org_id = $1) AS runs`,
+    [orgId]
+  );
+
+  // Projects cascade to prompts, runs, mentions and citations by foreign key.
+  await query('DELETE FROM orgs WHERE id = $1', [orgId]);
+  res.json({ ok: true, removed: counts });
 }));
 
 /* ---------------- feedback ---------------- */

@@ -3441,6 +3441,39 @@ await test('the report is readable without the app', async () => {
   assert.ok(!/<script/.test(html), 'and need no javascript');
 });
 
+console.log('\nadmin');
+
+await test('admin is a flag, and invisible to everyone else', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const guard = server.slice(server.indexOf('async function requireAdmin'), server.indexOf('async function assertProject'));
+
+  // Matching on an email address means anyone who changes theirs to it gets
+  // in, and scatters a hardcoded identity through the codebase.
+  assert.ok(/internal FROM orgs/.test(guard), 'trust comes from the flag');
+  assert.ok(!/omar@|sandstormdigital/.test(guard), 'no hardcoded identity');
+
+  // 404 rather than 403: a page that denies you tells you it exists.
+  assert.ok(/status\(404\)/.test(guard), 'it should not announce itself');
+
+  for (const route of ['/api/admin/accounts', "app.delete('/api/admin/accounts/:orgId'"]) {
+    const at = server.indexOf(route);
+    assert.ok(at > -1 && server.slice(at, at + 120).includes('requireAdmin'), `${route} must be guarded`);
+  }
+});
+
+await test('deleting an account refuses the two obvious mistakes', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const route = server.slice(server.indexOf("app.delete('/api/admin/accounts/:orgId'"), server.indexOf('/* ---------------- feedback'));
+
+  // It cascades through every table, so the two cases that are almost always
+  // a mistake are refused rather than confirmed away.
+  assert.ok(/orgId === req\.session\.orgId/.test(route), 'you cannot delete yourself');
+  assert.ok(/needsForce/.test(route), 'and a paying account needs a second look');
+  assert.ok(/Cancel the subscription in Stripe first/.test(route), 'with the real consequence named');
+});
+
 console.log('\nsignup and passwords');
 
 await test('a reset token is stored hashed, and works once', async () => {
