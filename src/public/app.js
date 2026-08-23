@@ -1277,6 +1277,13 @@ async function boot() {
   const me = await api('/api/me');
   if (!me?.signedIn) { window.location.href = '/login'; return; }
   if (me.mock) $('mockNotice').hidden = false;
+
+  // Both come from the /api/me already fetched above, so no second call.
+  // The link is shown only where it works; the route enforces access itself.
+  const adminLink = $('adminLink');
+  if (adminLink) adminLink.hidden = !me.admin;
+  showVerifyBar(me);
+
   await loadProjectList();
   await refreshUsagePill();
 
@@ -3599,8 +3606,7 @@ document.addEventListener('click', async (e) => {
  * The block happens when a cycle is run, which is the right place, but
  * discovering it only at that moment is a poor first experience.
  */
-async function checkVerification() {
-  const me = await api('/api/me');
+function showVerifyBar(me) {
   const bar = document.getElementById('verifyBar');
   if (!bar) return;
 

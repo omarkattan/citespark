@@ -287,10 +287,15 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/me', wrap(async (req, res) => {
   if (!req.session?.userId) return res.json({ signedIn: false, mock: MOCK });
   const user = await one('SELECT email, email_verified_at, created_at FROM users WHERE id = $1', [req.session.userId]);
+  const org = await one('SELECT internal FROM orgs WHERE id = $1', [req.session.orgId]).catch(() => null);
+
   res.json({
     signedIn: true,
     mock: MOCK,
     email: user?.email || null,
+    // Drives whether the admin link is shown at all. The route enforces this
+    // independently; this only decides what is offered.
+    admin: Boolean(org?.internal),
     // Accounts predating verification are treated as confirmed rather than
     // being nagged about a step that did not exist when they signed up.
     emailVerified: Boolean(user?.email_verified_at) || (user && new Date(user.created_at) < new Date('2026-08-21'))

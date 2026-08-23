@@ -18,7 +18,12 @@
   --sand-2: #b9b2a2;     /* secondary type */
   --dune: #c9a96b;       /* agency accent, footer and marks */
   --mute: #7b8a80;
+  /* Light enough to read against the dark background, which means white text
+     on top of it only reaches 3:1. Anything using it as a fill must put dark
+     ink on top, never white. --alert-ink exists so that is not a judgement
+     call each time. */
   --alert: #e4735f;
+  --alert-ink: #2a0f0a;
 
   --serif: 'Instrument Serif', Georgia, serif;
   --body: 'IBM Plex Sans', system-ui, sans-serif;
@@ -770,4 +775,18 @@ footer { border-top: 1px solid var(--line); padding: 52px 0 40px; background: va
   letter-spacing: 0;
   margin-left: 1px;
   opacity: .75;
+}
+
+/*
+ * Anything filled with the alert colour takes dark ink.
+ *
+ * The landing red is light so that it reads against the dark background,
+ * which means white on top of it measures about 3:1. Stated once here rather
+ * than being remembered at each use.
+ */
+.demo-verdict.bad,
+.pd-row.down .pd-bar,
+[style*="background: var(--alert)"],
+[style*="background:var(--alert)"] {
+  color: var(--alert-ink);
 }

@@ -27,7 +27,18 @@
   .pill.paid { border-color: var(--you); color: var(--you); }
   .pill.unverified { border-color: var(--dune, #a8601b); color: var(--dune, #a8601b); }
   .pill.internal { border-color: var(--ink-3); }
-  .danger { color: var(--alert); border-color: var(--line); }
+  /*
+   * Red text on a red fill is the pairing that keeps reappearing. Stated
+   * together here so the hover state cannot be changed without seeing what
+   * it does to the text sitting on it.
+   */
+  .danger { color: var(--alert); border-color: var(--line); background: transparent; }
+  .danger:hover,
+  .danger:hover * {
+    background: var(--alert);
+    border-color: var(--alert);
+    color: #fff;
+  }
 </style>
 </head>
 <body>

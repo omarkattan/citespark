@@ -10,7 +10,11 @@
      --deep-ink for exact Sandstorm brand values and everything follows. */
   --ink: #0b1a12;
   --ink-2: #3f5449;
-  --ink-3: #75887c;
+  /* #75887c measured 3.3:1 against the paper background, below the 4.5:1
+     needed to be read comfortably. This clears 4.5:1 on every background it
+     is used against, including the tinted panels where a lighter shade of
+     the same hue still fell short. */
+  --ink-3: #56695e;
   --paper: #eef1eb;
   --panel: #ffffff;
   --line: #cfd8d0;
@@ -1762,3 +1766,39 @@ select { appearance: auto; }
   flex-wrap: wrap;
 }
 .verifybar[hidden] { display: none; }
+
+/*
+ * Red on red is never allowed to happen by accident.
+ *
+ * Any element filled with the alert colour gets light text, and any red text
+ * sitting inside such an element is overridden. This is the pairing that kept
+ * appearing: a red tag or bar with red text on top of it.
+ */
+.danger:hover,
+.danger:hover *,
+.usage-fill.over,
+.bar.hot,
+[style*="background: var(--alert)"],
+[style*="background:var(--alert)"] {
+  color: var(--paper);
+}
+
+/*
+ * The variant rule set the text red and won on specificity, so a filled red
+ * button ended up red on red. The fill and the text it carries are declared
+ * together here, after every other danger rule, so they cannot drift apart.
+ */
+.ghost.danger:hover,
+.ghost.danger:hover *,
+button.danger:hover,
+button.danger:hover * {
+  background: var(--alert);
+  border-color: var(--alert);
+  color: var(--paper);
+}
+.tag.overdue,
+.tag.bad,
+.tag.warn {
+  /* Border and text, never a red fill behind red text. */
+  background: transparent;
+}

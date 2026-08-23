@@ -3441,7 +3441,44 @@ await test('the report is readable without the app', async () => {
   assert.ok(!/<script/.test(html), 'and need no javascript');
 });
 
-console.log('\nadmin');
+console.log('\ncontrast');
+
+await test('no text is unreadable against what sits behind it', async () => {
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('../src/public/styles.css', import.meta.url), 'utf8');
+
+  const hx = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const lum = (c) => {
+    const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
+  };
+  const ratio = (a, b) => {
+    const [la, lb] = [lum(a), lum(b)];
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  };
+
+  const varOf = (name) => {
+    const m = css.match(new RegExp(`--${name}:\\s*(#[0-9a-f]{6})`, 'i'));
+    assert.ok(m, `--${name} should be defined`);
+    return hx(m[1]);
+  };
+
+  // The muted grey measured 3.3:1 against the paper background, which is
+  // below the 4.5:1 needed to read comfortably at small sizes.
+  for (const bg of ['paper', 'panel']) {
+    const r = ratio(varOf('ink-3'), varOf(bg));
+    assert.ok(r >= 4.5, `muted text on ${bg} is ${r.toFixed(2)}:1, below 4.5`);
+  }
+
+  // Red text on a red fill is the pairing that kept appearing.
+  const alert = varOf('alert');
+  assert.ok(ratio([255, 255, 255], alert) >= 4.5, 'white must be readable on the alert colour');
+
+  const block = css.slice(css.indexOf('Red on red is never allowed'));
+  const tagRule = block.slice(block.indexOf('.tag.overdue'));
+  assert.ok(/background: transparent/.test(tagRule.slice(0, 200)), 'red tags carry no red fill');
+  assert.ok(/color: var\(--paper\)/.test(block), 'and anything filled red takes light text');
+});
 
 await test('admin is a flag, and invisible to everyone else', async () => {
   const { readFileSync } = await import('node:fs');
@@ -3460,6 +3497,37 @@ await test('admin is a flag, and invisible to everyone else', async () => {
     const at = server.indexOf(route);
     assert.ok(at > -1 && server.slice(at, at + 120).includes('requireAdmin'), `${route} must be guarded`);
   }
+});
+
+await test('red text never sits on a red fill', async () => {
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('../src/public/styles.css', import.meta.url), 'utf8');
+  const admin = readFileSync(new URL('../src/public/admin.html', import.meta.url), 'utf8');
+
+  // A variant rule set the text red and won on specificity, so a filled red
+  // button rendered red on red. The fill and the text it carries have to be
+  // declared together or they drift apart again.
+  const pairing = css.slice(css.indexOf('.ghost.danger:hover,'));
+  assert.ok(/background: var\(--alert\)/.test(pairing) && /color: var\(--paper\)/.test(pairing),
+    'the filled state must state its own text colour');
+
+  // The admin page carries its own styles and does not inherit the guard.
+  const local = admin.slice(admin.indexOf('.danger {'), admin.indexOf('</style>'));
+  assert.ok(/\.danger:hover/.test(local), 'the admin page needs the pairing too');
+  assert.ok(/color: #fff/.test(local));
+});
+
+await test('the admin link is only offered where it works', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+
+  assert.ok(/adminLink.*hidden = !me\.admin/s.test(app), 'hidden unless the account is internal');
+
+  // The link is a convenience; the route is the control. Showing or hiding a
+  // link is not access control.
+  const guard = server.slice(server.indexOf('async function requireAdmin'), server.indexOf('async function assertProject'));
+  assert.ok(/internal FROM orgs/.test(guard), 'the route checks independently');
 });
 
 await test('deleting an account refuses the two obvious mistakes', async () => {
