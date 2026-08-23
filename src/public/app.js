@@ -1211,7 +1211,11 @@ async function loadProject(id) {
   const cap = window.innerWidth < 760 ? 12 : 18;
   const short = p.name.length > cap ? p.name.slice(0, cap - 1) + '\u2026' : p.name;
   $('runBtn').innerHTML = `Run ${esc(short)} <span class="caret">&#9662;</span>`;
-  $('runBtn').title = `Choose what to run for ${esc(p.name)}`;
+  $('runBtn').title =
+    state.emailVerified === false
+      ? 'Confirm your email address before running a cycle'
+      : `Choose what to run for ${esc(p.name)}`;
+  if (state.emailVerified === false) $('runBtn').classList.add('needs-verify');
   refreshRunScope();
   await renderFigures();
   await render();
@@ -1283,6 +1287,15 @@ async function boot() {
   const adminLink = $('adminLink');
   if (adminLink) adminLink.hidden = !me.admin;
   showVerifyBar(me);
+
+  /**
+   * Say it on the control, not only in a banner.
+   *
+   * Someone can miss a bar at the top of the page, do the whole setup, click
+   * Run and only then learn they cannot. Disabling the button says it before
+   * the work rather than after.
+   */
+  state.emailVerified = me.emailVerified !== false;
 
   await loadProjectList();
   await refreshUsagePill();
@@ -1593,6 +1606,24 @@ $('runBtn').addEventListener('click', (e) => {
   // document handler that closes the menu, and the control appears dead.
   e.stopPropagation();
   e.preventDefault();
+
+  /**
+   * Point at the reason before opening a menu that cannot be used.
+   *
+   * The block is enforced server side, but discovering it only after
+   * choosing what to run means learning about it at the worst moment.
+   */
+  if (state.emailVerified === false) {
+    const bar = $('verifyBar');
+    if (bar) {
+      bar.hidden = false;
+      bar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      bar.classList.add('nudge');
+      setTimeout(() => bar.classList.remove('nudge'), 1200);
+    }
+    return;
+  }
+
   // Opens the menu. Nothing spends money until an item is chosen.
   const open = !$('runMenu').hidden;
   $('runMenu').hidden = open;

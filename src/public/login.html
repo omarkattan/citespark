@@ -19,7 +19,7 @@
       </svg><span class="wordmark-text">Cit<em>ed</em></span><span class="beta" title="Cited is in beta. Things will change, and your feedback shapes what changes.">beta</span></a>
     <p class="eyebrow">Answer engine visibility</p>
 
-    <div class="panel">
+    <div class="panel" id="panel">
       <h2 id="formTitle">Sign in</h2>
       <p class="dek" style="margin:8px 0 20px;font-size:14px">Track what ChatGPT, Gemini and Perplexity say about your brand, and what to do about it.</p>
 
@@ -40,6 +40,7 @@
       <p class="error" id="error" role="alert"></p>
       <p class="switch">
         <a href="#" id="toggle">Create an account instead</a>
+        <a href="#" id="forgot">Forgotten your password?</a>
       </p>
     </div>
   </div>
@@ -60,6 +61,35 @@
     $('error').textContent = '';
   });
 
+  const escapeHtml = (t) =>
+    String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+  document.addEventListener('click', async (e) => {
+    if (e.target.id === 'resend') {
+      e.target.disabled = true;
+      await fetch('/api/verify/resend', { method: 'POST' });
+      document.getElementById('resendMsg').textContent = 'Sent again. Check spam if it does not arrive.';
+      return;
+    }
+
+    if (e.target.id === 'forgot') {
+      e.preventDefault();
+      const email = $('email').value.trim();
+      if (!email) {
+        $('error').textContent = 'Enter your email above first, then click this again.';
+        return;
+      }
+      await fetch('/api/password/forgot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      // Same message whether or not the address exists.
+      $('error').className = 'note';
+      $('error').textContent = `If ${email} has an account, a reset link is on its way. It works for one hour.`;
+    }
+  });
+
   async function submit() {
     $('error').textContent = '';
     $('submit').disabled = true;
@@ -75,6 +105,30 @@
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Something went wrong');
+
+      /**
+       * Say the email is coming, at the moment it is sent.
+       *
+       * Dropping someone straight into the app meant the first they heard of
+       * verification was an error when they clicked Run, after they had done
+       * all the setup work.
+       */
+      if (json.verificationSent) {
+        document.getElementById('panel').innerHTML = `
+          <h2>Check your email</h2>
+          <p class="sent-to">We sent a confirmation link to <b>${escapeHtml($('email').value.trim())}</b>.</p>
+          <p class="sent-note">
+            You can look around and set your first site up now. Confirming the address is what unlocks
+            running a cycle, so it is worth doing before you get that far. The link works for two days.
+          </p>
+          <div class="sent-actions">
+            <a class="btn" href="/app">Start setting up</a>
+            <button class="ghost" id="resend">Send it again</button>
+          </div>
+          <p class="sent-hint" id="resendMsg">Not arrived in a minute or two? Check spam.</p>`;
+        return;
+      }
+
       window.location.href = '/app';
     } catch (err) {
       $('error').textContent = err.message;

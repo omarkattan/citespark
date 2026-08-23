@@ -3544,6 +3544,37 @@ await test('deleting an account refuses the two obvious mistakes', async () => {
 
 console.log('\nsignup and passwords');
 
+await test('signing up says an email is coming', async () => {
+  const { readFileSync } = await import('node:fs');
+  const login = readFileSync(new URL('../src/public/login.html', import.meta.url), 'utf8');
+
+  // Dropping someone straight into the app meant the first they heard of
+  // verification was an error when they clicked Run, after all the setup.
+  assert.ok(/verificationSent/.test(login), 'the signup response must be acted on');
+  assert.ok(/Check your email/.test(login), 'and the screen must say so');
+  assert.ok(/works for two days/.test(login), 'with how long they have');
+  // Collapsed first, since the copy wraps across lines in the markup.
+  const flat = login.replace(/\s+/g, ' ');
+  assert.ok(/unlocks running a cycle/.test(flat), 'and what it unlocks');
+
+  // A resend has to be reachable from here, not only from inside the app.
+  assert.ok(/id="resend"/.test(login));
+  // And a forgotten password needs a way out from the sign-in screen.
+  assert.ok(/id="forgot"/.test(login), 'reset must be reachable where people notice they need it');
+});
+
+await test('an unverified account is stopped before the work, not after', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // The server enforces this regardless. The point here is when someone
+  // finds out: on the control, rather than after choosing what to run.
+  const handler = app.slice(app.indexOf("$('runBtn').addEventListener"), app.indexOf("$('runFullBtn')"));
+  assert.ok(/state\.emailVerified === false/.test(handler), 'the run control must check first');
+  assert.ok(handler.indexOf('emailVerified') < handler.indexOf("$('runMenu').hidden = open"), 'before opening the menu');
+  assert.ok(/needs-verify/.test(app), 'and the button should look unavailable');
+});
+
 await test('a reset token is stored hashed, and works once', async () => {
   const { readFileSync } = await import('node:fs');
   const lib = readFileSync(new URL('../src/lib/auth-email.js', import.meta.url), 'utf8');

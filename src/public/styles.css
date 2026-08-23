@@ -1802,3 +1802,12 @@ button.danger:hover * {
   /* Border and text, never a red fill behind red text. */
   background: transparent;
 }
+
+/* an address still to be confirmed */
+.verifybar.nudge { animation: nudge .5s ease; }
+@keyframes nudge {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+#runBtn.needs-verify { opacity: .6; }

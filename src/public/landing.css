@@ -790,3 +790,12 @@ footer { border-top: 1px solid var(--line); padding: 52px 0 40px; background: va
 [style*="background:var(--alert)"] {
   color: var(--alert-ink);
 }
+
+/* after signing up */
+.sent-to { font-size: 15px; color: var(--sand); margin: 10px 0 14px; }
+.sent-note { font-size: 13.5px; line-height: 1.6; color: var(--sand-2); margin: 0 0 20px; }
+.sent-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.sent-actions .btn { flex: 1 1 auto; text-align: center; }
+.sent-hint { font-size: 12.5px; color: var(--mute); margin: 14px 0 0; }
+.switch { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.note { color: var(--sand-2); font-size: 13.5px; }
