@@ -3530,6 +3530,22 @@ await test('the admin link is only offered where it works', async () => {
   assert.ok(/internal FROM orgs/.test(guard), 'the route checks independently');
 });
 
+await test('an account is counted once, however many people are on it', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const route = server.slice(server.indexOf("app.get('/api/admin/accounts'"), server.indexOf('Remove an account and everything'));
+
+  // Joining users to orgs multiplied every org-level figure by the number of
+  // people on it, so a two-person account showed its spend twice and the
+  // total was double the real one.
+  assert.ok(!/JOIN users u ON u\.org_id = o\.id/.test(route), 'the row must not fan out across people');
+  assert.ok(/json_agg/.test(route), 'people belong inside the account, not beside it');
+  assert.ok(/FROM orgs o\n     LEFT JOIN subscriptions/.test(route), 'one row per org');
+
+  // The figure that was wrong.
+  assert.ok(/accounts\.reduce\(\(n, a\) => n \+ Number\(a\.spend_this_month/.test(route), 'spend is summed once per account');
+});
+
 await test('deleting an account refuses the two obvious mistakes', async () => {
   const { readFileSync } = await import('node:fs');
   const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');

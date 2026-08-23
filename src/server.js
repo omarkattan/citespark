@@ -2141,36 +2141,49 @@ app.get('/admin', (_req, res) => {
 app.get('/api/admin/accounts', requireAdmin, wrap(async (_req, res) => {
   const month = new Date().toISOString().slice(0, 7) + '-01';
 
+  /**
+   * One row per account, not per person.
+   *
+   * Joining users to orgs multiplied every org-level figure by the number of
+   * people on it, so a two-person account showed its sites, runs and spend
+   * twice and the total was double the real one. Sites, runs and money belong
+   * to the org; only the people are per user.
+   */
   const rows = await many(
     `SELECT o.id AS org_id, o.name AS org, o.internal,
-            u.id AS user_id, u.email, u.created_at, u.email_verified_at,
-            s.plan, s.status AS sub_status, s.current_period_end,
+            s.plan, s.status AS sub_status,
             (SELECT COUNT(*)::int FROM projects p WHERE p.org_id = o.id) AS sites,
             (SELECT COUNT(*)::int FROM prompts pr JOIN projects p ON p.id = pr.project_id WHERE p.org_id = o.id) AS questions,
             (SELECT COUNT(*)::int FROM runs r JOIN projects p ON p.id = r.project_id WHERE p.org_id = o.id) AS runs,
             (SELECT MAX(r.created_at) FROM runs r JOIN projects p ON p.id = r.project_id WHERE p.org_id = o.id) AS last_run,
             COALESCE(um.calls, 0) AS calls_this_month,
-            COALESCE(um.spend_usd, 0) AS spend_this_month
+            COALESCE(um.spend_usd, 0) AS spend_this_month,
+            (SELECT MIN(u.created_at) FROM users u WHERE u.org_id = o.id) AS joined,
+            (SELECT json_agg(json_build_object(
+                'email', u.email,
+                'verified', u.email_verified_at IS NOT NULL,
+                'joined', u.created_at
+              ) ORDER BY u.created_at)
+             FROM users u WHERE u.org_id = o.id) AS people
      FROM orgs o
-     JOIN users u ON u.org_id = o.id
      LEFT JOIN subscriptions s ON s.org_id = o.id
      LEFT JOIN usage_monthly um ON um.org_id = o.id AND um.month = $1
-     ORDER BY u.created_at DESC`,
+     ORDER BY (SELECT MIN(u.created_at) FROM users u WHERE u.org_id = o.id) DESC NULLS LAST`,
     [month]
   );
 
-  const paying = rows.filter((r) => r.plan && r.plan !== 'free' && r.sub_status === 'active');
+  const accounts = rows.map((r) => ({ ...r, people: r.people || [] }));
 
   res.json({
-    accounts: rows,
+    accounts,
     summary: {
-      total: rows.length,
-      verified: rows.filter((r) => r.email_verified_at).length,
-      paying: paying.length,
-      active: rows.filter((r) => r.runs > 0).length,
-      // What this month has cost us at the provider, which is the number that
-      // decides whether the free tier is affordable.
-      spend: Math.round(rows.reduce((n, r) => n + Number(r.spend_this_month || 0), 0) * 100) / 100
+      total: accounts.length,
+      people: accounts.reduce((n, a) => n + a.people.length, 0),
+      verified: accounts.filter((a) => a.people.some((p) => p.verified)).length,
+      paying: accounts.filter((a) => a.plan && a.plan !== 'free' && a.sub_status === 'active').length,
+      active: accounts.filter((a) => a.runs > 0).length,
+      // Summed once per account, which is where the double came from.
+      spend: Math.round(accounts.reduce((n, a) => n + Number(a.spend_this_month || 0), 0) * 100) / 100
     }
   });
 }));

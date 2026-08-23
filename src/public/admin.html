@@ -22,7 +22,10 @@
   td { padding: 11px 10px 11px 0; border-bottom: 1px solid var(--line-2); vertical-align: top; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .em { font-weight: 500; color: var(--ink); }
-  .sub { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+  .sub { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); margin-top: 4px; }
+  .ksub { font-family: var(--mono); font-size: 10px; color: var(--ink-3); margin-top: 4px; }
+  .people { margin-top: 5px; }
+  .person { font-size: 12.5px; color: var(--ink-2); line-height: 1.7; }
   .pill { display: inline-block; font-family: var(--mono); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; border: 1px solid var(--line); border-radius: 3px; padding: 1px 6px; color: var(--ink-3); }
   .pill.paid { border-color: var(--you); color: var(--you); }
   .pill.unverified { border-color: var(--dune, #a8601b); color: var(--dune, #a8601b); }
@@ -66,7 +69,7 @@ async function load() {
 
   $('body').innerHTML = `
     <div class="cards">
-      <div class="card"><div class="k">Accounts</div><div class="v">${s.total}</div></div>
+      <div class="card"><div class="k">Accounts</div><div class="v">${s.total}</div><div class="ksub">${s.people} people</div></div>
       <div class="card"><div class="k">Confirmed</div><div class="v">${s.verified}</div></div>
       <div class="card"><div class="k">Have run a cycle</div><div class="v">${s.active}</div></div>
       <div class="card"><div class="k">Paying</div><div class="v">${s.paying}</div></div>
@@ -87,12 +90,22 @@ async function load() {
 
 function row(a) {
   const paid = a.plan && a.plan !== 'free' && a.sub_status === 'active';
+
+  // Everyone on the account, listed under it. They used to be separate rows,
+  // which multiplied every figure the account owns.
+  const people = (a.people || [])
+    .map(
+      (p) =>
+        `<div class="person">${esc(p.email)}${p.verified ? '' : ' <span class="pill unverified">unconfirmed</span>'}</div>`
+    )
+    .join('');
+
   return `<tr data-org="${a.org_id}">
     <td>
-      <span class="em">${esc(a.email)}</span>
-      ${a.email_verified_at ? '' : ' <span class="pill unverified">unconfirmed</span>'}
+      <span class="em">${esc(a.org)}</span>
       ${a.internal ? ' <span class="pill internal">internal</span>' : ''}
-      <div class="sub">${esc(a.org)} &middot; joined ${day(a.created_at)}</div>
+      <div class="people">${people}</div>
+      <div class="sub">joined ${day(a.joined)}</div>
     </td>
     <td>${paid ? `<span class="pill paid">${esc(a.plan)}</span>` : `<span class="pill">${esc(a.plan || 'free')}</span>`}</td>
     <td class="num">${a.sites}</td>
@@ -101,7 +114,7 @@ function row(a) {
     <td class="num">${a.calls_this_month}</td>
     <td class="num">$${Number(a.spend_this_month || 0).toFixed(2)}</td>
     <td class="num">${day(a.last_run) || '&mdash;'}</td>
-    <td class="num">${a.internal ? '' : `<button class="ghost danger" data-remove="${a.org_id}" data-email="${esc(a.email)}">Remove</button>`}</td>
+    <td class="num">${a.internal ? '' : `<button class="ghost danger" data-remove="${a.org_id}" data-email="${esc(a.org)}">Remove</button>`}</td>
   </tr>`;
 }
 
@@ -110,7 +123,7 @@ document.addEventListener('click', async (e) => {
   if (!btn) return;
 
   // Names what goes, because this cascades through every table.
-  if (!confirm(`Remove ${btn.dataset.email} and every site, question and answer under it? This cannot be undone.`)) return;
+  if (!confirm(`Remove ${btn.dataset.email}, everyone on it, and every site, question and answer under it? This cannot be undone.`)) return;
 
   btn.disabled = true;
   let res = await fetch(`/api/admin/accounts/${btn.dataset.remove}`, { method: 'DELETE' });
