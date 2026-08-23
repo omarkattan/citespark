@@ -23,8 +23,114 @@ async function api(path, options = {}) {
   }
   const res = await fetch(path, opts);
   if (res.status === 401) { window.location.href = '/login'; return null; }
+
   return res.json();
 }
+
+/**
+ * Catch a refusal wherever it happens.
+ *
+ * Thirty-three calls in this file use fetch directly rather than the helper
+ * above, so handling this in the helper would have covered some paths and
+ * missed others silently. Wrapping fetch itself means a limit hit from
+ * anywhere, including code written later, shows a way forward.
+ */
+const rawFetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const res = await rawFetch(...args);
+
+  if (res.status === 402) {
+    // The body is read from a clone so the caller still gets an unread one.
+    res
+      .clone()
+      .json()
+      .then((body) => {
+        if (body?.upgrade) showUpgrade(body.error);
+      })
+      .catch(() => {});
+  }
+
+  return res;
+};
+
+/** What is available above where they are, and what it would unlock. */
+async function showUpgrade(reason) {
+  const existing = document.getElementById('upgradeSheet');
+  if (existing) existing.remove();
+
+  // Two calls: what exists, and where they are now. Only what sits above
+  // them is worth showing.
+  const [plans, billing] = await Promise.all([
+    fetch('/api/plans').then((r) => r.json()).catch(() => null),
+    fetch('/api/billing').then((r) => r.json()).catch(() => null)
+  ]);
+
+  const order = (plans?.plans || []).map((p) => p.id);
+  const current = billing?.plan?.id || 'free';
+  const above = (plans?.plans || []).filter((p) => order.indexOf(p.id) > order.indexOf(current));
+  const canPay = plans?.stripeEnabled !== false;
+
+  const sheet = document.createElement('div');
+  sheet.id = 'upgradeSheet';
+  sheet.className = 'upsell';
+  sheet.innerHTML = `
+    <div class="upsell-box" role="dialog" aria-modal="true" aria-label="Upgrade">
+      <button class="upsell-close" data-upsell-close aria-label="Close">&times;</button>
+      <p class="upsell-reason">${esc(reason || 'That is beyond what this plan allows.')}</p>
+      ${
+        above.length
+          ? `<div class="upsell-plans">
+              ${above
+                .slice(0, 2)
+                .map(
+                  (p) => `<div class="upsell-plan">
+                    <div class="upsell-name">${esc(p.name)}</div>
+                    <div class="upsell-price">$${p.price}<span>/month</span></div>
+                    <ul>
+                      <li>${p.sites} ${p.sites === 1 ? 'site' : 'sites'}</li>
+                      <li>${p.questions} questions each</li>
+                      <li>${p.engines} engines</li>
+                      <li>${p.monthlyCalls.toLocaleString()} answer checks a month</li>
+                    </ul>
+                    ${
+                      canPay
+                        ? `<button class="btn" data-upgrade-to="${esc(p.id)}">Choose ${esc(p.name)}</button>`
+                        : '<span class="hint">Contact us to switch plan</span>'
+                    }
+                  </div>`
+                )
+                .join('')}
+            </div>`
+          : '<p class="hint">You are already on the largest plan. Email omar@sandstormdigital.com and we will sort something out.</p>'
+      }
+      <button class="ghost" data-upsell-close>Not now</button>
+    </div>`;
+  document.body.appendChild(sheet);
+}
+
+document.addEventListener('click', async (e) => {
+  if (e.target.closest('[data-upsell-close]')) {
+    document.getElementById('upgradeSheet')?.remove();
+    return;
+  }
+
+  const pick = e.target.closest('[data-upgrade-to]');
+  if (pick) {
+    pick.disabled = true;
+    pick.textContent = 'Opening checkout';
+    const d = await fetch('/api/billing/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan: pick.dataset.upgradeTo, interval: 'month' })
+    }).then((r) => r.json());
+
+    if (d?.url) window.location.href = d.url;
+    else {
+      pick.disabled = false;
+      pick.textContent = 'Could not open checkout';
+    }
+  }
+});
 
 /* ---------- signature element ---------- */
 

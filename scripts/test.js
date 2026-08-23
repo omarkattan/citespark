@@ -3779,6 +3779,43 @@ await test('an internal account lifts the allowance but not the spend cap', asyn
   assert.ok(!/upgrade now[\s\S]{0,80}internal/.test(src), 'never sell an upgrade to ourselves');
 });
 
+console.log('\nhitting a limit');
+
+await test('every refusal offers a way forward', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Six routes refused with upgrade: true and nothing read it, so every
+  // ceiling was a dead end: told no, and left to find the way out alone.
+  const refusals = (server.match(/upgrade: true/g) || []).length;
+  assert.ok(refusals >= 5, 'the limits still return the flag');
+  assert.ok(/showUpgrade/.test(app), 'and something must act on it');
+
+  // Thirty-three calls in the client use fetch directly rather than the
+  // helper, so handling this in the helper would have covered some paths and
+  // missed others silently.
+  assert.ok(/window\.fetch = async/.test(app), 'caught at the network layer, not per call site');
+  // Collapsed first: the call is formatted across lines.
+  assert.ok(/res\s*\.clone\(\)/.test(app.replace(/\s+/g, ' ')), 'and the body read without consuming it for the caller');
+});
+
+await test('the upgrade prompt only offers what is above them', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const fn = app.slice(app.indexOf('async function showUpgrade'), app.indexOf('async function showUpgrade') + 3000);
+
+  assert.ok(/order\.indexOf\(p\.id\) > order\.indexOf\(current\)/.test(fn), 'never offer a downgrade');
+  assert.ok(/already on the largest plan/.test(fn), 'and say so at the top');
+
+  // A checkout button that cannot open is worse than no button.
+  assert.ok(/stripeEnabled !== false/.test(fn), 'no checkout when billing is not configured');
+
+  // The reason travels with the offer, or it is an advert rather than an
+  // answer to what just happened.
+  assert.ok(/upsell-reason/.test(fn));
+});
+
 console.log('\nplans and margins');
 
 await test('every plan is internally consistent', () => {

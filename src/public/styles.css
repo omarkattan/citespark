@@ -1826,3 +1826,63 @@ button.danger:hover * {
   75% { transform: translateX(4px); }
 }
 #runBtn.needs-verify { opacity: .6; }
+
+/*
+ * A limit is a sales moment, not an error.
+ *
+ * Six routes refused with upgrade: true and nothing read it, so every ceiling
+ * was a dead end: told no, and left to find the way forward alone.
+ */
+.upsell {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 22, 26, .45);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  z-index: 60;
+}
+.upsell-box {
+  position: relative;
+  width: min(620px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 28px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .22);
+}
+.upsell-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: none;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink-3);
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.upsell-reason { font-size: 16px; line-height: 1.55; color: var(--ink); margin: 0 0 20px; padding-right: 24px; }
+.upsell-plans { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+.upsell-plan {
+  flex: 1 1 220px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+.upsell-name {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.upsell-price { font-size: 30px; font-weight: 600; margin: 6px 0 12px; }
+.upsell-price span { font-size: 13px; font-weight: 400; color: var(--ink-3); }
+.upsell-plan ul { list-style: none; padding: 0; margin: 0 0 16px; }
+.upsell-plan li { font-size: 13.5px; color: var(--ink-2); padding: 3px 0; }
+.upsell-plan li::before { content: '\2713'; color: var(--you); margin-right: 7px; }
+.upsell-plan .btn { width: 100%; }
