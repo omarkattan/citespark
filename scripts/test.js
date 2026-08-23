@@ -1860,6 +1860,60 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('connecting returns to whatever was being connected', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // The redirect assumed Analytics whatever had been asked for, so connecting
+  // Search Console from Setup landed on Traffic and then failed listing
+  // Analytics properties, which read as Search Console being broken.
+  assert.ok(/state\.w === 'gsc' \? 'gsc' : 'ga4'/.test(server), 'the callback must carry what was requested');
+  assert.ok(/connected=\$\{what\}/.test(server), 'and say so in the redirect');
+
+  const fn = app.slice(app.indexOf('function handleGoogleReturn'), app.indexOf('async function boot'));
+  assert.ok(/params\.get\('connected'\)/.test(fn));
+  // A link already in flight during a deploy must not land nowhere.
+  assert.ok(/params\.get\('ga4'\)/.test(fn), 'the older parameter is still understood');
+
+  const boot = app.slice(app.indexOf('if (returned) {'), app.indexOf('if (returned) {') + 700);
+  assert.ok(/'gsc' \? 'setup' : 'traffic'/.test(boot), 'each lands on its own tab');
+  assert.ok(/setupError/.test(boot), 'and a failure is shown where it started');
+});
+
+await test('a 403 from Google says which 403 it was', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../src/lib/ga4.js', import.meta.url), 'utf8');
+  const start = src.indexOf('  if (!res.ok) {\n    const body = await res.text()');
+  const branch = src.slice(start, src.indexOf('const json = await res.json();', start));
+  const fn = new Function('res', `return (async () => {${branch}})();`);
+
+  const throws = async (status, message) => {
+    try {
+      await fn({ ok: false, status, text: async () => JSON.stringify({ error: { message } }) });
+      return null;
+    } catch (e) {
+      return e.message;
+    }
+  };
+
+  // Reporting only the status turned three different problems into one
+  // number, and a 403 here is usually an API nobody switched on rather than
+  // a permissions failure the customer could act on.
+  assert.match(
+    await throws(403, 'Google Analytics Admin API has not been used in project 12345 before or it is disabled.'),
+    /not enabled on our Google Cloud project/
+  );
+  assert.match(await throws(403, 'The caller does not have permission'), /Google refused: The caller does not have permission/);
+  assert.match(await throws(401, 'Invalid Credentials'), /connection has expired/);
+
+  // Ours to fix must be said as ours to fix.
+  assert.match(
+    await throws(403, 'Analytics Admin API is disabled'),
+    /That is ours to fix, not yours/
+  );
+});
+
 await test('a dead end is never the answer to "connect Google"', async () => {
   const { readFileSync } = await import('node:fs');
   const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');

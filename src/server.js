@@ -2477,7 +2477,9 @@ app.get('/api/ga4/callback', wrap(async (req, res) => {
   // rather than on whichever site happens to be first.
   const early = readState(req.query.state);
   const site = early?.p ? `&site=${early.p}` : '';
-  const fail = (msg) => res.redirect(`/app?ga4=error&message=${encodeURIComponent(msg)}${site}`);
+  // Carries what was being connected, so the failure lands where it started.
+  const what = early?.w === 'gsc' ? 'gsc' : 'ga4';
+  const fail = (msg) => res.redirect(`/app?connected=${what}&error=1&message=${encodeURIComponent(msg)}${site}`);
 
   if (req.query.error) {
     const code = String(req.query.error);
@@ -2507,7 +2509,17 @@ app.get('/api/ga4/callback', wrap(async (req, res) => {
   try {
     const creds = await exchangeCode({ code: String(req.query.code || ''), redirectUri: ga4Redirect(req) });
     await storeConnection(project.id, creds);
-    res.redirect(`/app?ga4=connected&site=${project.id}`);
+
+    /**
+     * Return to whichever thing was being connected.
+     *
+     * The redirect assumed Analytics whatever was asked for, so connecting
+     * Search Console from Setup landed on the Traffic tab and then failed
+     * listing Analytics properties, which looked like Search Console being
+     * broken.
+     */
+    const what = state.w === 'gsc' ? 'gsc' : 'ga4';
+    res.redirect(`/app?connected=${what}&site=${project.id}`);
   } catch (err) {
     fail(err.message);
   }

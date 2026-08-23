@@ -1262,22 +1262,35 @@ async function loadProjectList(selectId) {
   return true;
 }
 
-function handleGa4Return() {
+/**
+ * Where a Google connection should land when it comes back.
+ *
+ * It used to assume Analytics whatever had been asked for, so connecting
+ * Search Console from Setup landed on Traffic and then failed listing
+ * Analytics properties.
+ */
+function handleGoogleReturn() {
   const params = new URLSearchParams(location.search);
-  const status = params.get('ga4');
-  if (!status) return null;
+  // "ga4" is the older parameter; still read so a link in flight during a
+  // deploy does not land nowhere.
+  const what = params.get('connected') || (params.get('ga4') ? 'ga4' : null);
+  if (!what) return null;
 
-  // Keep ?site so we return to the project that started the connection.
+  const failed = params.get('error') === '1' || params.get('ga4') === 'error';
   const site = params.get('site');
   history.replaceState({}, '', site ? `/app?site=${encodeURIComponent(site)}` : '/app');
 
-  return status === 'connected'
-    ? { ok: true }
-    : { ok: false, message: params.get('message') || 'Could not connect Google Analytics' };
+  return {
+    what: what === 'gsc' ? 'gsc' : 'ga4',
+    ok: !failed,
+    message:
+      params.get('message') ||
+      (what === 'gsc' ? 'Could not connect Search Console' : 'Could not connect Google Analytics')
+  };
 }
 
 async function boot() {
-  const ga4 = handleGa4Return();
+  const returned = handleGoogleReturn();
   const me = await api('/api/me');
   if (!me?.signedIn) { window.location.href = '/login'; return; }
   if (me.mock) $('mockNotice').hidden = false;
@@ -1300,9 +1313,20 @@ async function boot() {
   await loadProjectList();
   await refreshUsagePill();
 
-  if (ga4) {
-    document.querySelector('.tab[data-view="traffic"]').click();
-    if (!ga4.ok) setTimeout(() => { const el = $('ga4Error'); if (el) el.textContent = ga4.message; }, 400);
+  if (returned) {
+    // Search Console lives in Setup, Analytics in Traffic.
+    const tab = returned.what === 'gsc' ? 'setup' : 'traffic';
+    document.querySelector(`.tab[data-view="${tab}"]`)?.click();
+
+    if (!returned.ok) {
+      setTimeout(() => {
+        const el = returned.what === 'gsc' ? $('setupError') : $('ga4Error');
+        if (el) el.textContent = returned.message;
+      }, 400);
+    } else if (returned.what === 'gsc') {
+      // Straight to the thing they came for, rather than leaving them to find it.
+      setTimeout(() => $('gscLoad')?.click(), 500);
+    }
   }
 
   // Someone may have started a cycle then refreshed or switched device.

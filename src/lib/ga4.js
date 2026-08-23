@@ -185,7 +185,39 @@ export async function listProperties(project) {
   const res = await fetch('https://analyticsadmin.googleapis.com/v1beta/accountSummaries?pageSize=200', {
     headers: { Authorization: `Bearer ${token}` }
   });
-  if (!res.ok) throw new Error(`Could not list properties: ${res.status}`);
+  /**
+   * Google says why in the body. Reporting only the status turned three
+   * different problems into one number, and a 403 here is usually an API
+   * nobody has switched on rather than a permissions failure.
+   */
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const reason = (() => {
+      try {
+        return JSON.parse(body)?.error?.message || '';
+      } catch {
+        return '';
+      }
+    })();
+
+    if (res.status === 403 && /has not been used|is disabled|SERVICE_DISABLED/i.test(reason)) {
+      throw new Error(
+        'The Google Analytics Admin API is not enabled on our Google Cloud project. That is ours to fix, not yours.'
+      );
+    }
+    if (res.status === 403) {
+      throw new Error(
+        reason
+          ? `Google refused: ${reason}`
+          : 'Google refused the request. The connected account may have no access to any Analytics property.'
+      );
+    }
+    if (res.status === 401) {
+      throw new Error('The Google connection has expired. Reconnecting takes one screen.');
+    }
+    throw new Error(reason || `Could not list properties (${res.status})`);
+  }
+
   const json = await res.json();
 
   const out = [];
