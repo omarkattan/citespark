@@ -170,10 +170,36 @@ export function hasSearchConsoleScope(project) {
   return project.google_scopes.includes('webmasters');
 }
 
-export async function disconnect(projectId) {
+/**
+ * Disconnect Google from a site.
+ *
+ * One credential covers both Analytics and Search Console, so clearing the
+ * token while leaving the Search Console property behind left a site pointing
+ * at a property it could no longer read, and nothing to click to fix it.
+ *
+ * `what` narrows it where only one side should go: choosing a different
+ * Search Console property should not cost someone their Analytics link.
+ */
+export async function disconnect(projectId, what = 'all') {
+  if (what === 'gsc') {
+    // The token is shared, so only the property choice is cleared here.
+    await query('UPDATE projects SET gsc_site_url = NULL WHERE id = $1', [projectId]);
+    return;
+  }
+
+  if (what === 'ga4') {
+    await query(
+      `UPDATE projects SET ga4_property_id = NULL, ga4_property_name = NULL, ga4_synced_at = NULL
+       WHERE id = $1`,
+      [projectId]
+    );
+    return;
+  }
+
   await query(
     `UPDATE projects SET ga4_refresh_token = NULL, ga4_property_id = NULL, ga4_property_name = NULL,
-                         ga4_account_email = NULL, ga4_connected_at = NULL, ga4_synced_at = NULL
+                         ga4_account_email = NULL, ga4_connected_at = NULL, ga4_synced_at = NULL,
+                         gsc_site_url = NULL, google_scopes = NULL
      WHERE id = $1`,
     [projectId]
   );

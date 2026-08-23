@@ -2589,8 +2589,12 @@ app.post('/api/projects/:id/ga4/property', requireAuth, wrap(async (req, res) =>
 app.post('/api/projects/:id/ga4/disconnect', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
-  await ga4Disconnect(project.id);
-  res.json({ ok: true });
+
+  // "gsc" or "ga4" clears one side; anything else clears the credential and
+  // both, which is what someone means by disconnecting Google.
+  const what = ['gsc', 'ga4'].includes(req.body?.what) ? req.body.what : 'all';
+  await ga4Disconnect(project.id, what);
+  res.json({ ok: true, what });
 }));
 
 app.post('/api/projects/:id/sync-ga4', requireAuth, wrap(async (req, res) => {

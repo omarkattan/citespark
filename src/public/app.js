@@ -1084,6 +1084,30 @@ document.addEventListener('click', async (e) => {
     window.location.href = d.url;
   }
 
+  /**
+   * Two different things, deliberately separate.
+   *
+   * Changing property is common and should not cost someone their Google
+   * connection. Disconnecting is rare and should actually disconnect, which
+   * it did not: the token went and the property choice stayed, leaving a site
+   * pointing at something it could no longer read.
+   */
+  if (e.target.id === 'gscSwitch') {
+    e.target.disabled = true;
+    await api(`/api/projects/${state.projectId}/ga4/disconnect`, { method: 'POST', body: { what: 'gsc' } });
+    await render();
+    setTimeout(() => $('gscLoad')?.click(), 300);
+    return;
+  }
+
+  if (e.target.id === 'gscDisconnect') {
+    if (!confirm('Disconnect Google from this site? Analytics goes with it, since they share one connection. Questions already imported are kept.')) return;
+    e.target.disabled = true;
+    await api(`/api/projects/${state.projectId}/ga4/disconnect`, { method: 'POST', body: { what: 'all' } });
+    await render();
+    return;
+  }
+
   if (e.target.id === 'ga4Disconnect') {
     if (!confirm('Disconnect Google Analytics from this site? Traffic data already pulled is kept.')) return;
     await fetch(`/api/projects/${state.projectId}/ga4/disconnect`, { method: 'POST' });
@@ -2704,11 +2728,18 @@ async function viewSetup() {
       <div class="panel-head">
         <h2>From Search Console</h2>
         <div class="spacer"></div>
+        ${
+          p.gsc_site_url
+            ? `<button class="ghost" id="gscSwitch" title="Choose a different property">Change property</button>
+               <button class="ghost danger" id="gscDisconnect">Disconnect</button>`
+            : ''
+        }
         <button class="ghost" id="gscLoad">Find questions people already ask</button>
       </div>
       <p class="hint" style="margin:0">
         Your own Search Console data shows what people search before they find you. We cluster it, turn the ones with
         real demand into questions worth tracking, and use the impressions as the volume behind prioritisation.
+        ${p.gsc_site_url ? `<br />Reading <b>${esc(p.gsc_site_url)}</b>.` : ''}
       </p>
       <div id="gscBody"></div>
     </div>

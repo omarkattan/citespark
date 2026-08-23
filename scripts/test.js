@@ -1860,6 +1860,38 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('disconnecting Google actually disconnects it', async () => {
+  const { readFileSync } = await import('node:fs');
+  const ga4 = readFileSync(new URL('../src/lib/ga4.js', import.meta.url), 'utf8');
+  const fn = ga4.slice(ga4.indexOf('export async function disconnect'), ga4.indexOf('/** Every GA4 property'));
+
+  // One credential covers both surfaces, so clearing the token while leaving
+  // the Search Console property behind left a site pointing at something it
+  // could no longer read, with nothing to click to fix it.
+  const all = fn.slice(fn.lastIndexOf('await query('));
+  assert.ok(/gsc_site_url = NULL/.test(all), 'the Search Console property must go too');
+  assert.ok(/google_scopes = NULL/.test(all), 'and what was granted');
+  assert.ok(/ga4_refresh_token = NULL/.test(all));
+
+  // Choosing a different property is common and must not cost the connection.
+  const gscOnly = fn.slice(fn.indexOf("if (what === 'gsc')"), fn.indexOf("if (what === 'ga4')"));
+  assert.ok(/gsc_site_url = NULL/.test(gscOnly));
+  assert.ok(!/refresh_token/.test(gscOnly), 'changing property must keep the credential');
+});
+
+await test('the Search Console panel offers a way out', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // The only disconnect button lived on the Traffic tab, so there was
+  // nothing to click from the panel someone was actually looking at.
+  assert.ok(/id="gscDisconnect"/.test(app), 'disconnect must be reachable from Search Console');
+  assert.ok(/id="gscSwitch"/.test(app), 'and changing property must not require disconnecting');
+
+  // Both surfaces share a credential, so say that before taking it away.
+  assert.ok(/Analytics goes with it, since they share one connection/.test(app), 'the consequence must be stated');
+});
+
 await test('connecting returns to whatever was being connected', async () => {
   const { readFileSync } = await import('node:fs');
   const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
