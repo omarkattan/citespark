@@ -157,6 +157,7 @@ function plural(n, word) {
 
 export async function checkCanAddSite(orgId) {
   const e = await getEntitlements(orgId);
+
   if (e.counts.sites >= e.plan.sites) {
     return e.plan.sites === 1
       ? `The ${e.plan.name} plan covers one site, and you are already tracking it. Upgrade to add another, or delete the current one from its Setup tab.`
@@ -217,8 +218,41 @@ export async function engineCosts(orgId) {
 }
 
 /** Called before a cycle. Returns the shape the cycle is allowed to run at. */
+/**
+ * An unverified address must not be able to spend the provider balance.
+ *
+ * Checked where money is spent rather than at the door, so someone can sign
+ * up, look around and configure a site before proving anything. What they
+ * cannot do is run cycles on an address that may not exist.
+ */
+async function verifiedEnough(orgId) {
+  const row = await one(
+    `SELECT COUNT(*) FILTER (WHERE email_verified_at IS NOT NULL)::int AS verified,
+            MIN(created_at) AS first_user
+     FROM users WHERE org_id = $1`,
+    [orgId]
+  );
+  if (row?.verified > 0) return true;
+
+  // Accounts that existed before verification did must not be locked out
+  // retrospectively for failing a test that did not exist.
+  return row?.first_user ? new Date(row.first_user) < new Date('2026-08-21') : false;
+}
+
 export async function budgetForCycle(orgId, { questions, engines, runs }) {
   const e = await getEntitlements(orgId);
+
+  // Setting a site up is free. Asking the engines is not, so this is the
+  // point where an unproven address has to stop.
+  if (!e.internal && !(await verifiedEnough(orgId))) {
+    return {
+      ok: false,
+      reason:
+        'Confirm your email address before running a cycle. We sent a link when you signed up, and you can ask for another from the top of the page.',
+      needsVerification: true,
+      entitlements: e
+    };
+  }
   const allowedEngines = engines.slice(0, e.plan.engines);
   const allowedRuns = Math.min(runs, e.plan.runs);
   const wanted = questions * allowedEngines.length * allowedRuns;

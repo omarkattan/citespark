@@ -3441,6 +3441,54 @@ await test('the report is readable without the app', async () => {
   assert.ok(!/<script/.test(html), 'and need no javascript');
 });
 
+console.log('\nsignup and passwords');
+
+await test('a reset token is stored hashed, and works once', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/auth-email.js', import.meta.url), 'utf8');
+
+  // A leaked database should not hand someone a set of working password
+  // reset links, which is what storing them in plain text would do.
+  assert.ok(/createHash\('sha256'\)/.test(lib), 'tokens must be hashed at rest');
+  assert.ok(!/token_hash, \$3.*token\)/.test(lib), 'and the raw token never stored');
+
+  // Marked used before the caller acts, so a mail client prefetching the link
+  // cannot burn it and a double click cannot replay it.
+  const consume = lib.slice(lib.indexOf('export async function consumeToken'), lib.indexOf('export function sendVerification'));
+  assert.ok(/used_at IS NULL AND t\.expires_at > now\(\)/.test(consume), 'expired or used tokens are refused');
+  assert.ok(consume.indexOf('UPDATE auth_tokens SET used_at') < consume.indexOf('return row'), 'burn it before returning it');
+});
+
+await test('an unverified address cannot spend, but can look around', async () => {
+  const { readFileSync } = await import('node:fs');
+  const billing = readFileSync(new URL('../src/lib/billing.js', import.meta.url), 'utf8');
+
+  // Every free account carries an allowance that costs real money at the
+  // provider, so the block belongs where money is spent.
+  const budget = billing.slice(billing.indexOf('export async function budgetForCycle'), billing.indexOf('export async function ensureCustomer'));
+  assert.ok(/verifiedEnough/.test(budget), 'running a cycle requires a confirmed address');
+
+  const addSite = billing.slice(billing.indexOf('export async function checkCanAddSite'), billing.indexOf('export async function checkCanAddQuestions'));
+  assert.ok(!/verifiedEnough/.test(addSite), 'but setting a site up must not be blocked');
+
+  // Accounts that existed before verification did must not be locked out for
+  // failing a test that did not exist.
+  assert.ok(/first_user/.test(billing), 'older accounts are grandfathered');
+});
+
+await test('signups from one place are bounded', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const route = server.slice(server.indexOf("app.post('/api/register'"), server.indexOf('/* ---------------- email verification'));
+
+  assert.ok(/recentSignups/.test(route), 'a limit must exist');
+  assert.ok(/429/.test(route), 'and refuse rather than fail silently');
+  // Telling a stranger which addresses have accounts is a small leak that
+  // costs nothing to avoid.
+  const forgot = server.slice(server.indexOf("app.post('/api/password/forgot'"), server.indexOf("app.get('/reset'"));
+  assert.ok(/sent: true/.test(forgot) && !/no account/i.test(forgot), 'forgot password must not confirm who exists');
+});
+
 console.log('\ninternal accounts');
 
 await test('an internal account lifts the allowance but not the spend cap', async () => {

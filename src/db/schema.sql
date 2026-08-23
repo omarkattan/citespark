@@ -535,3 +535,31 @@ CREATE TABLE IF NOT EXISTS prompt_events (
   at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS prompt_events_project ON prompt_events (project_id, at);
+
+-- Email verification and password reset.
+--
+-- Neither existed. A typo at signup produced an account nobody could reach,
+-- and every free signup carries an answer-check allowance that costs real
+-- money at the provider, so an unverified address is a bill waiting to happen.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS auth_tokens (
+  id         SERIAL PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind       TEXT NOT NULL,              -- verify | reset
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at    TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS auth_tokens_user ON auth_tokens (user_id, kind);
+
+-- Signups per address, so a script cannot mint accounts and spend the
+-- provider balance forty checks at a time.
+CREATE TABLE IF NOT EXISTS signup_attempts (
+  id         SERIAL PRIMARY KEY,
+  ip         TEXT NOT NULL,
+  email      TEXT,
+  at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS signup_attempts_ip ON signup_attempts (ip, at);

@@ -118,22 +118,120 @@ async function assertProject(req, res) {
 
 /* ---------------- auth ---------------- */
 
+/** The address a link should point back to, whatever it is deployed as. */
+const siteUrl = (req) => `${req.protocol}://${req.get('host')}`;
+
 app.post('/api/register', wrap(async (req, res) => {
   const { email, password, orgName } = req.body || {};
   if (!email || !password || password.length < 8) {
     return res.status(400).json({ error: 'Enter an email and a password of at least 8 characters' });
   }
-  const existing = await one('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
+
+  const address = String(email).toLowerCase().trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) {
+    return res.status(400).json({ error: 'That does not look like an email address' });
+  }
+
+  const { recentSignups, recordSignup, issueToken, sendVerification } = await import('./lib/auth-email.js');
+
+  /**
+   * Every free account carries an answer-check allowance that costs money at
+   * the provider, so unlimited signups from one source is an open tab.
+   */
+  const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+  if (ip && (await recentSignups(ip)) >= 5) {
+    return res.status(429).json({
+      error: 'That is several accounts from one place today. If you need another, email omar@sandstormdigital.com and we will set it up.'
+    });
+  }
+
+  const existing = await one('SELECT id FROM users WHERE email = $1', [address]);
   if (existing) return res.status(409).json({ error: 'That email is already registered' });
 
-  const org = await one('INSERT INTO orgs (name) VALUES ($1) RETURNING id', [orgName || email.split('@')[1]]);
+  const org = await one('INSERT INTO orgs (name) VALUES ($1) RETURNING id', [orgName || address.split('@')[1]]);
   const hash = await bcrypt.hash(password, 10);
   const user = await one(
     'INSERT INTO users (org_id, email, password_hash) VALUES ($1,$2,$3) RETURNING id, org_id',
-    [org.id, email.toLowerCase(), hash]
+    [org.id, address, hash]
   );
+
+  await recordSignup(ip, address);
+
+  // Signed in immediately: someone should be able to look around before
+  // proving anything. What they cannot do is spend money, which is enforced
+  // where the money is spent rather than here.
   req.session.userId = user.id;
   req.session.orgId = user.org_id;
+
+  const token = await issueToken(user.id, 'verify');
+  sendVerification(address, `${siteUrl(req)}/verify?t=${encodeURIComponent(token)}`);
+
+  res.json({ ok: true, verificationSent: true });
+}));
+
+/* ---------------- email verification ---------------- */
+
+app.get('/verify', wrap(async (req, res) => {
+  const { consumeToken } = await import('./lib/auth-email.js');
+  const row = await consumeToken(String(req.query.t || ''), 'verify');
+
+  if (!row) {
+    return res
+      .status(400)
+      .send(authPage('That link has expired', 'Verification links last two days. Sign in and we will send a new one.'));
+  }
+
+  await query('UPDATE users SET email_verified_at = now() WHERE id = $1', [row.user_id]);
+  res.send(authPage('Email confirmed', `${row.email} is confirmed. You can run cycles now.`, '/app'));
+}));
+
+app.post('/api/verify/resend', requireAuth, wrap(async (req, res) => {
+  const user = await one('SELECT id, email, email_verified_at FROM users WHERE id = $1', [req.session.userId]);
+  if (!user) return res.status(404).json({ error: 'Not found' });
+  if (user.email_verified_at) return res.json({ ok: true, alreadyVerified: true });
+
+  const { issueToken, sendVerification } = await import('./lib/auth-email.js');
+  const token = await issueToken(user.id, 'verify');
+  sendVerification(user.email, `${siteUrl(req)}/verify?t=${encodeURIComponent(token)}`);
+  res.json({ ok: true });
+}));
+
+/* ---------------- password reset ---------------- */
+
+app.post('/api/password/forgot', wrap(async (req, res) => {
+  const address = String(req.body?.email || '').toLowerCase().trim();
+  const user = await one('SELECT id, email FROM users WHERE email = $1', [address]);
+
+  // Always the same answer. Telling a stranger which addresses have accounts
+  // is a small leak that costs nothing to avoid.
+  if (user) {
+    const { issueToken, sendReset } = await import('./lib/auth-email.js');
+    const token = await issueToken(user.id, 'reset');
+    sendReset(user.email, `${siteUrl(req)}/reset?t=${encodeURIComponent(token)}`);
+  }
+
+  res.json({ ok: true, sent: true });
+}));
+
+app.get('/reset', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.sendFile(path.join(publicDir, 'reset.html'));
+});
+
+app.post('/api/password/reset', wrap(async (req, res) => {
+  const password = String(req.body?.password || '');
+  if (password.length < 8) return res.status(400).json({ error: 'Use at least 8 characters' });
+
+  const { consumeToken } = await import('./lib/auth-email.js');
+  const row = await consumeToken(String(req.body?.token || ''), 'reset');
+  if (!row) return res.status(400).json({ error: 'That link has expired or has already been used.' });
+
+  const hash = await bcrypt.hash(password, 10);
+  await query('UPDATE users SET password_hash = $2 WHERE id = $1', [row.user_id, hash]);
+
+  // A reset proves the address works, so verification comes free with it.
+  await query('UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()) WHERE id = $1', [row.user_id]);
+
   res.json({ ok: true });
 }));
 
@@ -148,14 +246,42 @@ app.post('/api/login', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+/** A small standalone page for the links people arrive on from email. */
+function authPage(title, message, href = '/login') {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${title} | Cited</title>
+<link rel="stylesheet" href="/landing.css" />
+<style>
+  body { display: grid; place-items: center; min-height: 100vh; margin: 0; text-align: center; }
+  .box { max-width: 420px; padding: 40px 28px; }
+  h1 { font-family: var(--serif); font-weight: 400; font-size: 30px; margin: 0 0 12px; }
+  p { color: var(--sand-2); line-height: 1.6; }
+  .btn { display: inline-block; margin-top: 20px; }
+</style></head>
+<body class="tasks-page"><div class="box">
+  <h1>${title}</h1><p>${message}</p>
+  <a class="btn" href="${href}">Continue</a>
+</div></body></html>`;
+}
+
 app.post('/api/logout', (req, res) => {
   req.session = null;
   res.json({ ok: true });
 });
 
-app.get('/api/me', (req, res) => {
-  res.json({ signedIn: Boolean(req.session?.userId), mock: MOCK });
-});
+app.get('/api/me', wrap(async (req, res) => {
+  if (!req.session?.userId) return res.json({ signedIn: false, mock: MOCK });
+  const user = await one('SELECT email, email_verified_at, created_at FROM users WHERE id = $1', [req.session.userId]);
+  res.json({
+    signedIn: true,
+    mock: MOCK,
+    email: user?.email || null,
+    // Accounts predating verification are treated as confirmed rather than
+    // being nagged about a step that did not exist when they signed up.
+    emailVerified: Boolean(user?.email_verified_at) || (user && new Date(user.created_at) < new Date('2026-08-21'))
+  });
+}));
 
 /* ---------------- data ---------------- */
 

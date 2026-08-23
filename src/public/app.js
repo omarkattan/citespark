@@ -1943,6 +1943,13 @@ document.addEventListener('input', (e) => {
 });
 
 document.addEventListener('click', async (e) => {
+  if (e.target.id === 'resendVerify') {
+    e.target.disabled = true;
+    await api('/api/verify/resend', { method: 'POST' });
+    e.target.textContent = 'Sent';
+    return;
+  }
+
   if (e.target.id === 'pcPreview') {
     const btn = e.target;
     btn.disabled = true;
@@ -3585,6 +3592,26 @@ document.addEventListener('click', async (e) => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 });
+
+/**
+ * A banner while an address is unconfirmed.
+ *
+ * The block happens when a cycle is run, which is the right place, but
+ * discovering it only at that moment is a poor first experience.
+ */
+async function checkVerification() {
+  const me = await api('/api/me');
+  const bar = document.getElementById('verifyBar');
+  if (!bar) return;
+
+  if (!me?.signedIn || me.emailVerified !== false) {
+    bar.hidden = true;
+    return;
+  }
+  bar.hidden = false;
+  bar.innerHTML = `Confirm your email to run cycles. We sent a link to <b>${esc(me.email || 'your address')}</b>.
+    <button class="ghost" id="resendVerify">Send it again</button>`;
+}
 
 async function refreshUsagePill() {
   const b = await api('/api/billing');

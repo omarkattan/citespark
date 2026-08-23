@@ -1748,3 +1748,17 @@ select { appearance: auto; }
   font-size: 10.5px;
   color: var(--ink-3);
 }
+
+/* an address still to be confirmed */
+.verifybar {
+  padding: 11px 20px;
+  background: #fdf7ef;
+  border-bottom: 1px solid var(--dune, #a8601b);
+  font-size: 13.5px;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.verifybar[hidden] { display: none; }

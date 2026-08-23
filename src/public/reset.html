@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Set a new password | Cited</title>
+<meta name="robots" content="noindex, nofollow" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/landing.css" />
+<style>
+  body { display: grid; place-items: center; min-height: 100vh; margin: 0; }
+  .box { width: min(420px, 92vw); padding: 40px 28px; }
+  h1 { font-family: var(--serif); font-weight: 400; font-size: 30px; margin: 0 0 8px; }
+  p { color: var(--sand-2); line-height: 1.6; margin: 0 0 22px; }
+  label { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--mute); margin-bottom: 6px; }
+  input { width: 100%; padding: 12px 14px; font-size: 16px; border: 1px solid var(--line); border-radius: 4px; background: var(--deep); color: var(--sand); }
+  .btn { width: 100%; margin-top: 16px; }
+  .msg { margin-top: 14px; font-size: 14px; }
+  .msg.bad { color: var(--alert); }
+  .msg.good { color: var(--spark); }
+</style>
+</head>
+<body class="tasks-page">
+  <div class="box">
+    <h1>Set a new password</h1>
+    <p>At least eight characters. This link works once.</p>
+    <label for="pw">New password</label>
+    <input id="pw" type="password" autocomplete="new-password" />
+    <button class="btn" id="go">Save it</button>
+    <p class="msg" id="msg"></p>
+  </div>
+
+<script>
+  const token = new URLSearchParams(location.search).get('t') || '';
+  const msg = document.getElementById('msg');
+
+  if (!token) {
+    msg.textContent = 'That link is missing its token. Ask for another from the sign-in page.';
+    msg.className = 'msg bad';
+    document.getElementById('go').disabled = true;
+  }
+
+  document.getElementById('go').addEventListener('click', async () => {
+    const password = document.getElementById('pw').value;
+    if (password.length < 8) {
+      msg.textContent = 'Use at least eight characters.';
+      msg.className = 'msg bad';
+      return;
+    }
+    const res = await fetch('/api/password/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, password })
+    });
+    const d = await res.json();
+    if (!res.ok) {
+      msg.textContent = d.error || 'That did not work.';
+      msg.className = 'msg bad';
+      return;
+    }
+    msg.textContent = 'Saved. Taking you to sign in.';
+    msg.className = 'msg good';
+    setTimeout(() => (location.href = '/login'), 1200);
+  });
+
+  document.getElementById('pw').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('go').click();
+  });
+</script>
+</body>
+</html>
