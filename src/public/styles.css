@@ -459,9 +459,24 @@ textarea {
 .row.off .name, .row.off .sub { opacity: 0.45; }
 .row button { padding: 5px 9px; font-size: 10px; }
 
-.inline-form { display: flex; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
-.inline-form input { flex: 1; }
-.inline-form button { white-space: nowrap; }
+/*
+ * Without align-items the row defaults to stretch, so a long note beside the
+ * buttons made every button as tall as the note and squeezed the note itself
+ * into a column two words wide.
+ */
+.inline-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.inline-form input { flex: 1 1 220px; min-width: 0; }
+.inline-form button { white-space: nowrap; flex: none; }
+/* The explanation takes the remaining width rather than a sliver of it. */
+.inline-form .hint { flex: 1 1 220px; min-width: 160px; }
 
 .setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
 @media (max-width: 860px) { .setup-grid { grid-template-columns: 1fr; } }

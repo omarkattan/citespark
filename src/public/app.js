@@ -2811,6 +2811,23 @@ function searchBox(id, placeholder, countId) {
 
 /* ---------- search console import ---------- */
 
+/**
+ * How many more questions this site can take, said before anything is picked.
+ *
+ * The cap was only reported after selecting and clicking, so the work of
+ * choosing happened first and the refusal came second.
+ */
+function importRoom(d) {
+  const cap = d?.limit?.questions;
+  const used = d?.limit?.active;
+  if (!cap || used === undefined) return '';
+  const room = Math.max(0, cap - used);
+  if (room === 0) {
+    return `This site is at its limit of ${cap} active questions. Pause or delete one before importing, or upgrade for more.`;
+  }
+  return `Room for ${room} more on this plan, out of ${cap}.`;
+}
+
 function gscCandidateRow(c, i) {
   const pos = c.avgPosition ? c.avgPosition.toFixed(1) : '-';
   const haystack = `${c.text} ${c.examples.join(' ')} ${c.cluster || ''}`.toLowerCase();
@@ -2904,7 +2921,7 @@ async function loadGscCandidates() {
       <button id="gscImport">Add selected questions</button>
       <button class="ghost" id="gscAll">Select shown</button>
       <button class="ghost" id="gscNone">Clear selection</button>
-      <span class="hint" id="gscNote" style="margin:0"></span>
+      <span class="hint" id="gscNote" style="margin:0">${esc(importRoom(d))}</span>
     </div>`;
 }
 

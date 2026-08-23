@@ -2392,7 +2392,16 @@ app.get('/api/projects/:id/gsc/candidates', requireAuth, wrap(async (req, res) =
     });
   }
   try {
-    res.json(await gscCandidates(project.id, { days: Math.min(180, Number(req.query.days) || 90) }));
+    const { getEntitlements } = await import('./lib/billing.js');
+    const e = await getEntitlements(req.session.orgId);
+    const active = await one('SELECT COUNT(*)::int AS n FROM prompts WHERE project_id = $1 AND active', [project.id]);
+
+    res.json({
+      ...(await gscCandidates(project.id, { days: Math.min(180, Number(req.query.days) || 90) })),
+      // Sent with the candidates so the ceiling is stated before anything is
+      // chosen, rather than after the work of choosing.
+      limit: { questions: e.plan.questions, active: active.n }
+    });
   } catch (err) {
     res.status(400).json({ error: String(err.message || err), fix: err.fix || null, link: err.link || null });
   }

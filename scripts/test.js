@@ -1879,6 +1879,32 @@ await test('disconnecting Google actually disconnects it', async () => {
   assert.ok(!/refresh_token/.test(gscOnly), 'changing property must keep the credential');
 });
 
+await test('a button row does not stretch to match the text beside it', async () => {
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('../src/public/styles.css', import.meta.url), 'utf8');
+  const rule = css.slice(css.indexOf('.inline-form {'), css.indexOf('.setup-grid {'));
+
+  // Flex defaults to stretch, so a long note beside the buttons made every
+  // button as tall as the note and squeezed the note into a column two words
+  // wide.
+  assert.ok(/align-items: center/.test(rule), 'the row must not stretch its children');
+  assert.ok(/flex-wrap: wrap/.test(rule), 'and should wrap rather than crush');
+  assert.ok(/\.inline-form \.hint \{ flex: 1 1/.test(rule), 'the explanation needs real width');
+});
+
+await test('the import limit is stated before anything is chosen', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // The cap was only reported after selecting and clicking, so the work of
+  // choosing happened first and the refusal came second.
+  assert.ok(/limit: \{ questions: e\.plan\.questions, active: active\.n \}/.test(server), 'the ceiling ships with the candidates');
+  assert.ok(/function importRoom/.test(app), 'and is shown on the panel');
+  assert.ok(/Room for \$\{room\} more/.test(app), 'with what is left');
+  assert.ok(/at its limit of/.test(app), 'and what to do when there is none');
+});
+
 await test('the Search Console panel offers a way out', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
