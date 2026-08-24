@@ -805,7 +805,63 @@ app.get('/api/projects/:id/traffic', requireAuth, wrap(async (req, res) => {
      GROUP BY platform, classification_method ORDER BY sessions DESC`,
     [project.id]
   );
-  res.json(rows);
+
+  /**
+   * Sessions by platform alone answers "is anything arriving". The useful
+   * questions are which pages they land on, whether those convert, and
+   * whether the number is going anywhere.
+   */
+  const days = Math.min(Number(req.query.days) || 30, 365);
+
+  const pages = await many(
+    `SELECT landing_page,
+            SUM(sessions)::int AS sessions,
+            SUM(conversions)::float AS conversions,
+            SUM(revenue)::float AS revenue
+     FROM ga4_daily
+     WHERE project_id = $1 AND date > CURRENT_DATE - ($2 || ' days')::interval AND landing_page IS NOT NULL
+     GROUP BY landing_page ORDER BY sessions DESC LIMIT 25`,
+    [project.id, String(days)]
+  );
+
+  const daily = await many(
+    `SELECT date, SUM(sessions)::int AS sessions, SUM(conversions)::float AS conversions
+     FROM ga4_daily
+     WHERE project_id = $1 AND date > CURRENT_DATE - ($2 || ' days')::interval
+     GROUP BY date ORDER BY date`,
+    [project.id, String(days)]
+  );
+
+  // The previous window of the same length, so the number has something to
+  // be compared with rather than sitting on its own.
+  const before = await one(
+    `SELECT SUM(sessions)::int AS sessions, SUM(conversions)::float AS conversions
+     FROM ga4_daily
+     WHERE project_id = $1
+       AND date <= CURRENT_DATE - ($2 || ' days')::interval
+       AND date > CURRENT_DATE - ($3 || ' days')::interval`,
+    [project.id, String(days), String(days * 2)]
+  );
+
+  const sessions = rows.reduce((n, r) => n + r.sessions, 0);
+  const conversions = rows.reduce((n, r) => n + Number(r.conversions || 0), 0);
+
+  res.json({
+    rows,
+    pages,
+    daily,
+    days,
+    totals: {
+      sessions,
+      conversions,
+      revenue: rows.reduce((n, r) => n + Number(r.revenue || 0), 0),
+      // A rate of zero and no data at all are different, so this is null
+      // rather than 0 when nothing arrived.
+      conversionRate: sessions ? conversions / sessions : null,
+      previousSessions: before?.sessions ?? null,
+      change: before?.sessions ? (sessions - before.sessions) / before.sessions : null
+    }
+  });
 }));
 
 /* ---------------- setup: projects, competitors, questions ---------------- */
@@ -2757,7 +2813,7 @@ app.get('/api/version', (_req, res) => {
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions', 'trademark-tm', 'ai-visibility-copy', 'gsc-connect-prompt', 'internal-accounts', 'aggregated-report', 'page-checks', 'question-filters', 'page-check-errors', 'page-check-picker', 'brand-filter', 'gsc-pagination', 'path-filter', 'site-sections', 'question-dropdowns', 'read-the-answer', 'longer-answers', 'questions-from-topic', 'run-unrun-only', 'run-menu', 'internal-no-limits', 'auto-teardown', 'report-visuals', 'resolve-redirects', 'resolve-retry', 'withdraw-stale-actions', 'source-filter', 'local-listings', 'sources-after-clean', 'prompt-events', 'csv-export', 'mail-diagnostics', 'reask-question', 'session-caveat', 'decline-actions', 'plain-action-labels', 'cited-counts-as-visible', 'interactive-charts', 'duplicate-questions', 'persona-overlap', 'email-verification', 'password-reset', 'signup-limit', 'verify-banner', 'admin-console', 'admin-link', 'danger-contrast', 'signup-flow', 'admin-per-org', 'ga4-error-detail', 'connect-returns-home', 'gsc-disconnect', 'import-room', 'inline-form-fix', 'upgrade-prompt', 'like-for-like-trend', 'grouped-findings', 'seed-verified', 'traffic-in-report', 'render-what-we-compute', 'separate-google-accounts']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions', 'trademark-tm', 'ai-visibility-copy', 'gsc-connect-prompt', 'internal-accounts', 'aggregated-report', 'page-checks', 'question-filters', 'page-check-errors', 'page-check-picker', 'brand-filter', 'gsc-pagination', 'path-filter', 'site-sections', 'question-dropdowns', 'read-the-answer', 'longer-answers', 'questions-from-topic', 'run-unrun-only', 'run-menu', 'internal-no-limits', 'auto-teardown', 'report-visuals', 'resolve-redirects', 'resolve-retry', 'withdraw-stale-actions', 'source-filter', 'local-listings', 'sources-after-clean', 'prompt-events', 'csv-export', 'mail-diagnostics', 'reask-question', 'session-caveat', 'decline-actions', 'plain-action-labels', 'cited-counts-as-visible', 'interactive-charts', 'duplicate-questions', 'persona-overlap', 'email-verification', 'password-reset', 'signup-limit', 'verify-banner', 'admin-console', 'admin-link', 'danger-contrast', 'signup-flow', 'admin-per-org', 'ga4-error-detail', 'connect-returns-home', 'gsc-disconnect', 'import-room', 'inline-form-fix', 'upgrade-prompt', 'like-for-like-trend', 'grouped-findings', 'seed-verified', 'traffic-in-report', 'render-what-we-compute', 'separate-google-accounts', 'traffic-detail']
   });
 });
 

@@ -1074,7 +1074,9 @@ async function viewTraffic() {
   }
 
   /* connected and configured */
-  const totals = (rows || []).reduce(
+  const data = Array.isArray(rows) ? { rows } : rows || {};
+  const series = data.rows || [];
+  const totals = (series).reduce(
     (acc, r) => {
       if (r.classification_method === 'derived') {
         acc.sessions += r.sessions;
@@ -1087,7 +1089,7 @@ async function viewTraffic() {
   );
   const cvr = totals.sessions ? (totals.conversions / totals.sessions) * 100 : 0;
 
-  const cells = (rows || [])
+  const cells = (series)
     .map((r) => {
       const rate = r.sessions ? (r.conversions / r.sessions) * 100 : 0;
       return `<div class="figure">
@@ -1117,12 +1119,20 @@ async function viewTraffic() {
     <p class="error" id="ga4Error" role="alert"></p>
   </div>
 
-  ${rows?.length ? `
+  ${series.length ? `
   <div class="figures">
     <div class="figure">
-      <div class="label">AI sessions, 30 days</div>
+      <div class="label">AI sessions, ${data.days || 30} days</div>
       <div class="value">${totals.sessions.toLocaleString()}</div>
-      <div class="sub">${cvr.toFixed(1)}% conversion</div>
+      <div class="sub">
+        ${cvr.toFixed(1)}% conversion${
+          data.totals?.change != null
+            ? ` &middot; <span class="${data.totals.change >= 0 ? 'up' : 'down'}">${
+                data.totals.change >= 0 ? '+' : ''
+              }${Math.round(data.totals.change * 100)}% on the previous ${data.days || 30} days</span>`
+            : ''
+        }
+      </div>
     </div>
     <div class="figure">
       <div class="label">Conversions</div>
@@ -1136,6 +1146,38 @@ async function viewTraffic() {
     </div>
   </div>
   <div class="figures">${cells}</div>
+
+  ${
+    data.pages?.length
+      ? `<div class="panel">
+          <div class="panel-head"><h2>Where AI traffic lands</h2></div>
+          <p class="hint" style="margin:0 0 12px">
+            The pages assistants actually send people to, and what happens next. A page with sessions and no
+            conversions is the clearest thing on this screen to go and fix.
+          </p>
+          <div class="pchead">
+            <div>Page</div>
+            <div class="pcnum">Sessions</div>
+            <div class="pcnum">Conversions</div>
+            <div class="pcnum">Rate</div>
+          </div>
+          ${data.pages
+            .map((p) => {
+              const rate = p.sessions ? (p.conversions / p.sessions) * 100 : 0;
+              return `<div class="pcrow">
+                <div><a class="pcp" href="${esc(p.landing_page)}" target="_blank" rel="noopener">${esc(
+                  String(p.landing_page).replace(/^https?:\/\/(www\.)?[^/]+/, '') || '/'
+                )}</a></div>
+                <div class="pcnum">${p.sessions.toLocaleString()}</div>
+                <div class="pcnum">${Math.round(p.conversions).toLocaleString()}</div>
+                <div class="pcnum ${p.sessions > 20 && rate === 0 ? 'down' : ''}">${rate.toFixed(1)}%</div>
+              </div>`;
+            })
+            .join('')}
+        </div>`
+      : ''
+  }
+
   <div class="panel"><p class="dek" style="margin:0;font-size:13.5px">
     <b>native</b> is Google's AI Assistant channel, accurate but only from mid-2026 onward.
     <b>derived</b> is our own classification from session source, which works on historical data and catches

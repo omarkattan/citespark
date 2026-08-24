@@ -1860,6 +1860,23 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('the traffic panel says more than a session count', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const route = server.slice(server.indexOf("app.get('/api/projects/:id/traffic'"), server.indexOf('setup: projects, competitors'));
+
+  // Sessions by platform answers "is anything arriving". The useful questions
+  // are which pages they land on, whether those convert, and whether the
+  // number is moving.
+  assert.ok(/landing_page/.test(route), 'landing pages must be returned');
+  assert.ok(/previousSessions/.test(route), 'with something to compare against');
+  assert.ok(/conversionRate: sessions \? /.test(route), 'and a rate that is null rather than zero when nothing arrived');
+
+  assert.ok(/Where AI traffic lands/.test(app), 'and shown, not just computed');
+  assert.ok(/p\.sessions > 20 && rate === 0/.test(app), 'a page with traffic and no conversions is worth flagging');
+});
+
 await test('Analytics and Search Console can be different Google accounts', async () => {
   const { readFileSync } = await import('node:fs');
   const ga4 = readFileSync(new URL('../src/lib/ga4.js', import.meta.url), 'utf8');
