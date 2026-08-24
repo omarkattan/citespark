@@ -159,6 +159,26 @@ export function reportHtml(r, { print = false } = {}) {
   }
   .plan b { display: block; font-size: 16px; color: #14161a; margin-bottom: 4px; }
   .plan span { font-size: 14px; color: #3d4a42; line-height: 1.6; }
+  .theme { padding: 14px 0; border-bottom: 1px solid #f0f3f1; }
+  .theme:last-of-type { border-bottom: none; }
+  .theme-head { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+  .theme-head b { font-size: 15px; color: #14161a; }
+  .theme-count {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 11px;
+    color: #75887c;
+    white-space: nowrap;
+  }
+  .theme-eg { list-style: none; padding: 0; margin: 7px 0 0; }
+  .theme-eg li {
+    font-size: 13px;
+    color: #3d4a42;
+    padding: 2px 0 2px 14px;
+    position: relative;
+    line-height: 1.5;
+  }
+  .theme-eg li::before { content: '\\2014'; position: absolute; left: 0; color: #cfd8d2; }
+  .theme-more { color: #75887c; font-style: italic; }
   .reading { padding: 12px 0; border-bottom: 1px solid #f0f3f1; }
   .reading:last-of-type { border-bottom: none; }
   .reading b { display: block; font-size: 14.5px; color: #14161a; margin-bottom: 3px; }
@@ -526,36 +546,46 @@ ${
   r.themes?.length
     ? `<h2>What the findings come down to</h2>
       <p class="note">
-        The same problem often appears once per question. Grouped, the list is short enough to act on.
+        The same problem appears once per question, so the raw list runs to hundreds of rows that say a handful of
+        things. Grouped, with an example of each, it is short enough to work through.
       </p>
-      <table><thead><tr><th>Theme</th><th class="num">Questions affected</th><th class="num">Recurring</th></tr></thead><tbody>
       ${r.themes
-        .slice(0, 10)
         .map(
-          (t) => `<tr>
-            <td><b>${esc(t.label)}</b></td>
-            <td class="num">${t.items.length}</td>
-            <td class="num">${t.recurring ? `<span class="tag hot">${t.recurring}</span>` : '&mdash;'}</td>
-          </tr>`
+          (t) => `<div class="theme">
+            <div class="theme-head">
+              <b>${esc(t.label)}</b>
+              <span class="theme-count">${t.items.length} question${t.items.length === 1 ? '' : 's'}${
+                t.recurring ? `, ${t.recurring} in every cycle` : ''
+              }</span>
+            </div>
+            <ul class="theme-eg">
+              ${t.items
+                .slice(0, 3)
+                .map(
+                  (i) =>
+                    `<li>${esc(
+                      String(i.title)
+                        .replace(/^(Invisible for|Named but never cited for|Cited as a source but rarely named for):?\s*/i, '')
+                        .replace(/^["'\u201c]|["'\u201d]$/g, '')
+                        .slice(0, 110)
+                    )}</li>`
+                )
+                .join('')}
+              ${
+                t.items.length > 3
+                  ? `<li class="theme-more">and ${t.items.length - 3} more, listed in full in the data export</li>`
+                  : ''
+              }
+            </ul>
+          </div>`
         )
         .join('')}
-      </tbody></table>`
+      <div class="callout">
+        Every finding is in the spreadsheet alongside this report, with its own row, how long it has been true and
+        the page it points at. This page carries the shape of the problem; the export carries the working.
+      </div>`
     : ''
 }
-
-<h2>Every finding, in full</h2>
-<table><thead><tr><th>Action</th><th class="num">Standing</th><th class="num">Seen in</th></tr></thead><tbody>
-${r.persistence.items
-  .slice(0, 40)
-  .map(
-    (i) => `<tr>
-      <td>${esc(i.title)}</td>
-      <td class="num"><span class="tag${i.standing === 'recurring' ? ' hot' : i.standing === 'intermittent' ? ' warm' : ''}">${i.standing}</span></td>
-      <td class="num">${i.cycles}/${r.persistence.totalCycles}</td>
-    </tr>`
-  )
-  .join('')}
-</tbody></table>
 
 ${
   r.completed.length

@@ -658,3 +658,60 @@ function mockAnswer({ engine, prompt, model }) {
     error: null
   };
 }
+
+/**
+ * Real AI search volume, instead of a model's guess at it.
+ *
+ * Question volume has been estimated by asking a language model for a number
+ * between 0 and 5000, and that estimate drives the priority ordering of every
+ * recommendation. DataForSEO measures the actual figure. Replacing a guess
+ * that ranks the work with a measurement is the single cheapest accuracy
+ * improvement available to this product.
+ *
+ * Live method only, and priced per keyword, so callers should batch.
+ */
+export async function aiKeywordVolume(keywords, { market = 'AE', language = 'en' } = {}) {
+  const list = [...new Set(keywords.map((k) => String(k).trim().toLowerCase()).filter(Boolean))].slice(0, 1000);
+  if (!list.length) return new Map();
+
+  if (MOCK) {
+    // Deterministic in mock mode, so tests and demos do not drift.
+    return new Map(list.map((k) => [k, { volume: 100 + (k.length * 37) % 900, source: 'mock' }]));
+  }
+
+  const body = [
+    {
+      keywords: list,
+      location_name: LOCATIONS[market] || LOCATIONS.AE,
+      language_code: language
+    }
+  ];
+
+  const res = await fetch(`${BASE}/ai_optimization/ai_keyword_data/keywords_search_volume/live`, {
+    method: 'POST',
+    headers: { Authorization: authHeader(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) throw new Error(`AI keyword data failed: ${res.status}`);
+
+  const json = await res.json();
+  const task = json.tasks?.[0];
+  if (task?.status_code !== 20000) {
+    throw new Error(task?.status_message || 'AI keyword data returned no result');
+  }
+
+  const out = new Map();
+  for (const item of task.result?.[0]?.items || []) {
+    const key = String(item.keyword || '').toLowerCase();
+    if (!key) continue;
+    out.set(key, {
+      // Named for what it is. An absent figure is not zero demand, it is a
+      // keyword the corpus has not seen enough of to report.
+      volume: Number.isFinite(item.ai_search_volume) ? item.ai_search_volume : null,
+      source: 'dataforseo'
+    });
+  }
+
+  return out;
+}

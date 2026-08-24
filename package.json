@@ -39,7 +39,8 @@
     "sources": "node scripts/sources.js",
     "export": "node scripts/export.js",
     "mailcheck": "node scripts/mailcheck.js",
-    "verify": "node scripts/verify-teardown.js"
+    "verify": "node scripts/verify-teardown.js",
+    "volumes": "node scripts/volumes.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

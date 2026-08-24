@@ -1860,6 +1860,48 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('question volume can be measured rather than guessed', async () => {
+  const { readFileSync } = await import('node:fs');
+  const df = readFileSync(new URL('../src/lib/dataforseo.js', import.meta.url), 'utf8');
+  const script = readFileSync(new URL('../scripts/volumes.js', import.meta.url), 'utf8');
+  const prompts = readFileSync(new URL('../src/lib/prompts.js', import.meta.url), 'utf8');
+
+  // Volume drives the priority ordering of every recommendation, and it was
+  // a language model's guess at a number between 0 and 5000. DataForSEO
+  // measures it, and we were paying for the API without using that endpoint.
+  assert.ok(/ai_keyword_data\/keywords_search_volume\/live/.test(df), 'the measured figure must be fetchable');
+  assert.ok(/export async function aiKeywordVolume/.test(df));
+  assert.ok(/ai_search_volume/.test(prompts), 'the estimate is still the fallback');
+
+  // An absent figure is not zero demand. Writing a zero would push a question
+  // to the bottom of the list on the strength of an absence.
+  assert.ok(/volume: Number\.isFinite\(item\.ai_search_volume\) \? item\.ai_search_volume : null/.test(df));
+  assert.ok(/hit\.volume === null/.test(script), 'and the backfill must skip it');
+
+  // Changing the input to the ordering without rebuilding leaves the list
+  // sorted on the old numbers.
+  assert.ok(/npm run rebuild/.test(script), 'the script must say what to run next');
+});
+
+await test('the findings are grouped, not listed forty times', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../src/lib/report-html.js', import.meta.url), 'utf8');
+
+  // Three pages of near-identical rows, every one marked RECURRING 6/6, said
+  // a handful of things at great length and buried the report's own summary.
+  assert.ok(!/Every finding, in full/.test(html), 'the flat list is gone');
+  assert.ok(/class="theme-eg"/.test(html), 'each theme carries examples instead');
+  assert.ok(/slice\(0, 3\)/.test(html), 'a few, not all of them');
+  assert.ok(/and \$\{t\.items\.length - 3\} more/.test(html), 'and says how many were left out');
+
+  // The full list still exists; it belongs where someone can sort it.
+  assert.ok(/the export carries the working/.test(html), 'the reader must be told where the rest is');
+
+  // The rule titles carry their own quotes and a prefix that repeats in every
+  // row, both of which are noise once the theme is stated above them.
+  assert.ok(/Invisible for\|Named but never cited for/.test(html), 'the repeated prefix is stripped');
+});
+
 await test('the report draws the conclusion, from this client\'s own numbers', async () => {
   const { readFileSync } = await import('node:fs');
   const lib = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');
