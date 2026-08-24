@@ -219,13 +219,15 @@ async function citedPagePatterns(projectId) {
     const share = count / n;
     if (share > 0 && share <= 0.2) {
       reading.push({
-        point: `Only ${count} of ${n} cited pages ${count === 1 ? label.replace(/^(\w+)/, (w) => `${w}s`) : label}.`,
+        point: `Only ${count} of ${n} cited page${count === 1 ? '' : 's'} ${label}.`,
         why: 'Rare enough that doing it well is a differentiator rather than catching up, and cheap enough to be worth testing on a page you already rank with.'
       });
     }
     if (share === 0 && withSchema > 0 && label.includes('schema')) {
       reading.push({
-        point: `No cited page ${label.replace(/^(\w+)/, (w) => `${w}s`)}.`,
+        // "carrys" came from pluralising the verb blindly. The subject is
+        // singular here, so the verb needs its real third-person form.
+        point: `No cited page ${{ carry: 'carries', answer: 'answers', quote: 'quotes', name: 'names' }[label.split(' ')[0]] || label.split(' ')[0]} ${label.split(' ').slice(1).join(' ')}.`,
         why: 'Structured data is being read successfully on the others, so this is a real absence rather than a measurement gap. Adding it would not match what is winning here, and is unlikely to be the lever.'
       });
     }
@@ -482,7 +484,10 @@ async function aiTraffic(projectId) {
     sources: [...bySource.values()].sort((a, b) => b.sessions - a.sessions).slice(0, 8),
     // Which pages the assistants actually send people to, which is the
     // bridge between the visibility above and the money.
-    pages: [...byPage.values()].sort((a, b) => b.sessions - a.sessions).slice(0, 8),
+    // Every page, not a top slice. On most sites this is a couple of dozen
+    // rows, and which pages the assistants send people to is the most
+    // directly useful thing in an AI visibility report.
+    pages: [...byPage.values()].sort((a, b) => b.sessions - a.sessions),
     trend: rows
   };
 }
@@ -583,7 +588,51 @@ export async function buildReport(projectId, range = {}) {
   // Titles carry the raw prompt text, so they are cleaned once here.
   for (const item of p.items) item.title = readable(item.title, personas);
 
+  /**
+   * The three things to do, at the top.
+   *
+   * Fourteen pages with no summary asks the reader to derive the plan
+   * themselves, which is the work they are paying for. Each of these is
+   * assembled from measured evidence and names it, so a client can check the
+   * reasoning rather than take it on trust.
+   */
+  const priorities = [];
+
+  const worstAudience = (personaRows || []).filter((x) => x.questions >= 3).at(-1);
+  if (worstAudience && (worstAudience.named_rate || 0) < 0.1) {
+    priorities.push({
+      do: `Write for ${worstAudience.persona}.`,
+      because: `They ask ${worstAudience.questions} of your tracked questions and you appear in ${Math.round((worstAudience.named_rate || 0) * 100)}% of the answers they get. That is a specific audience with a specific gap, which is a more tractable brief than raising visibility in general.`
+    });
+  }
+
+  const topSource = (s.sources || []).find((x) => x.persistent);
+  if (topSource) {
+    priorities.push({
+      do: `Earn a mention on ${topSource.domain}.`,
+      because: `It shaped answers to ${topSource.questions} of your questions in every cycle we measured, and never cites you. Getting onto a source that already shapes this category is usually faster than ranking a new page.`
+    });
+  }
+
+  const rival = (competitors || []).find((c) => c.kind === 'competitor' && (c.rate || 0) > (competitors.find((x) => x.kind === 'owned')?.rate || 0));
+  if (rival) {
+    const us = competitors.find((x) => x.kind === 'owned');
+    priorities.push({
+      do: `Close the gap with ${rival.name}.`,
+      because: `They are named in ${Math.round((rival.rate || 0) * 100)}% of answers against your ${Math.round((us?.rate || 0) * 100)}%. A comparison page that treats them honestly is the usual way in, because the engines are already answering the comparison for buyers.`
+    });
+  }
+
+  const deadPage = (traffic?.pages || []).find((p) => p.sessions >= 25 && p.conversions === 0);
+  if (deadPage) {
+    priorities.push({
+      do: `Fix what happens on ${deadPage.page}.`,
+      because: `AI assistants sent ${deadPage.sessions} sessions there in 90 days and none converted. Visibility is working on that page and the page is not.`
+    });
+  }
+
   return {
+    priorities: priorities.slice(0, 3),
     project: { name: project.name, domain: project.domain, brand: project.brand_name },
     generatedAt: new Date().toISOString(),
     // Stated on the page, so two reports can be told apart at a glance.

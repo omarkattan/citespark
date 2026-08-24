@@ -136,6 +136,29 @@ export function reportHtml(r, { print = false } = {}) {
   .tag.warm { border-color: #a8601b; color: #a8601b; }
 
   .note { font-size: 13.5px; color: #5d7268; line-height: 1.6; }
+  .plan { counter-reset: step; list-style: none; padding: 0; margin: 0 0 8px; }
+  .plan li {
+    counter-increment: step;
+    position: relative;
+    padding: 14px 0 14px 40px;
+    border-bottom: 1px solid #f0f3f1;
+  }
+  .plan li:last-child { border-bottom: none; }
+  .plan li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0; top: 14px;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: #157a4a;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    display: grid;
+    place-items: center;
+  }
+  .plan b { display: block; font-size: 16px; color: #14161a; margin-bottom: 4px; }
+  .plan span { font-size: 14px; color: #3d4a42; line-height: 1.6; }
   .reading { padding: 12px 0; border-bottom: 1px solid #f0f3f1; }
   .reading:last-of-type { border-bottom: none; }
   .reading b { display: block; font-size: 14.5px; color: #14161a; margin-bottom: 3px; }
@@ -157,7 +180,10 @@ export function reportHtml(r, { print = false } = {}) {
 
   @media print {
     body { padding: 0; max-width: none; }
-    h2 { page-break-after: avoid; }
+    /* A heading and its lead paragraph must not be stranded on a page of
+       their own, which is what put "What keeps coming back" alone on page 2. */
+    h2, h3 { page-break-after: avoid; break-after: avoid; }
+    h2 + p, h2 + .note, h2 + .callout { page-break-before: avoid; break-before: avoid; }
     table, .card, .callout, .ring { page-break-inside: avoid; }
     .cards { page-break-inside: avoid; }
   }
@@ -173,6 +199,22 @@ export function reportHtml(r, { print = false } = {}) {
     }
   </p>
 </div>
+
+${
+  r.priorities?.length
+    ? `<h2>What to do next</h2>
+      <ol class="plan">
+        ${r.priorities
+          .map(
+            (p) => `<li>
+              <b>${esc(p.do)}</b>
+              <span>${esc(p.because)}</span>
+            </li>`
+          )
+          .join('')}
+      </ol>`
+    : ''
+}
 
 <h2>Where things stand</h2>
 ${
@@ -242,8 +284,8 @@ ${
 
 <h2>What keeps coming back</h2>
 <p class="note">
-  Actions that recur cycle after cycle are structural: the thing causing them has not changed. Fixing one of these
-  removes a problem permanently rather than for a week.
+  These appeared in every cycle we measured, not only the most recent one. That makes them settled facts about how
+  this category is answered rather than variation between runs, which is why they are worth doing first.
 </p>
 ${
   recurring.length
@@ -279,7 +321,22 @@ ${
                 </tr>`
               )
               .join('')}
-            </tbody></table>`
+            </tbody></table>
+            ${(() => {
+              const us = r.standings.findIndex((b) => b.kind === 'owned');
+              if (us < 0) return '';
+              const ahead = r.standings.slice(0, us);
+              const behind = r.standings.length - us - 1;
+              return `<p class="note">
+                ${
+                  ahead.length === 0
+                    ? `You are named more often than every competitor you track. The gap to close is with the category itself rather than with any one rival.`
+                    : `${ahead.length === 1 ? 'One competitor is' : `${ahead.length} competitors are`} named more often than you${
+                        behind ? `, and ${behind} less often` : ''
+                      }. ${esc(ahead[0].name)} leads at ${pct(ahead[0].rate)} against your ${pct(r.standings[us].rate)}, a gap of ${Math.round(((ahead[0].rate || 0) - (r.standings[us].rate || 0)) * 100)} points.`
+                }
+              </p>`;
+            })()}`
           : ''
       }
 
