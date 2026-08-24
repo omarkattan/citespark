@@ -163,7 +163,11 @@ export function reportHtml(r, { print = false } = {}) {
 <div class="masthead">
   <p class="kicker">AI visibility report &middot; ${date(r.generatedAt)}</p>
   <h1>${esc(r.project.name)}</h1>
-  <p class="sub">${esc(r.project.domain)} &middot; ${r.trend.cycles} measurement ${r.trend.cycles === 1 ? 'cycle' : 'cycles'}</p>
+  <p class="sub">
+    ${esc(r.project.domain)} &middot; ${r.trend.cycles} measurement ${r.trend.cycles === 1 ? 'cycle' : 'cycles'}${
+      r.period?.from && r.period?.to ? ` &middot; ${date(r.period.from)} to ${date(r.period.to)}` : ''
+    }
+  </p>
 </div>
 
 <h2>Where things stand</h2>

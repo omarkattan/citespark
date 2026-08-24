@@ -280,3 +280,110 @@ export async function personaLift(projectId, cycle) {
 
   return out.sort((a, b) => b.differentBrands.length + b.missingBrands.length - (a.differentBrands.length + a.missingBrands.length));
 }
+
+/**
+ * Why one audience cannot see you, when another can.
+ *
+ * Knowing that UHNW principals see you in 8% of answers and price-led buyers
+ * in 62% is a measurement. The brief is what differs underneath: which
+ * sources shape that audience's answers, which rivals get named to them, and
+ * which of your own questions they lose. Those three together are a piece of
+ * work someone can actually do.
+ */
+export async function personaGap(projectId, personaId) {
+  const { many, one } = await import('../db/index.js');
+
+  const project = await one('SELECT domain, brand_name FROM projects WHERE id = $1', [projectId]);
+  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [projectId]))?.d;
+  if (!cycle) return null;
+
+  const own = String(project.domain).replace(/^www\./, '').toLowerCase();
+
+  // Scoped to this audience's questions, which is the whole point: a source
+  // that shapes answers for everyone is a different finding from one that
+  // shapes answers for the buyer who cannot see you.
+  const where = personaId ? 'p.persona_id = $3' : 'p.persona_id IS NULL';
+  const args = personaId ? [projectId, cycle, personaId] : [projectId, cycle];
+
+  const sources = await many(
+    `SELECT lower(regexp_replace(c.domain, '^www\\.', '')) AS domain,
+            COUNT(*)::int AS citations,
+            COUNT(DISTINCT r.prompt_id)::int AS questions,
+            (ARRAY_AGG(c.url ORDER BY c.position))[1] AS example_url
+     FROM citations c
+     JOIN runs r ON r.id = c.run_id
+     JOIN prompts p ON p.id = r.prompt_id
+     WHERE r.project_id = $1 AND r.ok AND r.cycle_date = $2 AND ${where}
+       AND lower(regexp_replace(c.domain, '^www\\.', '')) <> '${own}'
+     GROUP BY 1 ORDER BY 2 DESC LIMIT 12`,
+    args
+  );
+
+  const named = await many(
+    `SELECT e.name, e.kind,
+            COUNT(*) FILTER (WHERE m.mentioned)::float / NULLIF(COUNT(*), 0) AS rate
+     FROM mentions m
+     JOIN runs r ON r.id = m.run_id
+     JOIN prompts p ON p.id = r.prompt_id
+     JOIN entities e ON e.id = m.entity_id
+     WHERE r.project_id = $1 AND r.ok AND r.cycle_date = $2 AND ${where}
+       AND e.kind IN ('owned', 'competitor')
+     GROUP BY e.id, e.name, e.kind
+     ORDER BY 3 DESC NULLS LAST`,
+    args
+  );
+
+  // The questions this audience asks where the brand never appears. Ordered
+  // by demand, so the list starts where the work is worth most.
+  const lost = await many(
+    `SELECT p.id, p.text, p.ai_search_volume AS volume,
+            COUNT(*) FILTER (WHERE m.mentioned)::int AS named
+     FROM runs r
+     JOIN prompts p ON p.id = r.prompt_id
+     JOIN mentions m ON m.run_id = r.id
+     JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
+     WHERE r.project_id = $1 AND r.ok AND r.cycle_date = $2 AND ${where}
+     GROUP BY p.id, p.text, p.ai_search_volume
+     HAVING COUNT(*) FILTER (WHERE m.mentioned) = 0
+     ORDER BY p.ai_search_volume DESC NULLS LAST LIMIT 12`,
+    args
+  );
+
+  const us = named.find((n) => n.kind === 'owned');
+  const ahead = named.filter((n) => n.kind === 'competitor' && (n.rate || 0) > (us?.rate || 0));
+
+  return {
+    personaId: personaId || null,
+    rate: us?.rate ?? null,
+    sources,
+    ahead,
+    lost,
+    // Stated rather than left for the reader to assemble from three tables.
+    brief: buildBrief({ brand: project.brand_name, rate: us?.rate ?? 0, sources, ahead, lost })
+  };
+}
+
+/** One paragraph a person could act on, assembled from the three findings. */
+function buildBrief({ brand, rate, sources, ahead, lost }) {
+  const parts = [];
+
+  if (ahead.length) {
+    const top = ahead.slice(0, 2).map((a) => `${a.name} (${Math.round((a.rate || 0) * 100)}%)`).join(' and ');
+    parts.push(`${top} are named to this buyer more often than ${brand} (${Math.round(rate * 100)}%).`);
+  }
+
+  if (sources.length) {
+    const top = sources.slice(0, 3).map((s) => s.domain).join(', ');
+    parts.push(
+      `Answers to this audience are built from ${top}${sources.length > 3 ? ' and others' : ''}, and none of them cite you. Getting onto one of those is usually faster than ranking a new page.`
+    );
+  }
+
+  if (lost.length) {
+    parts.push(
+      `${lost.length} of their questions never mention you at all, starting with "${String(lost[0].text).slice(0, 80)}".`
+    );
+  }
+
+  return parts.join(' ') || 'Not enough measured yet for this audience to say what is missing.';
+}

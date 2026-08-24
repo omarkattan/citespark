@@ -203,10 +203,15 @@ async function viewActions() {
   const reportBar = `<div class="reportbar">
     <div class="reportbar-text">
       <b>Client report</b>
-      <span>The client report as a PDF. Download the data for every citation, page and finding as a spreadsheet.</span>
+      <span>Leave the dates empty for everything measured so far, or set a period to report on one month.</span>
     </div>
-    <a class="btn" href="/api/projects/${state.projectId}/report?print=1" target="_blank" rel="noopener">Download report</a>
-    <a class="ghost" href="/api/projects/${state.projectId}/report?format=csv" download>Download data</a>
+    <span class="reportdates">
+      <input type="date" id="repFrom" value="${esc(state.repFrom || '')}" aria-label="From" />
+      <span>to</span>
+      <input type="date" id="repTo" value="${esc(state.repTo || '')}" aria-label="To" />
+    </span>
+    <a class="btn" id="repOpen" href="/api/projects/${state.projectId}/report?print=1" target="_blank" rel="noopener">Download report</a>
+    <a class="ghost" id="repCsv" href="/api/projects/${state.projectId}/report?format=csv" download>Download data</a>
   </div>`;
 
   const bar = `<div class="taskbar">
@@ -970,7 +975,9 @@ async function viewQuestions() {
                   <div class="pcnum">${pct(p.rate)}</div>
                   <div class="barcell" style="width:150px"><span class="bar ${(p.rate || 0) < 0.2 ? 'hot' : ''}"><i style="width:${Math.round((p.rate || 0) * 100)}%"></i></span></div>
                   <div class="pcnum">${p.avg_position ? `pos ${p.avg_position.toFixed(1)}` : ''}</div>
-                </div>`
+                  <div><button class="seeanswer" data-persona-gap="${p.persona_id || 'none'}">Why</button></div>
+                </div>
+                <div class="answers" id="gap-${p.persona_id || 'none'}" hidden></div>`
               )
               .join('')}
           </div>`
@@ -2012,6 +2019,57 @@ function applyQuestionView() {
 }
 
 document.addEventListener('click', async (e) => {
+  const gap = e.target.closest('[data-persona-gap]');
+  if (gap) {
+    const id = gap.dataset.personaGap;
+    const box = document.getElementById(`gap-${id}`);
+    if (!box.hidden) { box.hidden = true; gap.textContent = 'Why'; return; }
+
+    gap.textContent = 'Reading';
+    const d = await api(`/api/projects/${state.projectId}/persona-gap/${id}`);
+    gap.textContent = 'Hide';
+    box.hidden = false;
+
+    box.innerHTML = `<div class="gapbox">
+      <p class="gapbrief">${esc(d.brief || '')}</p>
+      ${
+        d.sources?.length
+          ? `<div class="gapcol">
+              <h4>Sources shaping their answers</h4>
+              ${d.sources
+                .slice(0, 6)
+                .map(
+                  (s) => `<div class="gaprow"><span>${esc(s.domain)}</span><span class="pcnum">${s.questions} questions</span></div>`
+                )
+                .join('')}
+            </div>`
+          : ''
+      }
+      ${
+        d.ahead?.length
+          ? `<div class="gapcol">
+              <h4>Named to them more than you</h4>
+              ${d.ahead
+                .map((a) => `<div class="gaprow"><span>${esc(a.name)}</span><span class="pcnum">${pct(a.rate)}</span></div>`)
+                .join('')}
+            </div>`
+          : ''
+      }
+      ${
+        d.lost?.length
+          ? `<div class="gapcol">
+              <h4>Their questions you never appear in</h4>
+              ${d.lost
+                .slice(0, 6)
+                .map((q) => `<div class="gaprow"><span>${esc(String(q.text).slice(0, 76))}</span><span class="pcnum">${q.volume || ''}</span></div>`)
+                .join('')}
+            </div>`
+          : ''
+      }
+    </div>`;
+    return;
+  }
+
   const again = e.target.closest('[data-reask]');
   if (again) {
     const id = again.dataset.reask;
@@ -2193,6 +2251,24 @@ document.addEventListener('mouseout', (e) => {
   wrap.querySelector('.readout')?.setAttribute('hidden', '');
   const cross = wrap.querySelector('.crosshair');
   if (cross) cross.style.display = 'none';
+});
+
+/** Keep the report links pointed at the chosen period. */
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'repFrom' && e.target.id !== 'repTo') return;
+
+  state.repFrom = $('repFrom')?.value || '';
+  state.repTo = $('repTo')?.value || '';
+
+  const range = [];
+  if (state.repFrom) range.push(`from=${state.repFrom}`);
+  if (state.repTo) range.push(`to=${state.repTo}`);
+  const q = range.length ? `&${range.join('&')}` : '';
+
+  const open = $('repOpen');
+  const csv = $('repCsv');
+  if (open) open.href = `/api/projects/${state.projectId}/report?print=1${q}`;
+  if (csv) csv.href = `/api/projects/${state.projectId}/report?format=csv${q}`;
 });
 
 document.addEventListener('input', (e) => {

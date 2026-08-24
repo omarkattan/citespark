@@ -1569,6 +1569,28 @@ app.get('/api/projects/:id/duplicate-questions', requireAuth, wrap(async (req, r
   });
 }));
 
+/**
+ * Why a given audience cannot see you.
+ *
+ * The score says which buyer is missing you; this says what is in the way,
+ * which is the difference between a measurement and a brief.
+ */
+app.get('/api/projects/:id/persona-gap/:personaId', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+
+  const raw = req.params.personaId;
+  const personaId = raw === 'none' ? null : Number(raw);
+
+  if (personaId) {
+    const owns = await one('SELECT id FROM personas WHERE id = $1 AND project_id = $2', [personaId, project.id]);
+    if (!owns) return res.status(404).json({ error: 'Not found' });
+  }
+
+  const { personaGap } = await import('./lib/personas.js');
+  res.json((await personaGap(project.id, personaId)) || { brief: 'Nothing measured yet.' });
+}));
+
 /** Visibility by buyer type, for the app rather than the report. */
 app.get('/api/projects/:id/by-persona', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
@@ -1709,7 +1731,9 @@ app.get('/api/projects/:id/report', requireAuth, wrap(async (req, res) => {
   if (!project) return;
 
   const { buildReport } = await import('./lib/report.js');
-  const report = await buildReport(project.id);
+  // A period makes the document about a window rather than about everything,
+  // which is what lets two reports be compared.
+  const report = await buildReport(project.id, { from: req.query.from, to: req.query.to });
   const format = String(req.query.format || 'html');
 
   const stamp = new Date().toISOString().slice(0, 10);

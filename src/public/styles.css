@@ -1919,3 +1919,41 @@ button.danger:hover * {
 .pcrow .bar { display: block; height: 9px; background: var(--line-2); border-radius: 3px; overflow: hidden; }
 .pcrow .bar i { display: block; height: 100%; background: var(--you); border-radius: 3px; }
 .pcrow .bar.hot i { background: var(--alert); }
+
+/* why one audience cannot see you */
+.gapbox { padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--line-2); }
+.gapbrief { font-size: 14px; line-height: 1.6; color: var(--ink); margin: 0 0 14px; }
+.gapcol { margin-bottom: 12px; }
+.gapcol h4 {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 500;
+  margin: 0 0 6px;
+}
+.gaprow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--ink-2);
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+.gaprow:last-child { border-bottom: none; }
+
+/* choosing the period a report covers */
+.reportdates { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.reportdates input {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+  color: var(--ink);
+}
+.reportdates span { font-size: 12px; color: var(--ink-3); }
+@media (max-width: 700px) { .reportdates { flex: 1 1 100%; } }

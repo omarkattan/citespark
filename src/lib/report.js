@@ -218,7 +218,7 @@ async function citedPagePatterns(projectId) {
  * times more often than at the start. A rate over a changing denominator is
  * not a trend, it is an artefact.
  */
-async function trend(projectId) {
+async function trend(projectId, period = {}) {
   const all = await many(
     `SELECT r.cycle_date,
             COUNT(*) FILTER (WHERE m.mentioned)::float / NULLIF(COUNT(*), 0) AS rate,
@@ -228,17 +228,26 @@ async function trend(projectId) {
      JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
      WHERE r.project_id = $1 AND r.ok
+       AND ($2::date IS NULL OR r.cycle_date >= $2)
+       AND ($3::date IS NULL OR r.cycle_date <= $3)
      GROUP BY r.cycle_date ORDER BY r.cycle_date`,
-    [projectId]
+    [projectId, period.from, period.to]
   );
 
   // Questions measured in every cycle. This is the only set where a change
   // in rate means something changed in the world rather than in our setup.
   const stable = await many(
-    `WITH cycles AS (SELECT DISTINCT cycle_date FROM runs WHERE project_id = $1 AND ok),
+    `WITH cycles AS (
+           SELECT DISTINCT cycle_date FROM runs
+           WHERE project_id = $1 AND ok
+             AND ($2::date IS NULL OR cycle_date >= $2)
+             AND ($3::date IS NULL OR cycle_date <= $3)
+         ),
          everywhere AS (
            SELECT r.prompt_id FROM runs r
            WHERE r.project_id = $1 AND r.ok
+             AND ($2::date IS NULL OR r.cycle_date >= $2)
+             AND ($3::date IS NULL OR r.cycle_date <= $3)
            GROUP BY r.prompt_id
            HAVING COUNT(DISTINCT r.cycle_date) = (SELECT COUNT(*) FROM cycles)
          )
@@ -249,8 +258,10 @@ async function trend(projectId) {
      JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
      WHERE r.project_id = $1 AND r.ok AND r.prompt_id IN (SELECT prompt_id FROM everywhere)
+       AND ($2::date IS NULL OR r.cycle_date >= $2)
+       AND ($3::date IS NULL OR r.cycle_date <= $3)
      GROUP BY r.cycle_date ORDER BY r.cycle_date`,
-    [projectId]
+    [projectId, period.from, period.to]
   );
 
   return { all, stable };
@@ -264,8 +275,16 @@ async function trend(projectId) {
  * cannot see you. That is the finding the feature exists to produce, and it
  * appeared nowhere in the report.
  */
-async function byPersona(projectId) {
-  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [projectId]))?.d;
+async function byPersona(projectId, period = {}) {
+  const cycle = (
+    await one(
+      `SELECT MAX(cycle_date) AS d FROM runs
+       WHERE project_id = $1 AND ok
+         AND ($2::date IS NULL OR cycle_date >= $2)
+         AND ($3::date IS NULL OR cycle_date <= $3)`,
+      [projectId, period?.from ?? null, period?.to ?? null]
+    )
+  )?.d;
   if (!cycle) return [];
 
   return many(
@@ -409,7 +428,7 @@ async function aiTraffic(projectId) {
  * A report about your own visibility with no competitor in it cannot answer
  * the first question anyone asks, which is whether this is bad or normal.
  */
-async function rivals(projectId) {
+async function rivals(projectId, period = {}) {
   const day = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [projectId]))?.d;
   if (!day) return [];
 
@@ -460,7 +479,20 @@ function readable(text, personas = []) {
   return out.replace(/,\s*\./g, '.').trim();
 }
 
-export async function buildReport(projectId) {
+/**
+ * The period a report covers.
+ *
+ * Everything defaulted to "all cycles ever", so a monthly retainer document
+ * silently widened every month and two reports could not be compared. A
+ * window makes the document about a period rather than about everything.
+ */
+function windowFor({ from, to } = {}) {
+  const clean = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(String(d || '')) ? d : null);
+  return { from: clean(from), to: clean(to) };
+}
+
+export async function buildReport(projectId, range = {}) {
+  const period = windowFor(range);
   const project = await one('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!project) throw new Error('Project not found');
 
@@ -470,11 +502,11 @@ export async function buildReport(projectId) {
     persistence(projectId),
     sourceGaps(projectId),
     citedPagePatterns(projectId),
-    trend(projectId),
+    trend(projectId, period),
     completed(projectId),
     aiTraffic(projectId),
-    rivals(projectId),
-    byPersona(projectId)
+    rivals(projectId, period),
+    byPersona(projectId, period)
   ]);
 
   // The comparable set where there is one, the whole set otherwise.
@@ -489,6 +521,12 @@ export async function buildReport(projectId) {
   return {
     project: { name: project.name, domain: project.domain, brand: project.brand_name },
     generatedAt: new Date().toISOString(),
+    // Stated on the page, so two reports can be told apart at a glance.
+    period: {
+      from: period.from || (points.all[0] ? new Date(points.all[0].cycle_date).toISOString().slice(0, 10) : null),
+      to: period.to || (points.all.at(-1) ? new Date(points.all.at(-1).cycle_date).toISOString().slice(0, 10) : null),
+      chosen: Boolean(period.from || period.to)
+    },
     trend: {
       points: series,
       all: points.all,

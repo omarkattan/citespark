@@ -1860,6 +1860,49 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('a report covers a period you choose', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../src/lib/report-html.js', import.meta.url), 'utf8');
+
+  // Everything defaulted to all cycles ever, so a monthly document silently
+  // widened each month and two reports could not be compared.
+  assert.ok(/function windowFor/.test(lib), 'the report needs a window');
+  assert.ok(/\$2::date IS NULL OR/.test(lib), 'applied in the queries, not after them');
+  assert.ok(/from: req\.query\.from, to: req\.query\.to/.test(server), 'and reachable from the route');
+
+  // A date that is not a date must not reach the query.
+  assert.ok(/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$/.test(lib), 'the dates must be validated');
+
+  // Two reports are only comparable if each says what it covers.
+  assert.ok(/r\.period\?\.from && r\.period\?\.to/.test(html), 'the page states its period');
+  assert.ok(/id="repFrom"/.test(app) && /id="repTo"/.test(app), 'and it is choosable');
+  assert.ok(/format=csv\$\{q\}/.test(app), 'with the data export following the same window');
+});
+
+await test('a persona gap is a brief, not another score', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/personas.js', import.meta.url), 'utf8');
+  const fn = lib.slice(lib.indexOf('export async function personaGap'));
+
+  // Knowing one audience sees you in 8% and another in 62% is a measurement.
+  // The brief is what differs underneath.
+  assert.ok(/p\.persona_id = \$3/.test(fn), 'the query must be scoped to that audience');
+  assert.ok(/FROM citations c/.test(fn), 'sources shaping their answers');
+  assert.ok(/kind IN \('owned', 'competitor'\)/.test(fn), 'who is named to them instead');
+  assert.ok(/HAVING COUNT\(\*\) FILTER \(WHERE m\.mentioned\) = 0/.test(fn), 'and the questions they lose');
+
+  // Three tables is homework. One paragraph is a brief.
+  assert.ok(/function buildBrief/.test(lib), 'the findings must be assembled into words');
+  assert.ok(/faster than ranking a new page/.test(lib), 'and say what to do about it');
+
+  // A source that shapes everyone's answers is a different finding from one
+  // that shapes the answers of the buyer who cannot see you.
+  assert.ok(/personaId \? 'p\.persona_id = \$3' : 'p\.persona_id IS NULL'/.test(fn), 'plain questions are their own audience');
+});
+
 await test('visibility is reported by buyer type, not only in aggregate', async () => {
   const { readFileSync } = await import('node:fs');
   const lib = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');
