@@ -1860,6 +1860,24 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('the report is offered like a deliverable, and never hidden', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../src/public/styles.css', import.meta.url), 'utf8');
+
+  // It was a ghost link at the end of a right-aligned row, which reads as a
+  // minor control next to the real ones.
+  assert.ok(/class="reportbar"/.test(app), 'the report needs its own bar');
+  assert.ok(/<a class="btn" href="\/api\/projects\/\$\{state\.projectId\}\/report"/.test(app), 'and a primary button, not a ghost link');
+  assert.ok(/\.reportbar \{[\s\S]{0,400}border: 1px solid var\(--you\)/.test(css), 'visibly separated from the list below it');
+
+  // It sat below an early return, so filtering to a view with no tasks
+  // removed the deliverable from the screen entirely.
+  const view = app.slice(app.indexOf('const reportBar'), app.indexOf('const STATUS_LABEL'));
+  const empties = view.match(/return reportBar \+ bar/g) || [];
+  assert.ok(empties.length >= 2, 'both the empty and populated paths must include it');
+});
+
 await test('the traffic panel says more than a session count', async () => {
   const { readFileSync } = await import('node:fs');
   const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');

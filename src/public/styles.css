@@ -1886,3 +1886,30 @@ button.danger:hover * {
 .upsell-plan li { font-size: 13.5px; color: var(--ink-2); padding: 3px 0; }
 .upsell-plan li::before { content: '\2713'; color: var(--you); margin-right: 7px; }
 .upsell-plan .btn { width: 100%; }
+
+/*
+ * The report is the deliverable, so it should look like one.
+ *
+ * It was a ghost link at the end of a right-aligned row, which reads as a
+ * minor control next to the real ones, and it sat below an early return so an
+ * empty filter removed it entirely.
+ */
+.reportbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  border: 1px solid var(--you);
+  border-radius: var(--radius);
+  background: linear-gradient(0deg, rgba(21, 122, 74, .04), rgba(21, 122, 74, .04)), var(--panel);
+}
+.reportbar-text { flex: 1 1 260px; min-width: 0; }
+.reportbar-text b { display: block; font-size: 15px; color: var(--ink); }
+.reportbar-text span { font-size: 13px; color: var(--ink-2); }
+.reportbar .btn { flex: none; }
+.reportbar .ghost { flex: none; }
+@media (max-width: 620px) {
+  .reportbar .btn, .reportbar .ghost { flex: 1 1 auto; text-align: center; }
+}

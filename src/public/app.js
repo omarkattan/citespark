@@ -193,9 +193,20 @@ async function viewActions() {
   const tab = (id, label, n) =>
     `<button class="tfilter ${filter === id ? 'is-on' : ''}" data-task-filter="${id}">${label}${n !== null ? ` <span>${n}</span>` : ''}</button>`;
 
-  const reportBar = `<div class="row" style="justify-content:flex-end;gap:8px;margin-bottom:12px">
-    <a class="ghost" href="/api/projects/${state.projectId}/report" target="_blank" rel="noopener">Open the full report</a>
-    <a class="ghost" href="/api/projects/${state.projectId}/report?format=csv" download>Actions as CSV</a>
+  /**
+   * The report is the deliverable, so it should look like one.
+   *
+   * A ghost link at the end of a right-aligned row reads as a minor control,
+   * and it sat below an early return, so filtering to an empty view removed
+   * it altogether.
+   */
+  const reportBar = `<div class="reportbar">
+    <div class="reportbar-text">
+      <b>Client report</b>
+      <span>Everything measured so far, ready to send or print.</span>
+    </div>
+    <a class="btn" href="/api/projects/${state.projectId}/report" target="_blank" rel="noopener">Open the report</a>
+    <a class="ghost" href="/api/projects/${state.projectId}/report?format=csv" download>Download CSV</a>
   </div>`;
 
   const bar = `<div class="taskbar">
@@ -218,8 +229,10 @@ async function viewActions() {
         </div>`
       : '';
 
+  // Before the early return: an empty filter must not hide the deliverable.
   if (!data.tasks.length) {
-    return bar + `<div class="empty"><h2>${
+    // The report covers every cycle, so an empty filter is no reason to hide it.
+    return reportBar + bar + `<div class="empty"><h2>${
       filter === 'done' ? 'Nothing finished yet' : filter === 'dismissed' ? 'Nothing dismissed' : 'Nothing to do here'
     }</h2><p>${
       filter === 'active'
