@@ -862,6 +862,13 @@ async function viewQuestions() {
   const dupes = await api(`/api/projects/${state.projectId}/duplicate-questions`).catch(() => null);
 
   /**
+   * The whole premise of buyer types is that the answer changes with who
+   * asks. A per-question list cannot show that; a comparison can, and it was
+   * the one view the feature was missing.
+   */
+  const byPersona = await api(`/api/projects/${state.projectId}/by-persona`).catch(() => null);
+
+  /**
    * The list is long and every question is one of several kinds. Sorting and
    * grouping are the difference between a list and something you can work
    * through, and everything needed is already on each row.
@@ -948,6 +955,27 @@ async function viewQuestions() {
       <span class="meta" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">filled tick = you were named</span>
     </div>
     ${waiting ? `<p class="hint" style="margin:0 0 12px">${waiting} question${waiting === 1 ? ' has' : 's have'} not been asked yet. Run a cycle to measure ${waiting === 1 ? 'it' : 'them'}.</p>` : ''}
+    ${
+      byPersona?.rows?.length > 1
+        ? `<div class="panel" style="margin-bottom:16px">
+            <div class="panel-head"><h2>Who can see you</h2></div>
+            <p class="hint" style="margin:0 0 12px">
+              The same question gets a different answer depending on who asks. One number for everyone hides which
+              buyers cannot see you.
+            </p>
+            ${byPersona.rows
+              .map(
+                (p) => `<div class="pcrow">
+                  <div><b>${esc(p.persona)}</b><br /><span class="dupewho">${p.questions} question${p.questions === 1 ? '' : 's'}</span></div>
+                  <div class="pcnum">${pct(p.rate)}</div>
+                  <div class="barcell" style="width:150px"><span class="bar ${(p.rate || 0) < 0.2 ? 'hot' : ''}"><i style="width:${Math.round((p.rate || 0) * 100)}%"></i></span></div>
+                  <div class="pcnum">${p.avg_position ? `pos ${p.avg_position.toFixed(1)}` : ''}</div>
+                </div>`
+              )
+              .join('')}
+          </div>`
+        : ''
+    }
     ${
       dupes?.wasted
         ? `<div class="callout warn" style="margin:0 0 14px">

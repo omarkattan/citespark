@@ -1569,6 +1569,34 @@ app.get('/api/projects/:id/duplicate-questions', requireAuth, wrap(async (req, r
   });
 }));
 
+/** Visibility by buyer type, for the app rather than the report. */
+app.get('/api/projects/:id/by-persona', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+
+  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [project.id]))?.d;
+  if (!cycle) return res.json({ rows: [] });
+
+  const rows = await many(
+    `SELECT COALESCE(pe.name, 'Asked plainly') AS persona, pe.id AS persona_id,
+            COUNT(DISTINCT p.id)::int AS questions,
+            COUNT(*) FILTER (WHERE m.mentioned)::float / NULLIF(COUNT(*), 0) AS rate,
+            AVG(m.ordinal) FILTER (WHERE m.mentioned)::float AS avg_position
+     FROM runs r
+     JOIN prompts p ON p.id = r.prompt_id
+     LEFT JOIN personas pe ON pe.id = p.persona_id
+     JOIN mentions m ON m.run_id = r.id
+     JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
+     WHERE r.project_id = $1 AND r.ok AND r.cycle_date = $2
+     GROUP BY pe.id, pe.name
+     HAVING COUNT(*) > 0
+     ORDER BY 4 DESC NULLS LAST`,
+    [project.id, cycle]
+  );
+
+  res.json({ rows, cycle });
+}));
+
 /* ---------------- page checks ---------------- */
 
 app.get('/api/projects/:id/page-checks', requireAuth, wrap(async (req, res) => {

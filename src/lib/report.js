@@ -257,6 +257,39 @@ async function trend(projectId) {
 }
 
 /**
+ * Visibility by buyer type.
+ *
+ * The premise of personas is that the same question gets a different answer
+ * depending on who asks it, so a single visibility number hides which buyers
+ * cannot see you. That is the finding the feature exists to produce, and it
+ * appeared nowhere in the report.
+ */
+async function byPersona(projectId) {
+  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [projectId]))?.d;
+  if (!cycle) return [];
+
+  return many(
+    `SELECT COALESCE(pe.name, 'Asked plainly') AS persona,
+            pe.descriptor,
+            COUNT(DISTINCT p.id)::int AS questions,
+            COUNT(*) FILTER (WHERE m.mentioned)::float / NULLIF(COUNT(*), 0) AS named_rate,
+            COUNT(*) FILTER (WHERE m.mentioned)::int AS named,
+            COUNT(*)::int AS answers,
+            AVG(m.ordinal) FILTER (WHERE m.mentioned)::float AS avg_position
+     FROM runs r
+     JOIN prompts p ON p.id = r.prompt_id
+     LEFT JOIN personas pe ON pe.id = p.persona_id
+     JOIN mentions m ON m.run_id = r.id
+     JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
+     WHERE r.project_id = $1 AND r.ok AND r.cycle_date = $2
+     GROUP BY pe.id, pe.name, pe.descriptor
+     HAVING COUNT(*) > 0
+     ORDER BY 4 DESC NULLS LAST`,
+    [projectId, cycle]
+  );
+}
+
+/**
  * The same finding stated forty times is one finding.
  *
  * "Invisible for: <question>" appeared twenty-five times in one report. That
@@ -433,14 +466,15 @@ export async function buildReport(projectId) {
 
   const personas = await many('SELECT name, descriptor FROM personas WHERE project_id = $1', [projectId]);
 
-  const [p, s, patterns, points, done, traffic, competitors] = await Promise.all([
+  const [p, s, patterns, points, done, traffic, competitors, personaRows] = await Promise.all([
     persistence(projectId),
     sourceGaps(projectId),
     citedPagePatterns(projectId),
     trend(projectId),
     completed(projectId),
     aiTraffic(projectId),
-    rivals(projectId)
+    rivals(projectId),
+    byPersona(projectId)
   ]);
 
   // The comparable set where there is one, the whole set otherwise.
@@ -472,6 +506,7 @@ export async function buildReport(projectId) {
       cycles: points.all.length
     },
     standings: competitors,
+    personas: personaRows,
     traffic,
     themes: groupActions(p.items),
     persistence: p,

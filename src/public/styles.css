@@ -1913,3 +1913,9 @@ button.danger:hover * {
 @media (max-width: 620px) {
   .reportbar .btn, .reportbar .ghost { flex: 1 1 auto; text-align: center; }
 }
+
+/* bars inside a row of figures */
+.pcrow .barcell { flex: none; }
+.pcrow .bar { display: block; height: 9px; background: var(--line-2); border-radius: 3px; overflow: hidden; }
+.pcrow .bar i { display: block; height: 100%; background: var(--you); border-radius: 3px; }
+.pcrow .bar.hot i { background: var(--alert); }

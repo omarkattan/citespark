@@ -1860,6 +1860,26 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('visibility is reported by buyer type, not only in aggregate', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../src/lib/report-html.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+
+  // The premise of buyer types is that the answer changes with who asks, so
+  // a single visibility number hides which buyers cannot see you. That is
+  // the finding the feature exists to produce, and it appeared nowhere.
+  assert.ok(/async function byPersona/.test(lib), 'the report must compute it');
+  assert.ok(/personas: personaRows/.test(lib), 'and return it');
+  assert.ok(/Who can see you, and who cannot/.test(html), 'and show it');
+  assert.ok(/by-persona/.test(server) && /by-persona/.test(app), 'the app needs it too');
+
+  // A gap between audiences is a brief with a person attached, which is more
+  // useful than "raise visibility".
+  assert.ok(/separate your best and worst audience/.test(html), 'the spread must be called out');
+});
+
 await test('the report downloads as a PDF, not as a file to open later', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

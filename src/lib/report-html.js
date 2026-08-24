@@ -322,6 +322,42 @@ ${
     : `<div class="callout warn">${esc(r.patterns.note)}</div>`
 }
 
+${
+  r.personas?.length > 1
+    ? `<h2>Who can see you, and who cannot</h2>
+      <p class="note">
+        The same question gets a different answer depending on who is asking. A single visibility figure averages
+        those together and hides the buyers you are invisible to.
+      </p>
+      <table><thead><tr><th>Buyer type</th><th class="num">Questions</th><th class="num">Named in</th><th class="barcell"></th><th class="num">Average position</th></tr></thead><tbody>
+      ${r.personas
+        .map(
+          (p) => `<tr>
+            <td><b>${esc(p.persona)}</b>${p.descriptor ? `<br /><span class="url">${esc(String(p.descriptor).slice(0, 80))}</span>` : ''}</td>
+            <td class="num">${p.questions}</td>
+            <td class="num">${pct(p.named_rate)}</td>
+            <td class="barcell"><span class="bar ${(p.named_rate || 0) < 0.2 ? 'hot' : (p.named_rate || 0) < 0.4 ? 'warm' : ''}"><i style="width:${Math.round((p.named_rate || 0) * 100)}%"></i></span></td>
+            <td class="num">${p.avg_position ? p.avg_position.toFixed(1) : '&mdash;'}</td>
+          </tr>`
+        )
+        .join('')}
+      </tbody></table>
+      ${(() => {
+        const best = r.personas[0];
+        const worst = r.personas[r.personas.length - 1];
+        const gap = Math.round(((best.named_rate || 0) - (worst.named_rate || 0)) * 100);
+        return gap >= 15
+          ? `<div class="callout warn">
+              <b>${gap} points separate your best and worst audience.</b>
+              ${esc(best.persona)} sees you in ${pct(best.named_rate)} of answers; ${esc(worst.persona)} sees you in
+              ${pct(worst.named_rate)}. That gap is a content problem with a specific audience attached, which is a
+              more tractable brief than raising visibility in general.
+            </div>`
+          : '';
+      })()}`
+    : ''
+}
+
 <h2>What the assistants actually sent</h2>
 ${
   r.traffic?.total
