@@ -444,21 +444,137 @@ ${
 }
 
 /** The same actions as a spreadsheet, for anyone who wants to sort them. */
+/**
+ * Everything the report knows, as one spreadsheet.
+ *
+ * This exported the action list alone, which is the least of what has been
+ * measured: the citations, the traffic and the landing pages were all missing,
+ * so anyone wanting to do their own analysis had to go back and ask.
+ *
+ * One file with a section column rather than several files, because a single
+ * attachment is what actually reaches a client.
+ */
+/**
+ * Everything measured, in one file, as sections.
+ *
+ * This held only the action list, which is the smallest and least reusable
+ * part of what we know. A client asking for the data wants the citations, the
+ * traffic and the questions too, and one file with labelled sections is
+ * easier to hand over than four.
+ */
 export function reportCsv(r) {
-  const rows = [['title', 'type', 'standing', 'cycles_seen', 'total_cycles', 'first_seen', 'last_seen', 'url']];
-  for (const i of r.persistence.items) {
-    rows.push([
+  const rows = [];
+  const section = (title, header, body) => {
+    if (!body.length) return;
+    if (rows.length) rows.push([]);
+    rows.push([`# ${title}`]);
+    rows.push(header);
+    rows.push(...body);
+  };
+
+  const day = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+
+  section(
+    'Summary',
+    ['metric', 'value'],
+    [
+      ['Brand', r.project.brand],
+      ['Domain', r.project.domain],
+      ['Generated', day(r.generatedAt)],
+      ['Measurement cycles', r.trend.cycles],
+      ['Named in, most recent cycle', r.trend.last == null ? '' : `${Math.round(r.trend.last * 100)}%`],
+      ['Measured on a like-for-like question set', r.trend.comparable ? 'yes' : 'no'],
+      ['Questions in that set', r.trend.comparableCount || ''],
+      ['Times named, first cycle', r.trend.firstNamed ?? ''],
+      ['Times named, latest cycle', r.trend.lastNamed ?? ''],
+      ['Questions asked, first cycle', r.trend.firstQuestions ?? ''],
+      ['Questions asked, latest cycle', r.trend.lastQuestions ?? ''],
+      ['Cycles citing our own site', `${r.sources.ownCited} of ${r.sources.totalCycles}`],
+      ['AI sessions, last 90 days', r.traffic?.total ?? 'not connected'],
+      ['Conversions from AI traffic', r.traffic?.conversions ?? '']
+    ]
+  );
+
+  section(
+    'Visibility by cycle',
+    ['cycle_date', 'questions_asked', 'named_in_pct'],
+    (r.trend.all || []).map((p) => [day(p.cycle_date), p.questions, Math.round((p.rate || 0) * 100)])
+  );
+
+  section(
+    'Where we stand against tracked competitors',
+    ['brand', 'is_us', 'named_in_pct'],
+    (r.standings || []).map((b) => [b.name, b.kind === 'owned' ? 'yes' : 'no', Math.round((b.rate || 0) * 100)])
+  );
+
+  section(
+    'AI traffic by assistant, last 90 days',
+    ['assistant', 'sessions', 'conversions'],
+    (r.traffic?.sources || []).map((x) => [x.source, x.sessions, Math.round(x.conversions)])
+  );
+
+  // The pages assistants actually send people to, which is the thing a
+  // client can act on directly.
+  section(
+    'Pages AI traffic lands on',
+    ['url', 'sessions', 'conversions', 'conversion_rate_pct'],
+    (r.traffic?.pages || []).map((p) => [
+      p.page,
+      p.sessions,
+      Math.round(p.conversions),
+      p.sessions ? Math.round((p.conversions / p.sessions) * 100) : 0
+    ])
+  );
+
+  section(
+    'Sources shaping answers in this category',
+    ['domain', 'cycles_seen', 'questions', 'citations', 'appears_every_cycle', 'example_url'],
+    (r.sources.sources || []).map((x) => [
+      x.domain,
+      x.cycles,
+      x.questions,
+      x.citations,
+      x.persistent ? 'yes' : 'no',
+      x.example_url || ''
+    ])
+  );
+
+  section(
+    'What cited pages have in common',
+    ['feature', 'share_of_cited_pages_pct'],
+    (r.patterns?.features || []).map(([label, pctValue]) => [label, pctValue])
+  );
+
+  section(
+    'Findings grouped by theme',
+    ['theme', 'questions_affected', 'recurring'],
+    (r.themes || []).map((t) => [t.label, t.items.length, t.recurring])
+  );
+
+  section(
+    'Every finding',
+    ['title', 'type', 'standing', 'cycles_seen', 'total_cycles', 'first_seen', 'last_seen', 'url'],
+    (r.persistence.items || []).map((i) => [
       i.title,
       i.type,
       i.standing,
       i.cycles,
       r.persistence.totalCycles,
-      i.first_seen ? new Date(i.first_seen).toISOString().slice(0, 10) : '',
-      i.last_seen ? new Date(i.last_seen).toISOString().slice(0, 10) : '',
+      day(i.first_seen),
+      day(i.last_seen),
       i.target_url || ''
-    ]);
-  }
+    ])
+  );
+
+  section(
+    'Completed',
+    ['title', 'completed_on'],
+    (r.completed || []).map((c) => [c.title, day(c.completed_at)])
+  );
+
+  section('How to read this', ['note'], (r.caveats || []).map((c) => [c]));
+
   return rows
-    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-    .join('\n');
+    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\r\n');
 }

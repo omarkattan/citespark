@@ -203,10 +203,11 @@ async function viewActions() {
   const reportBar = `<div class="reportbar">
     <div class="reportbar-text">
       <b>Client report</b>
-      <span>Everything measured so far, ready to send or print.</span>
+      <span>Open it to read or print to PDF. Download the data for every citation, page and finding.</span>
     </div>
     <a class="btn" href="/api/projects/${state.projectId}/report" target="_blank" rel="noopener">Open the report</a>
-    <a class="ghost" href="/api/projects/${state.projectId}/report?format=csv" download>Download CSV</a>
+    <a class="ghost" href="/api/projects/${state.projectId}/report?download=1" download>Download report</a>
+    <a class="ghost" href="/api/projects/${state.projectId}/report?format=csv" download>Download data</a>
   </div>`;
 
   const bar = `<div class="taskbar">

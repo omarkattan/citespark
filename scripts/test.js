@@ -1860,6 +1860,31 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('the data export carries more than the action list', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../src/lib/report-html.js', import.meta.url), 'utf8');
+  const fn = html.slice(html.indexOf('export function reportCsv'));
+
+  // It held only the findings, which is the smallest and least reusable part
+  // of what we know. Somebody asking for the data wants the citations, the
+  // traffic and the questions too.
+  for (const heading of [
+    'Summary',
+    'Visibility by cycle',
+    'Where we stand against tracked competitors',
+    'AI traffic by assistant',
+    'Pages AI traffic lands on',
+    'Sources shaping answers',
+    'Every finding'
+  ]) {
+    assert.ok(fn.includes(heading), `the export must include ${heading}`);
+  }
+
+  // Sections need labels, or one file of mixed shapes is unreadable.
+  assert.ok(/rows\.push\(\[`# \$\{title\}`\]\)/.test(fn), 'each section must be named in the file');
+  assert.ok(/How to read this/.test(fn), 'and the caveats travel with the data');
+});
+
 await test('the report is offered like a deliverable, and never hidden', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
