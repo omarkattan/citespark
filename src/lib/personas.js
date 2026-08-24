@@ -336,18 +336,30 @@ export async function personaGap(projectId, personaId) {
   // The questions this audience asks where the brand never appears. Ordered
   // by demand, so the list starts where the work is worth most.
   const lost = await many(
-    `SELECT p.id, p.text, p.ai_search_volume AS volume,
+    `SELECT p.id, p.text, p.ai_search_volume AS volume, pe.descriptor,
             COUNT(*) FILTER (WHERE m.mentioned)::int AS named
      FROM runs r
      JOIN prompts p ON p.id = r.prompt_id
+     LEFT JOIN personas pe ON pe.id = p.persona_id
      JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
      WHERE r.project_id = $1 AND r.ok AND r.cycle_date = $2 AND ${where}
-     GROUP BY p.id, p.text, p.ai_search_volume
+     GROUP BY p.id, p.text, p.ai_search_volume, pe.descriptor
      HAVING COUNT(*) FILTER (WHERE m.mentioned) = 0
      ORDER BY p.ai_search_volume DESC NULLS LAST LIMIT 12`,
     args
   );
+
+  /**
+   * Show the question, not the persona prefix.
+   *
+   * Every question for one audience begins with the same descriptor, and the
+   * descriptor is longer than the space the list has, so five different
+   * questions rendered as five identical lines.
+   */
+  for (const q of lost) {
+    q.asked = baseQuestion(q.text, q.descriptor ? [{ descriptor: q.descriptor }] : []);
+  }
 
   const us = named.find((n) => n.kind === 'owned');
   const ahead = named.filter((n) => n.kind === 'competitor' && (n.rate || 0) > (us?.rate || 0));
@@ -381,7 +393,7 @@ function buildBrief({ brand, rate, sources, ahead, lost }) {
 
   if (lost.length) {
     parts.push(
-      `${lost.length} of their questions never mention you at all, starting with "${String(lost[0].text).slice(0, 80)}".`
+      `${lost.length} of their questions never mention you at all, starting with "${String(lost[0].asked || lost[0].text).slice(0, 80)}".`
     );
   }
 

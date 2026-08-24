@@ -1860,6 +1860,41 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('a long question truncates but can still be read', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const render = app.slice(app.indexOf('const full = String(q.asked || q.text)'), app.indexOf('const full = String(q.asked || q.text)') + 600);
+
+  // Cutting a question at ninety characters loses the part that says what it
+  // is actually asking, which is the part someone has to write against.
+  assert.ok(/full\.length > 90/.test(render), 'long questions are truncated');
+  assert.ok(/data-more="\$\{esc\(full\)\}"/.test(render), 'and carry the whole thing for expanding');
+  assert.ok(/read more/.test(render));
+
+  // A literal backslash-u renders as text rather than an ellipsis.
+  assert.ok(!/\\\\u2026/.test(app), 'the ellipsis must be a character, not an escape');
+
+  const toggle = app.slice(app.indexOf("const more = e.target.closest('[data-more]')"), app.indexOf("const gap = e.target.closest"));
+  assert.ok(/dataset\.expanded/.test(toggle), 'expanding must be reversible');
+  assert.ok(/showing \? 'read more' : 'less'/.test(toggle), 'and the label says which way it goes');
+});
+
+await test('a persona question shows the question, not the prefix', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/personas.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Every question for one audience begins with the same descriptor, and the
+  // descriptor is longer than the space the list has, so five different
+  // questions rendered as five identical lines that looked like duplicates.
+  const fn = lib.slice(lib.indexOf('export async function personaGap'));
+  assert.ok(/q\.asked = baseQuestion/.test(fn), 'the prefix must be stripped for display');
+  assert.ok(/pe\.descriptor/.test(fn), 'which means the query has to return it');
+  assert.ok(/lost\[0\]\.asked \|\| lost\[0\]\.text/.test(fn), 'and the written brief uses it too');
+
+  assert.ok(/q\.asked \|\| q\.text/.test(app), 'the panel shows the question itself');
+});
+
 await test('nothing in the report shares a key with anything else', async () => {
   const { readFileSync } = await import('node:fs');
   const lib = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');

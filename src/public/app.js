@@ -2019,6 +2019,21 @@ function applyQuestionView() {
 }
 
 document.addEventListener('click', async (e) => {
+  /** Swap the truncated text for the whole thing, and back. */
+  const more = e.target.closest('[data-more]');
+  if (more) {
+    const holder = more.parentElement;
+    const showing = holder.dataset.expanded === '1';
+    const full = more.dataset.more;
+    const short = `${full.slice(0, 90).trimEnd()}…`;
+
+    holder.dataset.expanded = showing ? '0' : '1';
+    holder.innerHTML = `${esc(showing ? short : full)} <button class="moretext" data-more="${esc(full)}">${
+      showing ? 'read more' : 'less'
+    }</button>`;
+    return;
+  }
+
   const gap = e.target.closest('[data-persona-gap]');
   if (gap) {
     const id = gap.dataset.personaGap;
@@ -2061,7 +2076,24 @@ document.addEventListener('click', async (e) => {
               <h4>Their questions you never appear in</h4>
               ${d.lost
                 .slice(0, 6)
-                .map((q) => `<div class="gaprow"><span>${esc(String(q.text).slice(0, 76))}</span><span class="pcnum">${q.volume || ''}</span></div>`)
+                /**
+                 * Truncated so the list stays scannable, expandable so the
+                 * question can be read in full. Cutting a question at ninety
+                 * characters loses the part that says what it is actually
+                 * asking, which is the part someone needs to write against.
+                 */
+                .map((q) => {
+                  const full = String(q.asked || q.text);
+                  const short = full.length > 90 ? `${full.slice(0, 90).trimEnd()}…` : full;
+                  return `<div class="gaprow">
+                    <span>${esc(short)}${
+                      full.length > 90
+                        ? ` <button class="moretext" data-more="${esc(full)}">read more</button>`
+                        : ''
+                    }</span>
+                    <span class="pcnum">${q.volume || ''}</span>
+                  </div>`;
+                })
                 .join('')}
             </div>`
           : ''
