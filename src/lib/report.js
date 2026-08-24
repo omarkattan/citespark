@@ -478,8 +478,6 @@ export async function buildReport(projectId) {
     sources: s,
     patterns,
     completed: done,
-    traffic,
-    competitors,
     /**
      * The three things worth doing first.
      *

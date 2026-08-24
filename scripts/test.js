@@ -3490,6 +3490,24 @@ await test('a citation is stored against the publisher', async () => {
 
 console.log('\nreport honesty');
 
+await test('everything the report computes is actually rendered', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../src/lib/report-html.js', import.meta.url), 'utf8');
+
+  // Traffic, competitor standings and grouped themes were all computed and
+  // then thrown away: the data was correct and the page never showed it.
+  for (const field of ['traffic', 'standings', 'themes']) {
+    // Shorthand or explicit key, either is fine.
+    assert.ok(new RegExp(`${field}[,:]`).test(lib), `${field} must be computed`);
+    assert.ok(new RegExp(`r\\.${field}`).test(html), `${field} must be rendered`);
+  }
+
+  // A percentage of a set already filtered to that condition is always 100%.
+  // Two rings both reading 100% told the reader nothing.
+  assert.ok(!/of these sources\s*\n?\s*appear every/.test(html), 'the tautological ring is gone');
+});
+
 await test('the report reads the table the sync writes to', async () => {
   const { readFileSync } = await import('node:fs');
   const report = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');

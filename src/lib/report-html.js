@@ -245,18 +245,27 @@ ${
 <h2>Who gets cited, and whether you ever do</h2>
 ${
   persistentSources.length
-    ? `<div class="rings">
-        ${ring(
-          Math.round((r.sources.ownCited / Math.max(r.sources.totalCycles, 1)) * 100),
-          'cycles citing your site',
-          r.sources.ownCited === 0 ? 'bad' : 'good'
-        )}
-        ${ring(
-          Math.round((persistentSources.filter((s) => s.cycles === r.sources.totalCycles).length / Math.max(persistentSources.length, 1)) * 100),
-          'of these sources appear every single cycle',
-          'warn'
-        )}
-      </div>
+    ? `${
+        r.standings?.length > 1
+          ? `<p class="note">Where you sit against the competitors you track, in the most recent cycle.</p>
+            <table><thead><tr><th>Brand</th><th class="num">Named in</th><th class="barcell"></th></tr></thead><tbody>
+            ${r.standings
+              .map(
+                (b) => `<tr>
+                  <td>${b.kind === 'owned' ? `<b>${esc(b.name)}</b> <span class="tag">you</span>` : esc(b.name)}</td>
+                  <td class="num">${pct(b.rate)}</td>
+                  <td class="barcell"><span class="bar ${b.kind === 'owned' ? '' : 'warm'}"><i style="width:${Math.round((b.rate || 0) * 100)}%"></i></span></td>
+                </tr>`
+              )
+              .join('')}
+            </tbody></table>`
+          : ''
+      }
+
+      <p class="note" style="margin-top:18px">
+        The sources answers are built from in your category. Your own domain was cited in
+        <b>${r.sources.ownCited} of ${r.sources.totalCycles}</b> cycles.
+      </p>
 
       <table><thead><tr><th>Source</th><th class="num">Cycles</th><th class="num">Questions</th><th class="num">Citations</th></tr></thead><tbody>
       ${persistentSources
@@ -313,7 +322,93 @@ ${
     : `<div class="callout warn">${esc(r.patterns.note)}</div>`
 }
 
-<h2>Everything open, by how long it has been true</h2>
+<h2>What the assistants actually sent</h2>
+${
+  r.traffic?.total
+    ? `<div class="cards">
+        <div class="card">
+          <div class="k">Sessions</div>
+          <div class="v good">${r.traffic.total.toLocaleString()}</div>
+          <div class="s">from AI assistants, last ${r.traffic.days} days</div>
+        </div>
+        <div class="card">
+          <div class="k">Conversions</div>
+          <div class="v">${Math.round(r.traffic.conversions).toLocaleString()}</div>
+          <div class="s">recorded against those sessions</div>
+        </div>
+        ${
+          r.traffic.revenue
+            ? `<div class="card">
+                <div class="k">Revenue</div>
+                <div class="v good">$${Math.round(r.traffic.revenue).toLocaleString()}</div>
+                <div class="s">attributed in Analytics</div>
+              </div>`
+            : ''
+        }
+      </div>
+
+      <table><thead><tr><th>Assistant</th><th class="num">Sessions</th><th class="barcell"></th><th class="num">Conversions</th></tr></thead><tbody>
+      ${(() => {
+        const top = Math.max(...r.traffic.sources.map((x) => x.sessions), 1);
+        return r.traffic.sources
+          .map(
+            (x) => `<tr>
+              <td>${esc(x.source)}</td>
+              <td class="num">${x.sessions.toLocaleString()}</td>
+              <td class="barcell"><span class="bar"><i style="width:${Math.round((x.sessions / top) * 100)}%"></i></span></td>
+              <td class="num">${Math.round(x.conversions).toLocaleString()}</td>
+            </tr>`
+          )
+          .join('');
+      })()}
+      </tbody></table>
+
+      ${
+        r.traffic.pages?.length
+          ? `<h3 style="font-size:14px;margin:26px 0 4px">Where they landed</h3>
+            <table><thead><tr><th>Page</th><th class="num">Sessions</th><th class="num">Conversions</th></tr></thead><tbody>
+            ${r.traffic.pages
+              .map(
+                (p) => `<tr>
+                  <td><span class="url">${esc(p.page.slice(0, 76))}</span></td>
+                  <td class="num">${p.sessions.toLocaleString()}</td>
+                  <td class="num">${Math.round(p.conversions).toLocaleString()}</td>
+                </tr>`
+              )
+              .join('')}
+            </tbody></table>`
+          : ''
+      }
+
+      <div class="callout">
+        Everything above this section is a leading indicator. This is the part that pays for the work, and it is the
+        number to watch as the visibility figures move.
+      </div>`
+    : `<div class="callout warn">${esc(r.traffic?.why || 'No Analytics data is available for this site.')}</div>`
+}
+
+${
+  r.themes?.length
+    ? `<h2>What the findings come down to</h2>
+      <p class="note">
+        The same problem often appears once per question. Grouped, the list is short enough to act on.
+      </p>
+      <table><thead><tr><th>Theme</th><th class="num">Questions affected</th><th class="num">Recurring</th></tr></thead><tbody>
+      ${r.themes
+        .slice(0, 10)
+        .map(
+          (t) => `<tr>
+            <td><b>${esc(t.label)}</b></td>
+            <td class="num">${t.items.length}</td>
+            <td class="num">${t.recurring ? `<span class="tag hot">${t.recurring}</span>` : '&mdash;'}</td>
+          </tr>`
+        )
+        .join('')}
+      </tbody></table>`
+    : ''
+}
+
+<h2>Every finding, in full</h2>
 <table><thead><tr><th>Action</th><th class="num">Standing</th><th class="num">Seen in</th></tr></thead><tbody>
 ${r.persistence.items
   .slice(0, 40)
