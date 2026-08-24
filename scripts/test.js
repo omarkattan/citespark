@@ -1869,7 +1869,7 @@ await test('the report downloads as a PDF, not as a file to open later', async (
   // Two buttons for one artefact, and the download saved HTML someone then
   // had to open and print themselves.
   const bar = app.slice(app.indexOf('const reportBar'), app.indexOf('const bar = '));
-  assert.ok(/Download PDF/.test(bar), 'one button, and it says what it produces');
+  assert.ok(/Download report/.test(bar), 'one button for the report');
   assert.ok(!/Open the report/.test(bar), 'not two buttons for the same thing');
   assert.ok(!/download=1/.test(bar), 'and no HTML download');
 

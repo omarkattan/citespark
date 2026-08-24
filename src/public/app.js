@@ -205,7 +205,7 @@ async function viewActions() {
       <b>Client report</b>
       <span>The client report as a PDF. Download the data for every citation, page and finding as a spreadsheet.</span>
     </div>
-    <a class="btn" href="/api/projects/${state.projectId}/report?print=1" target="_blank" rel="noopener">Download PDF</a>
+    <a class="btn" href="/api/projects/${state.projectId}/report?print=1" target="_blank" rel="noopener">Download report</a>
     <a class="ghost" href="/api/projects/${state.projectId}/report?format=csv" download>Download data</a>
   </div>`;
 
