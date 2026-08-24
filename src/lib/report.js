@@ -671,7 +671,14 @@ export async function buildReport(projectId, range = {}) {
      * A list of a hundred problems is not a plan, and the reader has to pick
      * anyway. Better we pick, and say why, than leave them to guess.
      */
-    priorities: p.items
+    /**
+     * The highest-priority recurring findings, kept under their own name.
+     *
+     * This was also called "priorities" and sat later in the same object, so
+     * it silently replaced the written plan above and the report rendered
+     * three empty numbered items. Two things cannot share a key.
+     */
+    topFindings: p.items
       .filter((i) => i.standing === 'recurring')
       .sort((a, b) => b.priority - a.priority)
       .slice(0, 3),

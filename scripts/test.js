@@ -1860,6 +1860,25 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('nothing in the report shares a key with anything else', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');
+  const ret = lib.slice(lib.lastIndexOf('return {\n    priorities'), lib.lastIndexOf('caveats: ['));
+
+  // Two things were called "priorities" in the same object literal. The later
+  // one won silently, so the written plan was replaced by recommendation rows
+  // and the report rendered three empty numbered items.
+  const keys = [...ret.matchAll(/^\s{4}([a-zA-Z_]+):/gm)].map((m) => m[1]);
+  const seen = new Set();
+  for (const k of keys) {
+    assert.ok(!seen.has(k), `"${k}" is declared twice and the later one wins silently`);
+    seen.add(k);
+  }
+
+  // And the plan must carry the shape the page reads.
+  assert.ok(/do: `/.test(lib) && /because: `/.test(lib), 'each priority needs an action and a reason');
+});
+
 await test('question volume can be measured rather than guessed', async () => {
   const { readFileSync } = await import('node:fs');
   const df = readFileSync(new URL('../src/lib/dataforseo.js', import.meta.url), 'utf8');
