@@ -15,6 +15,38 @@ const pct = (n) => `${Math.round((n || 0) * 100)}%`;
  * server sees an empty request, which fails silently rather than loudly.
  * Accepting an object and encoding it here removes the trap.
  */
+/**
+ * Say what just happened, briefly, then get out of the way.
+ *
+ * Adding a competitor, a question or a persona all worked silently: the row
+ * appeared somewhere in a list and the person was left to go and check. A
+ * confirmation that disappears on its own is the smallest honest way to close
+ * the loop without another thing to dismiss.
+ */
+function toast(message, kind = 'ok') {
+  let tray = document.getElementById('toasts');
+  if (!tray) {
+    tray = document.createElement('div');
+    tray.id = 'toasts';
+    tray.setAttribute('role', 'status');
+    // Polite, so a screen reader finishes its sentence before announcing it.
+    tray.setAttribute('aria-live', 'polite');
+    document.body.appendChild(tray);
+  }
+
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.textContent = message;
+  tray.appendChild(el);
+
+  // A failure is worth reading twice; a success is not.
+  const life = kind === 'bad' ? 5200 : 2600;
+  setTimeout(() => {
+    el.classList.add('going');
+    setTimeout(() => el.remove(), 260);
+  }, life);
+}
+
 async function api(path, options = {}) {
   const opts = { ...options };
   if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
@@ -2566,6 +2598,7 @@ document.addEventListener('click', async (e) => {
     const r = await api(`/api/projects/${state.projectId}/personas`, { method: 'POST', body: { personas: chosen } });
     await loadPersonas();
     if (r?.note) setupErr(r.note);
+    toast(`${r?.saved || chosen.length} buyer type${(r?.saved || chosen.length) === 1 ? '' : 's'} added`);
     return;
   }
 
@@ -3523,19 +3556,28 @@ document.addEventListener('click', async (e) => {
   }
 
   if (t.id === 'r_add') {
+    const name = $('r_name').value.trim();
     const res = await fetch(`/api/projects/${state.projectId}/entities`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: $('r_name').value, domain: $('r_domain').value })
+      body: JSON.stringify({ name, domain: $('r_domain').value })
     });
     const json = await res.json();
-    if (!res.ok) return setupErr(json.error);
+    if (!res.ok) {
+      toast(json.error || 'Could not add that competitor', 'bad');
+      return setupErr(json.error);
+    }
     await render();
+    toast(`${name} added. They will be measured on the next cycle.`);
   }
 
   if (t.dataset.delEntity) {
+    // Read the name before the row goes, or the confirmation cannot say what
+    // was removed.
+    const gone = t.closest('.row')?.querySelector('.name')?.textContent?.trim();
     await fetch(`/api/entities/${t.dataset.delEntity}`, { method: 'DELETE' });
     await render();
+    toast(gone ? `${gone} removed` : 'Removed');
   }
 
   if (t.id === 'q_topic') {
@@ -3587,14 +3629,24 @@ document.addEventListener('click', async (e) => {
     if (!chosen.length) return setupErr('Pick at least one.');
     t.disabled = true;
     t.textContent = 'Adding';
+    let added = 0;
     for (const text of chosen) {
-      await fetch(`/api/projects/${state.projectId}/prompts`, {
+      const res = await fetch(`/api/projects/${state.projectId}/prompts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
       });
+      if (res.ok) added++;
     }
     await render();
+    // Says how many landed, not how many were asked for: a plan limit can
+    // stop some of them and silence would hide that.
+    toast(
+      added === chosen.length
+        ? `${added} question${added === 1 ? '' : 's'} added`
+        : `${added} of ${chosen.length} added. The rest were beyond this plan.`,
+      added === chosen.length ? 'ok' : 'bad'
+    );
     return;
   }
 
@@ -3605,13 +3657,18 @@ document.addEventListener('click', async (e) => {
       body: JSON.stringify({ text: $('q_text').value })
     });
     const json = await res.json();
-    if (!res.ok) return setupErr(json.error);
+    if (!res.ok) {
+      toast(json.error || 'Could not add that question', 'bad');
+      return setupErr(json.error);
+    }
     await render();
+    toast('Question added. It will be asked on the next cycle.');
   }
 
   if (t.dataset.delPrompt) {
     await fetch(`/api/prompts/${t.dataset.delPrompt}`, { method: 'DELETE' });
     await render();
+    toast('Question removed');
   }
 
   if (t.dataset.togglePrompt) {

@@ -1860,6 +1860,30 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('creating something says so, and clears itself', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../src/public/styles.css', import.meta.url), 'utf8');
+  const fn = app.slice(app.indexOf('function toast('), app.indexOf('async function api('));
+
+  // Adding a competitor, a question or a persona all worked silently, so the
+  // person had to go and check a list to find out whether it had.
+  for (const action of ['added', 'removed']) {
+    assert.ok(new RegExp(`toast\\([^)]*${action}`, 'i').test(app), `${action} must be confirmed`);
+  }
+
+  // A failure is worth reading twice; a success is not.
+  assert.ok(/kind === 'bad' \? 5200 : 2600/.test(fn), 'failures linger longer than successes');
+  assert.ok(/aria-live', 'polite'/.test(fn), 'and it is announced without interrupting');
+
+  // Nothing to dismiss, and nothing in the way of what is underneath.
+  assert.ok(/pointer-events: none/.test(css.slice(css.indexOf('#toasts'))), 'the tray must not block clicks');
+  assert.ok(/prefers-reduced-motion/.test(css.slice(css.indexOf('#toasts'))), 'and respect a motion preference');
+
+  // Saying "added" when a plan limit stopped some of them would be a lie.
+  assert.ok(/of \$\{chosen\.length\} added/.test(app), 'a partial add must say how many landed');
+});
+
 await test('a long question truncates but can still be read', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

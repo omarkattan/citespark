@@ -1971,3 +1971,43 @@ button.danger:hover * {
 }
 .moretext:hover { color: var(--ink); }
 .gaprow span:first-child { line-height: 1.5; }
+
+/*
+ * Confirmations that close the loop and then leave.
+ *
+ * Adding something worked silently, so the person had to go and check a list
+ * to find out whether it had. This says so and disappears.
+ */
+#toasts {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  z-index: 80;
+  pointer-events: none;
+}
+.toast {
+  padding: 11px 18px;
+  border-radius: 100px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 13.5px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .18);
+  animation: toastin .22s ease;
+  max-width: min(520px, 92vw);
+  text-align: center;
+}
+.toast.bad { background: var(--alert); }
+.toast.going { opacity: 0; transform: translateY(6px); transition: opacity .24s ease, transform .24s ease; }
+@keyframes toastin {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+  .toast.going { transition: none; }
+}
