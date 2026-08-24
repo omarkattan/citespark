@@ -3488,6 +3488,39 @@ await test('a citation is stored against the publisher', async () => {
   assert.ok(/target \|\| url/.test(lib), 'an unresolved link stays as it is');
 });
 
+console.log('\nreport honesty');
+
+await test('a growing question set is not reported as a decline', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');
+  const fn = lib.slice(lib.indexOf('async function trend'), lib.indexOf('function groupActions'));
+
+  // This project went from 8 questions to 135. The rate fell from 19% to 8%
+  // and the report called it an 11 point decline, while the brand was
+  // actually named five times more often than at the start. A rate over a
+  // changing denominator is an artefact, not a trend.
+  assert.ok(/HAVING COUNT\(DISTINCT r\.cycle_date\) = \(SELECT COUNT\(\*\) FROM cycles\)/.test(fn),
+    'the trend must use questions present in every cycle');
+  assert.ok(/named_count/.test(fn), 'and carry the absolute count alongside the rate');
+
+  assert.ok(/comparable/.test(lib), 'the report must say which basis it used');
+  assert.ok(/firstNamed/.test(lib) && /lastNamed/.test(lib), 'so the count can be shown next to the rate');
+});
+
+await test('the same finding forty times is presented as one', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');
+  const fn = lib.slice(lib.indexOf('function groupActions'), lib.indexOf('async function rivals'));
+
+  // "Invisible for: <question>" appeared twenty-five times in one report.
+  // That is one problem with twenty-five examples, and a list that does not
+  // group them cannot be prioritised.
+  for (const pattern of ['Invisible for', 'shapes', 'Named but never cited', 'Visibility fell']) {
+    assert.ok(fn.includes(pattern), `${pattern} must fold into a theme`);
+  }
+  assert.ok(/sort\(\(a, b\) => b\.items\.length - a\.items\.length\)/.test(fn), 'biggest theme first');
+});
+
 console.log('\naggregated report');
 
 await test('the report can tell a recurring problem from a new one', async () => {

@@ -37,11 +37,17 @@ async function main() {
   let user = await one('SELECT * FROM users WHERE email = $1', [CONFIG.email.toLowerCase()]);
   if (!user) {
     const hash = await bcrypt.hash(CONFIG.password, 10);
-    user = await one('INSERT INTO users (org_id, email, password_hash) VALUES ($1,$2,$3) RETURNING *', [
-      org.id,
-      CONFIG.email.toLowerCase(),
-      hash
-    ]);
+    // Verified on creation: a fresh install must be able to run a cycle
+    // straight after seeding, and there is nobody to click a link.
+    user = await one(
+      `INSERT INTO users (org_id, email, password_hash, email_verified_at)
+       VALUES ($1,$2,$3,now()) RETURNING *`,
+      [
+        org.id,
+        CONFIG.email.toLowerCase(),
+        hash
+      ]
+    );
     console.log(`Created login: ${CONFIG.email} / ${CONFIG.password}`);
   } else {
     console.log(`Login already exists: ${CONFIG.email}`);
