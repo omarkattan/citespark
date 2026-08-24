@@ -3490,6 +3490,28 @@ await test('a citation is stored against the publisher', async () => {
 
 console.log('\nreport honesty');
 
+await test('the report reads the table the sync writes to', async () => {
+  const { readFileSync } = await import('node:fs');
+  const report = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');
+  const ga4 = readFileSync(new URL('../src/lib/ga4.js', import.meta.url), 'utf8');
+  const schema = readFileSync(new URL('../src/db/schema.sql', import.meta.url), 'utf8');
+
+  // The report queried a table called "ga" that does not exist. The error was
+  // swallowed and reported as "nothing pulled yet", so a site with months of
+  // traffic looked like a site with none and the section that justifies the
+  // retainer was silently empty.
+  const fn = report.slice(report.indexOf('async function aiTraffic'), report.indexOf('Who is being named instead'));
+  assert.ok(/FROM ga4_daily/.test(fn), 'the report must read ga4_daily');
+  assert.ok(!/FROM ga\s/.test(fn), 'and not a table that does not exist');
+  assert.ok(/INSERT INTO ga4_daily/.test(ga4), 'which is where the sync writes');
+  assert.ok(/CREATE TABLE IF NOT EXISTS ga4_daily/.test(schema), 'and what the schema defines');
+
+  // A query fault and an empty table are different things, and reporting one
+  // as the other is how this hid for as long as it did.
+  assert.ok(/traffic query failed/.test(fn), 'a failure must be logged, not swallowed');
+  assert.ok(/ours to fix/.test(fn), 'and owned rather than blamed on missing data');
+});
+
 await test('a growing question set is not reported as a decline', async () => {
   const { readFileSync } = await import('node:fs');
   const lib = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');

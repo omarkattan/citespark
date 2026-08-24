@@ -307,21 +307,53 @@ async function aiTraffic(projectId) {
     };
   }
 
+  /**
+   * Read the table the sync actually writes to.
+   *
+   * This queried a table called "ga" that does not exist. The error was
+   * swallowed by the catch below and reported as "nothing pulled yet", so a
+   * site with months of traffic looked like a site with none, and the
+   * section that justifies the retainer was silently empty.
+   */
   const rows = await many(
-    `SELECT day, source, sessions, conversions FROM ga
-     WHERE project_id = $1 AND day > CURRENT_DATE - 90
-     ORDER BY day`,
+    `SELECT date AS day, platform AS source, landing_page, sessions, conversions, revenue
+     FROM ga4_daily
+     WHERE project_id = $1 AND date > CURRENT_DATE - 90
+     ORDER BY date`,
     [projectId]
-  ).catch(() => []);
+  ).catch((err) => {
+    // A query fault and an empty table are different things, and reporting
+    // one as the other is how this hid for as long as it did.
+    console.error('traffic query failed:', err.message);
+    return null;
+  });
 
-  if (!rows.length) return { connected: true, rows: [], why: 'Connected, but nothing has been pulled yet.' };
+  if (rows === null) {
+    return { connected: true, rows: [], why: 'We could not read the stored traffic. This is ours to fix.' };
+  }
+
+  if (!rows.length) {
+    return {
+      connected: true,
+      rows: [],
+      why: 'Connected, but no sessions have been pulled yet. Open the Traffic tab and sync, or wait for the next cycle.'
+    };
+  }
 
   const bySource = new Map();
+  const byPage = new Map();
   for (const r of rows) {
     if (!bySource.has(r.source)) bySource.set(r.source, { source: r.source, sessions: 0, conversions: 0 });
     const g = bySource.get(r.source);
     g.sessions += Number(r.sessions || 0);
     g.conversions += Number(r.conversions || 0);
+
+    if (r.landing_page) {
+      if (!byPage.has(r.landing_page)) byPage.set(r.landing_page, { page: r.landing_page, sessions: 0, conversions: 0 });
+      const q = byPage.get(r.landing_page);
+      q.sessions += Number(r.sessions || 0);
+      q.conversions += Number(r.conversions || 0);
+    }
   }
 
   return {
@@ -329,7 +361,11 @@ async function aiTraffic(projectId) {
     days: 90,
     total: rows.reduce((n, r) => n + Number(r.sessions || 0), 0),
     conversions: rows.reduce((n, r) => n + Number(r.conversions || 0), 0),
+    revenue: rows.reduce((n, r) => n + Number(r.revenue || 0), 0),
     sources: [...bySource.values()].sort((a, b) => b.sessions - a.sessions).slice(0, 8),
+    // Which pages the assistants actually send people to, which is the
+    // bridge between the visibility above and the money.
+    pages: [...byPage.values()].sort((a, b) => b.sessions - a.sessions).slice(0, 8),
     trend: rows
   };
 }
