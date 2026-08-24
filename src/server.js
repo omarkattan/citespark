@@ -1701,10 +1701,12 @@ app.get('/api/projects/:id/report', requireAuth, wrap(async (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   // Opened in a tab so it can be read and printed to PDF, rather than
   // downloaded as a file nobody looks at.
-  if (req.query.download === '1') {
-    res.setHeader('Content-Disposition', `attachment; filename="${slug}-ai-visibility-${stamp}.html"`);
-  }
-  res.send(reportHtml(report));
+  /**
+   * Saving the HTML gave someone a file they then had to open and print, so
+   * the download button produced the wrong artefact. This opens the report
+   * with the save dialog already up, which is one action to a PDF.
+   */
+  res.send(reportHtml(report, { print: req.query.print === '1' }));
 }));
 
 /**

@@ -1860,6 +1860,27 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('the report downloads as a PDF, not as a file to open later', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../src/lib/report-html.js', import.meta.url), 'utf8');
+
+  // Two buttons for one artefact, and the download saved HTML someone then
+  // had to open and print themselves.
+  const bar = app.slice(app.indexOf('const reportBar'), app.indexOf('const bar = '));
+  assert.ok(/Download PDF/.test(bar), 'one button, and it says what it produces');
+  assert.ok(!/Open the report/.test(bar), 'not two buttons for the same thing');
+  assert.ok(!/download=1/.test(bar), 'and no HTML download');
+
+  assert.ok(/print === '1'/.test(server), 'the print build is opt in');
+  assert.ok(/window\.print\(\)/.test(html), 'and goes straight to the save dialog');
+
+  // The saved filename comes from the document title, so it has to read as
+  // something a client would accept.
+  assert.ok(/AI visibility report \$\{date\(r\.generatedAt\)\}<\/title>/.test(html), 'the title names the report and its date');
+});
+
 await test('the data export carries more than the action list', async () => {
   const { readFileSync } = await import('node:fs');
   const html = readFileSync(new URL('../src/lib/report-html.js', import.meta.url), 'utf8');
@@ -1893,7 +1914,7 @@ await test('the report is offered like a deliverable, and never hidden', async (
   // It was a ghost link at the end of a right-aligned row, which reads as a
   // minor control next to the real ones.
   assert.ok(/class="reportbar"/.test(app), 'the report needs its own bar');
-  assert.ok(/<a class="btn" href="\/api\/projects\/\$\{state\.projectId\}\/report"/.test(app), 'and a primary button, not a ghost link');
+  assert.ok(/<a class="btn" href="\/api\/projects\/\$\{state\.projectId\}\/report\?print=1"/.test(app), 'and a primary button, not a ghost link');
   assert.ok(/\.reportbar \{[\s\S]{0,400}border: 1px solid var\(--you\)/.test(css), 'visibly separated from the list below it');
 
   // It sat below an early return, so filtering to a view with no tasks
