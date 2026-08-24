@@ -184,7 +184,14 @@ ${
       <div class="cards">
         <div class="card">
           <div class="k">Named in</div>
-          <div class="v ${(r.trend.last || 0) < 0.3 ? 'bad' : 'good'}">${pct(r.trend.last)}</div>
+          <!--
+            Deliberately uncoloured. This is a level, not a change, and there
+            is no threshold at which a share of answers is good or bad without
+            knowing the category. Colouring it red made a neutral fact read as
+            a failure. The competitor table below is what says whether it is
+            good, because that comparison is the only one with meaning.
+          -->
+          <div class="v">${pct(r.trend.last)}</div>
           <div class="s">of answers, most recent cycle</div>
         </div>
         <div class="card">
@@ -196,12 +203,18 @@ ${
         </div>
         <div class="card">
           <div class="k">Your site cited</div>
-          <div class="v ${r.sources.ownCited === 0 ? 'bad' : ''}">${r.sources.ownCited}<span style="font-size:16px;color:#75887c"> / ${r.sources.totalCycles}</span></div>
+          <!-- Zero is a genuine problem; anything else is not, and being
+               cited in every cycle is worth showing as a win. -->
+          <div class="v ${
+            r.sources.ownCited === 0 ? 'bad' : r.sources.ownCited === r.sources.totalCycles ? 'good' : ''
+          }">${r.sources.ownCited}<span style="font-size:16px;color:#75887c"> / ${r.sources.totalCycles}</span></div>
           <div class="s">cycles where an answer used your own site as a source</div>
         </div>
         <div class="card">
           <div class="k">Standing problems</div>
-          <div class="v ${recurring.length ? 'bad' : 'good'}">${recurring.length}</div>
+          <!-- A count of outstanding work is not a failure. Red here made
+               every report look like an emergency regardless of the number. -->
+          <div class="v">${recurring.length}</div>
           <div class="s">actions present in most cycles</div>
         </div>
       </div>
@@ -215,7 +228,7 @@ ${
             <td>${date(p.cycle_date)}</td>
             <td class="num">${p.questions}</td>
             <td class="num">${pct(p.rate)}</td>
-            <td class="barcell"><span class="bar ${(p.rate || 0) < 0.3 ? 'hot' : ''}"><i style="width:${Math.round((p.rate || 0) * 100)}%"></i></span></td>
+            <td class="barcell"><span class="bar"><i style="width:${Math.round((p.rate || 0) * 100)}%"></i></span></td>
           </tr>`
         )
         .join('')}
@@ -340,7 +353,14 @@ ${
             <td><b>${esc(p.persona)}</b>${p.descriptor ? `<br /><span class="url">${esc(String(p.descriptor).slice(0, 80))}</span>` : ''}</td>
             <td class="num">${p.questions}</td>
             <td class="num">${pct(p.named_rate)}</td>
-            <td class="barcell"><span class="bar ${(p.named_rate || 0) < 0.2 ? 'hot' : (p.named_rate || 0) < 0.4 ? 'warm' : ''}"><i style="width:${Math.round((p.named_rate || 0) * 100)}%"></i></span></td>
+            <!--
+              Coloured against the other audiences rather than an absolute
+              threshold: the point of this table is which buyer is worst
+              served, and that is only meaningful relative to the rest.
+            -->
+            <td class="barcell"><span class="bar ${
+              r.personas.length > 1 && p.named_rate === Math.min(...r.personas.map((x) => x.named_rate || 0)) ? 'hot' : ''
+            }"><i style="width:${Math.round((p.named_rate || 0) * 100)}%"></i></span></td>
             <td class="num">${p.avg_position ? p.avg_position.toFixed(1) : '&mdash;'}</td>
           </tr>`
         )

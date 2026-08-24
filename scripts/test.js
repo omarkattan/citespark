@@ -1860,6 +1860,27 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('colour means direction, not disapproval of a level', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../src/lib/report-html.js', import.meta.url), 'utf8');
+  const cards = html.slice(html.indexOf('<div class="cards">'), html.indexOf('${sparkline'));
+
+  // 12% was rendered red because it fell under an invented threshold. A share
+  // of answers has no direction, and there is no level that is good or bad
+  // without knowing the category, so colouring it made a neutral fact read as
+  // a failure.
+  assert.ok(!/trend\.last \|\| 0\) < 0\.3 \? 'bad'/.test(cards), 'a level must not be judged');
+  assert.ok(/trend\.change > 0\.02 \? 'good' : r\.trend\.change < -0\.02 \? 'bad'/.test(cards),
+    'movement has a direction, so it can carry colour');
+
+  // A count of outstanding work is not a failure either.
+  assert.ok(!/recurring\.length \? 'bad'/.test(cards), 'an action count is not an emergency');
+
+  // Zero citations genuinely is a problem, and every cycle genuinely is a win.
+  assert.ok(/ownCited === 0 \? 'bad'/.test(cards));
+  assert.ok(/ownCited === r\.sources\.totalCycles \? 'good'/.test(cards));
+});
+
 await test('a report covers a period you choose', async () => {
   const { readFileSync } = await import('node:fs');
   const lib = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');
