@@ -1860,6 +1860,31 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('the report draws the conclusion, from this client\'s own numbers', async () => {
+  const { readFileSync } = await import('node:fs');
+  const lib = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../src/lib/report-html.js', import.meta.url), 'utf8');
+  const fn = lib.slice(lib.indexOf('const reading = []'), lib.indexOf('return {\n    pages: n'));
+
+  // A table of percentages leaves the reader to work out what it means, and
+  // that is the part they are paying for.
+  assert.ok(/What that means here/.test(html), 'the reading must be rendered');
+
+  // Every sentence has to be built from measured values, so two clients with
+  // different data get different advice rather than the same paragraph.
+  assert.ok(/\$\{noSchema\} of the \$\{n\}/.test(fn), 'it must cite its own counts');
+  assert.ok(/\$\{count\} of \$\{n\}/.test(fn));
+  assert.ok(/\$\{median\.toLocaleString\(\)\}/.test(fn));
+
+  // The advice has to be able to say "do not bother", or it is not advice.
+  assert.ok(/unlikely to be the lever/.test(fn), 'an absent feature can be the wrong thing to chase');
+  assert.ok(/baseline rather than an advantage/.test(fn), 'a universal feature is not a differentiator');
+  assert.ok(/differentiator rather than catching up/.test(fn), 'a rare one might be');
+
+  // One page is several points at these sample sizes.
+  assert.ok(/thin: n < 25/.test(lib), 'the sample caveat must survive past eight pages');
+});
+
 await test('colour means direction, not disapproval of a level', async () => {
   const { readFileSync } = await import('node:fs');
   const html = readFileSync(new URL('../src/lib/report-html.js', import.meta.url), 'utf8');

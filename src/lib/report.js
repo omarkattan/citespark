@@ -189,11 +189,76 @@ async function citedPagePatterns(projectId) {
   const n = rows.length;
   const pct = (x) => Math.round((x / n) * 100);
 
+  /**
+   * Say what the numbers mean for this client, not in general.
+   *
+   * A table of percentages leaves the reader to draw the conclusion, and the
+   * conclusion is the part they are paying for. Every sentence below is
+   * assembled from this project's own measurements and names its evidence, so
+   * two clients with different data get different advice.
+   */
+  const reading = [];
+  const noSchema = rows.filter((r) => !((r.result?.structure || r.result || {}).schemaTypes || []).length).length;
+  const withSchema = n - noSchema;
+
+  if (noSchema / n >= 0.3) {
+    reading.push({
+      point: 'Citation here is running on authority, not page craft.',
+      why: `${noSchema} of the ${n} pages being cited carry no structured data at all. Pages are winning citations because of who publishes them rather than how they are built, so structural changes to your own pages will move this less than getting onto the sources that already shape these answers.`
+    });
+  }
+
+  // A feature almost nobody has is an opening; one almost everybody has is a
+  // baseline you are simply expected to meet.
+  for (const [label, count] of [
+    ['answer the question in a heading', counts.headingMatchesQuestion],
+    ['carry FAQ or QA schema', counts.faqSchema],
+    ['quote specific figures', counts.statistics],
+    ['name an author', counts.namedAuthor]
+  ]) {
+    const share = count / n;
+    if (share > 0 && share <= 0.2) {
+      reading.push({
+        point: `Only ${count} of ${n} cited pages ${count === 1 ? label.replace(/^(\w+)/, (w) => `${w}s`) : label}.`,
+        why: 'Rare enough that doing it well is a differentiator rather than catching up, and cheap enough to be worth testing on a page you already rank with.'
+      });
+    }
+    if (share === 0 && withSchema > 0 && label.includes('schema')) {
+      reading.push({
+        point: `No cited page ${label.replace(/^(\w+)/, (w) => `${w}s`)}.`,
+        why: 'Structured data is being read successfully on the others, so this is a real absence rather than a measurement gap. Adding it would not match what is winning here, and is unlikely to be the lever.'
+      });
+    }
+  }
+
+  for (const [label, count] of [
+    ['contain a list', counts.lists],
+    ['contain a table', counts.tables]
+  ]) {
+    if (count / n >= 0.75) {
+      reading.push({
+        point: `${pct(count)}% of cited pages ${label}.`,
+        why: 'That is close to universal in this category, so it reads as a baseline rather than an advantage. A page without one is at a disadvantage; a page with one is merely eligible.'
+      });
+    }
+  }
+
+  const median = words.length ? words.slice().sort((a, b) => a - b)[Math.floor(words.length / 2)] : null;
+  if (median) {
+    reading.push({
+      point: `Cited pages run to about ${median.toLocaleString()} words.`,
+      why: 'Useful as a target for anything written to compete with them, and as a check on whether an existing page is substantial enough to be quoted from.'
+    });
+  }
+
   return {
     pages: n,
     universe,
+    reading,
     // Below this, the reader should treat the shares as indicative.
-    thin: n < 8,
+    // One page is a whole percentage point at this size, so the shares are
+    // indicative well past the point they look precise.
+    thin: n < 25,
     medianWords: words.length ? words.sort((a, b) => a - b)[Math.floor(words.length / 2)] : null,
     schemaTypes: [...schemaTypes.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6),
     features: [

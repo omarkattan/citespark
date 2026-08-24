@@ -136,6 +136,10 @@ export function reportHtml(r, { print = false } = {}) {
   .tag.warm { border-color: #a8601b; color: #a8601b; }
 
   .note { font-size: 13.5px; color: #5d7268; line-height: 1.6; }
+  .reading { padding: 12px 0; border-bottom: 1px solid #f0f3f1; }
+  .reading:last-of-type { border-bottom: none; }
+  .reading b { display: block; font-size: 14.5px; color: #14161a; margin-bottom: 3px; }
+  .reading span { font-size: 13.5px; color: #3d4a42; line-height: 1.6; }
   .callout {
     border-left: 3px solid #157a4a; background: #f4f9f6; padding: 14px 18px;
     border-radius: 0 6px 6px 0; margin: 16px 0; font-size: 14px; line-height: 1.6;
@@ -331,6 +335,20 @@ ${
         )
         .join('')}
       </tbody></table>
+      ${
+        r.patterns.reading?.length
+          ? `<h3 style="font-size:14px;margin:26px 0 8px">What that means here</h3>
+            ${r.patterns.reading
+              .map(
+                (x) => `<div class="reading">
+                  <b>${esc(x.point)}</b>
+                  <span>${esc(x.why)}</span>
+                </div>`
+              )
+              .join('')}`
+          : ''
+      }
+
       ${
         r.patterns.schemaTypes.length
           ? `<p class="note">Most common structured data on cited pages: ${r.patterns.schemaTypes.map(([t, n]) => `${esc(t)} (${n})`).join(', ')}.</p>`
