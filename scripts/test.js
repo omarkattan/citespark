@@ -1860,6 +1860,28 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('Analytics and Search Console can be different Google accounts', async () => {
+  const { readFileSync } = await import('node:fs');
+  const ga4 = readFileSync(new URL('../src/lib/ga4.js', import.meta.url), 'utf8');
+  const gsc = readFileSync(new URL('../src/lib/gsc.js', import.meta.url), 'utf8');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const schema = readFileSync(new URL('../src/db/schema.sql', import.meta.url), 'utf8');
+
+  // Every grant was written to one column, so connecting Search Console
+  // replaced the Analytics credential and vice versa. In an agency these are
+  // routinely owned by different people, so one was always broken.
+  assert.ok(/gsc_refresh_token TEXT/.test(schema), 'Search Console needs its own credential');
+
+  const store = ga4.slice(ga4.indexOf('export async function storeConnection'), ga4.indexOf('export const SEARCH_CONSOLE_SCOPE'));
+  assert.ok(/what = 'ga4'/.test(store), 'the grant must know which service it was for');
+  assert.ok(/gsc_refresh_token = \$2/.test(store), 'and store it separately');
+  assert.ok(/state\.w === 'gsc' \? 'gsc' : 'ga4'/.test(server), 'and the callback must pass it through');
+
+  // Sites connected before this must keep working with one account.
+  const token = gsc.slice(gsc.indexOf('export async function accessTokenFor'), gsc.indexOf('export async function listSites'));
+  assert.ok(/own \|\| shared/.test(token), 'Search Console falls back to the shared credential');
+});
+
 await test('disconnecting Google actually disconnects it', async () => {
   const { readFileSync } = await import('node:fs');
   const ga4 = readFileSync(new URL('../src/lib/ga4.js', import.meta.url), 'utf8');
@@ -1873,10 +1895,13 @@ await test('disconnecting Google actually disconnects it', async () => {
   assert.ok(/google_scopes = NULL/.test(all), 'and what was granted');
   assert.ok(/ga4_refresh_token = NULL/.test(all));
 
-  // Choosing a different property is common and must not cost the connection.
+  // Search Console has its own credential now, so disconnecting it clears
+  // that one and leaves Analytics alone even when they are different Google
+  // accounts.
   const gscOnly = fn.slice(fn.indexOf("if (what === 'gsc')"), fn.indexOf("if (what === 'ga4')"));
   assert.ok(/gsc_site_url = NULL/.test(gscOnly));
-  assert.ok(!/refresh_token/.test(gscOnly), 'changing property must keep the credential');
+  assert.ok(/gsc_refresh_token = NULL/.test(gscOnly), 'and its own credential goes with it');
+  assert.ok(!/ga4_refresh_token/.test(gscOnly), 'but Analytics must be untouched');
 });
 
 await test('a button row does not stretch to match the text beside it', async () => {

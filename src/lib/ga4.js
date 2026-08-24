@@ -151,8 +151,25 @@ async function accessTokenFor(project) {
   return json.access_token;
 }
 
-/** Save an authorisation against a project. */
-export async function storeConnection(projectId, { refreshToken, email, scopes }) {
+/**
+ * Save an authorisation against the service it was granted for.
+ *
+ * Every grant used to be written to one column, so connecting Search Console
+ * replaced the Analytics credential and vice versa. In an agency these are
+ * routinely owned by different people, which meant one of the two was always
+ * broken.
+ */
+export async function storeConnection(projectId, { refreshToken, email, scopes }, what = 'ga4') {
+  if (what === 'gsc') {
+    await query(
+      `UPDATE projects SET gsc_refresh_token = $2, gsc_account_email = $3, gsc_connected_at = now(),
+                           gsc_site_url = NULL
+       WHERE id = $1`,
+      [projectId, encrypt(refreshToken), email || null]
+    );
+    return;
+  }
+
   await query(
     `UPDATE projects SET ga4_refresh_token = $2, ga4_account_email = $3, ga4_connected_at = now(),
                          ga4_property_id = NULL, ga4_property_name = NULL, google_scopes = $4
@@ -182,8 +199,14 @@ export function hasSearchConsoleScope(project) {
  */
 export async function disconnect(projectId, what = 'all') {
   if (what === 'gsc') {
-    // The token is shared, so only the property choice is cleared here.
-    await query('UPDATE projects SET gsc_site_url = NULL WHERE id = $1', [projectId]);
+    // Its own credential now, so disconnecting Search Console leaves
+    // Analytics untouched even when they are different accounts.
+    await query(
+      `UPDATE projects SET gsc_site_url = NULL, gsc_refresh_token = NULL,
+                           gsc_account_email = NULL, gsc_connected_at = NULL
+       WHERE id = $1`,
+      [projectId]
+    );
     return;
   }
 
@@ -199,7 +222,8 @@ export async function disconnect(projectId, what = 'all') {
   await query(
     `UPDATE projects SET ga4_refresh_token = NULL, ga4_property_id = NULL, ga4_property_name = NULL,
                          ga4_account_email = NULL, ga4_connected_at = NULL, ga4_synced_at = NULL,
-                         gsc_site_url = NULL, google_scopes = NULL
+                         gsc_site_url = NULL, google_scopes = NULL,
+                         gsc_refresh_token = NULL, gsc_account_email = NULL, gsc_connected_at = NULL
      WHERE id = $1`,
     [projectId]
   );

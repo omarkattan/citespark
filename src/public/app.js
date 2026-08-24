@@ -2845,7 +2845,13 @@ async function viewSetup() {
       <p class="hint" style="margin:0">
         Your own Search Console data shows what people search before they find you. We cluster it, turn the ones with
         real demand into questions worth tracking, and use the impressions as the volume behind prioritisation.
-        ${p.gsc_site_url ? `<br />Reading <b>${esc(p.gsc_site_url)}</b>.` : ''}
+        ${
+          p.gsc_site_url
+            ? `<br />Reading <b>${esc(p.gsc_site_url)}</b>${
+                p.gsc_account_email ? ` as ${esc(p.gsc_account_email)}` : ''
+              }. Analytics and Search Console can use different Google accounts.`
+            : ''
+        }
       </p>
       <div id="gscBody"></div>
     </div>

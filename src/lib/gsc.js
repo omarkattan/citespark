@@ -40,9 +40,18 @@ function conversational(q) {
   return 0;
 }
 
+/**
+ * Search Console's own credential, falling back to the shared one.
+ *
+ * Analytics and Search Console are routinely owned by different people in an
+ * agency, and a single token meant connecting one replaced the other. Sites
+ * connected before this keep working: with no Search Console token of its
+ * own, a project uses the Analytics one exactly as it did.
+ */
 export async function accessTokenFor(project) {
-  const stored = project?.ga4_refresh_token ? decrypt(project.ga4_refresh_token) : null;
-  const refresh = stored || process.env.GOOGLE_REFRESH_TOKEN;
+  const own = project?.gsc_refresh_token ? decrypt(project.gsc_refresh_token) : null;
+  const shared = project?.ga4_refresh_token ? decrypt(project.ga4_refresh_token) : null;
+  const refresh = own || shared || process.env.GOOGLE_REFRESH_TOKEN;
   if (!refresh) throw new Error('Google is not connected for this site');
 
   const res = await fetch('https://oauth2.googleapis.com/token', {

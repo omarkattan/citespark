@@ -563,3 +563,13 @@ CREATE TABLE IF NOT EXISTS signup_attempts (
   at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS signup_attempts_ip ON signup_attempts (ip, at);
+
+-- A separate Google account for Search Console.
+--
+-- One credential covered both services, so connecting Search Console with a
+-- different account replaced the Analytics one and vice versa. In an agency
+-- these are routinely owned by different people, and forcing one login meant
+-- one of the two connections was always broken.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS gsc_refresh_token TEXT;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS gsc_account_email TEXT;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS gsc_connected_at TIMESTAMPTZ;
