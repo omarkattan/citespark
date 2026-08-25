@@ -1867,8 +1867,11 @@ await test('a tick is visible enough to mean something', async () => {
   // A miss was drawn in --line, which is 1.46:1 against the white panel. The
   // strip read as empty boxes, so "we asked and you were not there" and "we
   // did not ask" looked identical, and both looked like nothing had rendered.
-  assert.ok(!/\.tick\.miss \{ background: var\(--line\); \}/.test(css), 'a miss must not be drawn in the border colour');
-  assert.ok(/\.tick\.miss \{ background: #8c9a93; \}/.test(css));
+  // Filled or empty reads without a legend. A solid grey bar was visible but
+  // said nothing: five identical blocks convey no more than five invisible
+  // ones.
+  assert.ok(/\.tick\.hit \{ background: var\(--you\)/.test(css), 'named is filled');
+  assert.ok(/\.tick\.miss \{ background: transparent; border: 1px solid #8c9a93/.test(css), 'absent is an outline');
 
   const lum = (h) => {
     const v = [0, 2, 4].map((i) => parseInt(h.slice(i + 1, i + 3), 16) / 255)

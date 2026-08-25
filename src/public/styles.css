@@ -221,20 +221,23 @@ h2 {
   width: 8px;
   height: 18px;
   border-radius: 2px;
-  border: none;
-  background: #8c9a93;
-}
-/* named in the answer */
-.tick.hit { background: var(--you); }
-/* asked, and absent: muted but present, at 2.9:1 rather than 1.5:1 */
-.tick.miss { background: #8c9a93; }
-/* linked as a source without being named */
-.tick.cited { background: transparent; border: 2px solid var(--you); }
-/* never asked, which is not a result */
-.tick.unrun {
+  border: 1px solid #8c9a93;
   background: transparent;
-  border: 1px dashed #8c9a93;
+  box-sizing: border-box;
 }
+/*
+ * Filled or empty, which reads without a legend.
+ *
+ * A solid grey bar for a miss was visible but said nothing: five identical
+ * blocks convey no more than five invisible ones. Full means named, empty
+ * means asked and absent, and the eye gets it immediately.
+ */
+.tick.hit { background: var(--you); border: 1px solid var(--you); }
+.tick.miss { background: transparent; border: 1px solid #8c9a93; }
+/* Linked without being named: filled, but not solid. */
+.tick.cited { background: transparent; border: 2px solid var(--you); }
+/* Never asked is not a result, so it is drawn as absent rather than empty. */
+.tick.unrun { background: transparent; border: 1px dashed #c2ccc6; }
 
 /* ---------- prompt rows ---------- */
 
