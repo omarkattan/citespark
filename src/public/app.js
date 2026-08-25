@@ -854,6 +854,7 @@ async function viewQuestions() {
 
       return `
       <div class="prompt ${p.measured ? '' : 'unmeasured'}"
+        data-prompt="${p.id}"
         data-persona="${p.personaId || ''}"
         data-cluster="${esc(p.cluster || '')}"
         data-intent="${esc(p.intent || '')}"
@@ -870,6 +871,7 @@ async function viewQuestions() {
             ${p.active ? '' : ' &middot; <span class="paused">paused</span>'}
           </div>
           ${p.measured ? runStrip(p.runs) : '<div class="notrun">not asked yet, it will run on the next cycle</div>'}
+          <label class="qpick"><input type="checkbox" data-qsel="${p.id}" /> select</label>
           ${p.measured ? `<button class="seeanswer" data-see-answer="${p.id}">Read what each engine said</button>` : ''}
           ${p.measured ? `<button class="seeanswer" data-reask="${p.id}">Ask again now</button>` : ''}
           <div class="answers" data-answers hidden></div>
@@ -892,7 +894,17 @@ async function viewQuestions() {
     .join('');
   // Let someone read the list one buyer type at a time, which is the point
   // of having them.
-  const personas = [...new Map(prompts.filter((p) => p.persona).map((p) => [p.personaId, p.persona])).entries()];
+  /**
+   * Every buyer type on the site, not only those already in use.
+   *
+   * This was derived from questions that already had a persona, so a persona
+   * with no questions yet could never be picked from the bulk assigner, which
+   * is precisely when you would want to.
+   */
+  const known = new Map(prompts.filter((p) => p.persona).map((p) => [p.personaId, p.persona]));
+  const all = (await api(`/api/projects/${state.projectId}/personas`).catch(() => null))?.personas || [];
+  for (const pe of all) if (!known.has(pe.id)) known.set(pe.id, pe.name);
+  const personas = [...known.entries()];
   const waiting = prompts.filter((p) => !p.measured).length;
 
   // Two buyer types asking the same thing costs twice and measures once.
@@ -919,6 +931,26 @@ async function viewQuestions() {
       n === undefined ? '' : ` ${n}`
     }</button>`;
 
+  /**
+   * Tagging in bulk.
+   *
+   * Buyer type and topic could only be set when a question was created, so a
+   * site with a hundred imported questions had no way to organise them. One at
+   * a time would be technically possible and practically untouchable.
+   */
+  const bulkBar = `
+    <div class="qbulk" id="qBulk" hidden>
+      <span class="qbulk-count" id="qBulkCount"></span>
+      <select id="qBulkPersona">
+        <option value="">Set buyer type…</option>
+        <option value="none">Asked plainly</option>
+        ${personas.map(([id, name]) => `<option value="${id}">${esc(name)}</option>`).join('')}
+      </select>
+      <input id="qBulkCluster" placeholder="Set topic, e.g. asset classes" />
+      <button class="btn" id="qBulkApply">Apply</button>
+      <button class="ghost" id="qBulkClear">Clear selection</button>
+    </div>`;
+
   const filters = `
     <div class="qtools">
       <div class="qtool">
@@ -944,6 +976,15 @@ async function viewQuestions() {
             </div>`
           : ''
       }
+
+      <div class="qtool">
+        <span class="qtool-k">Select</span>
+        <div class="taskbar">
+          <button class="tfilter" id="qSelShown">All shown</button>
+          <button class="tfilter" id="qSelUntagged">Untagged only</button>
+          <button class="tfilter" id="qSelNone">None</button>
+        </div>
+      </div>
 
       <div class="qtool qtool-row">
         ${
@@ -1041,6 +1082,7 @@ async function viewQuestions() {
         : ''
     }
     ${filters}
+    ${bulkBar}
     ${prompts.length > 8 ? searchBox('promptFilter', 'Filter by question, cluster or cited domain', 'promptFilterCount') : ''}
     <div id="promptList">
       ${rows}
@@ -2234,6 +2276,51 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // Selecting only what is on screen respects the filters above, so someone
+  // can narrow to one topic and tag exactly that set.
+  if (e.target.id === 'qSelShown' || e.target.id === 'qSelUntagged' || e.target.id === 'qSelNone') {
+    for (const row of document.querySelectorAll('.prompt')) {
+      const box = row.querySelector('[data-qsel]');
+      if (!box) continue;
+      // offsetParent rather than the hidden attribute: a row can be off
+      // screen from a filter, a collapsed group or a display rule, and only
+      // one of those sets hidden.
+      const onScreen = row.offsetParent !== null;
+      if (e.target.id === 'qSelNone' || !onScreen) box.checked = false;
+      else box.checked = e.target.id === 'qSelUntagged' ? !row.dataset.persona : true;
+    }
+    refreshBulkBar();
+    return;
+  }
+
+  if (e.target.id === 'qBulkClear') {
+    for (const b of document.querySelectorAll('[data-qsel]:checked')) b.checked = false;
+    refreshBulkBar();
+    return;
+  }
+
+  if (e.target.id === 'qBulkApply') {
+    const ids = [...document.querySelectorAll('[data-qsel]:checked')].map((b) => Number(b.dataset.qsel));
+    if (!ids.length) return;
+
+    const persona = $('qBulkPersona').value;
+    const cluster = $('qBulkCluster').value.trim();
+    if (!persona && !cluster) return toast('Choose a buyer type or type a topic first', 'bad');
+
+    e.target.disabled = true;
+    const body = { ids };
+    if (persona) body.personaId = persona === 'none' ? null : Number(persona);
+    if (cluster) body.cluster = cluster;
+
+    const r = await api(`/api/projects/${state.projectId}/prompts/bulk`, { method: 'PATCH', body });
+    e.target.disabled = false;
+
+    if (r?.error) return toast(r.error, 'bad');
+    await render();
+    toast(`${r.changed} question${r.changed === 1 ? '' : 's'} updated`);
+    return;
+  }
+
   const chip = e.target.closest('[data-group]');
   if (!chip) return;
   const group = chip.dataset.group;
@@ -2242,7 +2329,19 @@ document.addEventListener('click', async (e) => {
   applyQuestionView();
 });
 
+/** How many are selected, and whether the bar should be showing. */
+function refreshBulkBar() {
+  const bar = document.getElementById('qBulk');
+  if (!bar) return;
+  const n = document.querySelectorAll('[data-qsel]:checked').length;
+  bar.hidden = n === 0;
+  const count = document.getElementById('qBulkCount');
+  if (count) count.textContent = `${n} selected`;
+}
+
 document.addEventListener('change', (e) => {
+  if (e.target.matches('[data-qsel]')) { refreshBulkBar(); return; }
+
   if (e.target.id === 'qsort') {
     qState.sort = e.target.value;
     applyQuestionView();

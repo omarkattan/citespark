@@ -1860,6 +1860,31 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('a question can be tagged after it was created', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Buyer type and topic were set once at creation and never again, so a
+  // question imported from Search Console sat unassigned forever.
+  const patch = server.slice(server.indexOf("app.patch('/api/prompts/:promptId'"), server.indexOf('The same change across many'));
+  assert.ok(/persona_id = CASE WHEN/.test(patch), 'buyer type must be editable');
+  assert.ok(/cluster = COALESCE/.test(patch), 'and topic');
+  assert.ok(/not on this account/.test(patch), 'with the persona checked against the account');
+
+  // One at a time is technically possible and practically untouchable on a
+  // site with a hundred questions.
+  assert.ok(/prompts\/bulk/.test(server), 'and the same change must work across many');
+  assert.ok(/id = ANY\(\$2::int\[\]\)/.test(server));
+
+  // Selecting what is on screen respects the filters above it.
+  assert.ok(/row\.offsetParent !== null/.test(app), 'selection follows what is visible');
+  assert.ok(/qSelUntagged/.test(app), 'and untagged is the case worth one click');
+
+  // A persona with no questions yet is exactly the one you want to assign.
+  assert.ok(/not only those already in use/.test(app), 'the list must include unused buyer types');
+});
+
 await test('a rate limit is retried, not treated as an outage', async () => {
   const { readFileSync } = await import('node:fs');
   const df = readFileSync(new URL('../src/lib/dataforseo.js', import.meta.url), 'utf8');

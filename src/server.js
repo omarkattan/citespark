@@ -1132,13 +1132,82 @@ app.post('/api/projects/:id/prompts/bulk', requireAuth, wrap(async (req, res) =>
 }));
 
 app.patch('/api/prompts/:promptId', requireAuth, wrap(async (req, res) => {
+  const id = Number(req.params.promptId);
+
+  /**
+   * Buyer type and topic are editable now.
+   *
+   * They were set once when a question was created and never again, so a
+   * question imported from Search Console sat unassigned forever and the
+   * grouping that makes a large set searchable could not be corrected.
+   */
+  let personaId;
+  if ('personaId' in (req.body || {})) {
+    personaId = req.body.personaId === null || req.body.personaId === '' ? null : Number(req.body.personaId);
+    if (personaId) {
+      const owns = await one(
+        `SELECT pe.id FROM personas pe JOIN projects p ON p.id = pe.project_id
+         WHERE pe.id = $1 AND p.org_id = $2`,
+        [personaId, req.session.orgId]
+      );
+      if (!owns) return res.status(400).json({ error: 'That buyer type is not on this account' });
+    }
+  }
+
+  const cluster = typeof req.body?.cluster === 'string' ? req.body.cluster.trim().toLowerCase().slice(0, 40) : null;
+
   const result = await query(
-    `UPDATE prompts SET active = COALESCE($2, active)
+    `UPDATE prompts SET
+       active = COALESCE($2, active),
+       persona_id = CASE WHEN $4 THEN $5 ELSE persona_id END,
+       cluster = COALESCE($6, cluster)
      WHERE id = $1 AND project_id IN (SELECT id FROM projects WHERE org_id = $3)`,
-    [Number(req.params.promptId), typeof req.body?.active === 'boolean' ? req.body.active : null, req.session.orgId]
+    [
+      id,
+      typeof req.body?.active === 'boolean' ? req.body.active : null,
+      req.session.orgId,
+      personaId !== undefined,
+      personaId ?? null,
+      cluster || null
+    ]
   );
   if (!result.rowCount) return res.status(404).json({ error: 'Question not found' });
   res.json({ ok: true });
+}));
+
+/**
+ * The same change across many questions.
+ *
+ * A site with a hundred unassigned questions cannot be sorted one row at a
+ * time, and a feature nobody can face using is not a feature.
+ */
+app.patch('/api/projects/:id/prompts/bulk', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean).slice(0, 500) : [];
+  if (!ids.length) return res.status(400).json({ error: 'Nothing selected' });
+
+  const setPersona = 'personaId' in (req.body || {});
+  const personaId = req.body?.personaId ? Number(req.body.personaId) : null;
+
+  if (personaId) {
+    const owns = await one('SELECT id FROM personas WHERE id = $1 AND project_id = $2', [personaId, project.id]);
+    if (!owns) return res.status(400).json({ error: 'That buyer type is not on this site' });
+  }
+
+  const cluster = typeof req.body?.cluster === 'string' ? req.body.cluster.trim().toLowerCase().slice(0, 40) : null;
+  if (!setPersona && !cluster) return res.status(400).json({ error: 'Nothing to change' });
+
+  const result = await query(
+    `UPDATE prompts SET
+       persona_id = CASE WHEN $3 THEN $4 ELSE persona_id END,
+       cluster = COALESCE($5, cluster)
+     WHERE project_id = $1 AND id = ANY($2::int[])`,
+    [project.id, ids, setPersona, personaId, cluster || null]
+  );
+
+  res.json({ ok: true, changed: result.rowCount });
 }));
 
 app.delete('/api/prompts/:promptId', requireAuth, wrap(async (req, res) => {
