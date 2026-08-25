@@ -1860,6 +1860,35 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('a tick is visible enough to mean something', async () => {
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('../src/public/styles.css', import.meta.url), 'utf8');
+
+  // A miss was drawn in --line, which is 1.46:1 against the white panel. The
+  // strip read as empty boxes, so "we asked and you were not there" and "we
+  // did not ask" looked identical, and both looked like nothing had rendered.
+  assert.ok(!/\.tick\.miss \{ background: var\(--line\); \}/.test(css), 'a miss must not be drawn in the border colour');
+  assert.ok(/\.tick\.miss \{ background: #8c9a93; \}/.test(css));
+
+  const lum = (h) => {
+    const v = [0, 2, 4].map((i) => parseInt(h.slice(i + 1, i + 3), 16) / 255)
+      .map((x) => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+  };
+  const ratio = (a, b) => {
+    const [x, y] = [lum(a), lum(b)];
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  };
+  assert.ok(ratio('#8c9a93', '#ffffff') > 2.5, 'and must be perceivable against the panel');
+
+  // Four states, each distinguishable: named, linked, asked and absent, and
+  // never asked. Two of them declared twice would silently collapse.
+  assert.equal((css.match(/\.tick\.cited \{/g) || []).length, 1, 'no duplicate tick rules');
+  for (const state of ['hit', 'miss', 'cited', 'unrun']) {
+    assert.ok(new RegExp(`\\.tick\\.${state}`).test(css), `${state} needs its own appearance`);
+  }
+});
+
 await test('a question can be tagged after it was created', async () => {
   const { readFileSync } = await import('node:fs');
   const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');

@@ -201,15 +201,40 @@ h2 {
 
 .ticks { display: flex; gap: 3px; }
 
+/*
+ * Three outcomes, each a mark rather than a box.
+ *
+ * A miss was a 7x22 outline in near-invisible grey, which reads as an empty
+ * form field waiting for input rather than a measurement that came back
+ * negative. Shorter, and filled rather than outlined, so a run that happened
+ * and found nothing looks different from one that has not happened.
+ */
+/*
+ * A tick has to be visible to mean anything.
+ *
+ * A miss was drawn in --line, which is 1.46:1 against the white panel. The
+ * whole strip read as empty boxes, so "we asked and you were not there" and
+ * "we did not ask" looked identical, and both looked like nothing rendered.
+ * Four states, each distinguishable at a glance.
+ */
 .tick {
-  width: 7px;
-  height: 22px;
-  border-radius: 1px;
-  border: 1px solid var(--you);
-  background: transparent;
+  width: 8px;
+  height: 18px;
+  border-radius: 2px;
+  border: none;
+  background: #8c9a93;
 }
+/* named in the answer */
 .tick.hit { background: var(--you); }
-.tick.miss { border-color: var(--line); }
+/* asked, and absent: muted but present, at 2.9:1 rather than 1.5:1 */
+.tick.miss { background: #8c9a93; }
+/* linked as a source without being named */
+.tick.cited { background: transparent; border: 2px solid var(--you); }
+/* never asked, which is not a result */
+.tick.unrun {
+  background: transparent;
+  border: 1px dashed #8c9a93;
+}
 
 /* ---------- prompt rows ---------- */
 
@@ -1688,10 +1713,6 @@ select { appearance: auto; }
  * as no visibility at all. A ring rather than a filled tick: present, but a
  * different kind of present.
  */
-.tick.cited {
-  background: transparent;
-  border: 2px solid var(--you);
-}
 .rates { text-align: right; }
 .ratesplit {
   font-family: var(--mono);
