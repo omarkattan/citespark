@@ -380,7 +380,15 @@ function isTransient(result) {
   const e = String(result?.error || '');
   if (!e) return false;
   if (/Invalid Field|not authorized|40100|Unknown engine/i.test(e)) return false;
-  return /Internal SE Server Error|Task In Queue|HTTP 5\d\d|HTTP 429|timeout|ECONNRESET|fetch failed/i.test(e);
+  /**
+   * A rate limit is the most recoverable failure there is, and it was the one
+   * we did not retry. Gemini returned rate_limit_exceeded on 260 consecutive
+   * calls, every one recorded as a hard failure at full speed, and the
+   * product then advised switching the engine off. Slowing down was the fix.
+   */
+  return /Internal SE Server Error|Task In Queue|HTTP 5\d\d|HTTP 429|rate.?limit|Service Unavailable|timeout|ECONNRESET|fetch failed/i.test(
+    e
+  );
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -394,7 +402,29 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * error reported as a finding. Tokens are cheap next to the cost of a wrong
  * answer, so the ceiling is now high enough that truncation is rare.
  */
+/**
+ * How long to wait before trying again.
+ *
+ * Linear backoff is too shallow for a rate limit: the second attempt lands
+ * while the window is still closed and burns another failure. This doubles,
+ * and adds jitter so a batch of parallel calls does not retry in lockstep and
+ * recreate the spike that caused the limit.
+ */
+function backoffFor(engine, attempt) {
+  const base = 1200 * 2 ** attempt;
+  return Math.min(base, 15000) + Math.random() * 400;
+}
+
+/**
+ * An engine that just rate limited us should not be hit again immediately by
+ * the next question in the cycle. Held per engine, so one struggling provider
+ * does not slow the others down.
+ */
+const coolUntil = new Map();
+
 export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 2000, attempt = 0 }) {
+  const cool = coolUntil.get(engine) || 0;
+  if (cool > Date.now()) await sleep(cool - Date.now());
   const cfg = ENGINES[engine];
   if (!cfg) return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, error: `Unknown engine ${engine}` };
 
@@ -411,7 +441,7 @@ export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 200
     if (!isTransient(first) || attempt >= RETRIES) return first;
     // Google-side failures clear more slowly than an LLM hiccup, so back off
     // further rather than hammering the same second.
-    await sleep(1500 * (attempt + 1));
+    await sleep(backoffFor(engine, attempt));
     return askEngine({ engine, prompt, market, maxTokens, attempt: attempt + 1 });
   }
 
@@ -431,7 +461,7 @@ export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 200
 
   const body = [payload];
   const retry = async () => {
-    await sleep(700 * (attempt + 1));
+    await sleep(backoffFor(engine, attempt));
     return askEngine({ engine, prompt, market, maxTokens, attempt: attempt + 1 });
   };
 
@@ -459,6 +489,11 @@ export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 200
         model: cfg.label,
         error: taskData?.status_message || 'Task failed'
       };
+      // A rate limit is about pace, not this particular question, so the
+      // whole engine waits rather than only this call.
+      if (/rate.?limit/i.test(taskFail.error || '')) {
+        coolUntil.set(engine, Date.now() + Math.min(3000 * 2 ** attempt, 20000));
+      }
       return isTransient(taskFail) && attempt < RETRIES ? retry() : taskFail;
     }
 

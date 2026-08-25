@@ -1860,6 +1860,28 @@ await test('every public page carries the same menu', async () => {
 
 console.log('\ngoogle connection');
 
+await test('a rate limit is retried, not treated as an outage', async () => {
+  const { readFileSync } = await import('node:fs');
+  const df = readFileSync(new URL('../src/lib/dataforseo.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Gemini returned rate_limit_exceeded on 260 consecutive calls, every one
+  // recorded as a hard failure at full speed, and the product then advised
+  // switching the engine off. Slowing down was the fix.
+  assert.ok(/rate\.\?limit/.test(df), 'a rate limit must count as transient');
+
+  // Linear backoff lands the retry while the window is still closed.
+  assert.ok(/1200 \* 2 \*\* attempt/.test(df), 'backoff must double');
+  assert.ok(/Math\.random\(\) \* 400/.test(df), 'with jitter, so parallel calls do not retry in lockstep');
+
+  // A limit is about pace, so the whole engine waits rather than one call.
+  assert.ok(/coolUntil\.set\(engine/.test(df), 'the engine cools down, not just the request');
+
+  // And the advice must not tell someone to abandon a working surface.
+  assert.ok(/hit the provider's rate limit rather than failing/.test(app));
+  assert.ok(/not\s+switching the surface off/.test(app.replace(/\s+/g, ' ')), 'switching off is the wrong advice here');
+});
+
 await test('creating something says so, and clears itself', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

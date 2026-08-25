@@ -1745,11 +1745,31 @@ function failureNote(s) {
        ${ourFault.length === 1 ? 'it' : 'them'} off. It is already logged for us to fix; the surface will start reporting again once it is.`
     : '';
 
-  const theirNote = theirs.length
-    ? `<br /><br /><b>${theirs.map((b) => esc(b.engine)).join(' and ')}</b> ${theirs.length === 1 ? 'is' : 'are'} failing most of the time, so ${theirs.length === 1 ? 'it is' : 'they are'} adding nothing to your numbers.
-       Switch ${theirs.length === 1 ? 'it' : 'them'} off under <b>Where we look</b> until the provider is reliable again, and your remaining surfaces will run faster.
+  /**
+   * A rate limit is a pace problem, not an outage.
+   *
+   * Every failure that was not our fault was treated as a broken provider and
+   * the advice was to switch the engine off. Being rate limited means we asked
+   * too fast, which we can fix by slowing down, and telling someone to abandon
+   * a working surface over it costs them a whole engine's worth of data.
+   */
+  const limited = theirs.filter((b) => /rate.?limit/i.test(b.error || ''));
+  const failing = theirs.filter((b) => !/rate.?limit/i.test(b.error || ''));
+
+  const limitNote = limited.length
+    ? `<br /><br /><b>${limited.map((b) => esc(b.engine)).join(' and ')}</b> hit the provider's rate limit rather than failing.
+       We now wait and retry when that happens, so this should settle on the next cycle. If it keeps happening, the
+       account is being asked for more than its quota allows and the fix is a slower cadence or a higher quota, not
+       switching the surface off.`
+    : '';
+
+  const brokenNote = failing.length
+    ? `<br /><br /><b>${failing.map((b) => esc(b.engine)).join(' and ')}</b> ${failing.length === 1 ? 'is' : 'are'} failing most of the time, so ${failing.length === 1 ? 'it is' : 'they are'} adding nothing to your numbers.
+       Switch ${failing.length === 1 ? 'it' : 'them'} off under <b>Where we look</b> until the provider is reliable again, and your remaining surfaces will run faster.
        <button class="ghost" data-goto-setup="1" style="margin-left:6px;padding:4px 9px;font-size:10px">Open Setup</button>`
     : '';
+
+  const theirNote = limitNote + brokenNote;
 
   const advice = ourNote + theirNote;
 
