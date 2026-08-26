@@ -3443,6 +3443,63 @@ await test('any verdict can be checked against the answer', async () => {
   assert.ok(/cut short/.test(app), 'and the truncation shown where the verdict is');
 });
 
+await test('one answer is shown once, whatever else is tracked', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+
+  // The route left-joined every mention on the run and filtered kind on the
+  // entities join instead. A LEFT JOIN only blanks the name there, so each
+  // answer came back once per tracked firm: the same text repeated, ours
+  // "named" on one copy and a rival's "not named" on the next.
+  const fn = server.slice(
+    server.indexOf("app.get('/api/prompts/:promptId/answers'"),
+    server.indexOf("app.post('/api/prompts/:promptId/reask'")
+  );
+  assert.ok(fn, 'the answers route must exist');
+  assert.ok(
+    /LEFT JOIN mentions m ON m\.run_id = r\.id\s*\n\s*AND m\.entity_id = \(SELECT id FROM entities/.test(fn),
+    'the mention must be pinned to the owned entity on the join itself'
+  );
+  assert.ok(
+    !/LEFT JOIN entities e ON e\.id = m\.entity_id AND e\.kind = 'owned'/.test(fn),
+    "kind on a LEFT JOIN to entities blanks the name without dropping the row"
+  );
+  // A verdict that disagreed with the row the reader clicked would be worse
+  // than the duplicate, so both must resolve the brand the same way.
+  const list = server.slice(server.indexOf('r.id AS run_id, r.engine, r.run_index, m.mentioned'), server.indexOf('const citations = await many'));
+  assert.ok(/kind = 'owned'\s*\n?\s*ORDER BY id LIMIT 1/.test(list) || /kind = 'owned' LIMIT 1/.test(list), 'the questions list picks the owned entity the same way');
+});
+
+await test('an answer nobody read is not counted as a miss', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // A failed call writes no mention row, and neither does an answer stored
+  // before the brand was tracked. Rendering either as "not named" invents a
+  // miss. Absent and zero are different everywhere else in the product.
+  assert.ok(/measured: r\.mentioned !== null/.test(server), 'the route must say whether it looked');
+  assert.ok(/!r\.measured/.test(app), 'and the panel must branch on it');
+  assert.ok(/not measured/.test(app), 'with its own words, not the miss wording');
+});
+
+await test('a repeated engine block says it is a second sample', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Two blocks for one engine used to mean the duplicate bug. It can still
+  // happen legitimately when a question is asked more than once, and those
+  // samples can disagree, so the reason has to be on screen.
+  assert.ok(/ROW_NUMBER\(\) OVER \(PARTITION BY r\.engine/.test(server), 'each sample needs its position');
+  assert.ok(/COUNT\(\*\) OVER \(PARTITION BY r\.engine\)/.test(server), 'and the total on that engine');
+  assert.ok(/sample \$\{r\.sample\} of \$\{r\.samples\}/.test(app), 'shown in words');
+  assert.ok(/r\.samples > 1/.test(app), 'and only when there is more than one');
+
+  // "AI_MODE" is a column value, not a product name.
+  assert.ok(/ENGINE_LABEL\[r\.engine\] \|\| r\.engine/.test(app), 'engines are named as people know them');
+});
+
 console.log('\ntrend chart');
 
 await test('a series can be switched off without moving the others', async () => {

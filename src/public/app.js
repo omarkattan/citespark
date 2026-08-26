@@ -2255,13 +2255,30 @@ document.addEventListener('click', async (e) => {
 
     box.innerHTML = preamble + (d?.runs || [])
       .map((r) => {
-        const verdict = r.mentioned
-          ? `<span class="tag ok">named${r.ordinal ? `, ${r.ordinal}${r.ordinal === 1 ? 'st' : r.ordinal === 2 ? 'nd' : r.ordinal === 3 ? 'rd' : 'th'}` : ''}</span>`
-          : '<span class="tag">not named</span>';
+        /**
+         * Three outcomes, not two. A call that failed, or an answer stored
+         * before the brand was tracked, was never read for a name, and
+         * showing that as "not named" invents a miss that never happened.
+         */
+        const verdict = !r.measured
+          ? `<span class="tag" title="This answer was not read for your brand: the call failed, or it was stored before the brand was tracked. It counts towards nothing either way.">not measured</span>`
+          : r.mentioned
+            ? `<span class="tag ok">named${r.ordinal ? `, ${r.ordinal}${r.ordinal === 1 ? 'st' : r.ordinal === 2 ? 'nd' : r.ordinal === 3 ? 'rd' : 'th'}` : ''}</span>`
+            : '<span class="tag">not named</span>';
+        /**
+         * Two blocks for one engine used to mean a bug. Now it only ever
+         * means the question was asked more than once, and those samples can
+         * legitimately disagree. Saying which sample this is keeps a real
+         * difference from reading as the product contradicting itself.
+         */
+        const sample = r.samples > 1
+          ? `<span class="ans-sample" title="This question was asked ${r.samples} times on this engine. Engines vary between asks, so samples can differ.">sample ${r.sample} of ${r.samples}</span>`
+          : '';
         return `<div class="ans">
           <div class="ans-head">
-            <span class="ans-engine">${esc(r.engine)}</span>
+            <span class="ans-engine">${esc(ENGINE_LABEL[r.engine] || r.engine)}</span>
             ${r.model ? `<span class="ans-model">${esc(r.model)}</span>` : ''}
+            ${sample}
             ${verdict}
             ${r.truncated ? '<span class="tag warn" title="The answer stopped at our length limit, so anything after that was not measured">cut short</span>' : ''}
           </div>

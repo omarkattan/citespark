@@ -404,7 +404,9 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
      LEFT JOIN personas pe ON pe.id = p.persona_id
      LEFT JOIN runs r ON r.prompt_id = p.id AND r.cycle_date = $2 AND r.ok
      LEFT JOIN mentions m ON m.run_id = r.id
-       AND m.entity_id = (SELECT id FROM entities WHERE project_id = $1 AND kind = 'owned' LIMIT 1)
+       AND m.entity_id = (SELECT id FROM entities
+                          WHERE project_id = $1 AND kind = 'owned'
+                          ORDER BY id LIMIT 1)
      WHERE p.project_id = $1
      ORDER BY p.persona_id NULLS FIRST, p.ai_search_volume DESC NULLS LAST, p.id, r.engine, r.run_index`,
     [project.id, cycle, project.domain]
@@ -1543,15 +1545,32 @@ app.get('/api/prompts/:promptId/answers', requireAuth, wrap(async (req, res) => 
   const cycle = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE prompt_id = $1 AND ok', [prompt.id]))?.d;
   if (!cycle) return res.json({ prompt: prompt.text, runs: [] });
 
+  /**
+   * One row per stored answer, not one per tracked brand.
+   *
+   * This left-joined every mention on the run and put the `kind = 'owned'`
+   * test on the entities join. On a LEFT JOIN that only blanks the brand
+   * name; it does not drop the row. So each answer came back once per tracked
+   * firm - the same text repeated, carrying our verdict on one copy and a
+   * rival's on the others, which read as the product contradicting itself.
+   *
+   * Scoped to the same owned entity the Questions list uses, so the verdict
+   * here can never disagree with the row the reader clicked to get here.
+   */
   const runs = await many(
     `SELECT r.id, r.engine, r.model, r.run_index, r.response_text, r.ok, r.error,
-            m.mentioned, m.ordinal, e.name AS brand
+            m.mentioned, m.ordinal, e.name AS brand,
+            ROW_NUMBER() OVER (PARTITION BY r.engine ORDER BY r.run_index, r.id)::int AS sample,
+            COUNT(*) OVER (PARTITION BY r.engine)::int AS samples
      FROM runs r
      LEFT JOIN mentions m ON m.run_id = r.id
-     LEFT JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
+       AND m.entity_id = (SELECT id FROM entities
+                          WHERE project_id = $3 AND kind = 'owned'
+                          ORDER BY id LIMIT 1)
+     LEFT JOIN entities e ON e.id = m.entity_id
      WHERE r.prompt_id = $1 AND r.cycle_date = $2
      ORDER BY r.engine, r.run_index`,
-    [prompt.id, cycle]
+    [prompt.id, cycle, prompt.project_id]
   );
 
   const { looksTruncated } = await import('./lib/analyze.js');
@@ -1562,6 +1581,10 @@ app.get('/api/prompts/:promptId/answers', requireAuth, wrap(async (req, res) => 
     cycle,
     runs: runs.map((r) => ({
       ...r,
+      // A failed call, or an answer stored before the brand was tracked, has
+      // no mention row at all. That is not the same as looking and finding
+      // nothing, and must not be shown as "not named".
+      measured: r.mentioned !== null && r.mentioned !== undefined,
       // If the answer stopped at the ceiling, "not named" may only mean the
       // brand was in the part that never arrived.
       truncated: looksTruncated(r.response_text, ceiling)
@@ -2937,7 +2960,7 @@ app.get('/api/version', (_req, res) => {
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions', 'trademark-tm', 'ai-visibility-copy', 'gsc-connect-prompt', 'internal-accounts', 'aggregated-report', 'page-checks', 'question-filters', 'page-check-errors', 'page-check-picker', 'brand-filter', 'gsc-pagination', 'path-filter', 'site-sections', 'question-dropdowns', 'read-the-answer', 'longer-answers', 'questions-from-topic', 'run-unrun-only', 'run-menu', 'internal-no-limits', 'auto-teardown', 'report-visuals', 'resolve-redirects', 'resolve-retry', 'withdraw-stale-actions', 'source-filter', 'local-listings', 'sources-after-clean', 'prompt-events', 'csv-export', 'mail-diagnostics', 'reask-question', 'session-caveat', 'decline-actions', 'plain-action-labels', 'cited-counts-as-visible', 'interactive-charts', 'duplicate-questions', 'persona-overlap', 'email-verification', 'password-reset', 'signup-limit', 'verify-banner', 'admin-console', 'admin-link', 'danger-contrast', 'signup-flow', 'admin-per-org', 'ga4-error-detail', 'connect-returns-home', 'gsc-disconnect', 'import-room', 'inline-form-fix', 'upgrade-prompt', 'like-for-like-trend', 'grouped-findings', 'seed-verified', 'traffic-in-report', 'render-what-we-compute', 'separate-google-accounts', 'traffic-detail', 'report-cta', 'full-csv', 'report-download']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions', 'trademark-tm', 'ai-visibility-copy', 'gsc-connect-prompt', 'internal-accounts', 'aggregated-report', 'page-checks', 'question-filters', 'page-check-errors', 'page-check-picker', 'brand-filter', 'gsc-pagination', 'path-filter', 'site-sections', 'question-dropdowns', 'read-the-answer', 'longer-answers', 'questions-from-topic', 'run-unrun-only', 'run-menu', 'internal-no-limits', 'auto-teardown', 'report-visuals', 'resolve-redirects', 'resolve-retry', 'withdraw-stale-actions', 'source-filter', 'local-listings', 'sources-after-clean', 'prompt-events', 'csv-export', 'mail-diagnostics', 'reask-question', 'session-caveat', 'decline-actions', 'plain-action-labels', 'cited-counts-as-visible', 'interactive-charts', 'duplicate-questions', 'persona-overlap', 'email-verification', 'password-reset', 'signup-limit', 'verify-banner', 'admin-console', 'admin-link', 'danger-contrast', 'signup-flow', 'admin-per-org', 'ga4-error-detail', 'connect-returns-home', 'gsc-disconnect', 'import-room', 'inline-form-fix', 'upgrade-prompt', 'like-for-like-trend', 'grouped-findings', 'seed-verified', 'traffic-in-report', 'render-what-we-compute', 'separate-google-accounts', 'traffic-detail', 'report-cta', 'full-csv', 'report-download', 'answer-dedupe', 'unmeasured-verdict', 'sample-labels']
   });
 });
 

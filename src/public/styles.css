@@ -1646,6 +1646,8 @@ select { appearance: auto; }
 }
 .ans-engine { font-family: var(--mono); font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink); }
 .ans-model { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
+/* Metadata, not a verdict: it sits beside the tags without competing. */
+.ans-sample { font-family: var(--mono); font-size: 10px; color: var(--ink-3); white-space: nowrap; }
 .ans-body {
   padding: 12px 14px;
   font-size: 13.5px;
