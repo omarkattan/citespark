@@ -1477,7 +1477,14 @@ async function render() {
     trends: viewTrends, landscape: viewLandscape
   }[view];
   $('view').innerHTML = await fn();
-  if (view === 'setup') { recalcEstimate(); loadPersonas(); }
+  if (view === 'setup') {
+    recalcEstimate();
+    loadPersonas();
+    // The select is rendered empty but for the country option, then filled
+    // from the country beside it, so the stored city survives a reload.
+    const city = $('s_city');
+    if (city) fillCities($('s_market').value, city, $('s_cityHint'), city.dataset.selected || '');
+  }
   if (view === 'questions') {
     // Reset, or a filter from a previous site silently narrows this one.
     Object.assign(qState, { state: 'all', persona: 'all', cluster: 'all', intent: 'all', sort: 'opportunity', text: '' });
@@ -1673,6 +1680,51 @@ const PHASE_LABEL = {
   thinking: 'Reading answers and writing your actions',
   done: 'Finished'
 };
+
+/**
+ * Fill a city dropdown from the country beside it.
+ *
+ * Every state is said out loud rather than shown as an empty list: an empty
+ * dropdown reads as "this country has no cities", which is never what
+ * happened. If the lookup is down the country still works perfectly well, so
+ * the field degrades to the whole country and says why instead of blocking
+ * the form.
+ */
+const cityCache = new Map();
+
+async function fillCities(iso, select, hint, selected = '') {
+  if (!select) return;
+  const country = String(iso || '').toUpperCase();
+
+  select.disabled = true;
+  select.innerHTML = '<option value="">Loading cities</option>';
+
+  let data = cityCache.get(country);
+  if (!data) {
+    try {
+      data = await api(`/api/locations/${country}`);
+      cityCache.set(country, data);
+    } catch (err) {
+      data = { cities: [], unavailable: String(err.message || err) };
+    }
+  }
+
+  const cities = data.cities || [];
+  select.innerHTML = '<option value="">The whole country</option>' + cities
+    .map((c) => `<option value="${esc(c.name)}" ${c.name === selected ? 'selected' : ''}>${esc(c.label)}</option>`)
+    .join('');
+  select.disabled = false;
+
+  if (hint && data.unavailable) {
+    hint.classList.add('warn');
+    hint.textContent =
+      'The city list could not be loaded just now, so this site will be measured across the whole country. ' +
+      'Nothing else is affected, and you can set a city later from Settings.';
+  } else if (hint && !cities.length) {
+    hint.classList.add('warn');
+    hint.textContent = 'Google does not offer city-level results for this country, so it will be measured nationally.';
+  }
+}
 
 const ENGINE_LABEL = {
   chatgpt: 'ChatGPT',
@@ -2246,8 +2298,19 @@ document.addEventListener('click', async (e) => {
      * and then finds a different answer. That is not usually a fault in the
      * measurement, and saying so here saves the same conversation every time.
      */
+    /**
+     * Name the place we actually asked from. "Your market" was vague enough
+     * that a disagreement about a verdict turned into a disagreement about
+     * where it was measured, which is not a question the reader should have
+     * to ask.
+     */
+    const proj = state.overview?.project || {};
+    const askedFrom = proj.location_name
+      ? proj.location_name.split(',')[0]
+      : (window.COUNTRIES.find(([c]) => c === proj.market)?.[1] || proj.market || 'your market');
+
     const preamble = `<p class="hint" style="margin:0 0 10px">
-      This is what the engine returned to a fresh, signed-out session in ${esc(state.overview?.project?.market || 'your market')}.
+      This is what the engine returned to a fresh, signed-out session in ${esc(askedFrom)}.
       Asking the same question in your own account can differ: your history, saved memories and location all shape
       what comes back, and a brand you have been researching is far more likely to appear. Neither answer is wrong,
       but only this one describes what a stranger sees.
@@ -3108,6 +3171,14 @@ async function viewSetup() {
         <div class="field"><label for="s_qualifier">Who the customer is</label><input id="s_qualifier" value="${esc(p.qualifier || '')}" /></div>
         <div class="field"><label for="s_market">Market</label><select id="s_market">${window.countryOptions(p.market)}</select></div>
         <div class="field">
+          <label for="s_city">City</label>
+          <select id="s_city" data-selected="${esc(p.location_name || '')}"><option value="">The whole country</option></select>
+          <span class="hint" id="s_cityHint" style="display:block;margin-top:5px">
+            Applies to Google AI Mode and AI Overviews only. ChatGPT and the other assistants are answered
+            through an API with no location, so they stay at country level whatever is chosen here.
+          </span>
+        </div>
+        <div class="field">
           <label for="s_runs">Runs per question, per engine</label>
           <input id="s_runs" type="number" min="1" max="10" value="${p.runs_per_cycle}" />
           <span class="hint" style="display:block;margin-top:5px">
@@ -3558,6 +3629,16 @@ document.addEventListener('input', (e) => {
   if (target) { filterRows(target[0], e.target.value, target[1]); return; }
 });
 
+/**
+ * Switching country in Settings clears the city for the same reason it does
+ * in the new-site dialog: the old city no longer exists in the new country,
+ * and silently keeping it would mean measuring the wrong place.
+ */
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 's_market') return;
+  fillCities(e.target.value, $('s_city'), $('s_cityHint'));
+});
+
 document.addEventListener('input', (e) => {
   if (e.target.id !== 's_runs') return;
   const box = document.querySelector('[data-active-count]');
@@ -3681,6 +3762,7 @@ document.addEventListener('click', async (e) => {
         category: $('s_category').value,
         qualifier: $('s_qualifier').value,
         market: $('s_market').value,
+        locationName: $('s_city') ? $('s_city').value : undefined,
         runsPerCycle: Number($('s_runs').value),
         autoCycle: $('s_auto').checked
       })
@@ -3945,6 +4027,17 @@ $('addSiteBtn').addEventListener('click', () => {
   $('f_market').innerHTML = window.countryOptions(window.DEFAULT_COUNTRY);
   $('siteDialog').showModal();
   $('f_domain').focus();
+  fillCities(window.DEFAULT_COUNTRY, $('f_city'), $('f_cityHint'));
+});
+
+/**
+ * Changing the country strands whatever city was chosen, so reload the list
+ * rather than leaving a Manchester sitting under a UAE label. The server
+ * rejects that pair anyway; catching it here means nobody has to see the
+ * rejection.
+ */
+$('f_market').addEventListener('change', () => {
+  fillCities($('f_market').value, $('f_city'), $('f_cityHint'));
 });
 
 $('f_scan').addEventListener('click', async () => {
@@ -4012,6 +4105,7 @@ $('siteSave').addEventListener('click', async () => {
         category: $('f_category').value,
         qualifier: $('f_qualifier').value,
         market: $('f_market').value,
+        locationName: $('f_city').value,
         competitors: parseRivals($('f_rivals').value)
       })
     });

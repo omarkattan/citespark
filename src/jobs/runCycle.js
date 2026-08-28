@@ -138,6 +138,7 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
       engine,
       prompt: prompt.text,
       market: project.market,
+      locationName: project.location_name,
       maxTokens: Number(process.env.MAX_OUTPUT_TOKENS || 2000)
     });
 
@@ -451,6 +452,7 @@ export async function reaskPrompt(promptId, { engine = null } = {}) {
       engine: eng,
       prompt: prompt.text,
       market: project.market,
+      locationName: project.location_name,
       maxTokens: ceiling
     });
     spend += answer.costUsd || 0;

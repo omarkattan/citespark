@@ -3500,6 +3500,91 @@ await test('a repeated engine block says it is a second sample', async () => {
   assert.ok(/ENGINE_LABEL\[r\.engine\] \|\| r\.engine/.test(app), 'engines are named as people know them');
 });
 
+console.log('\nasking from a city');
+
+await test('the city list is asked for, never guessed', async () => {
+  const { readFileSync } = await import('node:fs');
+  const df = readFileSync(new URL('../src/lib/dataforseo.js', import.meta.url), 'utf8');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+
+  // A location string Google does not recognise is rejected rather than
+  // approximated, so a hand-written list would surface as an engine
+  // returning nothing at all. The lookup endpoint is free.
+  assert.ok(/serp\/google\/locations\/\$\{key\}/.test(df), 'cities come from the locations endpoint');
+  assert.ok(/name: r\.location_name,/.test(df), 'and the exact string is kept, not rebuilt from parts');
+  assert.ok(/api\/locations\/:country/.test(server), 'with a route the setup form can call');
+});
+
+await test('a city that is not in the country is refused', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // A project labelled UAE but asking Google from Manchester would produce
+  // numbers about the wrong place, and nothing on screen would say so.
+  assert.ok(/async function cityWithin/.test(server), 'the pair must be checked server-side');
+  assert.ok(/not in the market you chose/.test(server), 'and refused in words');
+  const patch = server.slice(server.indexOf("app.patch('/api/projects/:id'"), server.indexOf("app.delete('/api/projects/:id'"));
+  assert.ok(/const nextMarket = market\?\.toUpperCase\(\) \|\| project\.market/.test(patch),
+    'resolved against the country being saved, not the one already stored');
+
+  // And the form reloads the list so nobody has to meet that refusal.
+  assert.ok(/e\.target\.id !== 's_market'/.test(app), 'settings reloads cities when the country changes');
+  assert.ok(/\$\('f_market'\)\.addEventListener\('change'/.test(app), 'so does the new-site dialog');
+});
+
+await test('clearing the city back to the whole country is storable', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+
+  // COALESCE would make NULL mean "unchanged", so a city could be set but
+  // never removed.
+  assert.ok(/location_name = CASE WHEN \$11 THEN \$12 ELSE location_name END/.test(server),
+    'an explicit empty choice must clear it');
+  assert.ok(/locationName !== undefined/.test(server), 'while omitting the field leaves it alone');
+});
+
+await test('the city reaches the Google call and nothing else', async () => {
+  const { readFileSync } = await import('node:fs');
+  const df = readFileSync(new URL('../src/lib/dataforseo.js', import.meta.url), 'utf8');
+  const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
+
+  assert.ok(/location_name: locationName \|\| LOCATIONS\[market\]/.test(df), 'a city when set, the country otherwise');
+  assert.equal((job.match(/locationName: project\.location_name/g) || []).length, 2, 'both cycle call sites pass it');
+
+  // The LLM endpoints take a country code at most, and two of them reject
+  // even that. Sending a city there would fail the whole engine.
+  const llm = df.slice(df.indexOf('const modelName = await resolveModel'), df.indexOf('const body = [payload]'));
+  assert.ok(!/locationName/.test(llm), 'the LLM payload must never carry a city');
+});
+
+await test('the city says which engines it actually covers', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8');
+
+  // Picking Manchester and assuming all four engines moved is exactly the
+  // kind of unstated claim this product does not make.
+  assert.ok(/ChatGPT and the other assistants cannot be asked from a city/.test(html), 'the dialog must say so');
+  assert.ok(/stay at country level whatever is chosen here/.test(app), 'and so must settings');
+
+  // An empty dropdown reads as "this country has no cities", which is never
+  // what happened.
+  assert.ok(/Loading cities/.test(app), 'loading is a state, not a blank');
+  assert.ok(/The whole country/.test(app) && /The whole country/.test(html), 'and national is an option, not an absence');
+  assert.ok(/city list could not be loaded/.test(app), 'an outage is explained rather than shown as no cities');
+});
+
+await test('the evidence says where it asked from', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // A disputed verdict should not turn into a dispute about where it was
+  // measured. "AE" was the country code, shown raw.
+  assert.ok(/proj\.location_name/.test(app), 'the city is named when there is one');
+  assert.ok(/window\.COUNTRIES\.find/.test(app), 'and the country in words when there is not');
+});
+
 console.log('\ntrend chart');
 
 await test('a series can be switched off without moving the others', async () => {

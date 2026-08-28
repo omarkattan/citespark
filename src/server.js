@@ -868,6 +868,57 @@ app.get('/api/projects/:id/traffic', requireAuth, wrap(async (req, res) => {
 
 /* ---------------- setup: projects, competitors, questions ---------------- */
 
+/**
+ * A city is only meaningful inside its country.
+ *
+ * Changing the country without clearing the city would leave a project
+ * labelled UAE but asking Google from Manchester, and every number it
+ * produced would be quietly about the wrong place. Checked here rather than
+ * trusted from the form, because the form is not the only caller.
+ *
+ * If the lookup itself is unavailable we keep the submitted string rather
+ * than discarding the person's choice over an outage on our side.
+ */
+async function cityWithin(marketCode, locationName) {
+  const wanted = String(locationName || '').trim();
+  if (!wanted) return { name: null };
+
+  const { googleLocations } = await import('./lib/dataforseo.js');
+  try {
+    const cities = await googleLocations(marketCode);
+    if (!cities.length) return { name: wanted };
+    return cities.some((c) => c.name === wanted)
+      ? { name: wanted }
+      : { error: 'That city is not in the market you chose. Pick the country first, then the city.' };
+  } catch {
+    return { name: wanted };
+  }
+}
+
+/**
+ * The cities Google will accept in one country.
+ *
+ * Asked of DataForSEO rather than kept as a list here, because a city string
+ * Google does not recognise is rejected rather than approximated, and the
+ * failure would show up as an engine returning nothing rather than as a bad
+ * dropdown. Free to call and cached for a day.
+ *
+ * A failure returns 200 with an empty list and a reason, not an error status:
+ * the country is still perfectly usable on its own, and the setup form should
+ * degrade to "the whole country" rather than refuse to open.
+ */
+app.get('/api/locations/:country', requireAuth, wrap(async (req, res) => {
+  const iso = String(req.params.country || '').toUpperCase();
+  if (!/^[A-Z]{2}$/.test(iso)) return res.status(400).json({ error: 'Give a two-letter country code' });
+
+  const { googleLocations } = await import('./lib/dataforseo.js');
+  try {
+    res.json({ country: iso, cities: await googleLocations(iso) });
+  } catch (err) {
+    res.json({ country: iso, cities: [], unavailable: String(err.message || err) });
+  }
+}));
+
 app.post('/api/discover', requireAuth, wrap(async (req, res) => {
   const result = await discoverSite(req.body?.domain);
   if (!result.ok) return res.status(422).json(result);
@@ -875,7 +926,7 @@ app.post('/api/discover', requireAuth, wrap(async (req, res) => {
 }));
 
 app.post('/api/projects', requireAuth, wrap(async (req, res) => {
-  const { name, domain, brandName, aliases, category, market, qualifier, competitors, generate } = req.body || {};
+  const { name, domain, brandName, aliases, category, market, locationName, qualifier, competitors, generate } = req.body || {};
 
   const cleanDomain = String(domain || '')
     .trim()
@@ -895,19 +946,24 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
 
   const startingEngines = ENGINE_IDS.slice(0, (await getEntitlements(req.session.orgId)).plan.engines);
 
+  const marketCode = (market || 'AE').toUpperCase();
+  const city = await cityWithin(marketCode, locationName);
+  if (city.error) return res.status(400).json({ error: city.error });
+
   const project = await one(
-    `INSERT INTO projects (org_id, name, domain, brand_name, aliases, market, language, category, qualifier, engines)
-     VALUES ($1,$2,$3,$4,$5,$6,'en',$7,$8,$9) RETURNING *`,
+    `INSERT INTO projects (org_id, name, domain, brand_name, aliases, market, language, category, qualifier, engines, location_name)
+     VALUES ($1,$2,$3,$4,$5,$6,'en',$7,$8,$9,$10) RETURNING *`,
     [
       req.session.orgId,
       (name || brandName).trim(),
       cleanDomain,
       brandName.trim(),
       Array.isArray(aliases) ? aliases.map((a) => String(a).trim()).filter(Boolean).slice(0, 10) : [],
-      (market || 'AE').toUpperCase(),
+      marketCode,
       (category || 'business').trim(),
       (qualifier || 'small business').trim(),
-      startingEngines
+      startingEngines,
+      city.name
     ]
   );
 
@@ -954,7 +1010,21 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
 app.patch('/api/projects/:id', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
-  const { name, brandName, aliases, category, qualifier, market, runsPerCycle, engines, autoCycle } = req.body || {};
+  const { name, brandName, aliases, category, qualifier, market, locationName, runsPerCycle, engines, autoCycle } = req.body || {};
+
+  /**
+   * The city is resolved against whichever country ends up applying, not the
+   * one already stored, so switching country and city in the same save is
+   * checked as the pair it is. Sending an empty string clears the city back
+   * to the whole country; omitting the field leaves it alone.
+   */
+  const nextMarket = market?.toUpperCase() || project.market;
+  let nextCity = null;
+  if (locationName !== undefined) {
+    const city = await cityWithin(nextMarket, locationName);
+    if (city.error) return res.status(400).json({ error: city.error });
+    nextCity = city.name;
+  }
 
   let engineList = null;
   if (Array.isArray(engines)) {
@@ -973,7 +1043,10 @@ app.patch('/api/projects/:id', requireAuth, wrap(async (req, res) => {
        market = COALESCE($7, market),
        runs_per_cycle = COALESCE($8, runs_per_cycle),
        engines = COALESCE($9, engines),
-       auto_cycle = COALESCE($10, auto_cycle)
+       auto_cycle = COALESCE($10, auto_cycle),
+       -- Not COALESCE: clearing the city back to the whole country is a
+       -- deliberate choice and has to be storable as NULL.
+       location_name = CASE WHEN $11 THEN $12 ELSE location_name END
      WHERE id = $1`,
     [
       project.id,
@@ -985,7 +1058,9 @@ app.patch('/api/projects/:id', requireAuth, wrap(async (req, res) => {
       market?.toUpperCase() || null,
       Number.isInteger(runsPerCycle) ? Math.min(10, Math.max(1, runsPerCycle)) : null,
       engineList,
-      typeof autoCycle === 'boolean' ? autoCycle : null
+      typeof autoCycle === 'boolean' ? autoCycle : null,
+      locationName !== undefined,
+      nextCity
     ]
   );
   // Keep the owned entity in step with the brand name.
@@ -2960,7 +3035,7 @@ app.get('/api/version', (_req, res) => {
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions', 'trademark-tm', 'ai-visibility-copy', 'gsc-connect-prompt', 'internal-accounts', 'aggregated-report', 'page-checks', 'question-filters', 'page-check-errors', 'page-check-picker', 'brand-filter', 'gsc-pagination', 'path-filter', 'site-sections', 'question-dropdowns', 'read-the-answer', 'longer-answers', 'questions-from-topic', 'run-unrun-only', 'run-menu', 'internal-no-limits', 'auto-teardown', 'report-visuals', 'resolve-redirects', 'resolve-retry', 'withdraw-stale-actions', 'source-filter', 'local-listings', 'sources-after-clean', 'prompt-events', 'csv-export', 'mail-diagnostics', 'reask-question', 'session-caveat', 'decline-actions', 'plain-action-labels', 'cited-counts-as-visible', 'interactive-charts', 'duplicate-questions', 'persona-overlap', 'email-verification', 'password-reset', 'signup-limit', 'verify-banner', 'admin-console', 'admin-link', 'danger-contrast', 'signup-flow', 'admin-per-org', 'ga4-error-detail', 'connect-returns-home', 'gsc-disconnect', 'import-room', 'inline-form-fix', 'upgrade-prompt', 'like-for-like-trend', 'grouped-findings', 'seed-verified', 'traffic-in-report', 'render-what-we-compute', 'separate-google-accounts', 'traffic-detail', 'report-cta', 'full-csv', 'report-download', 'answer-dedupe', 'unmeasured-verdict', 'sample-labels']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions', 'trademark-tm', 'ai-visibility-copy', 'gsc-connect-prompt', 'internal-accounts', 'aggregated-report', 'page-checks', 'question-filters', 'page-check-errors', 'page-check-picker', 'brand-filter', 'gsc-pagination', 'path-filter', 'site-sections', 'question-dropdowns', 'read-the-answer', 'longer-answers', 'questions-from-topic', 'run-unrun-only', 'run-menu', 'internal-no-limits', 'auto-teardown', 'report-visuals', 'resolve-redirects', 'resolve-retry', 'withdraw-stale-actions', 'source-filter', 'local-listings', 'sources-after-clean', 'prompt-events', 'csv-export', 'mail-diagnostics', 'reask-question', 'session-caveat', 'decline-actions', 'plain-action-labels', 'cited-counts-as-visible', 'interactive-charts', 'duplicate-questions', 'persona-overlap', 'email-verification', 'password-reset', 'signup-limit', 'verify-banner', 'admin-console', 'admin-link', 'danger-contrast', 'signup-flow', 'admin-per-org', 'ga4-error-detail', 'connect-returns-home', 'gsc-disconnect', 'import-room', 'inline-form-fix', 'upgrade-prompt', 'like-for-like-trend', 'grouped-findings', 'seed-verified', 'traffic-in-report', 'render-what-we-compute', 'separate-google-accounts', 'traffic-detail', 'report-cta', 'full-csv', 'report-download', 'answer-dedupe', 'unmeasured-verdict', 'sample-labels', 'city-locations', 'locations-endpoint-live']
   });
 });
 

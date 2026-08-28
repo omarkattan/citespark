@@ -91,6 +91,50 @@ export const LOCATIONS = {
 
 export const MOCK = String(process.env.MOCK_MODE || '').toLowerCase() === 'true';
 
+/**
+ * The cities Google will actually accept, per country.
+ *
+ * A hand-written list would be a guess, and a location string Google does not
+ * recognise is rejected outright rather than rounded to the nearest place, so
+ * the guess would surface as a whole engine returning nothing. This endpoint
+ * is free, so ask instead. Cached for a day because the list barely moves.
+ *
+ * Returns the full location_name verbatim ("Dubai,Dubai,United Arab
+ * Emirates") because that exact string is what gets sent back to the SERP
+ * call. Never reassemble it from parts.
+ */
+const LOCATION_CACHE_MS = Number(process.env.LOCATION_CACHE_MS || 24 * 60 * 60 * 1000);
+const locationCache = new Map(); // ISO -> { at, cities }
+
+export async function googleLocations(iso) {
+  const key = String(iso || '').toUpperCase();
+  if (!/^[A-Z]{2}$/.test(key)) return [];
+
+  const hit = locationCache.get(key);
+  if (hit && Date.now() - hit.at < LOCATION_CACHE_MS) return hit.cities;
+
+  const res = await fetch(`${BASE}/serp/google/locations/${key}`, { headers: { Authorization: authHeader() } });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+  const task = json?.tasks?.[0];
+  if (!task || task.status_code >= 40000) throw new Error(task?.status_message || 'Locations lookup failed');
+
+  const cities = (task.result || [])
+    .filter((r) => r.country_iso_code === key && /city|municipality|town|borough|neighborhood/i.test(r.location_type || ''))
+    .map((r) => ({
+      name: r.location_name,
+      // The trailing country is noise in a dropdown that already sits under a
+      // country picker, and the middle part is the region, which is worth
+      // keeping because plenty of countries repeat a city name.
+      label: String(r.location_name).replace(/,[^,]*$/, ''),
+      type: r.location_type
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  locationCache.set(key, { at: Date.now(), cities });
+  return cities;
+}
+
 /** Transient upstream failures get this many extra attempts. */
 const RETRIES = Number(process.env.ENGINE_RETRIES || 2);
 
@@ -422,7 +466,7 @@ function backoffFor(engine, attempt) {
  */
 const coolUntil = new Map();
 
-export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 2000, attempt = 0 }) {
+export async function askEngine({ engine, prompt, market = 'AE', locationName = null, maxTokens = 2000, attempt = 0 }) {
   const cool = coolUntil.get(engine) || 0;
   if (cool > Date.now()) await sleep(cool - Date.now());
   const cfg = ENGINES[engine];
@@ -437,12 +481,12 @@ export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 200
   }
 
   if (cfg.kind === 'serp') {
-    const first = await askGoogle({ cfg, prompt, market });
+    const first = await askGoogle({ cfg, prompt, market, locationName });
     if (!isTransient(first) || attempt >= RETRIES) return first;
     // Google-side failures clear more slowly than an LLM hiccup, so back off
     // further rather than hammering the same second.
     await sleep(backoffFor(engine, attempt));
-    return askEngine({ engine, prompt, market, maxTokens, attempt: attempt + 1 });
+    return askEngine({ engine, prompt, market, locationName, maxTokens, attempt: attempt + 1 });
   }
 
   // Only send fields this endpoint accepts. Anything extra is rejected
@@ -462,7 +506,7 @@ export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 200
   const body = [payload];
   const retry = async () => {
     await sleep(backoffFor(engine, attempt));
-    return askEngine({ engine, prompt, market, maxTokens, attempt: attempt + 1 });
+    return askEngine({ engine, prompt, market, locationName, maxTokens, attempt: attempt + 1 });
   };
 
   try {
@@ -535,7 +579,7 @@ export async function askEngine({ engine, prompt, market = 'AE', maxTokens = 200
  * Google only shows one for some queries. We return ok with a flag so the
  * cycle records the absence rather than logging an error.
  */
-async function askGoogle({ cfg, prompt, market }) {
+async function askGoogle({ cfg, prompt, market, locationName = null }) {
   const isMode = cfg.mode === 'ai_mode';
   const url = isMode
     ? `${BASE}/serp/google/ai_mode/live/advanced`
@@ -557,7 +601,14 @@ async function askGoogle({ cfg, prompt, market }) {
   const body = [
     {
       keyword: prompt.slice(0, 700),
-      location_name: LOCATIONS[market] || 'United Arab Emirates',
+      /**
+       * A city when the project set one, the country otherwise. Only the
+       * Google surfaces can be placed this precisely: the LLM Responses
+       * endpoints take a country code at most, and two of them reject even
+       * that, which is why the setup screen says so rather than implying
+       * the city applies everywhere.
+       */
+      location_name: locationName || LOCATIONS[market] || 'United Arab Emirates',
       language_code: 'en',
       device: 'desktop',
       ...(isMode ? {} : { depth: 10, ...(wantAsync ? { load_async_ai_overview: true } : {}) })

@@ -573,3 +573,15 @@ CREATE INDEX IF NOT EXISTS signup_attempts_ip ON signup_attempts (ip, at);
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS gsc_refresh_token TEXT;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS gsc_account_email TEXT;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS gsc_connected_at TIMESTAMPTZ;
+
+-- Asking from a city, not just a country.
+--
+-- Google's AI surfaces localise heavily, so a UK client measured at country
+-- level sees a national answer that no actual buyer in Manchester gets. This
+-- holds DataForSEO's own location_name verbatim ("Dubai,Dubai,United Arab
+-- Emirates") because that exact string is what gets sent back to the SERP
+-- call; anything reassembled from parts is rejected.
+--
+-- NULL means the whole country, which is what every existing project did and
+-- still does. It is deliberately not defaulted to a city.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS location_name TEXT;
