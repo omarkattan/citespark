@@ -155,5 +155,74 @@ for (let i = 1; i < ordered.length; i++) {
   );
 }
 
+/* ---------------- competitors, on a window they all share ---------------- */
+
+/**
+ * Share of voice is a comparison, and a competitor added in cycle six has no
+ * mentions in cycles one to five. Ranking on all-time totals therefore ranks
+ * partly by how long each name has been tracked, which is the same moving
+ * denominator that made the brand's own count look like growth.
+ *
+ * There is no created_at on entities, so the first cycle carrying a mention
+ * row for that entity is when tracking began. A row is written for every
+ * tracked entity on every answer, mentioned or not, so its presence is the
+ * record of being measured.
+ */
+const rivals = await many(
+  `SELECT e.id, e.name, e.kind,
+          MIN(r.cycle_date) AS first_cycle,
+          COUNT(*)::int                                   AS measured,
+          COUNT(*) FILTER (WHERE m.mentioned)::int        AS named
+   FROM entities e
+   JOIN mentions m ON m.entity_id = e.id
+   JOIN runs r ON r.id = m.run_id AND r.ok
+   WHERE e.project_id = $1
+   GROUP BY e.id, e.name, e.kind
+   ORDER BY named DESC`,
+  [id]
+);
+
+const lastCycle = ordered[ordered.length - 1][0];
+
+const latest = await many(
+  `SELECT e.id,
+          COUNT(*)::int                             AS measured,
+          COUNT(*) FILTER (WHERE m.mentioned)::int  AS named
+   FROM entities e
+   JOIN mentions m ON m.entity_id = e.id
+   JOIN runs r ON r.id = m.run_id AND r.ok AND r.cycle_date = $2
+   WHERE e.project_id = $1
+   GROUP BY e.id`,
+  [id, lastCycle]
+);
+const latestById = new Map(latest.map((l) => [l.id, l]));
+
+const projectStart = ordered[0][0];
+
+console.log('\n\nEvery tracked name. All-time totals against the latest cycle alone.');
+console.log('A name added late has no mentions in the cycles before it, so its all-time');
+console.log(`total is not comparable. The latest cycle is, because every name still\ntracked was measured in it.\n`);
+console.log('  tracked from   all-time      latest cycle     name');
+
+for (const r of rivals) {
+  const from = new Date(r.first_cycle).toISOString().slice(0, 10);
+  const late = r.first_cycle && from > projectStart;
+  const l = latestById.get(r.id);
+  const allTime = r.measured ? `${((r.named / r.measured) * 100).toFixed(1)}%` : '   -  ';
+  const now = l && l.measured ? `${((l.named / l.measured) * 100).toFixed(1)}%` : 'not measured';
+  console.log(
+    `  ${from}   ${String(r.named).padStart(4)}  ${allTime.padStart(6)}   ` +
+    `${String(l?.named ?? 0).padStart(4)}  ${now.padStart(12)}   ` +
+    `${r.kind === 'owned' ? '* ' : '  '}${r.name}${late ? '   <-- added late, all-time understates it' : ''}`
+  );
+}
+
+const late = rivals.filter((r) => new Date(r.first_cycle).toISOString().slice(0, 10) > projectStart);
+if (late.length) {
+  console.log(`\n  ${late.length} of ${rivals.length} names were added after the first cycle. Rank on the`);
+  console.log('  latest-cycle column, or on a window they all share, and never on the');
+  console.log('  all-time totals.');
+}
+
 console.log('\nRead only. Nothing was written, and no engine was called.\n');
 await pool.end();

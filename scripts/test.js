@@ -3697,6 +3697,18 @@ await test('the correction reaches competitors, not just us', async () => {
   assert.ok(/are not flagged and keep their old counts/.test(recount), 'an uneven correction has to be named');
 });
 
+await test('rivals are not ranked by how long they have been tracked', async () => {
+  const { readFileSync } = await import('node:fs');
+  const trend = readFileSync(new URL('./trend.js', import.meta.url), 'utf8');
+
+  // A competitor added in cycle six has no mentions in cycles one to five, so
+  // an all-time league table ranks partly by tracking age. Same moving
+  // denominator that made the brand's own count look like growth.
+  assert.ok(/MIN\(r\.cycle_date\) AS first_cycle/.test(trend), 'tracking start is inferred from the data');
+  assert.ok(/added late, all-time understates it/.test(trend), 'and a late arrival is marked');
+  assert.ok(/never on the/.test(trend), 'with the all-time column ruled out for ranking');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
