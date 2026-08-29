@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { pool, many, one } from '../src/db/index.js';
-import { askEngine } from '../src/lib/dataforseo.js';
+import { askEngine, LOCATIONS } from '../src/lib/dataforseo.js';
 
 /**
  * Is the ChatGPT number we report the number a customer would see?
@@ -60,17 +60,22 @@ const authHeader = () =>
  * has an IP and a real retrieval stack. force_web_search is on because the
  * comparison is only fair against our API calls, which set web_search true.
  *
+ * Its location list carries exactly one UAE entry, the country itself, so a
+ * city is not an option here and passing one would be rejected outright,
+ * failing every consumer call and leaving the test with nothing to compare.
+ * The country NAME is what it wants; the ISO code is also rejected.
+ *
  * The docs put execution at up to 120 seconds, which is the number to watch:
  * if it holds, a 260-question cycle cannot run this surface synchronously and
  * would need the task-based endpoints instead.
  */
-async function askScraper({ prompt, locationName, market }) {
+async function askScraper({ prompt, countryName }) {
   const started = Date.now();
   const body = [{
     keyword: prompt.slice(0, 2000),
     language_code: 'en',
     force_web_search: true,
-    ...(locationName ? { location_name: locationName } : { location_name: market })
+    location_name: countryName
   }];
 
   try {
@@ -141,8 +146,22 @@ const prompts = await many(
   [projectId, QUESTIONS]
 );
 
+/**
+ * Both surfaces are asked from the same country, at country level, even if
+ * the project has a city set. The consumer surface cannot take a city, and
+ * comparing a Dubai API answer against a UAE consumer answer would measure
+ * the location difference and report it as a surface difference.
+ */
+const countryName = LOCATIONS[project.market];
+if (!countryName) {
+  console.error(`No country name for market ${project.market}. Add it to LOCATIONS first.`);
+  await pool.end();
+  process.exit(1);
+}
+
 console.log(`\n${project.name}: ChatGPT API against ChatGPT consumer`);
 console.log(`Brand: ${names[0]}${names.length > 1 ? ` (+${names.length - 1} aliases)` : ''}`);
+console.log(`Asked from: ${countryName}, country level on both surfaces${project.location_name ? ` (the project's city, ${project.location_name.split(',')[0]}, is set aside so the surfaces stay comparable)` : ''}`);
 console.log(`${prompts.length} questions x ${RUNS} runs x 2 surfaces = ${prompts.length * RUNS * 2} calls, cap $${CAP.toFixed(2)}\n`);
 
 const rows = [];
@@ -164,7 +183,7 @@ for (const p of prompts) {
 
       const a = surface === 'api'
         ? await askEngine({ engine: 'chatgpt', prompt: p.text, market: project.market, maxTokens: 2000 })
-        : await askScraper({ prompt: p.text, locationName: project.location_name, market: project.market });
+        : await askScraper({ prompt: p.text, countryName });
 
       spent += a.costUsd || 0;
       secs += a.secs || 0;

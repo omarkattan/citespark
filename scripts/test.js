@@ -3512,6 +3512,13 @@ await test('the city list is asked for, never guessed', async () => {
   // returning nothing at all. The lookup endpoint is free.
   assert.ok(/serp\/google\/locations\/\$\{key\}/.test(df), 'cities come from the locations endpoint');
   assert.ok(/name: r\.location_name,/.test(df), 'and the exact string is kept, not rebuilt from parts');
+
+  // Measured against the live UAE list: it returns Neighborhood, District,
+  // City, Province, Municipality, Airport and Country. An earlier filter
+  // named only a few of those and silently dropped 47 districts and all 7
+  // emirates, which would have read as Google not offering them.
+  assert.ok(/district\|province/.test(df), 'districts and provinces are places too');
+  assert.ok(!/airport/i.test(df.slice(df.indexOf('const PLACES'), df.indexOf('const cities'))), 'airports are not');
   assert.ok(/api\/locations\/:country/.test(server), 'with a route the setup form can call');
 });
 
@@ -3573,6 +3580,11 @@ await test('the city says which engines it actually covers', async () => {
   assert.ok(/Loading cities/.test(app), 'loading is a state, not a blank');
   assert.ok(/The whole country/.test(app) && /The whole country/.test(html), 'and national is an option, not an absence');
   assert.ok(/city list could not be loaded/.test(app), 'an outage is explained rather than shown as no cities');
+
+  // The UAE alone returns about 280 places. Flat and alphabetical, Dubai
+  // sits between two neighbourhoods nobody is searching for.
+  assert.ok(/<optgroup label=/.test(app), 'the list is grouped by place size');
+  assert.ok(/Emirates and provinces/.test(app), 'in words that suit the region');
 });
 
 await test('the evidence says where it asked from', async () => {

@@ -119,8 +119,20 @@ export async function googleLocations(iso) {
   const task = json?.tasks?.[0];
   if (!task || task.status_code >= 40000) throw new Error(task?.status_message || 'Locations lookup failed');
 
+  /**
+   * Which types count as "a place you could be asked from".
+   *
+   * Measured, not guessed: the UAE list returns Neighborhood, District, City,
+   * Province, Municipality, Airport and Country. An earlier filter here named
+   * only city, municipality, town, borough and neighborhood, which silently
+   * dropped all 47 UAE districts and all 7 emirates. Airports are excluded
+   * because nobody's buyers are in one, and Country is already the default
+   * option above the list.
+   */
+  const PLACES = /^(city|district|province|state|region|municipality|town|borough|neighborhood|county)$/i;
+
   const cities = (task.result || [])
-    .filter((r) => r.country_iso_code === key && /city|municipality|town|borough|neighborhood/i.test(r.location_type || ''))
+    .filter((r) => r.country_iso_code === key && PLACES.test(String(r.location_type || '').trim()))
     .map((r) => ({
       name: r.location_name,
       // The trailing country is noise in a dropdown that already sits under a

@@ -1710,8 +1710,38 @@ async function fillCities(iso, select, hint, selected = '') {
   }
 
   const cities = data.cities || [];
-  select.innerHTML = '<option value="">The whole country</option>' + cities
-    .map((c) => `<option value="${esc(c.name)}" ${c.name === selected ? 'selected' : ''}>${esc(c.label)}</option>`)
+
+  /**
+   * The UAE alone returns roughly 280 places, most of them neighbourhoods.
+   * A flat alphabetical list buries Dubai between Al Jerf 2 and Al Muntazah,
+   * so group by size with the broadest first. Someone looking for "Dubai"
+   * finds it without scrolling; someone who genuinely wants Dubai Sports City
+   * can still type to reach it.
+   */
+  const ORDER = ['Province', 'State', 'Region', 'County', 'City', 'Municipality', 'Town', 'District', 'Borough', 'Neighborhood'];
+  const PLURAL = {
+    Province: 'Emirates and provinces', State: 'States', Region: 'Regions', County: 'Counties',
+    City: 'Cities', Municipality: 'Municipalities', Town: 'Towns',
+    District: 'Districts', Borough: 'Boroughs', Neighborhood: 'Neighbourhoods'
+  };
+
+  const groups = new Map();
+  for (const c of cities) {
+    const t = String(c.type || 'Other');
+    if (!groups.has(t)) groups.set(t, []);
+    groups.get(t).push(c);
+  }
+  const ranked = [...groups].sort((a, b) => {
+    const ai = ORDER.indexOf(a[0]);
+    const bi = ORDER.indexOf(b[0]);
+    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+  });
+
+  select.innerHTML = '<option value="">The whole country</option>' + ranked
+    .map(([type, list]) =>
+      `<optgroup label="${esc(PLURAL[type] || type)}">` +
+      list.map((c) => `<option value="${esc(c.name)}" ${c.name === selected ? 'selected' : ''}>${esc(c.label)}</option>`).join('') +
+      '</optgroup>')
     .join('');
   select.disabled = false;
 
