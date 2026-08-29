@@ -43,7 +43,8 @@
     "volumes": "node scripts/volumes.js",
     "geo": "node scripts/geo.js",
     "surface": "node scripts/surface.js",
-    "audit": "node scripts/audit.js"
+    "audit": "node scripts/audit.js",
+    "recount": "node scripts/recount.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

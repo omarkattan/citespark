@@ -3611,6 +3611,55 @@ await test('a brand name that is also a phrase is checkable', async () => {
   assert.ok(!/UPDATE |DELETE |INSERT /.test(audit), 'an audit must not change what it is auditing');
 });
 
+await test('a brand name that is also a phrase can be told apart', async () => {
+  const { analyseRun } = await import('../src/lib/analyze.js');
+  const firm = { id: 1, kind: 'owned', name: 'The Family Office', domain: 'tfoco.com', aliases: ['TFO'], ambiguous_name: true };
+  const loose = { ...firm, ambiguous_name: false };
+
+  const generic = 'Assets can be held directly by the family office, or through trusts in the DIFC.';
+  assert.equal((await analyseRun({ text: generic, entities: [loose] }))[0].mentioned, true, 'the old rule counted the noun');
+  assert.equal((await analyseRun({ text: generic, entities: [firm] }))[0].mentioned, false, 'the flag must not');
+
+  // Title case, an alias or the domain all still count.
+  for (const t of [
+    'Providers include The Family Office and Jadwa.',
+    'TFO has grown assets under management.',
+    'See tfoco.com for details.'
+  ]) {
+    assert.equal((await analyseRun({ text: t, entities: [firm] }))[0].mentioned, true, `still counted: ${t}`);
+  }
+
+  // The real failure mode: the noun appears first, the firm later. Stopping
+  // at the first match would throw the genuine mention away.
+  const both = 'A family office is a structure, and the family office model varies. Firms include The Family Office.';
+  assert.equal((await analyseRun({ text: both, entities: [firm] }))[0].mentioned, true, 'a later real mention must survive an earlier phrase');
+});
+
+await test('the model choice prefers a citing model over a cheap one', async () => {
+  const { readFileSync } = await import('node:fs');
+  const df = readFileSync(new URL('../src/lib/dataforseo.js', import.meta.url), 'utf8');
+
+  // Measured on a live project: gpt-4o-mini cited on 24% of answers against
+  // Perplexity's 100%. The bonus for "mini" was buying the wrong thing.
+  assert.ok(!/mini\|flash\|haiku\|small\|sonar\$\/\.test\(m\.model_name\)\) score \+= 8/.test(df), 'the small-model bonus must be gone');
+  assert.ok(/function tierOf/.test(df), 'tier is explicit');
+  assert.ok(/UNSTABLE/.test(df), 'and a preview model is not chosen for a client');
+  assert.ok(/Math\.floor\(versionOf/.test(df), 'a newer generation beats a bigger old one');
+});
+
+await test('a correction to history leaves a note', async () => {
+  const { readFileSync } = await import('node:fs');
+  const recount = readFileSync(new URL('./recount.js', import.meta.url), 'utf8');
+  const schema = readFileSync(new URL('../src/db/schema.sql', import.meta.url), 'utf8');
+
+  // A trend line that steps without explanation is worse than one that never
+  // moved, so the reason has to land beside the numbers it changed.
+  assert.ok(/method_notes/.test(schema), 'the note has somewhere to live');
+  assert.ok(/INSERT INTO method_notes/.test(recount), 'and the recount writes one');
+  assert.ok(/--apply/.test(recount) && /Nothing was written/.test(recount), 'with a dry run as the default');
+  assert.ok(/Sentiment is left exactly as it is/.test(recount), 'model-set sentiment is evidence, not something to regenerate');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

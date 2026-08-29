@@ -3197,6 +3197,16 @@ async function viewSetup() {
         <div class="field"><label for="s_name">Project name</label><input id="s_name" value="${esc(p.name)}" /></div>
         <div class="field"><label for="s_brand">Brand name</label><input id="s_brand" value="${esc(p.brand_name)}" /></div>
         <div class="field"><label for="s_aliases">Also known as, comma separated</label><input id="s_aliases" value="${esc((p.aliases || []).join(', '))}" placeholder="Shortenings, misspellings, the legal name" /></div>
+        <div class="field">
+          <label>Brand name is also an ordinary phrase</label>
+          <label class="eng" style="padding:4px 0">
+            <input type="checkbox" id="s_ambiguous" ${data.owned?.ambiguous_name ? 'checked' : ''} />
+            <span><span class="name">Only count "${esc(p.brand_name)}" when it is written as a name</span>
+            <span class="sub">Turn this on if the brand name doubles as a common term. Without it, wording like
+            "the ${esc(String(p.brand_name).toLowerCase())} model" is counted as a mention of you. Shortenings and
+            your domain are unaffected. Past cycles keep their old counts until they are recounted.</span></span>
+          </label>
+        </div>
         <div class="field"><label for="s_category">What the business does</label><input id="s_category" value="${esc(p.category || '')}" /></div>
         <div class="field"><label for="s_qualifier">Who the customer is</label><input id="s_qualifier" value="${esc(p.qualifier || '')}" /></div>
         <div class="field"><label for="s_market">Market</label><select id="s_market">${window.countryOptions(p.market)}</select></div>
@@ -3789,6 +3799,7 @@ document.addEventListener('click', async (e) => {
         name: $('s_name').value,
         brandName: $('s_brand').value,
         aliases: $('s_aliases').value.split(',').map((x) => x.trim()).filter(Boolean),
+        ambiguousName: $('s_ambiguous') ? $('s_ambiguous').checked : undefined,
         category: $('s_category').value,
         qualifier: $('s_qualifier').value,
         market: $('s_market').value,

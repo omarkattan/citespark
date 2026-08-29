@@ -176,13 +176,75 @@ const FALLBACK_MODEL = {
  * cost more and answer no better for this), and carries a stable alias
  * rather than a dated snapshot that will be retired.
  */
+/**
+ * Which model to ask, when the caller has not pinned one.
+ *
+ * This used to add points for anything named mini, flash, haiku or small, on
+ * the reasoning that they are cheaper. Measured against a live project, that
+ * pinned ChatGPT to gpt-4o-mini, which returned citations on 24% of answers
+ * against Perplexity's 100% and Google's 90%. Citations are the product, so
+ * the saving was buying the wrong thing.
+ *
+ * The tiers below prefer a standard model over both the small variants and
+ * the largest ones: small cites too little, and the largest cost far more per
+ * cycle without evidence yet that they cite better. Set MODEL_CHATGPT and the
+ * rest to override any of this.
+ */
+const SMALL = /(^|[-_])(mini|flash|lite|haiku|small|nano)([-_]|$)/i;
+const LARGEST = /(^|[-_])(opus|ultra|pro)([-_]|$)/i;
+// A preview can change under us or be withdrawn mid-cycle, which would break
+// the trend without anyone touching the settings.
+const UNSTABLE = /(preview|experimental|beta|alpha|latest)/i;
+
 function scoreModel(m) {
+  const name = String(m.model_name || '');
   let score = 0;
   if (m.web_search_supported) score += 100;
   if (!m.reasoning) score += 20;
-  if (!/\d{4}-\d{2}-\d{2}|\d{8}/.test(m.model_name)) score += 10;
-  if (/mini|flash|haiku|small|sonar$/.test(m.model_name)) score += 8;
+  // An undated alias keeps pointing at the current snapshot, so it does not
+  // silently pin us to a model that ages out.
+  if (!/\d{4}-\d{2}-\d{2}|\d{8}/.test(name)) score += 10;
+
+  if (UNSTABLE.test(name)) score -= 15;
   return score;
+}
+
+/** Standard beats small, and beats the largest on cost, at equal version. */
+function tierOf(name) {
+  if (SMALL.test(name)) return 0;
+  if (LARGEST.test(name)) return 1;
+  return 2;
+}
+
+/**
+ * Ordered keys rather than one number, because a newer generation should beat
+ * a bigger old one: a 3.6 flash is a better bet than a 2.5 pro, while at the
+ * same generation the standard model beats both the mini and the largest.
+ * Folding those into a single score made the tier outrank the generation.
+ */
+function betterModel(a, b) {
+  return (
+    scoreModel(b) - scoreModel(a) ||
+    Math.floor(versionOf(b.model_name)) - Math.floor(versionOf(a.model_name)) ||
+    tierOf(b.model_name) - tierOf(a.model_name) ||
+    versionOf(b.model_name) - versionOf(a.model_name) ||
+    // Deterministic last resort, so two equal models do not swap between runs
+    // and quietly change what the trend is comparing.
+    String(a.model_name).localeCompare(String(b.model_name))
+  );
+}
+
+/**
+ * Applied after scoring: same score, prefer the later version.
+ *
+ * Versions come both dotted and hyphenated, so claude-sonnet-4-6 is 4.6 and
+ * claude-sonnet-5 is 5.0. Taking the largest number instead of the first
+ * ranked 4-6 above 5, which is backwards.
+ */
+function versionOf(name) {
+  const m = /(?:^|[-_ ])(\d+)(?:[.\-_](\d+))?/.exec(String(name).replace(/\d{4}-\d{2}-\d{2}|\d{8}/g, ''));
+  if (!m) return 0;
+  return Number(m[1]) + (m[2] ? Number(m[2]) / 10 : 0);
 }
 
 export async function listModels(engine) {
@@ -206,7 +268,7 @@ async function resolveModel(engine, cfg) {
 
   try {
     const list = await listModels(engine);
-    const best = [...list].sort((a, b) => scoreModel(b) - scoreModel(a))[0];
+    const best = [...list].sort(betterModel)[0];
     const model = best?.model_name || FALLBACK_MODEL[engine];
     modelCache.set(engine, { model, list, at: Date.now() });
     console.log(`Resolved ${engine} model: ${model} (from ${list.length} available)`);

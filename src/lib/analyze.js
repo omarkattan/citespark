@@ -26,15 +26,49 @@ function variants(entity) {
   return [...set].sort((a, b) => b.length - a.length);
 }
 
+/**
+ * Some brand names are also ordinary phrases.
+ *
+ * A firm called The Family Office was credited every time an answer said
+ * "the family office model" or "held directly by the family office", because
+ * the match is case-insensitive and a common noun matches a proper noun
+ * perfectly. On one live project that was 12% of every recorded mention, and
+ * nothing on screen distinguished the firm from the industry term.
+ *
+ * Where an entity is flagged ambiguous, its NAME must appear in title case to
+ * count. Aliases and the domain stay case-insensitive: TFO and tfoco.com are
+ * not words, so they need no such protection, and they remain the surest
+ * evidence the firm itself was meant.
+ *
+ * This can miss a genuine mention written in lower case. That direction is
+ * the right one to err in: a brand claiming visibility it does not have is a
+ * worse failure than one under-claiming, and the alias route catches most of
+ * it anyway.
+ */
+function titleCased(matched) {
+  return matched
+    .split(/\s+/)
+    .filter((w) => w.length >= 3)
+    .every((w) => /^[A-Z]/.test(w));
+}
+
 /** First character index at which this entity appears, or -1. */
 function findFirstIndex(text, entity) {
   let best = -1;
+  const strict = Boolean(entity.ambiguous_name);
+
   for (const v of variants(entity)) {
-    const re = new RegExp(`(^|[^a-z0-9])${escapeRegex(v)}([^a-z0-9]|$)`, 'i');
-    const m = re.exec(text);
-    if (m) {
+    const isTheName = v === entity.name;
+    const re = new RegExp(`(^|[^a-z0-9])(${escapeRegex(v)})([^a-z0-9]|$)`, 'gi');
+
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      // Keep scanning: the first occurrence may be the common noun while a
+      // later one is the firm, and stopping at the first would lose it.
+      if (strict && isTheName && !titleCased(m[2])) continue;
       const idx = m.index + m[1].length;
       if (best === -1 || idx < best) best = idx;
+      break;
     }
   }
   return best;

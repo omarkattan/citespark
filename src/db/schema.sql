@@ -585,3 +585,28 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS gsc_connected_at TIMESTAMPTZ;
 -- NULL means the whole country, which is what every existing project did and
 -- still does. It is deliberately not defaulted to a city.
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS location_name TEXT;
+
+-- Brand names that are also ordinary phrases.
+--
+-- Detection is case-insensitive, so a firm called The Family Office was
+-- credited whenever an answer said "the family office model". An audit of one
+-- live project found this in 12% of all recorded mentions. Where this is set,
+-- the entity's NAME must appear in title case to count; its aliases and
+-- domain are unaffected, because TFO and tfoco.com are not words.
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS ambiguous_name BOOLEAN NOT NULL DEFAULT false;
+
+-- A note on the chart where the method changed.
+--
+-- Correcting a counting error moves history, and a trend line that steps
+-- without explanation is worse than one that never moved. Every recount
+-- writes a row here so the change is visible next to the numbers it changed
+-- rather than living in someone's memory.
+CREATE TABLE IF NOT EXISTS method_notes (
+  id         SERIAL PRIMARY KEY,
+  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  at         DATE NOT NULL DEFAULT CURRENT_DATE,
+  note       TEXT NOT NULL,
+  detail     TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS method_notes_project ON method_notes (project_id, at);
