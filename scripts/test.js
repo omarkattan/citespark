@@ -2396,7 +2396,10 @@ await test('a dead end is never the answer to "connect Google"', async () => {
   const start = server.indexOf("app.get('/api/projects/:id/gsc/candidates'");
   const route = server.slice(start, start + 1400);
   assert.ok(/fix: 'connect'/.test(route), 'not connected must be its own case');
-  assert.ok(/ga4_refresh_token/.test(route), 'and be detected before calling Google');
+  // Was ga4_refresh_token, which pinned a bug: a project holding only a
+  // Search Console token was reported as not connected however often it was
+  // connected. The intent, detecting it before calling Google, is unchanged.
+  assert.ok(/gscAuth\(project\)\.connected/.test(route), 'and be detected before calling Google');
 
   // Every branch of this error must offer something to click.
   const fn = app.slice(app.indexOf('function gscError'), app.indexOf('async function loadGscCandidates'));
@@ -3752,6 +3755,31 @@ await test('position is labelled as position among tracked brands', async () => 
   assert.ok(!/Position in answer/.test(app), 'and the overclaiming label must be gone');
 });
 
+await test('connecting Search Console leaves it connected', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const gsc = readFileSync(new URL('../src/lib/gsc.js', import.meta.url), 'utf8');
+
+  // Search Console got its own credential columns so connecting it would stop
+  // replacing the Analytics one. The token lookup was updated; the routes
+  // deciding whether to OFFER Search Console were not, so a project holding
+  // only a Search Console token was told it was not connected, every time.
+  assert.ok(/function gscAuth/.test(server), 'one helper decides it');
+
+  // Precedence must match accessTokenFor exactly or the app disagrees with
+  // itself about whether a connection exists.
+  assert.ok(/own \|\| shared \|\| env/.test(server), 'own token, then the shared one, then the server');
+  assert.ok(/gsc_refresh_token \? decrypt\(project\.gsc_refresh_token\)/.test(gsc), 'same order as the token lookup');
+
+  // No Search Console gate may test the Analytics column on its own again.
+  const gscRoutes = server.slice(server.indexOf("app.get('/api/projects/:id/gsc'"), server.indexOf('const ga4Redirect'));
+  assert.ok(!/project\.ga4_refresh_token/.test(gscRoutes), 'no Search Console route reads the Analytics token directly');
+
+  // And the panel should say whose authorisation is being used, since the
+  // two are routinely different people.
+  assert.ok(/via: own \? 'search-console'/.test(server), 'the payload names the account in play');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
@@ -3883,7 +3911,9 @@ await test('a page check never fails as a generic 500', async () => {
   // Checking only for the chosen property let a project with a property and
   // no working token throw inside the Google client, where it became
   // "Something went wrong on our side" with nothing to act on.
-  assert.ok(/ga4_refresh_token/.test(block), 'the credential must be checked, not just the property');
+  // Same correction as above: the check has to accept a Search Console
+  // credential, not only the Analytics one.
+  assert.ok(/gscAuth\(project\)\.connected/.test(block), 'the credential must be checked, not just the property');
   assert.ok(/gsc_site_url/.test(block), 'and the property too');
   assert.ok(/try \{[\s\S]*?catch/.test(block), 'and anything Google throws must be caught here');
   assert.ok(/no longer valid/.test(block), 'with a message that names the actual problem');

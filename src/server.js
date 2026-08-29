@@ -95,6 +95,33 @@ const MARKET_NAMES = {
   AU: 'Australia', IE: 'Ireland', ZA: 'South Africa', SG: 'Singapore'
 };
 
+/**
+ * Is Search Console usable on this project, and under whose authorisation?
+ *
+ * Search Console got its own credential columns so that connecting it would
+ * stop replacing the Analytics one. accessTokenFor in lib/gsc.js was updated
+ * to try the Search Console token first and fall back to the Analytics one,
+ * but the routes that decide whether to OFFER Search Console kept checking
+ * ga4_refresh_token alone. So a project with only a Search Console token was
+ * told it was not connected, however many times it connected.
+ *
+ * The precedence here has to stay identical to accessTokenFor, or the app
+ * will again disagree with itself about whether a connection exists.
+ */
+function gscAuth(project) {
+  const own = Boolean(project?.gsc_refresh_token);
+  const shared = Boolean(project?.ga4_refresh_token);
+  const env = Boolean(process.env.GOOGLE_REFRESH_TOKEN);
+  return {
+    connected: own || shared || env,
+    own,
+    // Say which account is in play. The whole point of separating them is
+    // that they are routinely different people.
+    email: (own ? project.gsc_account_email : project.ga4_account_email) || null,
+    via: own ? 'search-console' : shared ? 'analytics' : env ? 'server' : null
+  };
+}
+
 /** Express 4 does not catch rejected promises, so an unhandled DB error
  *  would otherwise take the whole process down. Wrap every async handler. */
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -1880,7 +1907,7 @@ app.get('/api/projects/:id/page-checks/preview', requireAuth, wrap(async (req, r
    * project with a chosen property and no working token throw inside the
    * Google client, where it became a generic 500 with nothing to act on.
    */
-  if (!project.ga4_refresh_token) {
+  if (!gscAuth(project).connected) {
     return res.status(400).json({ error: 'Google is not connected for this site yet.', fix: 'connect' });
   }
   if (!project.gsc_site_url) {
@@ -1939,7 +1966,7 @@ app.post('/api/projects/:id/page-checks/run', requireAuth, wrap(async (req, res)
   const project = await assertProject(req, res);
   if (!project) return;
 
-  if (!project.ga4_refresh_token) {
+  if (!gscAuth(project).connected) {
     return res.status(400).json({ error: 'Google is not connected for this site yet.', fix: 'connect' });
   }
   if (!project.gsc_site_url) {
@@ -2103,7 +2130,7 @@ app.post('/api/projects/:id/personas/suggest', requireAuth, wrap(async (req, res
 
   let gscQueries = [];
   try {
-    if (project.gsc_site_url && project.ga4_refresh_token) {
+    if (project.gsc_site_url && gscAuth(project).connected) {
       const { fetchQueries } = await import('./lib/gsc.js');
       gscQueries = await fetchQueries(project, { days: 90, limit: 200 });
     }
@@ -2679,9 +2706,12 @@ app.get('/api/landscape/platforms', (_req, res) => res.json(PLATFORMS));
 app.get('/api/projects/:id/gsc', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
+  const auth = gscAuth(project);
   res.json({
-    connected: Boolean(project.ga4_refresh_token) || Boolean(process.env.GOOGLE_REFRESH_TOKEN),
-    email: project.ga4_account_email,
+    connected: auth.connected,
+    ownConnection: auth.own,
+    email: auth.email,
+    via: auth.via,
     siteUrl: project.gsc_site_url
   });
 }));
@@ -2734,7 +2764,7 @@ app.get('/api/projects/:id/gsc/candidates', requireAuth, wrap(async (req, res) =
    * missing a scope, and it was falling through to a generic error with no
    * button. The one case where the fix is a single click had no way forward.
    */
-  if (!project.ga4_refresh_token) {
+  if (!gscAuth(project).connected) {
     return res.status(400).json({
       error: 'Google is not connected for this site yet.',
       fix: 'connect'
@@ -3106,7 +3136,7 @@ app.get('/api/version', (_req, res) => {
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions', 'trademark-tm', 'ai-visibility-copy', 'gsc-connect-prompt', 'internal-accounts', 'aggregated-report', 'page-checks', 'question-filters', 'page-check-errors', 'page-check-picker', 'brand-filter', 'gsc-pagination', 'path-filter', 'site-sections', 'question-dropdowns', 'read-the-answer', 'longer-answers', 'questions-from-topic', 'run-unrun-only', 'run-menu', 'internal-no-limits', 'auto-teardown', 'report-visuals', 'resolve-redirects', 'resolve-retry', 'withdraw-stale-actions', 'source-filter', 'local-listings', 'sources-after-clean', 'prompt-events', 'csv-export', 'mail-diagnostics', 'reask-question', 'session-caveat', 'decline-actions', 'plain-action-labels', 'cited-counts-as-visible', 'interactive-charts', 'duplicate-questions', 'persona-overlap', 'email-verification', 'password-reset', 'signup-limit', 'verify-banner', 'admin-console', 'admin-link', 'danger-contrast', 'signup-flow', 'admin-per-org', 'ga4-error-detail', 'connect-returns-home', 'gsc-disconnect', 'import-room', 'inline-form-fix', 'upgrade-prompt', 'like-for-like-trend', 'grouped-findings', 'seed-verified', 'traffic-in-report', 'render-what-we-compute', 'separate-google-accounts', 'traffic-detail', 'report-cta', 'full-csv', 'report-download', 'answer-dedupe', 'unmeasured-verdict', 'sample-labels', 'city-locations', 'locations-endpoint-live', 'place-types-measured', 'grouped-city-list', 'project-audit', 'ambiguous-brand-names', 'model-tiering', 'method-notes', 'toggle-saves-itself', 'save-checks-response', 'like-for-like-cohort', 'competitor-ambiguity', 'rival-tracking-age', 'comparable-trend', 'cycle-method-notes']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions', 'trademark-tm', 'ai-visibility-copy', 'gsc-connect-prompt', 'internal-accounts', 'aggregated-report', 'page-checks', 'question-filters', 'page-check-errors', 'page-check-picker', 'brand-filter', 'gsc-pagination', 'path-filter', 'site-sections', 'question-dropdowns', 'read-the-answer', 'longer-answers', 'questions-from-topic', 'run-unrun-only', 'run-menu', 'internal-no-limits', 'auto-teardown', 'report-visuals', 'resolve-redirects', 'resolve-retry', 'withdraw-stale-actions', 'source-filter', 'local-listings', 'sources-after-clean', 'prompt-events', 'csv-export', 'mail-diagnostics', 'reask-question', 'session-caveat', 'decline-actions', 'plain-action-labels', 'cited-counts-as-visible', 'interactive-charts', 'duplicate-questions', 'persona-overlap', 'email-verification', 'password-reset', 'signup-limit', 'verify-banner', 'admin-console', 'admin-link', 'danger-contrast', 'signup-flow', 'admin-per-org', 'ga4-error-detail', 'connect-returns-home', 'gsc-disconnect', 'import-room', 'inline-form-fix', 'upgrade-prompt', 'like-for-like-trend', 'grouped-findings', 'seed-verified', 'traffic-in-report', 'render-what-we-compute', 'separate-google-accounts', 'traffic-detail', 'report-cta', 'full-csv', 'report-download', 'answer-dedupe', 'unmeasured-verdict', 'sample-labels', 'city-locations', 'locations-endpoint-live', 'place-types-measured', 'grouped-city-list', 'project-audit', 'ambiguous-brand-names', 'model-tiering', 'method-notes', 'toggle-saves-itself', 'save-checks-response', 'like-for-like-cohort', 'competitor-ambiguity', 'rival-tracking-age', 'comparable-trend', 'cycle-method-notes', 'gsc-connection-fix']
   });
 });
 
