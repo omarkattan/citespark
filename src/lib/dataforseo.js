@@ -494,7 +494,7 @@ function dedupeCitations(items) {
  * transient; a rejected field or bad credentials will fail identically
  * however many times we ask, so those are not retried.
  */
-function isTransient(result) {
+export function isTransient(result) {
   const e = String(result?.error || '');
   if (!e) return false;
   if (/Invalid Field|not authorized|40100|Unknown engine/i.test(e)) return false;

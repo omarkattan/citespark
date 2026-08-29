@@ -45,7 +45,8 @@
     "surface": "node scripts/surface.js",
     "audit": "node scripts/audit.js",
     "recount": "node scripts/recount.js",
-    "trend": "node scripts/trend.js"
+    "trend": "node scripts/trend.js",
+    "failures": "node scripts/failures.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

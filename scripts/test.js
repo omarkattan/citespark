@@ -3826,6 +3826,23 @@ await test('an engine that barely ran is not an engine scoring zero', async () =
   assert.ok(/ENGINE_LABEL\[e\.engine\]/.test(app), 'engines are named as people know them here too');
 });
 
+await test('an engine that answers less is told apart from one that scores less', async () => {
+  const { readFileSync } = await import('node:fs');
+  const f = readFileSync(new URL('./failures.js', import.meta.url), 'utf8');
+  const df = readFileSync(new URL('../src/lib/dataforseo.js', import.meta.url), 'utf8');
+
+  // One engine returned 8 answers where the others returned 268. The overview
+  // counted only what came back, so the shortfall showed up as a low score
+  // rather than as a failure, which is the opposite conclusion.
+  assert.ok(/COUNT\(\*\) FILTER \(WHERE NOT ok\)/.test(f), 'failures are counted, not just answers');
+  assert.ok(/asked only \$\{asked\}% as often/.test(f), 'and being asked less is separated from failing');
+
+  // The diagnostic must use the real retry rule, not a copy that can drift.
+  assert.ok(/export function isTransient/.test(df), 'the classifier is exported');
+  assert.ok(/import \{ isTransient \}/.test(f), 'and the diagnostic imports it rather than reimplementing it');
+  assert.ok(/PERMANENT/.test(f), 'a permanent cause is called out, since every retry on it is wasted');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
