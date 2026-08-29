@@ -3843,6 +3843,34 @@ await test('an engine that answers less is told apart from one that scores less'
   assert.ok(/PERMANENT/.test(f), 'a permanent cause is called out, since every retry on it is wasted');
 });
 
+await test('an engine refusing everything is left alone, not paid for', async () => {
+  const { readFileSync } = await import('node:fs');
+  const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
+
+  // One cycle spent 260 calls on an engine returning rate_limit_exceeded to
+  // every one, after retries and backoff had already been applied to each.
+  // Nothing stopped it, so the cycle paid for 260 refusals and produced an
+  // engine with 8 answers beside engines with 268.
+  assert.ok(/GIVE_UP_AFTER/.test(job), 'a run of refusals ends the attempt');
+  assert.ok(/consecutive\.set\(engine, 0\)/.test(job), 'and one success resets the run');
+  assert.ok(/abandoned\.has\(engine\)/.test(job), 'the rest of that engine is skipped');
+
+  // Cheaper is not enough: the gap has to be explainable.
+  assert.ok(/was not measured this cycle/.test(job), 'the skip is recorded as a method note');
+  assert.ok(/rather than counted as misses/.test(job), 'absent is not zero, said in words');
+});
+
+await test('a permanent failure is not blamed on the retry logic', async () => {
+  const { readFileSync } = await import('node:fs');
+  const f = readFileSync(new URL('./failures.js', import.meta.url), 'utf8');
+
+  // isTransient returns false for these and askEngine gives up at once, so
+  // saying they wasted retries was backwards and would have sent someone to
+  // fix the backoff when the request was the problem.
+  assert.ok(/were not retried, correctly/.test(f), 'a permanent cause is described accurately');
+  assert.ok(/retried and still failed/.test(f), 'and a transient one separately');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

@@ -166,7 +166,29 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
     onProgress?.({ done, total: jobs.length, spend, recent: [...recent], ...extra });
   report({ phase: 'asking' });
 
+  /**
+   * Stop asking an engine that will not answer.
+   *
+   * One cycle spent 260 calls on an engine returning rate_limit_exceeded to
+   * every one, after retries and backoff had already been applied to each.
+   * Nothing stopped it, so the cycle paid for 260 refusals, took far longer
+   * than it should have, and produced an engine with 8 answers sitting beside
+   * engines with 268 as though the comparison meant something.
+   *
+   * After this many consecutive refusals, the engine is left alone for the
+   * rest of the cycle and recorded as not measured. Absent is not zero, and a
+   * gap we can explain beats a number we cannot.
+   */
+  const GIVE_UP_AFTER = Number(process.env.ENGINE_GIVE_UP_AFTER || 12);
+  const consecutive = new Map();
+  const abandoned = new Map();
+
   await pooled(jobs, async ({ prompt, engine, runIndex }) => {
+    if (abandoned.has(engine)) {
+      abandoned.set(engine, abandoned.get(engine) + 1);
+      return;
+    }
+
     const asking = { question: prompt.text, engine, run: runIndex + 1, state: 'asking', at: Date.now() };
     noteAsked(asking);
     report({ phase: 'asking' });
@@ -189,6 +211,17 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
       const key = engine;
       const prev = failures.get(key) || { n: 0, error: answer.error };
       failures.set(key, { n: prev.n + 1, error: prev.error || answer.error });
+
+      // A run of refusals with nothing in between is a provider saying no,
+      // not a series of unlucky questions.
+      const run = (consecutive.get(engine) || 0) + 1;
+      consecutive.set(engine, run);
+      if (run >= GIVE_UP_AFTER) {
+        abandoned.set(engine, 0);
+        console.log(`Stopped asking ${engine} after ${run} refusals in a row: ${answer.error}`);
+      }
+    } else {
+      consecutive.set(engine, 0);
     }
 
     const run = await one(
@@ -325,6 +358,31 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
     console.warn(
       'Failures this cycle: ' + failed.map((f) => `${f.engine} x${f.count} (${f.error})`).join(', ')
     );
+  }
+
+  /**
+   * An engine we stopped asking is a change in what was measured, so it goes
+   * on the record beside the numbers rather than into a log nobody reads. The
+   * alternative is a chart where one surface quietly contributes nothing and
+   * the reader has no way to know.
+   */
+  for (const [engine, skipped] of abandoned) {
+    const f = failures.get(engine);
+    await query('INSERT INTO method_notes (project_id, note, detail) VALUES ($1,$2,$3)', [
+      projectId,
+      `${engine} was not measured this cycle`,
+      `It refused ${GIVE_UP_AFTER} requests in a row, so we stopped asking and skipped the remaining ` +
+        `${skipped}. Its answers are missing from this cycle rather than counted as misses. ` +
+        `Last error: ${f?.error || 'unknown'}.`
+    ]);
+    const { notify } = await import('../lib/notify.js');
+    notify({
+      kind: 'problem',
+      title: `${engine} stopped answering during a cycle`,
+      subject: `Cited: ${engine} refused ${GIVE_UP_AFTER} requests in a row`,
+      lead: 'We stopped asking rather than spending the cycle being turned away. The surface is missing from this cycle, not scoring zero.',
+      rows: [['Engine', engine], ['Skipped', String(skipped)], ['Error', f?.error || 'unknown'], ['Site', project.name]]
+    });
   }
 
   report({ phase: 'thinking' });

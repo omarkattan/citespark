@@ -125,13 +125,25 @@ for (const engine of engines) {
     console.log(`    ${new Date(c.cycle_date).toISOString().slice(0, 10)}   ${String(pct).padStart(3)}% answered   (${c.answered} of ${total})`);
   }
 
-  const allRetried = [...groups.values()].every((g) => g.retried);
-  console.log(allRetried
-    ? '\n  Every failure was the kind we retry, and it still failed. The backoff is\n' +
-      '  too shallow for this provider, or the limit is tighter than it absorbs.\n' +
-      '  Lower CONCURRENCY or raise the per-engine cooldown before anything else.'
-    : '\n  At least one cause is permanent, so retries spent time and money without\n' +
-      '  any chance of succeeding. Fix the request before touching the backoff.');
+  /**
+   * A permanent cause is NOT retried, by design: isTransient returns false
+   * and askEngine gives up immediately. An earlier version of this summary
+   * said those failures wasted retries, which was backwards and would have
+   * sent someone to fix the backoff when the request was the problem.
+   */
+  const transient = [...groups.values()].filter((g) => g.retried).reduce((n, g) => n + g.n, 0);
+  const permanent = [...groups.values()].filter((g) => !g.retried).reduce((n, g) => n + g.n, 0);
+
+  if (transient) {
+    console.log(`\n  ${transient} failures were retried and still failed. The backoff is too shallow`);
+    console.log('  for this provider, or we are asking faster than it allows. Lower');
+    console.log('  CONCURRENCY or stop asking after a run of refusals, rather than');
+    console.log('  spending the whole cycle being turned away.');
+  }
+  if (permanent) {
+    console.log(`\n  ${permanent} failures were not retried, correctly: the request itself was`);
+    console.log('  wrong, so trying again could never have worked. Fix the request.');
+  }
 }
 
 console.log('\nRead only. Nothing was written, and no engine was called.\n');
