@@ -3660,6 +3660,22 @@ await test('a correction to history leaves a note', async () => {
   assert.ok(/Sentiment is left exactly as it is/.test(recount), 'model-set sentiment is evidence, not something to regenerate');
 });
 
+await test('a setting that saves itself says so, and one that fails says that', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // The engine checkboxes beside it save on change, so one that quietly
+  // needed the Save button was a trap: the tick appeared, felt applied, and
+  // was gone on the next load with nothing said.
+  assert.ok(/e\.target\.id !== 's_ambiguous'/.test(app), 'the toggle saves on change');
+  assert.ok(/Saves as soon as you tick it/.test(app), 'and the label says so');
+  assert.ok(/e\.target\.checked = !on/.test(app), 'a failed save puts the box back rather than lying');
+
+  // Settings reported "Saved" whatever came back.
+  const save = app.slice(app.indexOf("if (t.id === 's_save')"), app.indexOf("if (t.id === 's_save')") + 1400);
+  assert.ok(/if \(!res\.ok\)/.test(save), 'the save must check the response before claiming success');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

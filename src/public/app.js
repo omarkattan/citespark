@@ -3202,9 +3202,10 @@ async function viewSetup() {
           <label class="eng" style="padding:4px 0">
             <input type="checkbox" id="s_ambiguous" ${data.owned?.ambiguous_name ? 'checked' : ''} />
             <span><span class="name">Only count "${esc(p.brand_name)}" when it is written as a name</span>
-            <span class="sub">Turn this on if the brand name doubles as a common term. Without it, wording like
-            "the ${esc(String(p.brand_name).toLowerCase())} model" is counted as a mention of you. Shortenings and
-            your domain are unaffected. Past cycles keep their old counts until they are recounted.</span></span>
+            <span class="sub">Saves as soon as you tick it. Turn this on if the brand name doubles as a common term:
+            without it, wording like "the ${esc(String(p.brand_name).toLowerCase())} model" is counted as a mention
+            of you. Shortenings and your domain are unaffected, and past cycles keep their old counts until they are
+            recounted.</span></span>
           </label>
         </div>
         <div class="field"><label for="s_category">What the business does</label><input id="s_category" value="${esc(p.category || '')}" /></div>
@@ -3670,6 +3671,43 @@ document.addEventListener('input', (e) => {
 });
 
 /**
+ * Save the moment it is ticked.
+ *
+ * The engine checkboxes in this same panel save on change, so a checkbox that
+ * quietly needed the Save button below it was a trap: the tick appeared, felt
+ * applied, and vanished on the next load with nothing said. A toggle with
+ * consequences this large has to confirm its own outcome.
+ */
+document.addEventListener('change', async (e) => {
+  if (e.target.id !== 's_ambiguous') return;
+  const on = e.target.checked;
+  e.target.disabled = true;
+
+  try {
+    const res = await fetch(`/api/projects/${state.projectId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ambiguousName: on })
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not save');
+
+    // Say what changed AND what did not. Past cycles keep their old counts
+    // until they are recounted, and assuming otherwise would be worse than
+    // not knowing.
+    toast(on
+      ? 'Only title-case mentions will count from the next cycle. Past cycles are unchanged until recounted.'
+      : 'Every mention will count again, however it is written.');
+  } catch (err) {
+    // Put the box back where it was, or the screen claims a setting the
+    // server does not have.
+    e.target.checked = !on;
+    toast(String(err.message || err), 'warn');
+  } finally {
+    e.target.disabled = false;
+  }
+});
+
+/**
  * Switching country in Settings clears the city for the same reason it does
  * in the new-site dialog: the old city no longer exists in the new country,
  * and silently keeping it would mean measuring the wrong place.
@@ -3792,7 +3830,9 @@ document.addEventListener('click', async (e) => {
 
   if (t.id === 's_save') {
     t.disabled = true;
-    await fetch(`/api/projects/${state.projectId}`, {
+    // This reported "Saved" whatever came back, so a rejected change looked
+    // exactly like an accepted one until someone reloaded.
+    const res = await fetch(`/api/projects/${state.projectId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -3808,8 +3848,14 @@ document.addEventListener('click', async (e) => {
         autoCycle: $('s_auto').checked
       })
     });
-    $('s_saved').textContent = 'Saved';
     t.disabled = false;
+    if (!res.ok) {
+      const why = (await res.json().catch(() => ({}))).error || 'Could not save those changes';
+      $('s_saved').textContent = '';
+      toast(why, 'warn');
+      return;
+    }
+    $('s_saved').textContent = 'Saved';
     await loadProjectList();
     setTimeout(() => { const el = $('s_saved'); if (el) el.textContent = ''; }, 2500);
   }
