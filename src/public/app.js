@@ -3152,7 +3152,14 @@ async function viewSetup() {
     ? rivals
         .map(
           (e) => `<div class="row">
-            <div class="grow"><div class="name">${esc(e.name)}</div><div class="sub">${esc(e.domain || 'no domain set')}</div></div>
+            <div class="grow">
+              <div class="name">${esc(e.name)}</div>
+              <div class="sub">${esc(e.domain || 'no domain set')}</div>
+              <label class="sub" style="display:flex;gap:6px;align-items:center;margin-top:4px;cursor:pointer">
+                <input type="checkbox" data-ambiguous="${e.id}" ${e.ambiguous_name ? 'checked' : ''} />
+                <span>Only count "${esc(e.name)}" written as a name</span>
+              </label>
+            </div>
             <button class="ghost" data-del-entity="${e.id}">Remove</button>
           </div>`
         )
@@ -3668,6 +3675,37 @@ const FILTERS = {
 document.addEventListener('input', (e) => {
   const target = FILTERS[e.target.id];
   if (target) { filterRows(target[0], e.target.value, target[1]); return; }
+});
+
+/**
+ * The same toggle on a competitor.
+ *
+ * Correcting only our own brand would be worse than correcting neither: share
+ * of voice would then compare a strict count of us against a loose count of
+ * them, and the asymmetry runs in the direction that flatters the rival.
+ */
+document.addEventListener('change', async (e) => {
+  const box = e.target.closest('input[data-ambiguous]');
+  if (!box) return;
+  const on = box.checked;
+  box.disabled = true;
+
+  try {
+    const res = await fetch(`/api/entities/${box.dataset.ambiguous}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ambiguousName: on })
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not save');
+    toast(on
+      ? 'Counted only where written as a name, from the next cycle. Past cycles need a recount.'
+      : 'Counted however it is written again.');
+  } catch (err) {
+    box.checked = !on;
+    toast(String(err.message || err), 'warn');
+  } finally {
+    box.disabled = false;
+  }
 });
 
 /**

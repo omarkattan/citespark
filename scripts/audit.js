@@ -175,6 +175,70 @@ if (!owned) {
   }
 
   /**
+   * Which of the other tracked names carry the same problem.
+   *
+   * Correcting only the owned brand leaves share of voice comparing a strict
+   * count of us against a loose count of them, which flatters every rival.
+   * The same case test is applied to each, so the list below is evidence
+   * rather than a guess about which words are also ordinary words.
+   */
+  console.log('\n\nEvery tracked name, by how often it was written in lower case');
+  console.log('A high share means the name doubles as an ordinary word and its count is');
+  console.log('inflated the same way. Tick those in Settings, then recount.\n');
+
+  const all = await many(
+    'SELECT id, name, domain, kind, aliases, ambiguous_name FROM entities WHERE project_id = $1 ORDER BY kind, name',
+    [id]
+  );
+
+  const rowsFor = await many(
+    `SELECT m.entity_id, r.response_text
+     FROM mentions m JOIN runs r ON r.id = m.run_id
+     WHERE r.project_id = $1 AND m.mentioned AND r.ok AND r.response_text IS NOT NULL`,
+    [id]
+  );
+
+  const perEntity = new Map();
+  for (const e of all) perEntity.set(e.id, { entity: e, titled: 0, lower: 0 });
+
+  for (const row of rowsFor) {
+    const bucket = perEntity.get(row.entity_id);
+    if (!bucket) continue;
+    const e = bucket.entity;
+    const ns = [e.name, ...(e.aliases || [])].filter(Boolean);
+    const marks = [e.domain, ...(e.aliases || [])].filter(Boolean);
+
+    let matched = null;
+    for (const n of ns) {
+      const re = new RegExp(`(^|[^a-z0-9])(${escape(n)})([^a-z0-9]|$)`, 'i');
+      const m = re.exec(row.response_text);
+      if (m) { matched = m[2]; break; }
+    }
+    if (!matched) continue;
+
+    const looksLikeAName = matched.split(/\s+/).filter((w) => w.length >= 3).every((w) => /^[A-Z]/.test(w));
+    const corroborated = marks.some((d) => d && row.response_text.toLowerCase().includes(String(d).toLowerCase()));
+    if (looksLikeAName || corroborated) bucket.titled++;
+    else bucket.lower++;
+  }
+
+  const ranked = [...perEntity.values()]
+    .map((b) => ({ ...b, total: b.titled + b.lower, share: b.titled + b.lower ? b.lower / (b.titled + b.lower) : 0 }))
+    .filter((b) => b.total > 0)
+    .sort((a, b) => b.share - a.share);
+
+  for (const b of ranked) {
+    const pct = Math.round(b.share * 100);
+    const mark = b.entity.ambiguous_name ? 'already set' : pct >= 20 ? '<-- worth setting' : '';
+    console.log(
+      `  ${String(pct).padStart(3)}%  ${String(b.lower).padStart(4)} of ${String(b.total).padStart(4)}  ` +
+      `${b.entity.kind.padEnd(11)} ${b.entity.name.padEnd(34)} ${mark}`
+    );
+  }
+  console.log('\n  A name never written in lower case needs no flag: the setting would');
+  console.log('  change nothing for it, so leave it off rather than setting it everywhere.');
+
+  /**
    * Informational questions are where a generic name does most damage,
    * because the answer discusses the concept at length without naming a
    * single firm.

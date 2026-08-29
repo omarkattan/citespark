@@ -3676,6 +3676,27 @@ await test('a setting that saves itself says so, and one that fails says that', 
   assert.ok(/if \(!res\.ok\)/.test(save), 'the save must check the response before claiming success');
 });
 
+await test('the correction reaches competitors, not just us', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const audit = readFileSync(new URL('./audit.js', import.meta.url), 'utf8');
+  const recount = readFileSync(new URL('./recount.js', import.meta.url), 'utf8');
+
+  // Correcting only our own brand is worse than correcting neither: share of
+  // voice would compare a strict count of us against a loose count of them.
+  assert.ok(/app\.patch\('\/api\/entities\/:entityId'/.test(server), 'a competitor must be settable too');
+  assert.ok(/JOIN projects p ON p\.id = e\.project_id/.test(server), 'and only by someone who owns it');
+  assert.ok(/input\[data-ambiguous\]/.test(app), 'with a control on each rival row');
+
+  // The person should not have to guess which of fifteen names is a word.
+  assert.ok(/by how often it was written in lower case/.test(audit), 'the audit ranks them');
+  assert.ok(/worth setting/.test(audit), 'and points at the ones that matter');
+
+  // And the recount must say who was left out.
+  assert.ok(/are not flagged and keep their old counts/.test(recount), 'an uneven correction has to be named');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

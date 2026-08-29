@@ -156,6 +156,34 @@ if (owned) {
   console.log('  as well as the level. Read the rate column before repeating any figure.');
 }
 
+/**
+ * Share of voice is a comparison, so a correction that lands on one entity
+ * and not the others changes the ranking as much as the counts. Every flagged
+ * entity is listed, not just the owned one.
+ */
+if (flagged.length > 1 || changes.some((c) => c.entityId !== owned?.id)) {
+  const perEntity = new Map();
+  for (const c of changes) {
+    const e = perEntity.get(c.entityId) || { lost: 0, gained: 0 };
+    if (c.from && !c.to) e.lost++;
+    if (!c.from && c.to) e.gained++;
+    perEntity.set(c.entityId, e);
+  }
+  console.log('\nBy entity, so the comparison between them stays honest:\n');
+  for (const [entityId, e] of [...perEntity].sort((a, b) => b[1].lost - a[1].lost)) {
+    const ent = entities.find((x) => x.id === entityId);
+    if (!ent || (!e.lost && !e.gained)) continue;
+    console.log(`  ${String(ent.kind).padEnd(11)} ${ent.name.padEnd(34)} ${String(-e.lost).padStart(5)} removed`);
+  }
+  const untouched = entities.filter((e) => !e.ambiguous_name && e.kind === 'competitor');
+  if (untouched.length) {
+    console.log(`\n  ${untouched.length} competitors are not flagged and keep their old counts.`);
+    console.log('  If any of their names is also an ordinary word, the comparison now');
+    console.log('  runs in their favour. npm run audit ranks them by how often they were');
+    console.log('  written in lower case.');
+  }
+}
+
 if (!APPLY) {
   console.log('\nNothing was written. Re-run with --apply to commit.\n');
   await pool.end();
