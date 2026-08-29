@@ -92,12 +92,19 @@ for (const run of runs) {
     const old = before.get(key);
     if (!old) continue; // never measured; not this script's job to invent one
 
-    const cycle = String(run.cycle_date).slice(0, 10);
-    if (!byCycle.has(cycle)) byCycle.set(cycle, { was: 0, now: 0 });
+    // cycle_date arrives as a Date, and String() on it gives "Fri Aug 21 2026",
+    // which then sorts alphabetically and scrambles the order of the cycles.
+    const cycle = new Date(run.cycle_date).toISOString().slice(0, 10);
+    if (!byCycle.has(cycle)) byCycle.set(cycle, { measured: 0, was: 0, now: 0, wasFirst: 0, nowFirst: 0 });
     if (r.entity_id === owned?.id) {
       const c = byCycle.get(cycle);
+      // The denominator matters as much as the count. A rising count across
+      // cycles means nothing if the question set grew underneath it.
+      c.measured++;
       if (old.mentioned) c.was++;
       if (r.mentioned) c.now++;
+      if (old.ordinal === 1) c.wasFirst++;
+      if (r.ordinal === 1) c.nowFirst++;
     }
 
     if (old.mentioned !== r.mentioned || old.ordinal !== r.ordinal) {
@@ -113,19 +120,40 @@ const reordered = changes.length - lost - gained;
 console.log(`\n\n${changes.length} rows change: ${lost} no longer counted, ${gained} newly counted, ${reordered} re-ordered\n`);
 
 if (owned) {
-  console.log(`${owned.name}, named per cycle:\n`);
-  for (const [cycle, c] of [...byCycle].sort()) {
-    const delta = c.now - c.was;
+  const pct = (n, d) => (d ? `${((n / d) * 100).toFixed(1)}%` : '   -  ');
+  console.log(`${owned.name}, per cycle. "Of" is how many answers were measured that cycle.\n`);
+  console.log('  cycle        measured    named was -> now        rate was -> now      named first');
+  for (const [cycle, c] of [...byCycle].sort((a, b) => a[0].localeCompare(b[0]))) {
     console.log(
-      `  ${cycle}   was ${String(c.was).padStart(4)}   now ${String(c.now).padStart(4)}   ` +
-      (delta === 0 ? 'unchanged' : `${delta > 0 ? '+' : ''}${delta}  (${Math.round((delta / Math.max(1, c.was)) * 100)}%)`)
+      `  ${cycle}   ${String(c.measured).padStart(6)}    ` +
+      `${String(c.was).padStart(4)} -> ${String(c.now).padStart(4)}   ` +
+      `   ${pct(c.was, c.measured).padStart(7)} -> ${pct(c.now, c.measured).padStart(7)}   ` +
+      `   ${String(c.wasFirst).padStart(3)} -> ${String(c.nowFirst).padStart(3)}`
     );
   }
-  const totalWas = [...byCycle.values()].reduce((s, c) => s + c.was, 0);
-  const totalNow = [...byCycle.values()].reduce((s, c) => s + c.now, 0);
-  console.log(`\n  Across every cycle: ${totalWas} to ${totalNow}.`);
-  console.log('  If the shape of the line survives, the trend was always real and only');
-  console.log('  the level was wrong. If the shape changes, say so before showing it.');
+
+  const sum = (k) => [...byCycle.values()].reduce((s, c) => s + c[k], 0);
+  const cycles = [...byCycle].sort((a, b) => a[0].localeCompare(b[0]));
+  const first = cycles[0]?.[1];
+  const last = cycles[cycles.length - 1]?.[1];
+
+  console.log(`\n  Across every cycle: ${sum('was')} named of ${sum('measured')} measured, now ${sum('now')}.`);
+
+  if (first && last && cycles.length > 1) {
+    const wasGrowth = first.was ? last.was / first.was : null;
+    const nowGrowth = first.now ? last.now / first.now : null;
+    const wasRate = first.measured && last.measured ? (last.was / last.measured) / (first.was / first.measured) : null;
+    const nowRate = first.measured && last.measured ? (last.now / last.measured) / (first.now / first.measured) : null;
+
+    console.log(`\n  First cycle to last, by count: ${wasGrowth ? wasGrowth.toFixed(2) : '?'}x before, ${nowGrowth ? nowGrowth.toFixed(2) : '?'}x after.`);
+    console.log(`  First cycle to last, by rate:  ${wasRate ? wasRate.toFixed(2) : '?'}x before, ${nowRate ? nowRate.toFixed(2) : '?'}x after.`);
+    console.log('\n  Use the rate. A count that rose because the question set grew is not');
+    console.log('  a visibility improvement, and the two columns will disagree when that');
+    console.log('  is what happened.');
+  }
+
+  console.log('\n  The correction is not uniform across cycles, so the shape moves a little');
+  console.log('  as well as the level. Read the rate column before repeating any figure.');
 }
 
 if (!APPLY) {
