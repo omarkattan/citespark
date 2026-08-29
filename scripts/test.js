@@ -3798,6 +3798,34 @@ await test('a question that moved on one answer is not a mover', async () => {
   assert.ok(/asked once, a question is either named or not/i.test(app), 'and explains an empty list');
 });
 
+await test('the overview says what it measures, in words and dates', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // The trend card was relabelled and this one, on the more prominent page,
+  // was missed. Ordinal ranks only the tracked brands that appeared.
+  assert.ok(!/Avg position in answer/.test(app), 'the overclaiming label must be gone everywhere');
+  assert.equal((app.match(/Position among tracked brands/g) || []).length, 2, 'both cards say what is measured');
+  assert.ok(!/1 is first named/.test(app), 'and the caption with it');
+
+  // "2026-08-25T00:00:00.000Z" was reaching the screen in three places.
+  assert.ok(!/\$\{esc\(o\.cycle\)\}/.test(app), 'the cycle date is formatted, not printed raw');
+  assert.ok(!/answers on \$\{state\.overview\.cycle\}/.test(app), 'including in the header sentence');
+  assert.ok(!/`cycle \$\{state\.overview\.cycle\}`/.test(app), 'and the meta line');
+});
+
+await test('an engine that barely ran is not an engine scoring zero', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // One engine returned 8 answers where the others returned 268, and its 0%
+  // sat beside them as a peer. That is the difference between absent and
+  // zero, which this product distinguishes everywhere else.
+  assert.ok(/const thin = typical >= 20 && e\.runs < typical \* 0\.25/.test(app), 'a thin engine is detected');
+  assert.ok(/only \$\{e\.runs\} of \$\{typical\} answers/.test(app), 'and says how thin rather than showing a rate');
+  assert.ok(/ENGINE_LABEL\[e\.engine\]/.test(app), 'engines are named as people know them here too');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

@@ -1447,7 +1447,17 @@ async function renderFigures() {
     return;
   }
   const engineCells = o.engines
-    .map((e) => `<div class="figure"><div class="label">${esc(e.engine)}</div><div class="value">${pct(e.rate)}</div><div class="sub">${e.runs} runs</div></div>`)
+    .map((e) => {
+      // A tenth of the usual answers is a broken engine, not a bad score, and
+      // showing its rate as a peer of the others invites the wrong conclusion.
+      const typical = Math.max(...o.engines.map((x) => x.runs || 0));
+      const thin = typical >= 20 && e.runs < typical * 0.25;
+      return `<div class="figure">
+        <div class="label">${esc(ENGINE_LABEL[e.engine] || e.engine)}</div>
+        <div class="value ${thin ? 'dim' : ''}" ${thin ? `title="Only ${e.runs} answers came back from this engine against ${typical} from the busiest. Too few to compare."` : ''}>${thin ? '&mdash;' : pct(e.rate)}</div>
+        <div class="sub">${thin ? `only ${e.runs} of ${typical} answers` : `${e.runs} runs`}</div>
+      </div>`;
+    })
     .join('');
   $('figures').innerHTML = `
     <div class="figure">
@@ -1456,15 +1466,18 @@ async function renderFigures() {
       <div class="sub">${o.runs} answers read</div>
     </div>
     <div class="figure">
-      <div class="label">Avg position in answer</div>
+      <!-- Ranks only the brands this project tracks that appeared, so being
+           the only tracked name present reads 1.0 however many untracked
+           firms were listed above. -->
+      <div class="label">Position among tracked brands</div>
       <div class="value ${o.avgOrdinal ? '' : 'dim'}">${o.avgOrdinal ? o.avgOrdinal.toFixed(1) : '-'}</div>
-      <div class="sub">1 is first named</div>
+      <div class="sub">1 is first of the brands you track</div>
     </div>
     ${engineCells}
     <div class="figure">
       <div class="label">Cycle cost</div>
       <div class="value">$${(o.spend || 0).toFixed(2)}</div>
-      <div class="sub">${esc(o.cycle)}</div>
+      <div class="sub">${esc(shortDate(o.cycle))}</div>
     </div>`;
 }
 
@@ -1506,9 +1519,9 @@ async function loadProject(id) {
   const p = state.overview.project;
   $('brandTitle').textContent = p.brand_name;
   $('brandDek').textContent = state.overview.cycle
-    ? `Measured across ${state.overview.runs} answers on ${state.overview.cycle}. Every action below is derived from that evidence.`
+    ? `Measured across ${state.overview.runs} answers on ${shortDate(state.overview.cycle)}. Every action below is derived from that evidence.`
     : 'Nothing measured yet. Run a cycle to ask every tracked question across the engines.';
-  $('cycleMeta').textContent = state.overview.cycle ? `cycle ${state.overview.cycle}` : 'no data';
+  $('cycleMeta').textContent = state.overview.cycle ? `cycle ${shortDate(state.overview.cycle)}` : 'no data';
   const cap = window.innerWidth < 760 ? 12 : 18;
   const short = p.name.length > cap ? p.name.slice(0, cap - 1) + '\u2026' : p.name;
   $('runBtn').innerHTML = `Run ${esc(short)} <span class="caret">&#9662;</span>`;
