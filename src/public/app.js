@@ -4575,8 +4575,36 @@ async function viewTrends() {
 
   const first = h.cycles[0];
   const last = h.cycles[h.cycles.length - 1];
-  const change = last.rate - first.rate;
   const best = h.cycles.reduce((a, b) => (b.rate > a.rate ? b : a));
+
+  /**
+   * Movement is read off the questions asked in every cycle, not off all of
+   * them. Adding questions changes the full-set rate on its own: one project
+   * went from 209 measured answers to 1,324, and its headline fell five
+   * points while the questions present throughout did not move at all. That
+   * five points was the question set, reported as a loss of visibility.
+   */
+  const cohort = (h.comparable || []).filter((c) => c.rate !== null);
+  const cohortFirst = cohort[0];
+  const cohortLast = cohort[cohort.length - 1];
+  const comparable = cohort.length >= 2 && cohortLast.runs >= 30;
+  const change = comparable ? cohortLast.rate - cohortFirst.rate : last.rate - first.rate;
+
+  /**
+   * Two standard errors on the later cycle. A move inside that is sampling
+   * noise, and calling it a rise or a fall would be inventing a finding.
+   */
+  const noise = comparable
+    ? 2 * Math.sqrt((cohortLast.rate * (1 - cohortLast.rate)) / cohortLast.runs)
+    : null;
+  const settled = noise === null || Math.abs(change) > noise;
+
+  const basis = comparable
+    ? `Measured on the ${cohortLast.runs} answers to questions asked in all ${h.cycles.length} cycles.` +
+      (settled
+        ? ''
+        : ` That is inside the ${Math.round(noise * 100)} point margin at this sample size, so treat it as no measurable change.`)
+    : `Measured on every question in each cycle. The question set changed between cycles, so some of this movement is the measurement rather than your visibility.`;
 
   /* headline: you against your competitors */
   const byName = new Map();
@@ -4621,9 +4649,9 @@ async function viewTrends() {
   return `
   <div class="figures">
     <div class="figure">
-      <div class="label">Since ${esc(shortDate(first.date))}</div>
-      <div class="value ${change > 0 ? 'up' : change < 0 ? 'down' : 'dim'}">${change > 0 ? '+' : ''}${Math.round(change * 100)}<span style="font-size:16px"> pts</span></div>
-      <div class="sub">was ${Math.round(first.rate * 100)}%</div>
+      <div class="label">Since ${esc(shortDate(first.date))}${comparable ? ', like for like' : ''}</div>
+      <div class="value ${!settled ? 'dim' : change > 0 ? 'up' : change < 0 ? 'down' : 'dim'}">${change > 0 ? '+' : ''}${Math.round(change * 100)}<span style="font-size:16px"> pts</span></div>
+      <div class="sub">was ${Math.round((comparable ? cohortFirst.rate : first.rate) * 100)}%</div>
     </div>
     <div class="figure">
       <div class="label">Best cycle</div>
@@ -4631,7 +4659,12 @@ async function viewTrends() {
       <div class="sub">${esc(shortDate(best.date))}</div>
     </div>
     <div class="figure">
-      <div class="label">Position in answer</div>
+      <!-- Ordinal is the position among the brands THIS PROJECT tracks that
+           appeared, not among every brand in the answer. If yours is the only
+           tracked name present it reads 1.0, however many untracked firms
+           were listed above it. Labelled for what it measures until it can be
+           computed against every brand named. -->
+      <div class="label">Position among tracked brands</div>
       <div class="value">${last.avg_ordinal ? Number(last.avg_ordinal).toFixed(1) : '-'}</div>
       <div class="sub">${first.avg_ordinal ? `was ${Number(first.avg_ordinal).toFixed(1)}` : 'no earlier reading'}</div>
     </div>
@@ -4641,6 +4674,12 @@ async function viewTrends() {
       <div class="sub">$${totalSpend.toFixed(2)} all in</div>
     </div>
   </div>
+
+  <p class="hint" style="margin:-6px 0 14px">${esc(basis)}${
+    (h.notes || []).length
+      ? ' ' + h.notes.map((n) => `The method changed on ${shortDate(n.date)}: ${n.note}.`).join(' ')
+      : ''
+  }</p>
 
   <div class="panel">
     <div class="panel-head"><h2>You against the field</h2></div>

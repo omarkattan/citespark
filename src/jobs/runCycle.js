@@ -79,6 +79,43 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
   }
   const entities = await many('SELECT * FROM entities WHERE project_id = $1', [projectId]);
 
+  /**
+   * Record a material change in what is being measured, before measuring it.
+   *
+   * A trend is only a trend if the thing underneath it held still. One project
+   * grew from 209 measured answers to 1,324 across eight cycles and its rate
+   * halved, which read as a decline and was mostly the question set. Nothing
+   * anywhere recorded that the set had changed, so there was no way to know
+   * from the chart. Ten percent is the threshold: below that the wobble is
+   * not worth a note, above it the reader needs to be told.
+   */
+  const priorCycle = await one(
+    `SELECT COUNT(DISTINCT r.prompt_id)::int AS questions, MAX(r.run_index) + 1 AS runs
+     FROM runs r
+     WHERE r.project_id = $1 AND r.ok
+       AND r.cycle_date = (SELECT MAX(cycle_date) FROM runs WHERE project_id = $1 AND ok)`,
+    [projectId]
+  );
+
+  if (priorCycle?.questions) {
+    const grew = Math.abs(prompts.length - priorCycle.questions) / priorCycle.questions;
+    const runsChanged = priorCycle.runs && priorCycle.runs !== project.runs_per_cycle;
+    const parts = [];
+    if (grew >= 0.1) parts.push(`questions ${priorCycle.questions} to ${prompts.length}`);
+    if (runsChanged) parts.push(`runs per question ${priorCycle.runs} to ${project.runs_per_cycle}`);
+    if (parts.length) {
+      await query(
+        `INSERT INTO method_notes (project_id, note, detail) VALUES ($1,$2,$3)`,
+        [
+          projectId,
+          `What is measured changed: ${parts.join(', ')}`,
+          'Cycles either side of this point are not directly comparable on the full question set. ' +
+            'The like-for-like figure covers only questions present in every cycle.'
+        ]
+      );
+    }
+  }
+
   // A plan is a call budget. Trim the cycle to fit rather than overspending,
   // and stop entirely when the month's allowance is gone.
   const budget = await budgetForCycle(project.org_id, {

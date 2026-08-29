@@ -3709,6 +3709,49 @@ await test('rivals are not ranked by how long they have been tracked', async () 
   assert.ok(/never on the/.test(trend), 'with the all-time column ruled out for ranking');
 });
 
+await test('the trend headline is read off a fixed question set', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Adding questions moves the full-set rate on its own. One project went
+  // from 209 measured answers to 1,324; the headline fell five points while
+  // the questions present throughout did not move at all.
+  assert.ok(/p\.seen = t\.n/.test(server), 'the cohort is the pairs seen in every cycle');
+  assert.ok(/p\.prompt_id = r\.prompt_id AND p\.engine = r\.engine/.test(server),
+    'and a question counts only on the same engine');
+  assert.ok(/comparable \? cohortLast\.rate - cohortFirst\.rate/.test(app), 'the headline uses it');
+  assert.ok(/like for like/.test(app), 'and says so on the card');
+
+  // A move inside sampling noise is not a finding.
+  assert.ok(/no measurable change/.test(app), 'a move inside the margin must be named as such');
+  assert.ok(/some of this movement is the measurement/.test(app),
+    'and when no cohort survives, that has to be admitted rather than hidden');
+});
+
+await test('a change in what is measured is recorded when it happens', async () => {
+  const { readFileSync } = await import('node:fs');
+  const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Found only by re-reading stored answers months later. The chart had no
+  // way to show it because nothing wrote it down.
+  assert.ok(/INSERT INTO method_notes/.test(job), 'the cycle records it');
+  assert.ok(/runs per question/.test(job), 'runs per question counts as a change too');
+  assert.ok(/The method changed on/.test(app), 'and the trend page shows it');
+});
+
+await test('position is labelled as position among tracked brands', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // analyseRun ranks only the entities this project tracks that appeared, so
+  // being the only tracked name present reads 1.0 however many untracked
+  // firms were listed above. "Position in answer" claimed more than that.
+  assert.ok(/Position among tracked brands/.test(app), 'the label must match what is measured');
+  assert.ok(!/Position in answer/.test(app), 'and the overclaiming label must be gone');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
