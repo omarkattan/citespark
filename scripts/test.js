@@ -3780,6 +3780,24 @@ await test('connecting Search Console leaves it connected', async () => {
   assert.ok(/via: own \? 'search-console'/.test(server), 'the payload names the account in play');
 });
 
+await test('a question that moved on one answer is not a mover', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Ranking by size of change puts the least reliable rows first: a question
+  // asked once is 100% or 0%, and those flips beat every real change. The
+  // panel headed "what moved" filled with whatever had the smallest sample,
+  // shown in red as though it were a finding.
+  assert.ok(/MIN_MOVER_RUNS = 3/.test(server), 'a mover needs a sample on both sides');
+  assert.ok(/a\.runs >= \$4 AND b\.runs >= \$4/.test(server), 'enforced in the query, not the view');
+  assert.ok(/moversHeldBack/.test(server), 'and what was held back is counted');
+
+  // Counts, not bare percentages, so the reader sees what each rests on.
+  assert.ok(/of \$\{m\.before_runs\}/.test(app), 'the panel shows the denominator');
+  assert.ok(/asked once, a question is either named or not/i.test(app), 'and explains an empty list');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

@@ -600,13 +600,32 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
 
   // Question-level movement between the two most recent cycles, which is
   // where a client's "what changed and why" question actually gets answered.
+  /**
+   * Below this, a single flip swamps the signal. Three is the smallest number
+   * at which a question can move without going straight from all to nothing.
+   */
+  const MIN_MOVER_RUNS = 3;
   let movers = [];
+  let moversHeldBack = 0;
   if (cycles.length >= 2) {
     const latest = cycles[cycles.length - 1].date;
     const prior = cycles[cycles.length - 2].date;
     movers = await many(
+      /**
+       * Sorting by the size of the change puts the least reliable rows first.
+       *
+       * A question asked once is named or not: 100% or 0%, nothing between.
+       * Ranked by absolute movement, those flips beat every real change on
+       * the page, so the panel headed "what moved" filled with whatever had
+       * the smallest sample. A 50 to 0 built on two answers and one answer is
+       * not a finding, and it was being shown in red as though it were.
+       *
+       * Both sides now need at least MIN_RUNS answers, and the counts travel
+       * with the rates so the reader can see what each figure rests on.
+       */
       `WITH per AS (
          SELECT p.id, p.text, r.cycle_date,
+                COUNT(*)::int AS runs,
                 SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
          FROM runs r
          JOIN prompts p ON p.id = r.prompt_id
@@ -616,13 +635,37 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
          GROUP BY p.id, r.cycle_date
        )
        SELECT a.id, a.text,
-              b.rate AS before, a.rate AS after, (a.rate - b.rate) AS delta
+              b.rate AS before, a.rate AS after, (a.rate - b.rate) AS delta,
+              b.runs AS before_runs, a.runs AS after_runs
        FROM per a JOIN per b ON b.id = a.id AND b.cycle_date = $3
-       WHERE a.cycle_date = $2 AND a.rate IS DISTINCT FROM b.rate
+       WHERE a.cycle_date = $2
+         AND a.rate IS DISTINCT FROM b.rate
+         AND a.runs >= $4 AND b.runs >= $4
        ORDER BY ABS(a.rate - b.rate) DESC
        LIMIT 8`,
-      [project.id, latest, prior]
+      [project.id, latest, prior, MIN_MOVER_RUNS]
     );
+
+    // How many questions moved but were too thinly sampled to report. The
+    // number is the argument for asking each question more than once.
+    const held = await one(
+      `WITH per AS (
+         SELECT p.id, r.cycle_date, COUNT(*)::int AS runs,
+                SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
+         FROM runs r
+         JOIN prompts p ON p.id = r.prompt_id
+         JOIN mentions m ON m.run_id = r.id
+         JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
+         WHERE r.project_id = $1 AND r.ok AND r.cycle_date IN ($2, $3)
+         GROUP BY p.id, r.cycle_date
+       )
+       SELECT COUNT(*)::int AS n
+       FROM per a JOIN per b ON b.id = a.id AND b.cycle_date = $3
+       WHERE a.cycle_date = $2 AND a.rate IS DISTINCT FROM b.rate
+         AND (a.runs < $4 OR b.runs < $4)`,
+      [project.id, latest, prior, MIN_MOVER_RUNS]
+    );
+    moversHeldBack = held?.n || 0;
   }
 
   res.json({
@@ -633,7 +676,12 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
     byEngine: byEngine.map((r) => ({ ...r, rate: Number(r.rate) })),
     byEntity: byEntity.map((r) => ({ ...r, rate: Number(r.rate) })),
     spend,
-    movers: movers.map((m) => ({ ...m, before: Number(m.before), after: Number(m.after), delta: Number(m.delta) }))
+    movers: movers.map((m) => ({ ...m, before: Number(m.before), after: Number(m.after), delta: Number(m.delta) })),
+    // Say why the panel is empty. An empty list with no explanation reads as
+    // "nothing changed", which is a different and stronger claim than
+    // "nothing changed by more than the noise".
+    moversMinRuns: MIN_MOVER_RUNS,
+    moversHeldBack
   });
 }));
 
@@ -3136,7 +3184,7 @@ app.get('/api/version', (_req, res) => {
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions', 'trademark-tm', 'ai-visibility-copy', 'gsc-connect-prompt', 'internal-accounts', 'aggregated-report', 'page-checks', 'question-filters', 'page-check-errors', 'page-check-picker', 'brand-filter', 'gsc-pagination', 'path-filter', 'site-sections', 'question-dropdowns', 'read-the-answer', 'longer-answers', 'questions-from-topic', 'run-unrun-only', 'run-menu', 'internal-no-limits', 'auto-teardown', 'report-visuals', 'resolve-redirects', 'resolve-retry', 'withdraw-stale-actions', 'source-filter', 'local-listings', 'sources-after-clean', 'prompt-events', 'csv-export', 'mail-diagnostics', 'reask-question', 'session-caveat', 'decline-actions', 'plain-action-labels', 'cited-counts-as-visible', 'interactive-charts', 'duplicate-questions', 'persona-overlap', 'email-verification', 'password-reset', 'signup-limit', 'verify-banner', 'admin-console', 'admin-link', 'danger-contrast', 'signup-flow', 'admin-per-org', 'ga4-error-detail', 'connect-returns-home', 'gsc-disconnect', 'import-room', 'inline-form-fix', 'upgrade-prompt', 'like-for-like-trend', 'grouped-findings', 'seed-verified', 'traffic-in-report', 'render-what-we-compute', 'separate-google-accounts', 'traffic-detail', 'report-cta', 'full-csv', 'report-download', 'answer-dedupe', 'unmeasured-verdict', 'sample-labels', 'city-locations', 'locations-endpoint-live', 'place-types-measured', 'grouped-city-list', 'project-audit', 'ambiguous-brand-names', 'model-tiering', 'method-notes', 'toggle-saves-itself', 'save-checks-response', 'like-for-like-cohort', 'competitor-ambiguity', 'rival-tracking-age', 'comparable-trend', 'cycle-method-notes', 'gsc-connection-fix']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions', 'trademark-tm', 'ai-visibility-copy', 'gsc-connect-prompt', 'internal-accounts', 'aggregated-report', 'page-checks', 'question-filters', 'page-check-errors', 'page-check-picker', 'brand-filter', 'gsc-pagination', 'path-filter', 'site-sections', 'question-dropdowns', 'read-the-answer', 'longer-answers', 'questions-from-topic', 'run-unrun-only', 'run-menu', 'internal-no-limits', 'auto-teardown', 'report-visuals', 'resolve-redirects', 'resolve-retry', 'withdraw-stale-actions', 'source-filter', 'local-listings', 'sources-after-clean', 'prompt-events', 'csv-export', 'mail-diagnostics', 'reask-question', 'session-caveat', 'decline-actions', 'plain-action-labels', 'cited-counts-as-visible', 'interactive-charts', 'duplicate-questions', 'persona-overlap', 'email-verification', 'password-reset', 'signup-limit', 'verify-banner', 'admin-console', 'admin-link', 'danger-contrast', 'signup-flow', 'admin-per-org', 'ga4-error-detail', 'connect-returns-home', 'gsc-disconnect', 'import-room', 'inline-form-fix', 'upgrade-prompt', 'like-for-like-trend', 'grouped-findings', 'seed-verified', 'traffic-in-report', 'render-what-we-compute', 'separate-google-accounts', 'traffic-detail', 'report-cta', 'full-csv', 'report-download', 'answer-dedupe', 'unmeasured-verdict', 'sample-labels', 'city-locations', 'locations-endpoint-live', 'place-types-measured', 'grouped-city-list', 'project-audit', 'ambiguous-brand-names', 'model-tiering', 'method-notes', 'toggle-saves-itself', 'save-checks-response', 'like-for-like-cohort', 'competitor-ambiguity', 'rival-tracking-age', 'comparable-trend', 'cycle-method-notes', 'gsc-connection-fix', 'movers-need-a-sample']
   });
 });
 

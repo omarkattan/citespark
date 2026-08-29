@@ -4638,11 +4638,18 @@ async function viewTrends() {
           return `<div class="mover">
             <div class="mover-q">${esc(m.text)}</div>
             <div class="mover-delta ${pts > 0 ? 'up' : 'down'}">${pts > 0 ? '+' : ''}${pts} pts</div>
-            <div class="mover-nums">${Math.round(m.before * 100)}% &rarr; ${Math.round(m.after * 100)}%</div>
+            <div class="mover-nums">${m.before_runs ? `${Math.round(m.before * m.before_runs)} of ${m.before_runs}` : `${Math.round(m.before * 100)}%`} &rarr; ${m.after_runs ? `${Math.round(m.after * m.after_runs)} of ${m.after_runs}` : `${Math.round(m.after * 100)}%`}</div>
           </div>`;
         })
         .join('')
-    : `<p class="hint">No question changed between the last two cycles.</p>`;
+    // An empty panel with no reason reads as "nothing changed", which is a
+    // stronger claim than "nothing changed by more than the noise".
+    : h.moversHeldBack
+      ? `<p class="hint">${h.moversHeldBack} question${h.moversHeldBack === 1 ? '' : 's'} changed, but each was asked
+         fewer than ${h.moversMinRuns} times in one of the two cycles. Asked once, a question is either named or not,
+         so a single answer flipping looks like a total collapse. Raise runs per question in Settings to tell a real
+         change from ordinary variation.</p>`
+      : '<p class="hint">No question changed between the last two cycles.</p>';
 
   const totalSpend = h.spend.reduce((n, s) => n + Number(s.cost), 0);
 
