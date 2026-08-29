@@ -95,8 +95,15 @@ async function askScraper({ prompt, countryName }) {
     // "sources" is what the model actually leaned on; "search_results" is
     // everything it looked at. Only the first is comparable to what we store
     // as a citation today, so they are kept apart rather than merged.
-    const sources = [...new Set((r.sources || []).map((s) => s.domain).filter(Boolean))];
-    const looked = [...new Set((r.search_results || []).map((s) => s.domain).filter(Boolean))];
+    // Observed: the domain field arrives as "[www.hsbc.ae](https://www.hsbc.ae)".
+    // Left alone it would not match anything we store, so any comparison
+    // against our own citations would report a false difference.
+    const bare = (d) => {
+      const m = /\]\((?:https?:\/\/)?([^/)]+)/.exec(String(d || ''));
+      return (m ? m[1] : String(d || '').replace(/^\[|\]$/g, '')).replace(/^www\./, '').toLowerCase().trim();
+    };
+    const sources = [...new Set((r.sources || []).map((s) => bare(s.domain)).filter(Boolean))];
+    const looked = [...new Set((r.search_results || []).map((s) => bare(s.domain)).filter(Boolean))];
 
     return {
       ok: Boolean(text?.trim()),
@@ -141,8 +148,15 @@ if (!names.length) { console.error('No owned brand on that project.'); await poo
  * the next report without re-running anything.
  */
 const prompts = await many(
-  `SELECT text FROM prompts WHERE project_id = $1 AND active
-   ORDER BY ai_search_volume DESC, id LIMIT $2`,
+  `SELECT text, intent FROM prompts WHERE project_id = $1 AND active
+   ORDER BY CASE
+              WHEN intent ILIKE '%recommend%' THEN 0
+              WHEN intent ILIKE '%commercial%' THEN 1
+              WHEN intent ILIKE '%compar%'     THEN 2
+              ELSE 9
+            END,
+            ai_search_volume DESC, id
+   LIMIT $2`,
   [projectId, QUESTIONS]
 );
 
@@ -165,12 +179,16 @@ console.log(`Asked from: ${countryName}, country level on both surfaces${project
 console.log(`${prompts.length} questions x ${RUNS} runs x 2 surfaces = ${prompts.length * RUNS * 2} calls, cap $${CAP.toFixed(2)}\n`);
 
 const rows = [];
+// Split, because the average across both surfaces answers nothing. The
+// question is what each one costs per call.
+const cost = { api: 0, consumer: 0 };
+const calls = { api: 0, consumer: 0 };
 let spent = 0;
 let stopped = false;
 
 for (const p of prompts) {
   if (stopped) break;
-  console.log(`\n"${p.text.slice(0, 78)}${p.text.length > 78 ? '...' : ''}"`);
+  console.log(`\n[${p.intent}] "${p.text.slice(0, 68)}${p.text.length > 68 ? '...' : ''}"`);
 
   for (const surface of ['api', 'consumer']) {
     const hits = [];
@@ -181,12 +199,18 @@ for (const p of prompts) {
     for (let i = 0; i < RUNS; i++) {
       if (spent >= CAP) { stopped = true; break; }
 
+      // askEngine does not report its own duration, so time it here. The
+      // first run showed "0.0s per API call", which was this gap rather than
+      // an instant answer.
+      const t0 = Date.now();
       const a = surface === 'api'
         ? await askEngine({ engine: 'chatgpt', prompt: p.text, market: project.market, maxTokens: 2000 })
         : await askScraper({ prompt: p.text, countryName });
 
       spent += a.costUsd || 0;
-      secs += a.secs || 0;
+      cost[surface] += a.costUsd || 0;
+      calls[surface] += 1;
+      secs += a.secs ?? (Date.now() - t0) / 1000;
 
       // A failed call is not a miss. Counting it as one would inflate exactly
       // the difference we are trying to measure.
@@ -268,6 +292,9 @@ console.log('  lists are built from these domains, so the wrong surface means th
 
 const apiSecs = mean(api.map((r) => r.secs / Math.max(1, r.n)));
 const uiSecs = mean(ui.map((r) => r.secs / Math.max(1, r.n)));
+console.log(`\nCost: $${(cost.api / Math.max(1, calls.api)).toFixed(4)} per API call, ` +
+            `$${(cost.consumer / Math.max(1, calls.consumer)).toFixed(4)} per consumer call.`);
+
 console.log(`\nSpeed: ${apiSecs.toFixed(1)}s per API call, ${uiSecs.toFixed(1)}s per consumer call.`);
 console.log(`  At ${uiSecs.toFixed(0)}s a call, a 260-question cycle on this surface takes`);
 console.log(`  about ${Math.round((260 * uiSecs) / 60)} minutes per run. If that is too slow, the task-based`);

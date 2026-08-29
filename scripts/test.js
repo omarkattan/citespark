@@ -3587,6 +3587,30 @@ await test('the city says which engines it actually covers', async () => {
   assert.ok(/Emirates and provinces/.test(app), 'in words that suit the region');
 });
 
+await test('a silent engine is findable', async () => {
+  const { readFileSync } = await import('node:fs');
+  const audit = readFileSync(new URL('./audit.js', import.meta.url), 'utf8');
+
+  // An engine answering without sources is not an error, so nothing reports
+  // it, and every action built from its citations is quietly missing.
+  assert.ok(/citations/i.test(audit) && /engine/i.test(audit), 'citations must be counted per engine');
+  assert.ok(/no sources at all/.test(audit), 'and a zero called out rather than left to be spotted');
+  assert.ok(/scoreModel/.test(audit), 'pointing at the model choice that causes it');
+});
+
+await test('a brand name that is also a phrase is checkable', async () => {
+  const { readFileSync } = await import('node:fs');
+  const audit = readFileSync(new URL('./audit.js', import.meta.url), 'utf8');
+
+  // Detection is case-insensitive, so "the family office model" counts as a
+  // mention of a firm called The Family Office. Case is the only signal left
+  // once the answer is stored.
+  assert.ok(/looksLikeAName/.test(audit), 'case is the test');
+  assert.ok(/corroborated/.test(audit), 'with the domain as corroboration');
+  assert.ok(/snippet/.test(audit), 'and the snippets shown so the count can be disputed');
+  assert.ok(!/UPDATE |DELETE |INSERT /.test(audit), 'an audit must not change what it is auditing');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

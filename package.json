@@ -42,7 +42,8 @@
     "verify": "node scripts/verify-teardown.js",
     "volumes": "node scripts/volumes.js",
     "geo": "node scripts/geo.js",
-    "surface": "node scripts/surface.js"
+    "surface": "node scripts/surface.js",
+    "audit": "node scripts/audit.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
