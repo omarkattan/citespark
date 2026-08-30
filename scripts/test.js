@@ -3370,7 +3370,7 @@ await test('re-asking is charged and bounded like anything else', async () => {
   // Silently changing a number would hide which of the two cases happened.
   // Wording moved when the outcome moved to a toast; the requirement, that
   // the UI says what happened to the old answers, is unchanged.
-  assert.ok(/answer\$\{replaced === 1 \? '' : 's'\} replaced; sound ones kept/.test(app), 'the UI must say what happened to the old answers');
+  assert.ok(/Sound ones were kept as extra samples/.test(app), 'the UI must say what happened to the old answers');
 });
 
 console.log('\nanswer evidence');
@@ -4063,17 +4063,23 @@ await test('asking again shows its outcome somewhere that survives', async () =>
   // The outcome was written onto the button and the next line re-rendered
   // the view, destroying it. Money spent, answers stored, and the click
   // looked like it did nothing.
-  const at = app.indexOf("const again = e.target.closest('[data-reask]')");
-  const block = app.slice(at, at + 2600);
-  assert.ok(/toast\(/.test(block), 'the outcome goes to a toast, which survives the redraw');
+  const at = app.indexOf('reaskOverlay'); // unique to this handler; the old anchor matched an earlier block
+  const block = app.slice(at, at + 5200);
+  // The toast version survived the redraw but dismissed itself in seconds -
+  // the person watched a paid 30-second action end in a blink. The outcome
+  // now holds the screen until closed, verdict per engine, with the way to
+  // the fresh answers one press away.
+  assert.ok(/reaskOverlay/.test(block), 'a modal holds the outcome until dismissed');
+  assert.ok(/named you/.test(block) && /did not name you/.test(block), 'verdict stated per engine');
+  assert.ok(/data-reask-read/.test(block), 'and the fresh answers are one press away');
   // A hang left the button frozen on "Asking" with nothing said. Every exit,
   // success, server error, or a request that never completed, must restore
   // the button and name what happened.
   assert.ok(/finally \{/.test(block), 'the button always comes back');
   assert.ok(/The request never completed/.test(block), 'and a dead request is named, not swallowed');
   assert.ok(!/again\.textContent = named/.test(block), 'and no longer onto a node the render destroys');
-  assert.ok(/~30s/.test(block), 'the wait is stated while it runs');
-  assert.ok(/Read what each engine said" for the fresh answers/.test(block), 'and the result says where to look');
+  assert.ok(/20 to 40 seconds/.test(block), 'the wait is stated while it runs');
+  assert.ok(block.includes('data-see-answer="${id}"'), 'reading opens the evidence itself, not directions to it');
 });
 
 await test('every key control can be asked what it does', async () => {

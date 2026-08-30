@@ -1,8 +1,9 @@
-Reask never fails silently - 2 files.
+Ask-again overlay - 2 files.
 
-src/public/app.js  raw fetch with every exit handled: button always resets,
-                   server errors and never-completed requests are named
+src/public/app.js  modal overlay: progress while asking, per-engine verdict
+                   after, stays until closed, "Read the full answers" opens
+                   the evidence directly. Errors land in the same modal.
 scripts/test.js    pins it
 
-Verify: Ask again now either shows the outcome toast or a toast naming
-exactly why not. A frozen button is no longer a possible state.
+Verify: Ask again now -> overlay with progress -> per-engine named/not table
+-> Read the full answers opens the panel.

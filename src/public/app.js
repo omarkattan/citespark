@@ -2555,8 +2555,29 @@ document.addEventListener('click', async (e) => {
   if (again) {
     const id = again.dataset.reask;
     again.disabled = true;
-    // The wait is long and paid, so both are stated while it runs.
-    again.textContent = 'Asking all engines, ~30s';
+
+    /**
+     * A modal, not a toast. The wait is 30 paid seconds and the outcome is
+     * a per-engine verdict: a message that dismisses itself in four seconds
+     * answered neither "is it still working?" nor "what came back?", and
+     * the person was left refreshing. This stays until closed, shows what
+     * is happening while it happens, and puts the way to the fresh answers
+     * one press away.
+     */
+    const ov = document.createElement('div');
+    ov.id = 'reaskOverlay';
+    ov.setAttribute('style', 'position:fixed;inset:0;z-index:70;background:rgba(20,20,18,.55);display:flex;align-items:center;justify-content:center;padding:20px;');
+    ov.innerHTML = `<div style="background:var(--paper);border-radius:8px;max-width:460px;width:100%;padding:22px 24px;box-shadow:0 10px 40px rgba(0,0,0,.35);">
+      <div style="font-weight:600;font-size:15px;margin-bottom:6px">Asking every engine again</div>
+      <div data-reask-body style="font-size:13px;line-height:1.6;color:var(--ink-2)">
+        All engines are being asked this question right now, fresh and signed out.
+        Costs about $0.05 and usually takes 20 to 40 seconds. Leave this open.
+      </div>
+      <div data-reask-actions style="margin-top:16px;display:none;gap:8px;justify-content:flex-end"></div>
+    </div>`;
+    document.body.appendChild(ov);
+    const body = ov.querySelector('[data-reask-body]');
+    const acts = ov.querySelector('[data-reask-actions]');
 
     /**
      * Raw fetch with its own failure reporting, after a hang where the
@@ -2579,8 +2600,24 @@ document.addEventListener('click', async (e) => {
       again.textContent = 'Ask again now';
     }
 
+    const finish = (html, showRead) => {
+      body.innerHTML = html;
+      acts.style.display = 'flex';
+      acts.innerHTML = `${showRead ? '<button data-reask-read>Read the full answers</button>' : ''}
+        <button class="ghost" data-reask-close>Close</button>`;
+      acts.querySelector('[data-reask-close]').onclick = () => ov.remove();
+      const read = acts.querySelector('[data-reask-read]');
+      if (read) read.onclick = async () => {
+        ov.remove();
+        await render();
+        // Open the evidence for this question so the fresh answers are on
+        // screen, not merely reachable.
+        document.querySelector(`[data-see-answer="${id}"]`)?.click();
+      };
+    };
+
     if (d?.error) {
-      toast(d.error, 'warn');
+      finish(`<span style="color:var(--bad,#b3402a)">${esc(d.error)}</span>`, false);
       return;
     }
 
@@ -2591,16 +2628,21 @@ document.addEventListener('click', async (e) => {
      * their click apparently do nothing. The outcome now goes to a toast,
      * which survives the redraw, and says where the fresh answers are.
      */
-    const named = (d.results || []).filter((r) => r.named).map((r) => r.engine);
     const replaced = (d.results || []).reduce((n, r) => n + (r.replaced || 0), 0);
-    toast(
-      (named.length
-        ? `Asked again: named by ${named.join(', ')}.`
-        : 'Asked again: still not named by any engine.')
-      + (replaced ? ` ${replaced} incomplete earlier answer${replaced === 1 ? '' : 's'} replaced; sound ones kept.` : ' Stored alongside the earlier answers as another sample.')
-      + ' Open "Read what each engine said" for the fresh answers.'
+    const rows = (d.results || []).map((r) =>
+      `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)">
+        <span>${esc(ENGINE_LABEL[r.engine] || r.engine)}</span>
+        <span style="font-family:var(--mono);font-size:11px;color:${r.named ? 'var(--you)' : 'var(--ink-3)'}">${r.named ? 'named you' : 'did not name you'}</span>
+      </div>`).join('');
+    finish(
+      `<div style="margin-bottom:8px">Done. Every engine answered fresh:</div>${rows}
+       <div style="margin-top:10px;font-size:12px;color:var(--ink-3)">${
+         replaced
+           ? `${replaced} incomplete earlier answer${replaced === 1 ? ' was' : 's were'} replaced. Sound ones were kept as extra samples.`
+           : 'Stored alongside the earlier answers as extra samples.'
+       }</div>`,
+      true
     );
-    await render();
     return;
   }
 
