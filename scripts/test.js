@@ -3947,7 +3947,7 @@ await test('the recommendation for a lost answer is the brief that wins it', asy
   assert.ok(/api\/prompts\/:promptId\/brief/.test(server), 'the brief has a route');
   assert.ok(/data-brief/.test(app), 'and a button on the question');
   // Copy-only asked for trust in something never seen. Content first.
-  assert.ok(/See suggested content/.test(app), 'the CTA promises content, not a clipboard');
+  assert.ok(/See brief for suggested content/.test(app), 'the CTA promises content, not a clipboard');
   assert.ok(/data-bf-copy/.test(app) && /Suggested content brief/.test(app), 'shown inline with Copy beside it');
   assert.ok(/The brief is selected - press Ctrl\+C/.test(app), 'a blocked clipboard degrades to selection, not a new tab');
 

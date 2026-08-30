@@ -886,7 +886,7 @@ async function viewQuestions() {
             const qh = (text) => `<button type="button" style="${HELP_STYLE}" data-help="${esc(text)}" aria-label="What does this do?">?</button>`;
             return `<div class="q-actions">
               ${p.measured ? `<button class="ghost" data-see-answer="${p.id}">Read what each engine said</button>${qh('Opens the stored answers from the last cycle, one per engine, with every source cited as a full clickable address. Free - nothing is re-asked.')}` : ''}
-              <button class="ghost ${losing ? 'q-cta' : ''}" data-brief="${p.id}">See suggested content</button>${qh('Opens the ready-made brief for the article that wins this answer: the question, the exact pages engines currently cite instead of you, related questions for the FAQs, and the full methodology. Read it here, then copy it into Claude or ChatGPT to draft. Free, and identical every time.')}
+              <button class="ghost ${losing ? 'q-cta' : ''}" data-brief="${p.id}">See brief for suggested content</button>${qh('Opens the ready-made brief for the article that wins this answer: the question, the exact pages engines currently cite instead of you, related questions for the FAQs, and the full methodology. Read it here, then copy it into Claude or ChatGPT to draft. Free, and identical every time.')}
               ${p.measured ? `<button class="ghost" data-reask="${p.id}">Ask again now</button>${qh('Asks this question again on every engine right now, about $0.05 and 30 seconds. Incomplete earlier answers are replaced, sound ones are kept as extra samples. The fresh answers appear under Read what each engine said.')}` : ''}
               <label class="qpick"><input type="checkbox" data-qsel="${p.id}" /> select</label>
             </div>`;
@@ -2326,7 +2326,7 @@ document.addEventListener('click', async (e) => {
   if (brief) {
     const pid = brief.dataset.brief;
     const open = document.getElementById(`bf-${pid}`);
-    if (open) { open.remove(); brief.textContent = 'See suggested content'; return; }
+    if (open) { open.remove(); brief.textContent = 'See brief for suggested content'; return; }
     brief.disabled = true;
     try {
       const res = await fetch(`/api/prompts/${pid}/brief`);
@@ -2347,7 +2347,7 @@ document.addEventListener('click', async (e) => {
           and the two [EDIT: ...] markers are yours to fill.
         </div>`;
       brief.closest('.q-actions')?.after(box);
-      brief.textContent = 'Hide suggested content';
+      brief.textContent = 'Hide brief';
       box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     } catch (err) {
       toast(String(err.message || err), 'warn');
@@ -2375,7 +2375,7 @@ document.addEventListener('click', async (e) => {
     const pid = e.target.closest('[data-bf-close]').dataset.bfClose;
     document.getElementById(`bf-${pid}`)?.remove();
     const btn = document.querySelector(`[data-brief="${pid}"]`);
-    if (btn) btn.textContent = 'See suggested content';
+    if (btn) btn.textContent = 'See brief for suggested content';
     return;
   }
 
