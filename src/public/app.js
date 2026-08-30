@@ -2558,11 +2558,28 @@ document.addEventListener('click', async (e) => {
     // The wait is long and paid, so both are stated while it runs.
     again.textContent = 'Asking all engines, ~30s';
 
-    const d = await api(`/api/prompts/${id}/reask`, { method: 'POST' });
-    again.disabled = false;
+    /**
+     * Raw fetch with its own failure reporting, after a hang where the
+     * button froze on "Asking" with no request in the log and nothing said.
+     * Whatever fails - the network, a blocking policy, a thrown wrapper -
+     * the button must come back and the failure must be named. A paid
+     * action that can end in silence is worse than one that errors loudly.
+     */
+    let d;
+    try {
+      const res = await fetch(`/api/prompts/${id}/reask`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+      });
+      d = await res.json().catch(() => ({ error: `The server replied ${res.status} without a readable body.` }));
+      if (!res.ok && !d.error) d.error = `The server replied ${res.status}.`;
+    } catch (err) {
+      d = { error: `The request never completed: ${err.message}. If the console shows a blocked request, a security policy or extension between the browser and cited.ae is stopping it.` };
+    } finally {
+      again.disabled = false;
+      again.textContent = 'Ask again now';
+    }
 
     if (d?.error) {
-      again.textContent = 'Ask again now';
       toast(d.error, 'warn');
       return;
     }

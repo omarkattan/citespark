@@ -4064,8 +4064,13 @@ await test('asking again shows its outcome somewhere that survives', async () =>
   // the view, destroying it. Money spent, answers stored, and the click
   // looked like it did nothing.
   const at = app.indexOf("const again = e.target.closest('[data-reask]')");
-  const block = app.slice(at, at + 1600);
+  const block = app.slice(at, at + 2600);
   assert.ok(/toast\(/.test(block), 'the outcome goes to a toast, which survives the redraw');
+  // A hang left the button frozen on "Asking" with nothing said. Every exit,
+  // success, server error, or a request that never completed, must restore
+  // the button and name what happened.
+  assert.ok(/finally \{/.test(block), 'the button always comes back');
+  assert.ok(/The request never completed/.test(block), 'and a dead request is named, not swallowed');
   assert.ok(!/again\.textContent = named/.test(block), 'and no longer onto a node the render destroys');
   assert.ok(/~30s/.test(block), 'the wait is stated while it runs');
   assert.ok(/Read what each engine said" for the fresh answers/.test(block), 'and the result says where to look');

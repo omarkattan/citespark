@@ -1,7 +1,8 @@
-Reask 500 fix - 3 files.
+Reask never fails silently - 2 files.
 
-src/server.js        all-engines reask passes the project engine list, not undefined
-src/lib/billing.js   budget check degrades instead of throwing on a bad list
-scripts/test.js      pins both
+src/public/app.js  raw fetch with every exit handled: button always resets,
+                   server errors and never-completed requests are named
+scripts/test.js    pins it
 
-No migration. Verify: Ask again now -> toast with the outcome.
+Verify: Ask again now either shows the outcome toast or a toast naming
+exactly why not. A frozen button is no longer a possible state.
