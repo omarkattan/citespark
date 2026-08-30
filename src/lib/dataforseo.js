@@ -222,7 +222,7 @@ function tierOf(name) {
  * same generation the standard model beats both the mini and the largest.
  * Folding those into a single score made the tier outrank the generation.
  */
-function betterModel(a, b) {
+export function betterModel(a, b) {
   return (
     scoreModel(b) - scoreModel(a) ||
     Math.floor(versionOf(b.model_name)) - Math.floor(versionOf(a.model_name)) ||
@@ -260,7 +260,7 @@ export async function listModels(engine) {
   return list;
 }
 
-async function resolveModel(engine, cfg) {
+export async function resolveModel(engine, cfg) {
   if (cfg.model) return cfg.model; // explicit env override always wins
 
   const cached = modelCache.get(engine);

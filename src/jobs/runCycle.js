@@ -44,7 +44,7 @@ async function pooled(items, worker, limit = CONCURRENCY) {
  * where the one before it covered sixty, and that shows up as a collapse or
  * a spike that never happened.
  */
-export async function runCycleForProject(projectId, { cycleDate, onProgress, only = null } = {}) {
+export async function runCycleForProject(projectId, { cycleDate, onProgress, only = null, force = false } = {}) {
   const project = await one('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!project) throw new Error(`No project ${projectId}`);
 
@@ -127,6 +127,58 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
   if (!budget.ok) {
     console.log(`Cycle skipped for ${project.brand_name}: ${budget.reason}`);
     return { runs: 0, spend: 0, recommendations: 0, cycle, blocked: true, reason: budget.reason };
+  }
+
+  /**
+   * Price the cycle before running it, and refuse to start an expensive one.
+   *
+   * A model-selection change once multiplied the per-call price eight-fold,
+   * and nothing said so until $27 had gone: the only cost figure appeared
+   * after the money was spent. The estimate below uses this project's own
+   * most recent per-engine actuals, so a price change shows up here first,
+   * as a refusal, not afterwards as a bill.
+   *
+   * The cap is a ceiling on surprise, not on spending: raise
+   * MAX_CYCLE_COST_USD, or pass force, when an expensive cycle is the
+   * intention. What it removes is the version nobody chose.
+   */
+  const CAP = Number(process.env.MAX_CYCLE_COST_USD || 15);
+  const priced = await many(
+    `SELECT engine, AVG(cost_usd)::float AS per
+     FROM runs
+     WHERE project_id = $1 AND cost_usd > 0
+       AND cycle_date = (SELECT MAX(cycle_date) FROM runs WHERE project_id = $1 AND cost_usd > 0)
+     GROUP BY engine`,
+    [projectId]
+  );
+  const perCall = new Map(priced.map((r) => [r.engine, r.per]));
+  // A project with no history gets a deliberately pessimistic figure: the
+  // first cycle should over-warn rather than under-warn.
+  const FALLBACK = 0.03;
+  const estimate = prompts.length * budget.runs *
+    budget.engines.reduce((sum, e) => sum + (perCall.get(e) || FALLBACK), 0);
+
+  console.log(`Estimated cost: $${estimate.toFixed(2)} (from ${priced.length ? "this project's last cycle" : 'a conservative default'}), cap $${CAP.toFixed(2)}`);
+
+  if (estimate > CAP && !force) {
+    const reason =
+      `Estimated at $${estimate.toFixed(2)}, above the $${CAP.toFixed(2)} cap. ` +
+      `Nothing was run and nothing was spent. If this price is intended, raise MAX_CYCLE_COST_USD ` +
+      `or run again with --force.`;
+    console.log(`Cycle refused for ${project.brand_name}: ${reason}`);
+    // A scheduled cycle refused at 3am with only a log line is a silently
+    // missed measurement, which is its own kind of surprise. Say so.
+    try {
+      const { notify } = await import('../lib/notify.js');
+      notify({
+        kind: 'problem',
+        title: 'A cycle was refused on cost',
+        subject: `Cited: cycle for ${project.name} refused at $${estimate.toFixed(2)}`,
+        lead: 'The estimate exceeded the cap, so nothing ran and nothing was spent. If the price rise is unexpected, check which models are selected before raising the cap.',
+        rows: [['Estimated', `$${estimate.toFixed(2)}`], ['Cap', `$${CAP.toFixed(2)}`], ['Site', project.name]]
+      });
+    } catch { /* the refusal itself must never fail on a mail problem */ }
+    return { runs: 0, spend: 0, recommendations: 0, cycle, blocked: true, reason };
   }
 
   const jobs = [];
@@ -472,6 +524,7 @@ async function summarise(projectId, cycle, { runs, spend, recs, trimmed, estimat
 if (import.meta.url === `file://${process.argv[1]}`) {
   const args = process.argv.slice(2).filter(Boolean);
   const all = args.includes('--all');
+  const force = args.includes('--force');
   const id = args.find((a) => /^\d+$/.test(a));
 
   // Running every site costs real money, so it has to be asked for explicitly
@@ -491,7 +544,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     : (await many('SELECT id FROM projects WHERE auto_cycle')).map((r) => r.id);
 
   if (!id) console.log(`Running ${ids.length} site${ids.length === 1 ? '' : 's'} with automatic cycles on.`);
-  for (const id of ids) await runCycleForProject(id);
+  for (const id of ids) await runCycleForProject(id, { force });
   await pool.end();
 }
 

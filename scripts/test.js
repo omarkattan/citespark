@@ -3871,6 +3871,40 @@ await test('a permanent failure is not blamed on the retry logic', async () => {
   assert.ok(/retried and still failed/.test(f), 'and a transient one separately');
 });
 
+await test('a cycle prices itself before spending, and refuses surprises', async () => {
+  const { readFileSync } = await import('node:fs');
+  const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
+
+  // A model change multiplied the per-call price eight-fold, and the first
+  // cost figure anyone saw appeared after $27 was gone.
+  assert.ok(/MAX_CYCLE_COST_USD/.test(job), 'there is a cap');
+  assert.ok(/Estimated cost: \$/.test(job), 'and an estimate printed before any call is made');
+  assert.ok(/this project's own\n?.*most recent per-engine actuals/s.test(job) || /most recent per-engine actuals/.test(job),
+    'priced from real history, so a price change surfaces as a refusal');
+  assert.ok(/Nothing was run and nothing was spent/.test(job), 'a refusal says the money is intact');
+  assert.ok(/estimate > CAP && !force/.test(job), 'and force is a deliberate way through, not a default');
+  assert.ok(/A cycle was refused on cost/.test(job), 'a refused scheduled cycle notifies rather than only logging');
+
+  // A project with no history should over-warn, not under-warn.
+  assert.ok(/FALLBACK = 0\.03/.test(job), 'the first cycle is priced pessimistically');
+});
+
+await test('the model check answers from the code a cycle runs', async () => {
+  const { readFileSync } = await import('node:fs');
+  const models = readFileSync(new URL('./models.js', import.meta.url), 'utf8');
+  const df = readFileSync(new URL('../src/lib/dataforseo.js', import.meta.url), 'utf8');
+
+  // The old version ranked with a stale private copy of the scoring and
+  // ignored the environment pins, so it answered a question about code it
+  // was not running - a check that could not fail.
+  assert.ok(!/function score\(m\)/.test(models), 'the private copy is gone');
+  assert.ok(/import \{ betterModel, resolveModel \}/.test(models), 'it imports the real comparator and resolver');
+  assert.ok(/export function betterModel/.test(df), 'which the library now exports');
+  assert.ok(/resolveModel\(id, ENGINES\[id\]\)/.test(models), 'called with the signature the resolver actually has');
+  assert.ok(/a cycle would use:/.test(models), 'and its answer is the resolver\u2019s, stated as such');
+  assert.ok(/pinned by MODEL_/.test(models), 'with a pin named when one is in force');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

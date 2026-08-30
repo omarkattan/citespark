@@ -8,21 +8,23 @@ import { ENGINES, ENGINE_IDS, listModels } from '../src/lib/dataforseo.js';
  *   npm run models
  */
 
-function score(m) {
-  let s = 0;
-  if (m.web_search_supported) s += 100;
-  if (!m.reasoning) s += 20;
-  if (!/\d{4}-\d{2}-\d{2}|\d{8}/.test(m.model_name)) s += 10;
-  if (/mini|flash|haiku|small|sonar$/.test(m.model_name)) s += 8;
-  return s;
-}
+/**
+ * This used to rank with a private copy of the scoring function, which went
+ * stale: it kept preferring small models after the real logic changed, and it
+ * never looked at the environment pins at all. So it confidently answered a
+ * question about code it was not running - the check that could not fail.
+ *
+ * Now the ranking comes from the exported comparator and the answer comes
+ * from resolveModel itself, the function a cycle actually calls.
+ */
+import { betterModel, resolveModel } from '../src/lib/dataforseo.js';
 
 for (const id of ENGINE_IDS) {
   if (ENGINES[id].kind !== 'llm') continue;
   process.stdout.write(`\n${ENGINES[id].label}\n`);
   try {
     const list = await listModels(id);
-    const ranked = [...list].sort((a, b) => score(b) - score(a));
+    const ranked = [...list].sort(betterModel);
     for (const m of ranked.slice(0, 8)) {
       const flags = [
         m.web_search_supported ? 'web search' : 'NO web search',
@@ -31,7 +33,13 @@ for (const id of ENGINE_IDS) {
       process.stdout.write(`  ${m === ranked[0] ? '->' : '  '} ${m.model_name.padEnd(34)} ${flags}\n`);
     }
     if (list.length > 8) process.stdout.write(`     ...and ${list.length - 8} more\n`);
-    process.stdout.write(`  we would use: ${ranked[0]?.model_name}\n`);
+
+    const used = await resolveModel(id, ENGINES[id]);
+    const pinned = Boolean(ENGINES[id].model);
+    process.stdout.write(`  a cycle would use: ${used}${pinned ? '   (pinned by MODEL_' + id.toUpperCase() + ', scoring not consulted)' : ''}\n`);
+    if (!pinned && used !== ranked[0]?.model_name) {
+      process.stdout.write(`  NOTE: resolver and ranking disagree. Trust "a cycle would use".\n`);
+    }
   } catch (err) {
     process.stdout.write(`  could not list models: ${err.message}\n`);
   }
