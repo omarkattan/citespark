@@ -882,10 +882,12 @@ async function viewQuestions() {
              * the evidence is. The row already knows which it is.
              */
             const losing = p.measured && (p.rate || 0) < 0.5;
+            const HELP_STYLE = 'flex:0 0 auto;width:16px;height:16px;border-radius:50%;border:1px solid var(--line);background:none;color:var(--ink-3);font-size:10px;line-height:1;cursor:help;padding:0;margin-left:-4px;';
+            const qh = (text) => `<button type="button" style="${HELP_STYLE}" data-help="${esc(text)}" aria-label="What does this do?">?</button>`;
             return `<div class="q-actions">
-              ${p.measured ? `<button class="ghost" data-see-answer="${p.id}" title="The stored answers from every engine, with each source cited as a full address">Read what each engine said</button>` : ''}
-              <button class="ghost ${losing ? 'q-cta' : ''}" data-brief="${p.id}" title="Copies a ready-to-paste prompt for drafting the article that wins this answer, pre-filled with the pages currently cited instead of you">Copy article brief</button>
-              ${p.measured ? `<button class="ghost" data-reask="${p.id}" title="Ask this question again on every engine now, about $0.05">Ask again now</button>` : ''}
+              ${p.measured ? `<button class="ghost" data-see-answer="${p.id}">Read what each engine said</button>${qh('Opens the stored answers from the last cycle, one per engine, with every source cited as a full clickable address. Free - nothing is re-asked.')}` : ''}
+              <button class="ghost ${losing ? 'q-cta' : ''}" data-brief="${p.id}">Copy article brief</button>${qh('Copies a ready-to-paste AI prompt for writing the article that wins this answer: the question, the exact pages engines currently cite instead of you, related questions for the FAQs, and the full methodology. Free, and identical every time.')}
+              ${p.measured ? `<button class="ghost" data-reask="${p.id}">Ask again now</button>${qh('Asks this question again on every engine right now, about $0.05 and 30 seconds. Incomplete earlier answers are replaced, sound ones are kept as extra samples. The fresh answers appear under Read what each engine said.')}` : ''}
               <label class="qpick"><input type="checkbox" data-qsel="${p.id}" /> select</label>
             </div>`;
           })()}
@@ -1493,7 +1495,8 @@ async function renderFigures() {
       <div class="label">Last cycle cost</div>
       <div class="value">$${(o.spend || 0).toFixed(2)}</div>
       <div class="sub" data-spend-sub>${esc(shortDate(o.cycle))} &middot; tap to break down</div>
-    </button>`;
+    </button>
+    <button type="button" style="position:absolute;transform:translate(-22px,6px);width:16px;height:16px;border-radius:50%;border:1px solid var(--line);background:var(--paper);color:var(--ink-3);font-size:10px;line-height:1;cursor:help;padding:0" data-help="What the last completed cycle actually cost. This figure is history and never changes. Tap the card to open the breakdown, where engines, question intents and models can be switched for the NEXT cycle, with the saving shown before anything runs.">?</button>`;
 }
 
 async function render() {
@@ -2345,6 +2348,30 @@ document.addEventListener('click', async (e) => {
    * rate), and its own switch. The projection updates as switches flip, and
    * nothing here spends anything: it only changes what the next cycle asks.
    */
+  /**
+   * The "?" beside a control. Hover titles exist but nobody hovers on a
+   * phone and nobody discovers them on desktop, so each key control gets a
+   * visible way to ask what it does. One floating bubble serves the whole
+   * site; it closes on the next click anywhere.
+   */
+  const help = e.target.closest('[data-help]');
+  const oldBubble = document.getElementById('helpBubble');
+  if (oldBubble) oldBubble.remove();
+  if (help) {
+    const b = document.createElement('div');
+    b.id = 'helpBubble';
+    b.setAttribute('style',
+      'position:fixed;z-index:60;max-width:300px;background:var(--ink);color:var(--paper);' +
+      'padding:10px 12px;border-radius:6px;font-size:12px;line-height:1.55;box-shadow:0 4px 18px rgba(0,0,0,.25);');
+    b.textContent = help.dataset.help;
+    document.body.appendChild(b);
+    const r = help.getBoundingClientRect();
+    const top = r.bottom + 8 + b.offsetHeight > innerHeight ? r.top - b.offsetHeight - 8 : r.bottom + 8;
+    b.style.top = `${Math.max(8, top)}px`;
+    b.style.left = `${Math.max(8, Math.min(r.left, innerWidth - b.offsetWidth - 8))}px`;
+    return;
+  }
+
   const spendBtn = e.target.closest('[data-spend]');
   if (spendBtn) {
     const existing = document.getElementById('spendPanel');
@@ -2528,27 +2555,34 @@ document.addEventListener('click', async (e) => {
   if (again) {
     const id = again.dataset.reask;
     again.disabled = true;
-    again.textContent = 'Asking';
+    // The wait is long and paid, so both are stated while it runs.
+    again.textContent = 'Asking all engines, ~30s';
+
     const d = await api(`/api/prompts/${id}/reask`, { method: 'POST' });
     again.disabled = false;
 
     if (d?.error) {
       again.textContent = 'Ask again now';
-      setupErr(d.error);
+      toast(d.error, 'warn');
       return;
     }
 
-    // Say what happened to the old answers rather than silently changing a
-    // number: a replaced run and an added one mean different things.
+    /**
+     * The outcome used to be written onto the button, and the next line
+     * re-rendered the whole view, destroying that button. The work happened,
+     * the money was spent, the answers were stored - and the person watched
+     * their click apparently do nothing. The outcome now goes to a toast,
+     * which survives the redraw, and says where the fresh answers are.
+     */
     const named = (d.results || []).filter((r) => r.named).map((r) => r.engine);
     const replaced = (d.results || []).reduce((n, r) => n + (r.replaced || 0), 0);
-    again.textContent = named.length
-      ? `named by ${named.join(', ')}`
-      : 'still not named';
-    again.title = replaced
-      ? `${replaced} earlier answer${replaced === 1 ? ' was' : 's were'} incomplete and have been replaced. Sound answers were kept.`
-      : 'Kept alongside the earlier answers as another sample.';
-
+    toast(
+      (named.length
+        ? `Asked again: named by ${named.join(', ')}.`
+        : 'Asked again: still not named by any engine.')
+      + (replaced ? ` ${replaced} incomplete earlier answer${replaced === 1 ? '' : 's'} replaced; sound ones kept.` : ' Stored alongside the earlier answers as another sample.')
+      + ' Open "Read what each engine said" for the fresh answers.'
+    );
     await render();
     return;
   }

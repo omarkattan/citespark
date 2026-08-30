@@ -3368,7 +3368,9 @@ await test('re-asking is charged and bounded like anything else', async () => {
 
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
   // Silently changing a number would hide which of the two cases happened.
-  assert.ok(/have been replaced/.test(app), 'the UI must say what happened to the old answers');
+  // Wording moved when the outcome moved to a toast; the requirement, that
+  // the UI says what happened to the old answers, is unchanged.
+  assert.ok(/answer\$\{replaced === 1 \? '' : 's'\} replaced; sound ones kept/.test(app), 'the UI must say what happened to the old answers');
 });
 
 console.log('\nanswer evidence');
@@ -4052,6 +4054,34 @@ await test('the model is a priced, per-project, recorded choice', async () => {
   // first call - the silent August switches are why this exists.
   assert.ok(/model changed: \$\{pm\.model\} to \$\{now\}/.test(job), 'the cycle writes the note itself');
   assert.ok(/chosenModel\[engine\] \|\| null/.test(job), 'and asks with the chosen model');
+});
+
+await test('asking again shows its outcome somewhere that survives', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // The outcome was written onto the button and the next line re-rendered
+  // the view, destroying it. Money spent, answers stored, and the click
+  // looked like it did nothing.
+  const at = app.indexOf("const again = e.target.closest('[data-reask]')");
+  const block = app.slice(at, at + 1600);
+  assert.ok(/toast\(/.test(block), 'the outcome goes to a toast, which survives the redraw');
+  assert.ok(!/again\.textContent = named/.test(block), 'and no longer onto a node the render destroys');
+  assert.ok(/~30s/.test(block), 'the wait is stated while it runs');
+  assert.ok(/Read what each engine said" for the fresh answers/.test(block), 'and the result says where to look');
+});
+
+await test('every key control can be asked what it does', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // Hover titles help nobody on a phone. A visible "?" beside a control is
+  // the difference between a feature and a rumour about one.
+  assert.ok(/id = 'helpBubble'/.test(app), 'one bubble serves the site');
+  assert.ok((app.match(/\$\{qh\(/g) || []).length >= 3, 'each question action carries one');
+  assert.ok((app.match(/data-help=/g) || []).length >= 2, 'rendered through the helper and on the cost card');
+  assert.ok(/about \$0\.05 and 30 seconds/.test(app), 'the paid action states its price in its help');
+  assert.ok(/aria-label="What does this do\?"/.test(app), 'reachable by screen reader, not only by eye');
 });
 
 await test('the evidence says where it asked from', async () => {

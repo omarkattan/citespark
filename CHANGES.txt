@@ -1,17 +1,12 @@
-Per-project model choice - 5 files, drag src/ and scripts/ to the repo root.
+Ask-again feedback + help bubbles - 2 files.
 
-  src/db/schema.sql       projects.models JSONB (empty = default; run
-                          npm run migrate after deploy)
-  src/lib/dataforseo.js   resolveModel accepts a per-project override that
-                          beats the env pin; askEngine threads it
-  src/jobs/runCycle.js    resolves once per engine, writes a method note when
-                          the model differs from last cycle, prices the
-                          estimate from the chosen model
-  src/server.js           PATCH /api/projects/:id/models; spend payload now
-                          lists each engine's models with measured prices + tier
-  src/public/app.js       model dropdown per engine in the cost panel, price
-                          on every option, per-cycle delta in the toast
+  src/public/app.js   reask outcome moves to a toast (it was written onto a
+                      button the re-render destroyed, so the click looked
+                      dead); button states cost and wait while running;
+                      visible "?" help on the three question actions and the
+                      cost card, one floating bubble, phone-friendly
+  scripts/test.js     pins both
 
-Verify after deploy, FRESH shell:
-  npm run migrate
-  grep -c "data-model-engine" src/public/app.js   -> 2 or more
+Verify after deploy: click "?" beside Copy article brief -> bubble appears;
+click Ask again now -> button says "Asking all engines, ~30s", then a toast
+reports named-by and where the fresh answers are.
