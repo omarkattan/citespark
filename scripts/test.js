@@ -4080,6 +4080,9 @@ await test('asking again shows its outcome somewhere that survives', async () =>
   assert.ok(!/again\.textContent = named/.test(block), 'and no longer onto a node the render destroys');
   assert.ok(/20 to 40 seconds/.test(block), 'the wait is stated while it runs');
   assert.ok(block.includes('data-see-answer="${id}"'), 'reading opens the evidence itself, not directions to it');
+  // Opened three screens down reads as nothing happened.
+  assert.ok(/scrollIntoView/.test(block), 'and scrolls it into view');
+  assert.ok(/hidden by the current filter/.test(block), 'a filtered-out question is named, not silently missed');
 });
 
 await test('every key control can be asked what it does', async () => {

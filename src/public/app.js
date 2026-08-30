@@ -2610,9 +2610,23 @@ document.addEventListener('click', async (e) => {
       if (read) read.onclick = async () => {
         ov.remove();
         await render();
-        // Open the evidence for this question so the fresh answers are on
-        // screen, not merely reachable.
-        document.querySelector(`[data-see-answer="${id}"]`)?.click();
+        /**
+         * Open the evidence AND bring it into view. The first version
+         * clicked the opener and left the person at the top of 260
+         * questions: the answers were open, three screens down, and it
+         * read as "it just sent me to all questions". Opening something
+         * the eye cannot see is not opening it.
+         */
+        const btn = document.querySelector(`[data-see-answer="${id}"]`);
+        if (!btn) {
+          toast('The question is hidden by the current filter. Clear the filter to read the fresh answers.');
+          return;
+        }
+        btn.click();
+        const row = btn.closest('.prompt') || btn;
+        row.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        row.style.outline = '2px solid var(--you)';
+        setTimeout(() => { row.style.outline = ''; }, 2500);
       };
     };
 

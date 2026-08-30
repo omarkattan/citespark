@@ -1,9 +1,5 @@
-Ask-again overlay - 2 files.
+Read-the-answers lands on the answers - 2 files.
 
-src/public/app.js  modal overlay: progress while asking, per-engine verdict
-                   after, stays until closed, "Read the full answers" opens
-                   the evidence directly. Errors land in the same modal.
+src/public/app.js  scrolls to the question, opens its answers, highlights
+                   the row; a filter hiding it is named instead of silence
 scripts/test.js    pins it
-
-Verify: Ask again now -> overlay with progress -> per-engine named/not table
--> Read the full answers opens the panel.
