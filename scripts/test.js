@@ -3965,7 +3965,10 @@ await test('the recommendation for a lost answer is the brief that wins it', asy
   });
   assert.ok(out.includes('https://rival.com/guide'), 'the pages to beat are in the brief verbatim');
   assert.ok(out.includes('Acme is NOT named'), 'with the verdict stated');
-  assert.ok(/\[EDIT:/.test(out), 'and credentials left for the user rather than invented');
+  assert.ok(/\[fill\]/.test(out) && !/\[EDIT:/.test(out), 'credentials are structured fill blocks, never invented');
+  assert.ok(/PRIORITY SOURCES/.test(out), 'sources are tiered by engine count, not a flat unreadable list');
+  assert.ok(/FIRST-PARTY DATA \(mandatory/.test(out), 'and a pricing article cannot start without first-party input');
+  assert.ok(!/the the /.test(out), 'the location renders without doubled articles');
   assert.ok(!/Sandstorm/.test(out), 'nothing hardcodes one tenant into every tenant\u2019s brief');
 });
 

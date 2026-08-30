@@ -2023,7 +2023,7 @@ app.get('/api/prompts/:promptId/brief', requireAuth, wrap(async (req, res) => {
   let engines = [];
   if (cycle && owned) {
     const rows = await many(
-      `SELECT r.id, r.engine, m.mentioned
+      `SELECT r.id, r.engine, m.mentioned, r.response_text
        FROM runs r
        LEFT JOIN mentions m ON m.run_id = r.id AND m.entity_id = $3
        WHERE r.prompt_id = $1 AND r.cycle_date = $2 AND r.ok
@@ -2043,7 +2043,8 @@ app.get('/api/prompts/:promptId/brief', requireAuth, wrap(async (req, res) => {
     // answer, not the sampling detail.
     const byEngine = new Map();
     for (const r of rows) {
-      const e = byEngine.get(r.engine) || { named: false, measured: false, urls: new Map() };
+      const e = byEngine.get(r.engine) || { named: false, measured: false, urls: new Map(), answer: null };
+      if (!e.answer && r.response_text) e.answer = r.response_text.slice(0, 400);
       if (r.mentioned !== null) e.measured = true;
       if (r.mentioned) e.named = true;
       for (const c of byRun.get(r.id) || []) e.urls.set(c.url || c.domain, c);
@@ -2053,6 +2054,7 @@ app.get('/api/prompts/:promptId/brief', requireAuth, wrap(async (req, res) => {
       label: DF_ENGINES[engine]?.label || engine,
       named: e.named,
       measured: e.measured,
+      answer: e.answer,
       citations: [...e.urls.values()]
     }));
   }

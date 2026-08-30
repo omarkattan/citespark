@@ -1,6 +1,12 @@
-Brief shown inline - 2 files.
+Brief v2 from field review - 3 files.
 
-src/public/app.js  CTA renamed See suggested content; opens the brief in an
-                   inline panel under the question with Copy and Close;
-                   blocked clipboard selects the text instead of a new tab
-scripts/test.js    pins it
+src/lib/brief.js  first-party data + org profile + constraints blocks up top
+                  (blocker language, no EDIT markers); sources tiered by how
+                  many engines cite them, gated URLs excluded; per-engine
+                  answer excerpts (the claim to displace); no-citation engines
+                  get the parametric tactic note; audit as objective counts;
+                  the-the fixed; word count split; FAQ relevance rule
+src/server.js     answer excerpt threaded into the brief payload
+scripts/test.js   pins the review fixes
+
+No migration.

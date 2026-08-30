@@ -38,16 +38,71 @@ export function buildBrief({ project, prompt, persona, engines, siblings }) {
         ? `${project.brand_name} IS named`
         : `${project.brand_name} is NOT named`;
     const cites = e.citations.length
-      ? e.citations.map((c) => `    - ${c.url || c.domain}`).join('\n')
-      : '    - (no sources returned with this answer)';
-    return `- ${e.label}: ${verdict}\n${cites}`;
+      ? e.citations.map((c) => `    cites: ${c.url || c.domain}`).join('\n')
+      : `    cites: nothing - this engine answered from its own knowledge, so there is\n    no citation slot to win; the tactic is being in its training and being\n    consistent everywhere else it looks`;
+    // The claim to displace, not just who holds it (review finding: without
+    // the stated figures, the target degrades to "write better and hope").
+    const says = e.answer
+      ? `    currently answers: "${e.answer.replace(/\s+/g, ' ').slice(0, 320)}..."`
+      : '    currently answers: (no answer text stored)';
+    return `- ${e.label}: ${verdict}\n${says}\n${cites}`;
   }).join('\n');
+
+  /**
+   * Sources tiered by how many engines cite them, after a review measured
+   * that reading the flat list of 50 would cost ~300k tokens: an unfollowable
+   * instruction gets partially ignored, and which parts is left to chance.
+   */
+  const urlCount = new Map();
+  for (const e of engines) for (const c of e.citations) {
+    const u = c.url || c.domain;
+    urlCount.set(u, (urlCount.get(u) || 0) + 1);
+  }
+  const GATED = /facebook\.com|linkedin\.com|quora\.com|reddit\.com|instagram\.com|x\.com|twitter\.com|mordorintelligence\.com/i;
+  const all = [...urlCount.entries()];
+  const priority = all.filter(([u, n]) => n >= 2 && !GATED.test(u)).sort((a, b) => b[1] - a[1]).slice(0, 15);
+  const skim = all.filter(([u, n]) => n < 2 && !GATED.test(u)).map(([u]) => u);
+  const excluded = all.filter(([u]) => GATED.test(u)).map(([u]) => u);
+  const tiers =
+    `PRIORITY SOURCES - read in full (cited by two or more engines):\n${priority.length ? priority.map(([u, n]) => `- ${u}  (${n} engines)`).join('\n') : '- (none met the bar; treat the per-engine lists above as priority)'}` +
+    (skim.length ? `\n\nSECONDARY - skim for data points only, do not read in full:\n${skim.map((u) => `- ${u}`).join('\n')}` : '') +
+    (excluded.length ? `\n\nEXCLUDED - login-gated or paywalled, do not fetch:\n${excluded.map((u) => `- ${u}`).join('\n')}` : '');
 
   const secondary = siblings.length
     ? siblings.map((s) => `- ${s.text}`).join('\n')
-    : '- [EDIT: add related questions this article should also answer]';
+    : '- [fill: related questions this article should also answer, or delete this FAQ requirement]';
+
+  const phrase = countryOf(project.market);
+  const short = locShort(project.market);
 
   return `You are an expert SEO, GEO, AEO and AI-search content strategist working for ${project.brand_name} (${project.domain}).
+
+FIRST-PARTY DATA (mandatory - do not begin writing while this block is empty;
+an empty block means the topic is not ready, and requirement 9 must then be
+omitted entirely rather than invented)
+
+Our price ranges relevant to this topic: [fill]
+Minimum viable engagement or spend we would accept: [fill]
+Three anonymised client patterns or observations: [fill] [fill] [fill]
+What we tell prospects on this topic that competitors do not: [fill]
+Claims we will NOT make on this topic: [fill]
+
+ORGANISATION PROFILE (standing; paste your saved profile over this block)
+
+Legal name / URL / offices: [fill]
+Core services: [fill]
+Credentials (verifiable only): [fill]
+Named reviewer and title: [fill]
+Experience claim (must be defensible - this becomes a public E-E-A-T claim): [fill]
+
+PUBLISHING AND CONSTRAINTS
+
+Output format: [fill]   Currency and tax convention: [fill]   Spelling: [fill]
+Publish date / byline / slug: [fill]
+Existing page targeting this query, and the cannibalisation ruling: [fill]
+Audience-fit ruling (who the CTA serves): [fill]
+Paid data pulls authorised: no unless stated
+Word count: body 1,800-3,000; sources, links, schema and audit excluded
 
 Your task is to create a citation-ready, AI-search-optimised article for:
 
@@ -71,7 +126,9 @@ This question is asked to AI engines an estimated ${prompt.ai_search_volume || '
 
 ${evidence}
 
-The pages listed above currently own this answer. Read each one before writing. The article must beat them on specificity, sourcing and local relevance, not merely match them. Where they give a range, give the range plus the variables that move it. Where they cite nothing, cite primary sources. Where they are generic, be ${marketLine}-specific.
+${tiers}
+
+The priority pages above currently own this answer. Read those in full before writing. The article must beat them on specificity, sourcing and local relevance, not merely match them. Where they give a range, give the range plus the variables that move it. Where they cite nothing, cite primary sources. Where they are generic, be ${marketLine}-specific.
 
 PRIMARY OBJECTIVE:
 
@@ -79,7 +136,7 @@ Create the most useful and easily citable resource on this specific question. Th
 
 1. RESEARCH FIRST
 
-Before writing, research the topic thoroughly. Prioritise, in order: government sources for ${countryOf(project.market)}, local statistical and regulatory authorities, official platform documentation (Google, Microsoft, OpenAI), recognised industry research, major analytics platforms, academic institutions, reputable international business publications. Where ${countryOf(project.market)}-specific information exists, prioritise it over US or UK statistics. Never invent statistics or survey results. Never quote a statistic unless you can identify its source. For every important factual claim, record the source URL.
+Before writing, research the topic thoroughly. Prioritise, in order: government sources for ${phrase}, local statistical and regulatory authorities, official platform documentation (Google, Microsoft, OpenAI), recognised industry research, major analytics platforms, academic institutions, reputable international business publications. Where ${short}-specific information exists, prioritise it over US or UK statistics. Never invent statistics or survey results. Never quote a statistic unless you can identify its source. For every important factual claim, record the source URL.
 
 2. ANSWER THE PRIMARY QUESTION IMMEDIATELY
 
@@ -107,19 +164,19 @@ For each main variable: what it is, why it matters, its likely impact, and a ${m
 
 8. PROVIDE A REALISTIC EXAMPLE
 
-A realistic hypothetical ${marketLine} business scenario, showing how the recommendation, budget or timeline changes for it. State clearly that the example is illustrative.
+A realistic ${marketLine} business scenario, hypothetical and labelled as such, showing how the recommendation, budget or timeline changes for it. State clearly that the example is illustrative.
 
 9. DISTINGUISH FACT FROM EXPERIENCE
 
-A section titled "What We See in the ${countryOf(project.market)} Market", containing ${project.brand_name}'s professional observations, phrased as observations ("Based on ${project.brand_name}'s experience working with...") and never presented as independent statistics.
+A section titled "What We See in the ${short} Market", sourced STRICTLY from the FIRST-PARTY DATA block, phrased as observations ("Based on ${project.brand_name}'s experience working with...") and never presented as independent statistics.
 
 10. EXPERT REVIEW
 
-An expert review box: Reviewed by ${project.brand_name}; Expertise: [EDIT: your organisation's core expertise]; Location: ${marketLine}; Experience: [EDIT: honest experience claim]. The reviewer adds 2-4 sentences on a practical consideration that is often overlooked. No exaggerated claims.
+An expert review box: Reviewed by ${project.brand_name}; populated from the ORGANISATION PROFILE block; Location: ${marketLine}. The reviewer adds 2-4 sentences on a practical consideration that is often overlooked. No exaggerated claims.
 
 11. ENTITY INFORMATION
 
-A concise, factual About section: ${project.brand_name} (https://${project.domain}/), located in ${marketLine}, specialising in [EDIT: core services].
+A concise, factual About section: ${project.brand_name} (https://${project.domain}/), located in ${marketLine}, specialising in the core services from the ORGANISATION PROFILE block.
 
 12. SOURCE IMPORTANT CLAIMS
 
@@ -127,7 +184,7 @@ Citations immediately after the relevant claim ("According to [organisation]..."
 
 13. INCLUDE FAQS BASED ON REAL QUESTIONS
 
-Six to ten specific FAQs. Start each 50-100 word answer with the direct answer. These related questions are measured on the same topic and should inform them:
+Six to ten specific FAQs. Start each 50-100 word answer with the direct answer. These related questions are measured on the same topic. Answer one only if it genuinely serves the primary question; drop any that do not:
 
 ${secondary}
 
@@ -145,7 +202,7 @@ Concise original definitions of 20-40 words where relevant. Do not copy existing
 
 17. INCLUDE KEY STATISTICS
 
-Three to eight verifiable statistics, each with source, year and why it matters. If insufficient local statistics exist, say so rather than inventing them.
+Three to eight verifiable statistics, each with source, year and why it matters. If no primary source exists for the core number, present it as a labelled market observation with a stated derivation method - doing so does not reduce the audit counts below.
 
 18. COMMERCIAL INTENT WITHOUT HARD SELLING
 
@@ -159,13 +216,13 @@ Suggest 5-10 internal ${project.domain} pages that should link to or from this a
 
 Recommend from Article, BlogPosting, FAQPage, Organization, Person, BreadcrumbList, WebPage, and explain which to use. Omit FAQPage schema if the visible FAQs would not comply with Google's current structured data guidance.
 
-21. CITATION-READINESS SELF AUDIT
+21. CITATION-READINESS AUDIT, AS COUNTS
 
-Score the finished article 0-10 for: local specificity, entity clarity, source authority, factual density, answer extractability, expert attribution, independent citations, original insight, FAQ coverage, AI citation potential. Improve anything below 8 before returning the final version.
+Self-graded 0-10 scores converge on 8s and add length, so report countable facts instead: claims with a named source; of those, claims sourced to a primary source; first-party data points used; standalone extractable statements under 30 words; statements labelled estimate versus stated as fact; ${short}-specific facts that would be false for another market. Improve the draft until every count is honest and non-zero where the topic allows.
 
 FINAL OUTPUT
 
-Return: recommended title, SEO title, meta description, URL slug, primary question, 5 secondary AI-search prompts, full article, tables, FAQs, sources, suggested internal links, schema recommendations, citation-readiness score. Generally 1,800-3,000 words; factual usefulness matters more than word count. The objective is to make ${project.brand_name} one of the clearest, most trustworthy and easiest-to-cite sources for this specific question.`;
+Return: recommended title, SEO title, meta description, URL slug, primary question, 5 secondary AI-search prompts, full article, tables, FAQs, sources, suggested internal links, schema recommendations, citation-readiness score. Body 1,800-3,000 words, appendices excluded; factual usefulness matters more than word count. The objective is to make ${project.brand_name} one of the clearest, most trustworthy and easiest-to-cite sources for this specific question.`;
 }
 
 const COUNTRY_NAMES = {
@@ -174,4 +231,13 @@ const COUNTRY_NAMES = {
 };
 function countryOf(iso) {
   return COUNTRY_NAMES[iso] || iso;
+}
+/**
+ * Two location variables, after a review found "What We See in the the UAE
+ * Market" shipping as a literal heading. phrase = "the UAE" stands alone;
+ * short = "UAE" follows "the" or sits in adjective position. For places
+ * needing no article both carry the same value and every slot resolves.
+ */
+function locShort(iso) {
+  return countryOf(iso).replace(/^the /, '');
 }
