@@ -4084,6 +4084,19 @@ await test('every key control can be asked what it does', async () => {
   assert.ok(/aria-label="What does this do\?"/.test(app), 'reachable by screen reader, not only by eye');
 });
 
+await test('asking again on all engines survives the budget check', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const billing = readFileSync(new URL('../src/lib/billing.js', import.meta.url), 'utf8');
+
+  // The all-engines path passed undefined into budgetForCycle, which sliced
+  // it and threw: the button 500ed from the day the check was added.
+  assert.ok(/engine \? \[engine\] : \(prompt\.project_engines \|\| \[\]\)/.test(server),
+    'no engine named means the project\u2019s real list, never undefined');
+  assert.ok(/Array\.isArray\(engines\) \? engines : \[\]/.test(billing),
+    'and the budget check degrades instead of throwing');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

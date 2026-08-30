@@ -253,7 +253,10 @@ export async function budgetForCycle(orgId, { questions, engines, runs }) {
       entitlements: e
     };
   }
-  const allowedEngines = engines.slice(0, e.plan.engines);
+  // Defensive, after a caller passed undefined and this line took the whole
+  // request down. A budget check must degrade to "nothing allowed", never
+  // throw: the throw turned a working feature into "something went wrong".
+  const allowedEngines = (Array.isArray(engines) ? engines : []).slice(0, e.plan.engines);
   const allowedRuns = Math.min(runs, e.plan.runs);
   const wanted = questions * allowedEngines.length * allowedRuns;
 

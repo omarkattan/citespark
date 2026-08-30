@@ -1,12 +1,7 @@
-Ask-again feedback + help bubbles - 2 files.
+Reask 500 fix - 3 files.
 
-  src/public/app.js   reask outcome moves to a toast (it was written onto a
-                      button the re-render destroyed, so the click looked
-                      dead); button states cost and wait while running;
-                      visible "?" help on the three question actions and the
-                      cost card, one floating bubble, phone-friendly
-  scripts/test.js     pins both
+src/server.js        all-engines reask passes the project engine list, not undefined
+src/lib/billing.js   budget check degrades instead of throwing on a bad list
+scripts/test.js      pins both
 
-Verify after deploy: click "?" beside Copy article brief -> bubble appears;
-click Ask again now -> button says "Asking all engines, ~30s", then a toast
-reports named-by and where the fresh answers are.
+No migration. Verify: Ask again now -> toast with the outcome.

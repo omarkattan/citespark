@@ -2076,14 +2076,26 @@ app.get('/api/prompts/:promptId/brief', requireAuth, wrap(async (req, res) => {
 
 app.post('/api/prompts/:promptId/reask', requireAuth, wrap(async (req, res) => {
   const prompt = await one(
-    `SELECT p.id, p.project_id FROM prompts p JOIN projects pr ON pr.id = p.project_id
+    `SELECT p.id, p.project_id, pr.engines AS project_engines
+     FROM prompts p JOIN projects pr ON pr.id = p.project_id
      WHERE p.id = $1 AND pr.org_id = $2`,
     [Number(req.params.promptId), req.session.orgId]
   );
   if (!prompt) return res.status(404).json({ error: 'Question not found' });
 
+  /**
+   * No engine named means ask them all, which is what the button does - and
+   * that path passed undefined into the budget check, which sliced it and
+   * threw. "Ask again now" for every engine has 500ed since this check was
+   * added; only the single-engine re-ask ever worked. The budget now counts
+   * the project's real engine list, so the charge estimate is honest too.
+   */
   const engine = typeof req.body?.engine === 'string' ? req.body.engine : null;
-  const budget = await budgetForCycle(req.session.orgId, { questions: 1, engines: engine ? [engine] : undefined, runs: 1 });
+  const budget = await budgetForCycle(req.session.orgId, {
+    questions: 1,
+    engines: engine ? [engine] : (prompt.project_engines || []),
+    runs: 1
+  });
   if (!budget.ok) return res.status(402).json({ error: budget.reason, upgrade: true });
 
   const { reaskPrompt } = await import('./jobs/runCycle.js');
