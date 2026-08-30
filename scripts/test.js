@@ -3996,6 +3996,14 @@ await test('the cost figure opens into causes with switches', async () => {
   // A cost beside what it bought is a decision; a cost alone is a fact.
   assert.ok(/spend-rate/.test(app) && /spend-amt/.test(app), 'every row pairs its cost with its named rate');
 
+  // The first version borrowed a class scoped to another component, and the
+  // rows collapsed. This layout must not depend on anything around it.
+  assert.ok(!/<span class="grow">/.test(app.slice(app.indexOf('data-spend-engine'), app.indexOf('spendProjection'))),
+    'spend rows use their own classes, not borrowed ones');
+  const css = readFileSync(new URL('../src/public/styles.css', import.meta.url), 'utf8');
+  assert.ok(/\.spend-row \.spend-name \{ flex: 1 1 auto/.test(css), 'the name column owns the space');
+  assert.ok((css.match(/spend-(rate|amt)[^}]*white-space: nowrap/g) || []).length >= 2, 'rates and amounts never wrap');
+
   // Turning things off must be safe and reversible, and say so.
   assert.ok(/never deletes anything/.test(app), 'the panel says pausing keeps history');
   assert.ok(/Keep at least one engine on/.test(app), 'the last engine cannot be switched off');

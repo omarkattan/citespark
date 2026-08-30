@@ -2114,12 +2114,21 @@ a.ans-source:hover { color: var(--accent); text-decoration: underline; }
 .figure-btn:hover { background: var(--paper2, rgba(0,0,0,0.03)); }
 
 /* One row per cost: its switch, its name, what it bought, what it cost.
-   The rate sits beside the amount on purpose - the decision is the pair. */
-.spend-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+   The rate sits beside the amount on purpose - the decision is the pair.
+   Every property is stated rather than inherited: the first version reused
+   a class scoped elsewhere (.row .grow), so the name column collapsed, the
+   engine names wrapped one word per line and the rates broke in half. A row
+   this small should not depend on the layout around it. */
+.spend-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
 @media (max-width: 760px) { .spend-cols { grid-template-columns: 1fr; } }
-.spend-row { display: flex; align-items: center; gap: 10px; padding: 7px 0;
-  border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13px; }
-.spend-row .grow { flex: 1; }
-.spend-row .spend-rate { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
-.spend-row .spend-amt { font-family: var(--mono); font-size: 12px; min-width: 56px; text-align: right; }
+.spend-row { display: flex; align-items: center; gap: 10px; padding: 8px 0;
+  border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13px;
+  text-align: left; justify-content: flex-start; }
+.spend-row input[type='checkbox'] { flex: 0 0 auto; margin: 0; }
+.spend-row .spend-name { flex: 1 1 auto; min-width: 0; text-align: left; }
+.spend-row .spend-sub { display: block; font-size: 11px; color: var(--ink-3); margin-top: 1px; }
+.spend-row .spend-rate { flex: 0 0 auto; white-space: nowrap; font-family: var(--mono);
+  font-size: 10.5px; color: var(--ink-3); }
+.spend-row .spend-amt { flex: 0 0 auto; white-space: nowrap; font-family: var(--mono);
+  font-size: 12px; min-width: 56px; text-align: right; }
 .warn-text { color: var(--bad, #b3402a); }

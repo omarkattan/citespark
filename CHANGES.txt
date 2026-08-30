@@ -1,13 +1,11 @@
-Cost transparency - 4 files, drag src/ and scripts/ to the repo root.
+Spend panel layout fix - 3 files, drag src/ and scripts/ to the repo root.
 
-  src/server.js         GET /api/projects/:id/spend (breakdown by engine and
-                        intent, cost beside named rate) and
-                        PATCH /api/projects/:id/intents (pause a whole intent)
-  src/public/app.js     the Cycle cost figure now opens the breakdown; every
-                        row has a switch; live next-cycle projection vs cap
-  src/public/styles.css the panel and the clickable figure
-  scripts/test.js       pins it (271 -> 272 checks)
+  src/public/app.js     spend rows use their own class names, not one scoped
+                        to another component
+  src/public/styles.css every layout property stated; names own the space,
+                        rates and amounts never wrap
+  scripts/test.js       pins it
 
-Verify after deploy, in a FRESH shell:
-  grep -c "data-spend" src/public/app.js         -> 3 or more
-  grep -c "/spend'" src/server.js                -> 1
+Verify after deploy, in a FRESH shell (then hard-refresh the browser,
+styles.css is cached):
+  grep -c "spend-name" src/public/styles.css    -> 1 or more

@@ -2358,7 +2358,7 @@ document.addEventListener('click', async (e) => {
     const engineRows = d.engines.map((en) => `
       <label class="spend-row">
         <input type="checkbox" data-spend-engine="${esc(en.engine)}" ${en.enabled ? 'checked' : ''} />
-        <span class="grow">${esc(ENGINE_LABEL[en.engine] || en.engine)}</span>
+        <span class="spend-name">${esc(ENGINE_LABEL[en.engine] || en.engine)}</span>
         <span class="spend-rate">${rate(en.named, en.measured)}</span>
         <span class="spend-amt">${money(en.spend)}</span>
       </label>`).join('');
@@ -2366,7 +2366,7 @@ document.addEventListener('click', async (e) => {
     const intentRows = d.intents.map((it) => `
       <label class="spend-row">
         <input type="checkbox" data-spend-intent="${esc(it.intent)}" ${it.active_questions > 0 ? 'checked' : ''} />
-        <span class="grow">${esc(it.intent)} <span class="sub">(${it.active_questions} of ${it.questions} questions on)</span></span>
+        <span class="spend-name">${esc(it.intent)} <span class="spend-sub">${it.active_questions} of ${it.questions} questions on</span></span>
         <span class="spend-rate">${rate(it.named, it.measured)}</span>
         <span class="spend-amt">${money(it.spend)}</span>
       </label>`).join('');
