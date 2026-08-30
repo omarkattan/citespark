@@ -210,7 +210,7 @@ function scoreModel(m) {
 }
 
 /** Standard beats small, and beats the largest on cost, at equal version. */
-function tierOf(name) {
+export function tierOf(name) {
   if (SMALL.test(name)) return 0;
   if (LARGEST.test(name)) return 1;
   return 2;
@@ -260,7 +260,11 @@ export async function listModels(engine) {
   return list;
 }
 
-export async function resolveModel(engine, cfg) {
+export async function resolveModel(engine, cfg, override = null) {
+  // A per-project choice beats the environment pin: the pin is the fleet
+  // default and the brake, the override is one project deciding with the
+  // price in front of it. The cycle cost cap still guards both.
+  if (override) return override;
   if (cfg.model) return cfg.model; // explicit env override always wins
 
   const cached = modelCache.get(engine);
@@ -583,7 +587,7 @@ function backoffFor(engine, attempt) {
  */
 const coolUntil = new Map();
 
-export async function askEngine({ engine, prompt, market = 'AE', locationName = null, maxTokens = 2000, attempt = 0 }) {
+export async function askEngine({ engine, prompt, market = 'AE', locationName = null, model = null, maxTokens = 2000, attempt = 0 }) {
   const cool = coolUntil.get(engine) || 0;
   if (cool > Date.now()) await sleep(cool - Date.now());
   const cfg = ENGINES[engine];
@@ -603,13 +607,13 @@ export async function askEngine({ engine, prompt, market = 'AE', locationName = 
     // Google-side failures clear more slowly than an LLM hiccup, so back off
     // further rather than hammering the same second.
     await sleep(backoffFor(engine, attempt));
-    return askEngine({ engine, prompt, market, locationName, maxTokens, attempt: attempt + 1 });
+    return askEngine({ engine, prompt, market, locationName, model, maxTokens, attempt: attempt + 1 });
   }
 
   // Only send fields this endpoint accepts. Anything extra is rejected
   // outright rather than ignored, which is how a whole engine silently
   // produced zero answers for a full cycle.
-  const modelName = await resolveModel(engine, cfg);
+  const modelName = await resolveModel(engine, cfg, model);
 
   const payload = {
     user_prompt: prompt.slice(0, 500), // API caps prompt length at 500 chars
@@ -623,7 +627,7 @@ export async function askEngine({ engine, prompt, market = 'AE', locationName = 
   const body = [payload];
   const retry = async () => {
     await sleep(backoffFor(engine, attempt));
-    return askEngine({ engine, prompt, market, locationName, maxTokens, attempt: attempt + 1 });
+    return askEngine({ engine, prompt, market, locationName, model, maxTokens, attempt: attempt + 1 });
   };
 
   try {

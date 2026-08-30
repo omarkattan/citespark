@@ -610,3 +610,12 @@ CREATE TABLE IF NOT EXISTS method_notes (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS method_notes_project ON method_notes (project_id, at);
+
+-- Which model answers, chosen per project and per engine.
+--
+-- Model choice was a global environment variable after an unpinned scoring
+-- change selected a frontier model and multiplied per-call cost eight-fold.
+-- A cost lever that big belongs in the product, priced and visible, not in
+-- an env var only the operator knows exists. Empty object means the default
+-- (the environment pin, then scoring), so nothing changes until chosen.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS models JSONB NOT NULL DEFAULT '{}';

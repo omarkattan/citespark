@@ -2374,12 +2374,37 @@ document.addEventListener('click', async (e) => {
     const BOX = 'flex:0 0 auto;margin:0;width:15px;height:15px;position:static;float:none;';
     const SUB = 'display:block;font-size:11px;color:var(--ink-3);margin-top:1px;';
 
+    /**
+     * The engine's model is the biggest price lever it has - the same 109
+     * questions cost $0.87 on one Claude model and $13.60 on another - so
+     * the choice sits in the cost panel with the price on every option.
+     * "auto" is the default resolution (the fleet pin, then scoring), and a
+     * price is only shown where it has been measured at least five times;
+     * an unpriced model says so, and the cycle cost cap is the backstop.
+     */
+    const perCallChosen = new Map(Object.entries(d.perCall || {}));
+    for (const [eng, m] of Object.entries(d.models || {})) {
+      const active = m.options.find((o) => o.name === (m.chosen || m.current));
+      if (active?.perCall != null) perCallChosen.set(eng, active.perCall);
+    }
+    const priceLabel = (o) => o.perCall != null ? `~$${o.perCall.toFixed(4)}/call measured` : 'unpriced until first measured cycle';
+
+    const modelPicker = (eng) => {
+      const m = d.models?.[eng];
+      if (!m || !m.options.length) return '';
+      return `<select data-model-engine="${esc(eng)}" style="flex:0 0 auto;max-width:46%;font-size:11px;padding:2px 4px;" title="Which ${esc(ENGINE_LABEL[eng] || eng)} model answers. Cheaper models cost less per call; the price shown is measured from real cycles.">
+        <option value="" ${!m.chosen ? 'selected' : ''}>auto (${esc(m.current || 'default')})</option>
+        ${m.options.map((o) => `<option value="${esc(o.name)}" ${m.chosen === o.name ? 'selected' : ''}>${esc(o.name)} &middot; ${priceLabel(o)}</option>`).join('')}
+      </select>`;
+    };
+
     const engineRows = d.engines.map((en) => `
-      <label class="spend-row" style="${ROW}">
+      <label class="spend-row" style="${ROW};flex-wrap:wrap">
         <input type="checkbox" style="${BOX}" data-spend-engine="${esc(en.engine)}" ${en.enabled ? 'checked' : ''} />
         <span class="spend-name" style="${NAME}">${esc(ENGINE_LABEL[en.engine] || en.engine)}</span>
         <span class="spend-rate" style="${RATE}">${rate(en.named, en.measured)}</span>
         <span class="spend-amt" style="${AMT}">${money(en.spend)}</span>
+        ${modelPicker(en.engine)}
       </label>`).join('');
 
     const intentRows = d.intents.map((it) => `
@@ -2411,7 +2436,7 @@ document.addEventListener('click', async (e) => {
       const questions = d.intents
         .filter((it) => panel.querySelector(`[data-spend-intent="${it.intent}"]`)?.checked)
         .reduce((n, it) => n + it.questions, 0);
-      const est = questions * d.runsPerCycle * engines.reduce((sum, en) => sum + (d.perCall[en] || 0), 0);
+      const est = questions * d.runsPerCycle * engines.reduce((sum, en) => sum + (perCallChosen.get(en) || 0), 0);
       const over = est > d.cap;
       /**
        * The person who just turned something off looks at the header figure
@@ -2425,11 +2450,41 @@ document.addEventListener('click', async (e) => {
         `Next cycle as configured: <b>${questions}</b> questions x <b>${engines.length}</b> engines x <b>${d.runsPerCycle}</b> run${d.runsPerCycle === 1 ? '' : 's'} `
         + `= about <b>${money(est)}</b>, against a $${d.cap.toFixed(2)} cap.`
         + (over ? ' <span class="warn-text">Above the cap: the cycle will refuse to start until something here is turned off or the cap is raised.</span>' : '');
-      return { engines };
+      return { engines, questions };
     };
     project();
 
     panel.addEventListener('change', async (ev) => {
+      const pick = ev.target.closest('[data-model-engine]');
+      if (pick) {
+        const eng = pick.dataset.modelEngine;
+        const chosen = pick.value || null;
+        const before = perCallChosen.get(eng);
+        pick.disabled = true;
+        try {
+          const res = await fetch(`/api/projects/${state.projectId}/models`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ engine: eng, model: chosen })
+          });
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not save');
+          const opt = d.models[eng].options.find((o) => o.name === chosen);
+          d.models[eng].chosen = chosen;
+          if (opt?.perCall != null) perCallChosen.set(eng, opt.perCall);
+          else if (!chosen) perCallChosen.set(eng, d.perCall[eng] || 0);
+          const { questions } = project();
+          const after = perCallChosen.get(eng);
+          const delta = before != null && after != null && before !== after
+            ? ` About ${after < before ? '-' : '+'}$${Math.abs((after - before) * questions * d.runsPerCycle).toFixed(2)} per cycle at the current question count.`
+            : (chosen && opt?.perCall == null ? ' Unpriced until its first measured cycle; the cost cap still applies.' : '');
+          toast(`${ENGINE_LABEL[eng] || eng} will use ${chosen || `the default (${d.models[eng].current})`} from the next cycle.${delta}`);
+        } catch (err) {
+          pick.value = d.models[eng].chosen || '';
+          toast(String(err.message || err), 'warn');
+        } finally {
+          pick.disabled = false;
+        }
+        return;
+      }
       const eng = ev.target.closest('[data-spend-engine]');
       const int = ev.target.closest('[data-spend-intent]');
       if (!eng && !int) return;

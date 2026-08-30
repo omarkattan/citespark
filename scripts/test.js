@@ -4028,6 +4028,32 @@ await test('the cost figure opens into causes with switches', async () => {
   assert.ok(/the cycle will refuse to start/.test(app), 'and says what happens above it');
 });
 
+await test('the model is a priced, per-project, recorded choice', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
+  const df = readFileSync(new URL('../src/lib/dataforseo.js', import.meta.url), 'utf8');
+  const schema = readFileSync(new URL('../src/db/schema.sql', import.meta.url), 'utf8');
+
+  // Model choice was a global env var after an unpinned scoring change cost
+  // $46. A lever that size belongs in the product, priced and visible.
+  assert.ok(/ADD COLUMN IF NOT EXISTS models JSONB/.test(schema), 'the choice is stored per project');
+  assert.ok(/resolveModel\(engine, cfg, override = null\)/.test(df), 'and beats the pin only when made');
+  assert.ok(/api\/projects\/:id\/models/.test(server), 'set through a route');
+  assert.ok(/data-model-engine/.test(app), 'from the cost panel');
+
+  // Every option carries its measured price or admits it has none.
+  assert.ok(/HAVING COUNT\(\*\) >= 5/.test(server), 'five sightings before a price is called measured');
+  assert.ok(/unpriced until first measured cycle/.test(app), 'an unmeasured model says so');
+  assert.ok(/tier:/.test(server), 'and carries a tier so a plan can gate it later without restructuring');
+
+  // A model change between cycles is a method change, recorded before the
+  // first call - the silent August switches are why this exists.
+  assert.ok(/model changed: \$\{pm\.model\} to \$\{now\}/.test(job), 'the cycle writes the note itself');
+  assert.ok(/chosenModel\[engine\] \|\| null/.test(job), 'and asks with the chosen model');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

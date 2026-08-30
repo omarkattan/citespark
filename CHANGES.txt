@@ -1,9 +1,17 @@
-Cost card clarity - 2 files.
+Per-project model choice - 5 files, drag src/ and scripts/ to the repo root.
 
-  src/public/app.js     header card renamed "Last cycle cost" (it is history
-                        and does not move); its sub-line now shows the live
-                        next-cycle estimate while the spend panel is used
-  scripts/test.js       pins it
+  src/db/schema.sql       projects.models JSONB (empty = default; run
+                          npm run migrate after deploy)
+  src/lib/dataforseo.js   resolveModel accepts a per-project override that
+                          beats the env pin; askEngine threads it
+  src/jobs/runCycle.js    resolves once per engine, writes a method note when
+                          the model differs from last cycle, prices the
+                          estimate from the chosen model
+  src/server.js           PATCH /api/projects/:id/models; spend payload now
+                          lists each engine's models with measured prices + tier
+  src/public/app.js       model dropdown per engine in the cost panel, price
+                          on every option, per-cycle delta in the toast
 
-Verify after deploy: open the spend panel, untick an engine, watch the
-header card's sub-line change to "Aug 29 - next about $X" while $21.10 stays.
+Verify after deploy, FRESH shell:
+  npm run migrate
+  grep -c "data-model-engine" src/public/app.js   -> 2 or more

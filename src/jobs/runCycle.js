@@ -152,6 +152,26 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
     [projectId]
   );
   const perCall = new Map(priced.map((r) => [r.engine, r.per]));
+
+  /**
+   * A model's price is provider pricing, the same for every org, so it is
+   * measured across all stored runs. When the project has chosen a model
+   * whose price we have seen at least five times, that price beats the
+   * engine's blended history - which is exactly the number that goes wrong
+   * when a model changes.
+   */
+  if (Object.keys(projectModels).length) {
+    const modelPrices = await many(
+      `SELECT engine, model, AVG(cost_usd)::float AS per, COUNT(*)::int AS n
+       FROM runs WHERE cost_usd > 0 AND model IS NOT NULL
+       GROUP BY engine, model HAVING COUNT(*) >= 5`,
+      []
+    );
+    for (const [eng, wanted] of Object.entries(projectModels)) {
+      const hit = modelPrices.find((m) => m.engine === eng && (m.model.startsWith(wanted) || wanted.startsWith(m.model)));
+      if (hit) perCall.set(eng, hit.per);
+    }
+  }
   // A project with no history gets a deliberately pessimistic figure: the
   // first cycle should over-warn rather than under-warn.
   const FALLBACK = 0.03;
@@ -231,6 +251,45 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
    * rest of the cycle and recorded as not measured. Absent is not zero, and a
    * gap we can explain beats a number we cannot.
    */
+  /**
+   * Which model answers, decided once per engine before anything runs.
+   *
+   * The project's own choice wins, then the environment pin, then scoring.
+   * Resolved up front for two reasons: the estimate below can price the
+   * model actually being used rather than the engine's blended history, and
+   * a change of model between cycles is a method change - the August cycles
+   * where the models silently switched cost real money and left no record,
+   * so now the record writes itself before the first call is made.
+   */
+  const projectModels = project.models || {};
+  const { resolveModel, ENGINES: ENGINE_CFG } = await import('../lib/dataforseo.js');
+  const chosenModel = {};
+  for (const eng of budget.engines) {
+    if (ENGINE_CFG[eng]?.kind === 'llm') {
+      chosenModel[eng] = await resolveModel(eng, ENGINE_CFG[eng], projectModels[eng] || null);
+    }
+  }
+
+  const priorModels = await many(
+    `SELECT engine, MAX(model) AS model FROM runs
+     WHERE project_id = $1 AND ok
+       AND cycle_date = (SELECT MAX(cycle_date) FROM runs WHERE project_id = $1 AND ok)
+     GROUP BY engine`,
+    [projectId]
+  );
+  for (const pm of priorModels) {
+    const now = chosenModel[pm.engine];
+    // Stored names are often dated snapshots of the alias we ask for, so a
+    // prefix match is the honest comparison, not equality.
+    if (now && pm.model && !pm.model.startsWith(now) && !now.startsWith(pm.model)) {
+      await query('INSERT INTO method_notes (project_id, note, detail) VALUES ($1,$2,$3)', [
+        projectId,
+        `${pm.engine} model changed: ${pm.model} to ${now}`,
+        'Answers before and after this point come from different models, so cross-cycle comparison for this engine carries a model change as well as time.'
+      ]);
+    }
+  }
+
   const GIVE_UP_AFTER = Number(process.env.ENGINE_GIVE_UP_AFTER || 12);
   const consecutive = new Map();
   const abandoned = new Map();
@@ -250,6 +309,7 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
       prompt: prompt.text,
       market: project.market,
       locationName: project.location_name,
+      model: chosenModel[engine] || null,
       maxTokens: Number(process.env.MAX_OUTPUT_TOKENS || 2000)
     });
 

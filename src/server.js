@@ -1898,7 +1898,46 @@ app.get('/api/projects/:id/spend', requireAuth, wrap(async (req, res) => {
 
   const pricing = await engineCosts(req.session.orgId);
 
+  /**
+   * Every model on offer per LLM engine, with its measured price where one
+   * exists. Provider pricing is the same for every org, so the average is
+   * taken across all stored runs; five sightings is the bar for calling a
+   * price measured rather than guessed. Unmeasured models are still offered
+   * but say so - the cycle cost cap is the backstop for the first run of an
+   * unpriced choice.
+   */
+  const { ENGINES: DF, ENGINE_IDS: DF_IDS, listModels, resolveModel, tierOf } = await import('./lib/dataforseo.js');
+  const modelPrices = await many(
+    `SELECT engine, model, AVG(cost_usd)::float AS per, COUNT(*)::int AS n
+     FROM runs WHERE cost_usd > 0 AND model IS NOT NULL
+     GROUP BY engine, model HAVING COUNT(*) >= 5`, []
+  );
+  const priceFor = (eng, name) => modelPrices.find((m) => m.engine === eng && (m.model.startsWith(name) || name.startsWith(m.model)));
+
+  const models = {};
+  for (const id of DF_IDS) {
+    if (DF[id].kind !== 'llm') continue;
+    try {
+      const list = await listModels(id);
+      const current = await resolveModel(id, DF[id], (project.models || {})[id] || null);
+      models[id] = {
+        current,
+        chosen: (project.models || {})[id] || null,
+        options: list.filter((m) => m.web_search_supported).map((m) => {
+          const hit = priceFor(id, m.model_name);
+          return {
+            name: m.model_name,
+            tier: ['small', 'largest', 'standard'][tierOf(m.model_name)] || 'standard',
+            perCall: hit ? hit.per : null,
+            n: hit ? hit.n : 0
+          };
+        }).sort((a, b) => (a.perCall ?? 99) - (b.perCall ?? 99))
+      };
+    } catch { models[id] = { current: null, chosen: (project.models || {})[id] || null, options: [] }; }
+  }
+
   res.json({
+    models,
     cycle,
     engines: byEngine.map((e) => ({
       ...e,
@@ -1920,6 +1959,32 @@ app.get('/api/projects/:id/spend', requireAuth, wrap(async (req, res) => {
  * costing the same per call as everything else. Acting on that finding
  * meant selecting hundreds of rows by hand, so nobody did.
  */
+/**
+ * Choose which model answers for one engine on this project.
+ *
+ * Sending null returns the engine to the default (the environment pin, then
+ * scoring). The tier travels with every option so that a plan can later
+ * restrict which tiers are selectable - the structure for gating exists now,
+ * the enforcement deliberately does not.
+ */
+app.patch('/api/projects/:id/models', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req);
+  if (!project) return res.status(404).json({ error: 'Not found' });
+  const { engine, model } = req.body || {};
+  const { ENGINES: CFG } = await import('./lib/dataforseo.js');
+  if (!CFG[engine] || CFG[engine].kind !== 'llm') {
+    return res.status(400).json({ error: 'Model choice applies to the LLM engines only' });
+  }
+  if (model !== null && (typeof model !== 'string' || !model.trim())) {
+    return res.status(400).json({ error: 'Send a model name, or null for the default' });
+  }
+  const models = { ...(project.models || {}) };
+  if (model === null) delete models[engine];
+  else models[engine] = model.trim();
+  await query('UPDATE projects SET models = $2 WHERE id = $1', [project.id, JSON.stringify(models)]);
+  res.json({ ok: true, models });
+}));
+
 app.patch('/api/projects/:id/intents', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req);
   if (!project) return res.status(404).json({ error: 'Not found' });
@@ -3373,7 +3438,7 @@ app.get('/api/version', (_req, res) => {
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
-      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions', 'trademark-tm', 'ai-visibility-copy', 'gsc-connect-prompt', 'internal-accounts', 'aggregated-report', 'page-checks', 'question-filters', 'page-check-errors', 'page-check-picker', 'brand-filter', 'gsc-pagination', 'path-filter', 'site-sections', 'question-dropdowns', 'read-the-answer', 'longer-answers', 'questions-from-topic', 'run-unrun-only', 'run-menu', 'internal-no-limits', 'auto-teardown', 'report-visuals', 'resolve-redirects', 'resolve-retry', 'withdraw-stale-actions', 'source-filter', 'local-listings', 'sources-after-clean', 'prompt-events', 'csv-export', 'mail-diagnostics', 'reask-question', 'session-caveat', 'decline-actions', 'plain-action-labels', 'cited-counts-as-visible', 'interactive-charts', 'duplicate-questions', 'persona-overlap', 'email-verification', 'password-reset', 'signup-limit', 'verify-banner', 'admin-console', 'admin-link', 'danger-contrast', 'signup-flow', 'admin-per-org', 'ga4-error-detail', 'connect-returns-home', 'gsc-disconnect', 'import-room', 'inline-form-fix', 'upgrade-prompt', 'like-for-like-trend', 'grouped-findings', 'seed-verified', 'traffic-in-report', 'render-what-we-compute', 'separate-google-accounts', 'traffic-detail', 'report-cta', 'full-csv', 'report-download', 'answer-dedupe', 'unmeasured-verdict', 'sample-labels', 'city-locations', 'locations-endpoint-live', 'place-types-measured', 'grouped-city-list', 'project-audit', 'ambiguous-brand-names', 'model-tiering', 'method-notes', 'toggle-saves-itself', 'save-checks-response', 'like-for-like-cohort', 'competitor-ambiguity', 'rival-tracking-age', 'comparable-trend', 'cycle-method-notes', 'gsc-connection-fix', 'movers-need-a-sample', 'thin-engine-not-zero', 'formatted-cycle-dates', 'engine-failure-diagnostic', 'engine-circuit-breaker', 'cycle-cost-cap', 'models-check-honest', 'answer-source-urls', 'clean-google-assembly', 'article-brief', 'question-action-bar', 'spend-breakdown', 'intent-pause']
+      'billing', 'annual-plans', 'current-plan-display', 'stripe-mode-recovery', 'upgrade-ux', 'neutral-examples', 'instructional-placeholders', 'engine-picker', 'google-ai-surfaces', 'inline-toggles', 'cycle-report', 'bulk-controls', 'live-cost', 'spend-cap', 'per-site-scheduling', 'run-all', 'cited-ae', 'renamed-cited', 'cost-accuracy', 'failure-reporting', 'engine-field-fix', 'retries', 'mock-visibility', 'canonical-host', 'public-demo', 'model-resolution', 'trends', 'task-board', 'ga4-oauth', 'legal-pages', 'ga4-multi-account', 'scan-fallbacks', 'sticky-project', 'source-classification', 'page-teardown', 'teardown-fallbacks', 'gsc-import', 'gsc-panel', 'list-filters', 'hidden-fix', 'gsc-diagnostics', 'ai-overview-fix', 'landscape', 'landscape-target-fix', 'uae-index', 'mentions-probe', 'target-objects', 'mentions-live', 'beta-feedback', 'index-cache-fix', 'sectors-25-known', 'brands-vs-sources', 'named-vs-cited', 'trial-logging', 'snapshot-compat', 'platform-params', 'notifications', 'notification-log', 'share-images', 'citation-advice', 'rules-fix', 'public-feedback-widget', 'mobile', 'fintech-sector', 'mena-index', 'manual-only', 'coverage-guard', 'arabic-markets', 'locations-probe', 'language-sweep', 'locations-endpoint', 'verified-markets', 'sector-extraction', 'study-loader', 'domains-verified', 'alias-exclusions', 'study-runner', 'exclusion-scope', 'project-vs-corporate', 'ai-overview-async-on', 'study-scoring', 'developers-page', 'delete-actions', 'assignment-emails', 'overdue-chaser', 'email-page-urls', 'source-questions', 'openable-evidence', 'assignee-links', 'assigned-tab', 'live-cycle-feed', 'gemini-country-fix', 'oauth-errors', 'incremental-scopes', 'mobile-nav', 'developers-private', 'shared-footer', 'footer-feedback', 'footer-polish', 'structured-data', 'cross-account-protection', 'gsc-grant-copy', 'risc-probe', 'log-security-events', 'poster-generator', 'buyer-personas', 'persona-fallback', 'api-body-fix', 'persona-layout-grid', 'personas-narrative', 'persona-question-preview', 'questions-unrun', 'questions-by-persona', 'persona-card-questions', 'trademark-tm', 'ai-visibility-copy', 'gsc-connect-prompt', 'internal-accounts', 'aggregated-report', 'page-checks', 'question-filters', 'page-check-errors', 'page-check-picker', 'brand-filter', 'gsc-pagination', 'path-filter', 'site-sections', 'question-dropdowns', 'read-the-answer', 'longer-answers', 'questions-from-topic', 'run-unrun-only', 'run-menu', 'internal-no-limits', 'auto-teardown', 'report-visuals', 'resolve-redirects', 'resolve-retry', 'withdraw-stale-actions', 'source-filter', 'local-listings', 'sources-after-clean', 'prompt-events', 'csv-export', 'mail-diagnostics', 'reask-question', 'session-caveat', 'decline-actions', 'plain-action-labels', 'cited-counts-as-visible', 'interactive-charts', 'duplicate-questions', 'persona-overlap', 'email-verification', 'password-reset', 'signup-limit', 'verify-banner', 'admin-console', 'admin-link', 'danger-contrast', 'signup-flow', 'admin-per-org', 'ga4-error-detail', 'connect-returns-home', 'gsc-disconnect', 'import-room', 'inline-form-fix', 'upgrade-prompt', 'like-for-like-trend', 'grouped-findings', 'seed-verified', 'traffic-in-report', 'render-what-we-compute', 'separate-google-accounts', 'traffic-detail', 'report-cta', 'full-csv', 'report-download', 'answer-dedupe', 'unmeasured-verdict', 'sample-labels', 'city-locations', 'locations-endpoint-live', 'place-types-measured', 'grouped-city-list', 'project-audit', 'ambiguous-brand-names', 'model-tiering', 'method-notes', 'toggle-saves-itself', 'save-checks-response', 'like-for-like-cohort', 'competitor-ambiguity', 'rival-tracking-age', 'comparable-trend', 'cycle-method-notes', 'gsc-connection-fix', 'movers-need-a-sample', 'thin-engine-not-zero', 'formatted-cycle-dates', 'engine-failure-diagnostic', 'engine-circuit-breaker', 'cycle-cost-cap', 'models-check-honest', 'answer-source-urls', 'clean-google-assembly', 'article-brief', 'question-action-bar', 'spend-breakdown', 'intent-pause', 'per-project-models', 'model-change-notes', 'model-tier-groundwork']
   });
 });
 
