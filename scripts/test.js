@@ -4000,9 +4000,12 @@ await test('the cost figure opens into causes with switches', async () => {
   // rows collapsed. This layout must not depend on anything around it.
   assert.ok(!/<span class="grow">/.test(app.slice(app.indexOf('data-spend-engine'), app.indexOf('spendProjection'))),
     'spend rows use their own classes, not borrowed ones');
-  const css = readFileSync(new URL('../src/public/styles.css', import.meta.url), 'utf8');
-  assert.ok(/\.spend-row \.spend-name \{ flex: 1 1 auto/.test(css), 'the name column owns the space');
-  assert.ok((css.match(/spend-(rate|amt)[^}]*white-space: nowrap/g) || []).length >= 2, 'rates and amounts never wrap');
+  // Two stylesheet versions rendered broken in production while parsing
+  // clean in tests, so the layout now travels inline with the generated
+  // markup and cannot be beaten by a cached or conflicting stylesheet.
+  assert.ok(/style="\$\{ROW\}"/.test(app), 'row layout is inline');
+  assert.ok(/const NAME = 'flex:1 1 auto/.test(app), 'the name column owns the space, inline');
+  assert.ok(/white-space:nowrap/.test(app), 'rates and amounts never wrap, inline');
 
   // Turning things off must be safe and reversible, and say so.
   assert.ok(/never deletes anything/.test(app), 'the panel says pausing keeps history');

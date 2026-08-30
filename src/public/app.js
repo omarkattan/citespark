@@ -2355,20 +2355,39 @@ document.addEventListener('click', async (e) => {
     const money = (n) => `$${(n || 0).toFixed(2)}`;
     const rate = (named, measured) => measured ? `${Math.round((named / measured) * 100)}% named` : 'not measured';
 
+    /**
+     * Layout carried inline, deliberately.
+     *
+     * Two stylesheet versions of these rows rendered broken in production
+     * while parsing clean here: first a borrowed class collapsed the name
+     * column, then the flex rules were visibly not applied at all - names
+     * and rates printed on top of each other, which flex cannot do. Whatever
+     * is winning that cascade (a cached stylesheet, an override we have not
+     * found), this panel is generated markup, so its layout can travel WITH
+     * the markup and be immune to both. app.js and styles.css can no longer
+     * disagree about a component that lives entirely in app.js.
+     */
+    const ROW = 'display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);cursor:pointer;text-align:left;font-size:13px;';
+    const NAME = 'flex:1 1 auto;min-width:0;text-align:left;';
+    const RATE = 'flex:0 0 auto;white-space:nowrap;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);';
+    const AMT = 'flex:0 0 auto;white-space:nowrap;font-family:var(--mono);font-size:12px;min-width:56px;text-align:right;';
+    const BOX = 'flex:0 0 auto;margin:0;width:15px;height:15px;position:static;float:none;';
+    const SUB = 'display:block;font-size:11px;color:var(--ink-3);margin-top:1px;';
+
     const engineRows = d.engines.map((en) => `
-      <label class="spend-row">
-        <input type="checkbox" data-spend-engine="${esc(en.engine)}" ${en.enabled ? 'checked' : ''} />
-        <span class="spend-name">${esc(ENGINE_LABEL[en.engine] || en.engine)}</span>
-        <span class="spend-rate">${rate(en.named, en.measured)}</span>
-        <span class="spend-amt">${money(en.spend)}</span>
+      <label class="spend-row" style="${ROW}">
+        <input type="checkbox" style="${BOX}" data-spend-engine="${esc(en.engine)}" ${en.enabled ? 'checked' : ''} />
+        <span class="spend-name" style="${NAME}">${esc(ENGINE_LABEL[en.engine] || en.engine)}</span>
+        <span class="spend-rate" style="${RATE}">${rate(en.named, en.measured)}</span>
+        <span class="spend-amt" style="${AMT}">${money(en.spend)}</span>
       </label>`).join('');
 
     const intentRows = d.intents.map((it) => `
-      <label class="spend-row">
-        <input type="checkbox" data-spend-intent="${esc(it.intent)}" ${it.active_questions > 0 ? 'checked' : ''} />
-        <span class="spend-name">${esc(it.intent)} <span class="spend-sub">${it.active_questions} of ${it.questions} questions on</span></span>
-        <span class="spend-rate">${rate(it.named, it.measured)}</span>
-        <span class="spend-amt">${money(it.spend)}</span>
+      <label class="spend-row" style="${ROW}">
+        <input type="checkbox" style="${BOX}" data-spend-intent="${esc(it.intent)}" ${it.active_questions > 0 ? 'checked' : ''} />
+        <span class="spend-name" style="${NAME}">${esc(it.intent)} <span class="spend-sub" style="${SUB}">${it.active_questions} of ${it.questions} questions on</span></span>
+        <span class="spend-rate" style="${RATE}">${rate(it.named, it.measured)}</span>
+        <span class="spend-amt" style="${AMT}">${money(it.spend)}</span>
       </label>`).join('');
 
     const panel = document.createElement('div');
@@ -2380,9 +2399,9 @@ document.addEventListener('click', async (e) => {
       <p class="hint">Last cycle, ${esc(shortDate(d.cycle))}. Each row shows what it cost beside what it bought.
       Unticking changes what the NEXT cycle asks; it never deletes anything, and paused questions keep
       their history and can be turned back on. Nothing on this panel spends money.</p>
-      <div class="spend-cols">
-        <div><div class="label">By engine</div>${engineRows}</div>
-        <div><div class="label">By question intent</div>${intentRows}</div>
+      <div class="spend-cols" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:28px;">
+        <div style="min-width:0"><div style="font-weight:600;margin-bottom:6px">By engine</div>${engineRows}</div>
+        <div style="min-width:0"><div style="font-weight:600;margin-bottom:6px">By question intent</div>${intentRows}</div>
       </div>
       <p class="hint" id="spendProjection"></p>`;
     document.getElementById('figures').after(panel);
