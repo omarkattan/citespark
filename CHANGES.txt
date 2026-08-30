@@ -1,12 +1,9 @@
-Spend panel, layout carried inline - 2 files.
+Cost card clarity - 2 files.
 
-  src/public/app.js     row and column layout now travels inline with the
-                        generated markup; no stylesheet can break it and no
-                        stylesheet cache can withhold it
-  scripts/test.js       assertions follow the layout to its new home
+  src/public/app.js     header card renamed "Last cycle cost" (it is history
+                        and does not move); its sub-line now shows the live
+                        next-cycle estimate while the spend panel is used
+  scripts/test.js       pins it
 
-Only app.js matters at runtime, and app.js is what the browser refetches on
-a normal reload far more reliably than styles.css.
-
-Verify after deploy, in a FRESH shell:
-  grep -c "const ROW = 'display:flex" src/public/app.js   -> 1
+Verify after deploy: open the spend panel, untick an engine, watch the
+header card's sub-line change to "Aug 29 - next about $X" while $21.10 stays.

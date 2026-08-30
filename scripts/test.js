@@ -4016,6 +4016,13 @@ await test('the cost figure opens into causes with switches', async () => {
   assert.ok(/api\/projects\/:id\/intents/.test(server), 'intents pause as a group');
   assert.ok(/UPDATE prompts SET active/.test(server), 'by flag, not deletion');
 
+  // A historical figure must not move when a setting changes, but the
+  // person who changed it looks there for confirmation. The card is labelled
+  // as history and its sub-line carries the live next-cycle estimate.
+  assert.ok(/Last cycle cost/.test(app), 'the header figure is named as history');
+  assert.ok(/data-spend-sub/.test(app), 'and its sub-line answers the person who just acted');
+  assert.ok(/next about \$\{money\(est\)\}/.test(app), 'with the estimate that does respond');
+
   // And the projection warns against the same cap the cycle enforces.
   assert.ok(/against a \$\$\{d\.cap\.toFixed\(2\)\} cap/.test(app), 'the projection names the cap');
   assert.ok(/the cycle will refuse to start/.test(app), 'and says what happens above it');

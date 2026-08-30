@@ -1490,9 +1490,9 @@ async function renderFigures() {
     </div>
     ${engineCells}
     <button class="figure figure-btn" data-spend title="Where this went, and what turning each part off would save">
-      <div class="label">Cycle cost</div>
+      <div class="label">Last cycle cost</div>
       <div class="value">$${(o.spend || 0).toFixed(2)}</div>
-      <div class="sub">${esc(shortDate(o.cycle))} &middot; tap to break down</div>
+      <div class="sub" data-spend-sub>${esc(shortDate(o.cycle))} &middot; tap to break down</div>
     </button>`;
 }
 
@@ -2413,6 +2413,14 @@ document.addEventListener('click', async (e) => {
         .reduce((n, it) => n + it.questions, 0);
       const est = questions * d.runsPerCycle * engines.reduce((sum, en) => sum + (d.perCall[en] || 0), 0);
       const over = est > d.cap;
+      /**
+       * The person who just turned something off looks at the header figure
+       * for confirmation, and a historical figure rightly does not move. So
+       * the confirmation goes to where they look: the card's own sub-line
+       * carries the next-cycle estimate, updating as switches flip.
+       */
+      const sub = document.querySelector('[data-spend-sub]');
+      if (sub) sub.innerHTML = `${esc(shortDate(d.cycle))} &middot; next about ${money(est)}`;
       $('spendProjection').innerHTML =
         `Next cycle as configured: <b>${questions}</b> questions x <b>${engines.length}</b> engines x <b>${d.runsPerCycle}</b> run${d.runsPerCycle === 1 ? '' : 's'} `
         + `= about <b>${money(est)}</b>, against a $${d.cap.toFixed(2)} cap.`
