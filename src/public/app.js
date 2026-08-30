@@ -886,7 +886,7 @@ async function viewQuestions() {
             const qh = (text) => `<button type="button" style="${HELP_STYLE}" data-help="${esc(text)}" aria-label="What does this do?">?</button>`;
             return `<div class="q-actions">
               ${p.measured ? `<button class="ghost" data-see-answer="${p.id}">Read what each engine said</button>${qh('Opens the stored answers from the last cycle, one per engine, with every source cited as a full clickable address. Free - nothing is re-asked.')}` : ''}
-              <button class="ghost ${losing ? 'q-cta' : ''}" data-brief="${p.id}">Copy article brief</button>${qh('Copies a ready-to-paste AI prompt for writing the article that wins this answer: the question, the exact pages engines currently cite instead of you, related questions for the FAQs, and the full methodology. Free, and identical every time.')}
+              <button class="ghost ${losing ? 'q-cta' : ''}" data-brief="${p.id}">See suggested content</button>${qh('Opens the ready-made brief for the article that wins this answer: the question, the exact pages engines currently cite instead of you, related questions for the FAQs, and the full methodology. Read it here, then copy it into Claude or ChatGPT to draft. Free, and identical every time.')}
               ${p.measured ? `<button class="ghost" data-reask="${p.id}">Ask again now</button>${qh('Asks this question again on every engine right now, about $0.05 and 30 seconds. Incomplete earlier answers are replaced, sound ones are kept as extra samples. The fresh answers appear under Read what each engine said.')}` : ''}
               <label class="qpick"><input type="checkbox" data-qsel="${p.id}" /> select</label>
             </div>`;
@@ -2316,25 +2316,66 @@ document.addEventListener('click', async (e) => {
    * pasting it somewhere. If the clipboard refuses, the text opens in a tab
    * instead of failing silently.
    */
+  /**
+   * Show the content, then offer the copy. Copy-to-clipboard as the only
+   * action asked for trust in something never seen: the person had to paste
+   * into another tool just to find out what they had. The brief now opens
+   * inline under its own question, readable in place, with Copy beside it.
+   */
   const brief = e.target.closest('[data-brief]');
   if (brief) {
+    const pid = brief.dataset.brief;
+    const open = document.getElementById(`bf-${pid}`);
+    if (open) { open.remove(); brief.textContent = 'See suggested content'; return; }
     brief.disabled = true;
     try {
-      const res = await fetch(`/api/prompts/${brief.dataset.brief}/brief`);
+      const res = await fetch(`/api/prompts/${pid}/brief`);
       if (!res.ok) throw new Error('Could not build the brief');
       const text = await res.text();
-      try {
-        await navigator.clipboard.writeText(text);
-        toast('Brief copied. Paste it into Claude or ChatGPT to draft the article; the cited pages to beat are listed at the top.');
-      } catch {
-        window.open(`/api/prompts/${brief.dataset.brief}/brief`, '_blank');
-        toast('Clipboard was blocked, so the brief opened in a new tab instead.');
-      }
+      const box = document.createElement('div');
+      box.id = `bf-${pid}`;
+      box.setAttribute('style', 'margin-top:10px;border:1px solid var(--line);border-radius:6px;background:var(--paper);');
+      box.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line)">
+          <span style="font-weight:600;font-size:12px;flex:1">Suggested content brief</span>
+          <button data-bf-copy="${esc(pid)}">Copy the whole brief</button>
+          <button class="ghost" data-bf-close="${esc(pid)}">Close</button>
+        </div>
+        <pre style="margin:0;padding:12px 14px;max-height:420px;overflow:auto;white-space:pre-wrap;font-size:11.5px;line-height:1.6;font-family:var(--mono)">${esc(text)}</pre>
+        <div style="padding:8px 12px;border-top:1px solid var(--line);font-size:11px;color:var(--ink-3)">
+          Paste it into Claude or ChatGPT to draft the article. The pages to beat are listed at the top,
+          and the two [EDIT: ...] markers are yours to fill.
+        </div>`;
+      brief.closest('.q-actions')?.after(box);
+      brief.textContent = 'Hide suggested content';
+      box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     } catch (err) {
       toast(String(err.message || err), 'warn');
     } finally {
       brief.disabled = false;
     }
+    return;
+  }
+  const bfCopy = e.target.closest('[data-bf-copy]');
+  if (bfCopy) {
+    const pre = document.querySelector(`#bf-${bfCopy.dataset.bfCopy} pre`);
+    try {
+      await navigator.clipboard.writeText(pre.textContent);
+      toast('Brief copied. Paste it into Claude or ChatGPT to draft the article.');
+    } catch {
+      // The text is on screen, so the fallback is the honest one: select it
+      // for a manual copy rather than opening tabs.
+      const r = document.createRange(); r.selectNodeContents(pre);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      toast('Clipboard was blocked. The brief is selected - press Ctrl+C (Cmd+C on Mac).');
+    }
+    return;
+  }
+  if (e.target.closest('[data-bf-close]')) {
+    const pid = e.target.closest('[data-bf-close]').dataset.bfClose;
+    document.getElementById(`bf-${pid}`)?.remove();
+    const btn = document.querySelector(`[data-brief="${pid}"]`);
+    if (btn) btn.textContent = 'See suggested content';
     return;
   }
 

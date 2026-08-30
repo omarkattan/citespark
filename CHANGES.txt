@@ -1,5 +1,6 @@
-Read-the-answers lands on the answers - 2 files.
+Brief shown inline - 2 files.
 
-src/public/app.js  scrolls to the question, opens its answers, highlights
-                   the row; a filter hiding it is named instead of silence
+src/public/app.js  CTA renamed See suggested content; opens the brief in an
+                   inline panel under the question with Copy and Close;
+                   blocked clipboard selects the text instead of a new tab
 scripts/test.js    pins it

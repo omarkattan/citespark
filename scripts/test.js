@@ -3946,6 +3946,10 @@ await test('the recommendation for a lost answer is the brief that wins it', asy
   // already holds the strategy, so the deliverable is the filled brief.
   assert.ok(/api\/prompts\/:promptId\/brief/.test(server), 'the brief has a route');
   assert.ok(/data-brief/.test(app), 'and a button on the question');
+  // Copy-only asked for trust in something never seen. Content first.
+  assert.ok(/See suggested content/.test(app), 'the CTA promises content, not a clipboard');
+  assert.ok(/data-bf-copy/.test(app) && /Suggested content brief/.test(app), 'shown inline with Copy beside it');
+  assert.ok(/The brief is selected - press Ctrl\+C/.test(app), 'a blocked clipboard degrades to selection, not a new tab');
 
   // Deterministic and free: no model call anywhere in the path.
   const route = server.slice(server.indexOf("app.get('/api/prompts/:promptId/brief'"), server.indexOf("app.post('/api/prompts/:promptId/reask'"));
