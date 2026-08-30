@@ -2088,3 +2088,21 @@ button.danger:hover * {
   word-break: break-all; color: var(--ink-2); text-decoration: none; }
 a.ans-source:hover { color: var(--accent); text-decoration: underline; }
 .ans-source.dim { color: var(--ink-3); }
+
+/* The question row's action bar. Compact variants of the real buttons, so
+   260 rows read as rows and not as a wall of shouting, separated from the
+   metadata above by a rule so actions and description stop blurring. */
+.q-actions {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line);
+}
+.q-actions button {
+  font-size: 10.5px; padding: 5px 11px; text-transform: none; letter-spacing: .02em;
+}
+/* The verdict decides which action leads: on a losing question the brief is
+   the point, and it carries the accent so the eye lands on the way out. */
+.q-actions .q-cta { border-color: var(--you); color: var(--you); font-weight: 600; }
+.q-actions .q-cta:hover { background: var(--you); color: var(--paper); }
+/* Bulk-select is housekeeping, not an action; it sits apart and quiet. */
+.q-actions .qpick { margin-left: auto; opacity: .65; }
+.q-actions .qpick:hover { opacity: 1; }

@@ -871,10 +871,24 @@ async function viewQuestions() {
             ${p.active ? '' : ' &middot; <span class="paused">paused</span>'}
           </div>
           ${p.measured ? runStrip(p.runs) : '<div class="notrun">not asked yet, it will run on the next cycle</div>'}
-          <label class="qpick"><input type="checkbox" data-qsel="${p.id}" /> select</label>
-          ${p.measured ? `<button class="seeanswer" data-see-answer="${p.id}">Read what each engine said</button>` : ''}
-          ${p.measured ? `<button class="seeanswer" data-reask="${p.id}">Ask again now</button>` : ''}
-          <button class="seeanswer" data-brief="${p.id}" title="A ready-to-paste prompt for drafting the article that wins this answer, pre-filled with the pages currently cited instead of you">Copy article brief</button>
+          ${(() => {
+            /**
+             * Actions that look like actions, with the emphasis following the
+             * verdict. These were 10.5px borderless text, indistinguishable
+             * from the metadata line above them: nobody found "Copy article
+             * brief" without being told it existed. And one emphasis for
+             * every row would be wrong too - on a question the brand is
+             * losing, the brief is the point; on one it is winning, reading
+             * the evidence is. The row already knows which it is.
+             */
+            const losing = p.measured && (p.rate || 0) < 0.5;
+            return `<div class="q-actions">
+              ${p.measured ? `<button class="ghost" data-see-answer="${p.id}" title="The stored answers from every engine, with each source cited as a full address">Read what each engine said</button>` : ''}
+              <button class="ghost ${losing ? 'q-cta' : ''}" data-brief="${p.id}" title="Copies a ready-to-paste prompt for drafting the article that wins this answer, pre-filled with the pages currently cited instead of you">Copy article brief</button>
+              ${p.measured ? `<button class="ghost" data-reask="${p.id}" title="Ask this question again on every engine now, about $0.05">Ask again now</button>` : ''}
+              <label class="qpick"><input type="checkbox" data-qsel="${p.id}" /> select</label>
+            </div>`;
+          })()}
           <div class="answers" data-answers hidden></div>
           ${p.snippet ? `<div class="excerpt">${highlight(p.snippet, brand)}</div>` : ''}
           ${chips ? `<div class="chips">${chips}</div>` : ''}

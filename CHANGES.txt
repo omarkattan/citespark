@@ -1,11 +1,11 @@
-Article brief feature - 4 files, drag src/ and scripts/ to the repo root.
-Files not in this upload are untouched by GitHub's uploader.
+Question-row action bar - 4 files, drag src/ and scripts/ to the repo root.
 
-  src/lib/brief.js      NEW  the brief template, filled from measured evidence
-  src/server.js         GET /api/prompts/:id/brief route (+ feature marker)
-  src/public/app.js     "Copy article brief" button on each question
-  scripts/test.js       pins the behaviour (269 -> 270 checks)
+  src/public/app.js     actions grouped into a bar; "Copy article brief"
+                        carries the accent on questions you are losing
+  src/public/styles.css the bar, compact buttons, the accent, select set apart
+  src/server.js         feature marker only
+  scripts/test.js       pins it (270 -> 271 checks)
 
 Verify after deploy, in a FRESH shell:
-  grep -c "data-brief" src/public/app.js        -> 2 or more
-  grep -c "buildBrief" src/server.js            -> 1 or more
+  grep -c "q-actions" src/public/app.js         -> 2 or more
+  grep -c "q-cta" src/public/styles.css         -> 2 or more

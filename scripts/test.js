@@ -3963,6 +3963,26 @@ await test('the recommendation for a lost answer is the brief that wins it', asy
   assert.ok(!/Sandstorm/.test(out), 'nothing hardcodes one tenant into every tenant\u2019s brief');
 });
 
+await test('question actions look like actions, led by the verdict', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../src/public/styles.css', import.meta.url), 'utf8');
+
+  // Three actions were 10.5px borderless text blended into the metadata;
+  // nobody found "Copy article brief" without being told it existed.
+  assert.ok(/class="q-actions"/.test(app), 'the actions live in their own bar');
+  assert.ok(/border-top: 1px solid var\(--line\)/.test(css), 'separated from the metadata by a rule');
+  assert.ok(!/class="seeanswer" data-see-answer/.test(app), 'and the whisper styling is off the row');
+
+  // One emphasis for every row would be as wrong as none: on a losing
+  // question the brief is the point, on a winning one the evidence is.
+  assert.ok(/const losing = p\.measured && \(p\.rate \|\| 0\) < 0\.5/.test(app), 'the row decides from its own verdict');
+  assert.ok(/losing \? 'q-cta'/.test(app), 'and the brief carries the accent only when losing');
+
+  // Every action says what it does and what it costs before it is pressed.
+  assert.ok(/about \$0\.05/.test(app), 'asking again states its price up front');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
