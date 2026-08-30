@@ -1,12 +1,6 @@
-Brief v2 from field review - 3 files.
+Answer overflow fix - 2 files.
 
-src/lib/brief.js  first-party data + org profile + constraints blocks up top
-                  (blocker language, no EDIT markers); sources tiered by how
-                  many engines cite them, gated URLs excluded; per-engine
-                  answer excerpts (the claim to displace); no-citation engines
-                  get the parametric tactic note; audit as objective counts;
-                  the-the fixed; word count split; FAQ relevance rule
-src/server.js     answer excerpt threaded into the brief payload
-scripts/test.js   pins the review fixes
-
-No migration.
+src/public/app.js  grid child may shrink (min-width:0); answer text and all
+                   21-source URL lists carry their wrapping inline, immune to
+                   the stylesheet cache that has now bitten twice
+scripts/test.js    pins it

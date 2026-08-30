@@ -863,7 +863,7 @@ async function viewQuestions() {
         data-volume="${p.volume || 0}"
         data-title="${esc((p.persona ? p.text.slice(-80) : p.text).toLowerCase())}"
         data-filter-text="${esc(`${p.text} ${p.cluster} ${p.intent} ${p.persona || ''} ${p.citations.map((c) => c.domain).join(' ')}`.toLowerCase())}">
-        <div>
+        <div style="min-width:0">
           <p class="prompt-q">${esc(asked)}</p>
           ${p.persona ? `<div class="asked-as" title="${esc(p.personaDescriptor || '')}"><span>asked as</span> ${esc(p.persona)}</div>` : ''}
           <div class="prompt-tags">
@@ -2771,7 +2771,7 @@ document.addEventListener('click', async (e) => {
           </div>
           ${
             r.response_text
-              ? `<div class="ans-body">${esc(r.response_text)}</div>`
+              ? `<div class="ans-body" style="overflow-wrap:anywhere;min-width:0">${esc(r.response_text)}</div>`
               : `<p class="hint" style="margin:0">${esc(r.error || 'No answer was returned.')}</p>`
           }
           ${(() => {
@@ -2791,8 +2791,8 @@ document.addEventListener('click', async (e) => {
             return `<div class="ans-sources">
               <div class="label" style="margin:10px 0 4px">Sources cited (${cs.length})</div>
               ${cs.map((c) => c.url
-                ? `<a href="${esc(c.url)}" target="_blank" rel="noopener" class="ans-source">${esc(c.url)}</a>`
-                : `<span class="ans-source dim">${esc(c.domain)} (address not recorded)</span>`
+                ? `<a href="${esc(c.url)}" target="_blank" rel="noopener" class="ans-source" style="display:block;word-break:break-all;font-size:11px;line-height:1.7">${esc(c.url)}</a>`
+                : `<span class="ans-source dim" style="display:block;word-break:break-all;font-size:11px;line-height:1.7">${esc(c.domain)} (address not recorded)</span>`
               ).join('')}
             </div>`;
           })()}

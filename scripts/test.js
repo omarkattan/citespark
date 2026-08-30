@@ -3920,6 +3920,10 @@ await test('an answer shows the full address of every source', async () => {
   assert.ok(/href="\$\{esc\(c\.url\)\}"/.test(app), 'and the panel links the full address');
   assert.ok(/address not recorded/.test(app), 'a citation stored without one says so rather than pretending');
   assert.ok(/No sources came back with this answer/.test(app), 'and no sources is stated, not implied by absence');
+  // One unbreakable URL widened the grid column past the page: wrapping
+  // rules travel inline, since the stylesheet has twice failed to arrive.
+  assert.ok(/word-break:break-all/.test(app), 'source URLs wrap by their own declaration');
+  assert.ok(/overflow-wrap:anywhere/.test(app), 'and answer text likewise');
 });
 
 await test('a Google answer is the answer, not the furniture around it', async () => {
