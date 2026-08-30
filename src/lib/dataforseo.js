@@ -329,6 +329,49 @@ function parseStructured(result) {
   return { text: texts.join('\n\n'), annotations, fanOut };
 }
 
+/**
+ * Assemble the answer text for a Google AI surface.
+ *
+ * The generic tree walk below hoovers up every text-ish field in the payload,
+ * and for AI Mode that is not one answer: it is the answer PLUS Google's own
+ * truncated previews of collapsed blocks ("strategy, management, c...") PLUS
+ * the same figures rendered twice more in styled variants ("15% to 25%" as
+ * plain text, spaced characters and mathematical glyphs). One stored answer
+ * carried all three, which read as our measurement being broken when it was
+ * our assembly repeating Google's furniture.
+ *
+ * When the payload carries a markdown rendering of an item, that IS the
+ * answer as shown, so it is used alone. The tree walk stays as the fallback,
+ * with exact-duplicate fragments dropped, because a fragment appearing twice
+ * is the same evidence once.
+ */
+function googleAnswerText(block) {
+  const md = [];
+  (function walk(node) {
+    if (node == null) return;
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (typeof node === 'object') {
+      if (typeof node.markdown === 'string' && node.markdown.trim().length > 40) {
+        md.push(node.markdown.trim());
+        return; // markdown already contains this subtree's content
+      }
+      Object.values(node).forEach(walk);
+    }
+  })(block);
+  if (md.length) return dedupeFragments(md).join('\n\n').trim();
+  return dedupeFragments(collectText(block)).join('\n\n').trim();
+}
+
+function dedupeFragments(fragments) {
+  const seen = new Set();
+  return fragments.filter((f) => {
+    const key = f.replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /** Fallback: recursively collect plausible answer text from an arbitrary tree. */
 function collectText(node, out = []) {
   if (node == null) return out;
@@ -727,7 +770,7 @@ async function askGoogle({ cfg, prompt, market, locationName = null }) {
       };
     }
 
-    const text = collectText(block).join('\n\n').trim();
+    const text = googleAnswerText(block);
     const urls = [...collectUrls(block), ...urlsFromText(text)];
 
     return {

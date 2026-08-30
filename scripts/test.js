@@ -3905,6 +3905,35 @@ await test('the model check answers from the code a cycle runs', async () => {
   assert.ok(/pinned by MODEL_/.test(models), 'with a pin named when one is in force');
 });
 
+await test('an answer shows the full address of every source', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // The panel is the evidence view, and a domain is not evidence: nobody can
+  // open a domain to the page that shaped the answer. The url column was
+  // stored all along and simply never returned.
+  const route = server.slice(server.indexOf("app.get('/api/prompts/:promptId/answers'"), server.indexOf("app.post('/api/prompts/:promptId/reask'"));
+  assert.ok(/SELECT run_id, domain, url FROM citations/.test(route), 'the route returns the url, not just the domain');
+  assert.ok(/href="\$\{esc\(c\.url\)\}"/.test(app), 'and the panel links the full address');
+  assert.ok(/address not recorded/.test(app), 'a citation stored without one says so rather than pretending');
+  assert.ok(/No sources came back with this answer/.test(app), 'and no sources is stated, not implied by absence');
+});
+
+await test('a Google answer is the answer, not the furniture around it', async () => {
+  const { readFileSync } = await import('node:fs');
+  const df = readFileSync(new URL('../src/lib/dataforseo.js', import.meta.url), 'utf8');
+
+  // The generic tree walk collected the answer PLUS Google's truncated
+  // previews of collapsed blocks PLUS the same figures in styled variants.
+  // One stored answer carried all three, and it read as our measurement
+  // being broken.
+  assert.ok(/function googleAnswerText/.test(df), 'Google surfaces get their own assembly');
+  assert.ok(/node\.markdown === 'string'/.test(df), 'markdown is the answer as shown, used alone when present');
+  assert.ok(/function dedupeFragments/.test(df), 'and a fragment appearing twice is the same evidence once');
+  assert.ok(/googleAnswerText\(block\)/.test(df), 'wired into the Google path');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

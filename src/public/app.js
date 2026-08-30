@@ -2393,6 +2393,28 @@ document.addEventListener('click', async (e) => {
               ? `<div class="ans-body">${esc(r.response_text)}</div>`
               : `<p class="hint" style="margin:0">${esc(r.error || 'No answer was returned.')}</p>`
           }
+          ${(() => {
+            /**
+             * The full address, not the domain. This panel exists so a
+             * verdict can be checked, and a domain cannot be opened to the
+             * page that shaped the answer. A citation stored without a url
+             * (some come from a text scan) shows its domain and says the
+             * address was not recorded, rather than pretending.
+             */
+            const cs = r.citations || [];
+            if (!cs.length) {
+              return r.response_text
+                ? '<p class="hint" style="margin:8px 0 0">No sources came back with this answer.</p>'
+                : '';
+            }
+            return `<div class="ans-sources">
+              <div class="label" style="margin:10px 0 4px">Sources cited (${cs.length})</div>
+              ${cs.map((c) => c.url
+                ? `<a href="${esc(c.url)}" target="_blank" rel="noopener" class="ans-source">${esc(c.url)}</a>`
+                : `<span class="ans-source dim">${esc(c.domain)} (address not recorded)</span>`
+              ).join('')}
+            </div>`;
+          })()}
         </div>`;
       })
       .join('') || '<p class="hint" style="margin:0">Nothing stored for this question yet.</p>';

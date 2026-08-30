@@ -2080,3 +2080,11 @@ button.danger:hover * {
   margin-right: 12px;
 }
 .qpick input { width: 14px; height: 14px; margin: 0; accent-color: var(--you); }
+
+/* Every source on its own line, wrapping mid-url rather than overflowing:
+   full addresses are long and the point is being able to read and open them. */
+.ans-sources { border-top: 1px solid var(--line); padding-top: 4px; }
+.ans-source { display: block; font-family: var(--mono); font-size: 11px; line-height: 1.7;
+  word-break: break-all; color: var(--ink-2); text-decoration: none; }
+a.ans-source:hover { color: var(--accent); text-decoration: underline; }
+.ans-source.dim { color: var(--ink-3); }
