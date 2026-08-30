@@ -1,11 +1,13 @@
-Question-row action bar - 4 files, drag src/ and scripts/ to the repo root.
+Cost transparency - 4 files, drag src/ and scripts/ to the repo root.
 
-  src/public/app.js     actions grouped into a bar; "Copy article brief"
-                        carries the accent on questions you are losing
-  src/public/styles.css the bar, compact buttons, the accent, select set apart
-  src/server.js         feature marker only
-  scripts/test.js       pins it (270 -> 271 checks)
+  src/server.js         GET /api/projects/:id/spend (breakdown by engine and
+                        intent, cost beside named rate) and
+                        PATCH /api/projects/:id/intents (pause a whole intent)
+  src/public/app.js     the Cycle cost figure now opens the breakdown; every
+                        row has a switch; live next-cycle projection vs cap
+  src/public/styles.css the panel and the clickable figure
+  scripts/test.js       pins it (271 -> 272 checks)
 
 Verify after deploy, in a FRESH shell:
-  grep -c "q-actions" src/public/app.js         -> 2 or more
-  grep -c "q-cta" src/public/styles.css         -> 2 or more
+  grep -c "data-spend" src/public/app.js         -> 3 or more
+  grep -c "/spend'" src/server.js                -> 1

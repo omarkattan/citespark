@@ -3983,6 +3983,33 @@ await test('question actions look like actions, led by the verdict', async () =>
   assert.ok(/about \$0\.05/.test(app), 'asking again states its price up front');
 });
 
+await test('the cost figure opens into causes with switches', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+
+  // The header showed one total after the money was gone. The levers all
+  // existed but lived screens from the number they move.
+  assert.ok(/api\/projects\/:id\/spend/.test(server), 'the breakdown has a route');
+  assert.ok(/data-spend\b/.test(app), 'and the figure is the way in');
+
+  // A cost beside what it bought is a decision; a cost alone is a fact.
+  assert.ok(/spend-rate/.test(app) && /spend-amt/.test(app), 'every row pairs its cost with its named rate');
+
+  // Turning things off must be safe and reversible, and say so.
+  assert.ok(/never deletes anything/.test(app), 'the panel says pausing keeps history');
+  assert.ok(/Keep at least one engine on/.test(app), 'the last engine cannot be switched off');
+  assert.ok(/ev\.target\.checked = !ev\.target\.checked/.test(app), 'a failed save puts the box back');
+
+  // Whole intents can be paused as one act; the audit finding needed it.
+  assert.ok(/api\/projects\/:id\/intents/.test(server), 'intents pause as a group');
+  assert.ok(/UPDATE prompts SET active/.test(server), 'by flag, not deletion');
+
+  // And the projection warns against the same cap the cycle enforces.
+  assert.ok(/against a \$\$\{d\.cap\.toFixed\(2\)\} cap/.test(app), 'the projection names the cap');
+  assert.ok(/the cycle will refuse to start/.test(app), 'and says what happens above it');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

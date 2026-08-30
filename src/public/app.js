@@ -1489,11 +1489,11 @@ async function renderFigures() {
       <div class="sub">1 is first of the brands you track</div>
     </div>
     ${engineCells}
-    <div class="figure">
+    <button class="figure figure-btn" data-spend title="Where this went, and what turning each part off would save">
       <div class="label">Cycle cost</div>
       <div class="value">$${(o.spend || 0).toFixed(2)}</div>
-      <div class="sub">${esc(shortDate(o.cycle))}</div>
-    </div>`;
+      <div class="sub">${esc(shortDate(o.cycle))} &middot; tap to break down</div>
+    </button>`;
 }
 
 async function render() {
@@ -2332,6 +2332,113 @@ document.addEventListener('click', async (e) => {
     } finally {
       brief.disabled = false;
     }
+    return;
+  }
+
+  /**
+   * The cost figure, opened up.
+   *
+   * The header showed one total after the money was gone. Every lever that
+   * moves it already existed - engines, questions, runs - but lived screens
+   * away from the number, so the figure was information without control.
+   * Here each row carries its cost NEXT TO what that cost bought (its named
+   * rate), and its own switch. The projection updates as switches flip, and
+   * nothing here spends anything: it only changes what the next cycle asks.
+   */
+  const spendBtn = e.target.closest('[data-spend]');
+  if (spendBtn) {
+    const existing = document.getElementById('spendPanel');
+    if (existing) { existing.remove(); return; }
+    const d = await api(`/api/projects/${state.projectId}/spend`);
+    if (!d || !d.cycle) { toast('No cycle has run yet, so there is nothing to break down.'); return; }
+
+    const money = (n) => `$${(n || 0).toFixed(2)}`;
+    const rate = (named, measured) => measured ? `${Math.round((named / measured) * 100)}% named` : 'not measured';
+
+    const engineRows = d.engines.map((en) => `
+      <label class="spend-row">
+        <input type="checkbox" data-spend-engine="${esc(en.engine)}" ${en.enabled ? 'checked' : ''} />
+        <span class="grow">${esc(ENGINE_LABEL[en.engine] || en.engine)}</span>
+        <span class="spend-rate">${rate(en.named, en.measured)}</span>
+        <span class="spend-amt">${money(en.spend)}</span>
+      </label>`).join('');
+
+    const intentRows = d.intents.map((it) => `
+      <label class="spend-row">
+        <input type="checkbox" data-spend-intent="${esc(it.intent)}" ${it.active_questions > 0 ? 'checked' : ''} />
+        <span class="grow">${esc(it.intent)} <span class="sub">(${it.active_questions} of ${it.questions} questions on)</span></span>
+        <span class="spend-rate">${rate(it.named, it.measured)}</span>
+        <span class="spend-amt">${money(it.spend)}</span>
+      </label>`).join('');
+
+    const panel = document.createElement('div');
+    panel.id = 'spendPanel';
+    panel.className = 'panel';
+    panel.innerHTML = `
+      <div class="panel-head"><h2>Where the money goes</h2>
+        <button class="ghost" data-spend-close>Close</button></div>
+      <p class="hint">Last cycle, ${esc(shortDate(d.cycle))}. Each row shows what it cost beside what it bought.
+      Unticking changes what the NEXT cycle asks; it never deletes anything, and paused questions keep
+      their history and can be turned back on. Nothing on this panel spends money.</p>
+      <div class="spend-cols">
+        <div><div class="label">By engine</div>${engineRows}</div>
+        <div><div class="label">By question intent</div>${intentRows}</div>
+      </div>
+      <p class="hint" id="spendProjection"></p>`;
+    document.getElementById('figures').after(panel);
+
+    const project = () => {
+      const engines = [...panel.querySelectorAll('[data-spend-engine]:checked')].map((b) => b.dataset.spendEngine);
+      const questions = d.intents
+        .filter((it) => panel.querySelector(`[data-spend-intent="${it.intent}"]`)?.checked)
+        .reduce((n, it) => n + it.questions, 0);
+      const est = questions * d.runsPerCycle * engines.reduce((sum, en) => sum + (d.perCall[en] || 0), 0);
+      const over = est > d.cap;
+      $('spendProjection').innerHTML =
+        `Next cycle as configured: <b>${questions}</b> questions x <b>${engines.length}</b> engines x <b>${d.runsPerCycle}</b> run${d.runsPerCycle === 1 ? '' : 's'} `
+        + `= about <b>${money(est)}</b>, against a $${d.cap.toFixed(2)} cap.`
+        + (over ? ' <span class="warn-text">Above the cap: the cycle will refuse to start until something here is turned off or the cap is raised.</span>' : '');
+      return { engines };
+    };
+    project();
+
+    panel.addEventListener('change', async (ev) => {
+      const eng = ev.target.closest('[data-spend-engine]');
+      const int = ev.target.closest('[data-spend-intent]');
+      if (!eng && !int) return;
+      ev.target.disabled = true;
+      try {
+        if (eng) {
+          const { engines } = project();
+          if (!engines.length) throw new Error('Keep at least one engine on.');
+          const res = await fetch(`/api/projects/${state.projectId}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ engines })
+          });
+          if (!res.ok) throw new Error('Could not save');
+          toast(`${ENGINE_LABEL[eng.dataset.spendEngine] || eng.dataset.spendEngine} ${eng.checked ? 'back on' : 'off'} from the next cycle.`);
+        } else {
+          const res = await fetch(`/api/projects/${state.projectId}/intents`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ intent: int.dataset.spendIntent, active: int.checked })
+          });
+          if (!res.ok) throw new Error('Could not save');
+          const out = await res.json();
+          toast(`${out.changed} ${int.dataset.spendIntent} question${out.changed === 1 ? '' : 's'} ${int.checked ? 'resumed' : 'paused'}. History kept either way.`);
+        }
+        project();
+      } catch (err) {
+        ev.target.checked = !ev.target.checked;
+        project();
+        toast(String(err.message || err), 'warn');
+      } finally {
+        ev.target.disabled = false;
+      }
+    });
+    return;
+  }
+  if (e.target.closest('[data-spend-close]')) {
+    document.getElementById('spendPanel')?.remove();
     return;
   }
 
