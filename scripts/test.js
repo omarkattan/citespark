@@ -3934,6 +3934,35 @@ await test('a Google answer is the answer, not the furniture around it', async (
   assert.ok(/googleAnswerText\(block\)/.test(df), 'wired into the Google path');
 });
 
+await test('the recommendation for a lost answer is the brief that wins it', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const { buildBrief } = await import('../src/lib/brief.js');
+
+  // "Create content for this question" is a to-do item; the measurement
+  // already holds the strategy, so the deliverable is the filled brief.
+  assert.ok(/api\/prompts\/:promptId\/brief/.test(server), 'the brief has a route');
+  assert.ok(/data-brief/.test(app), 'and a button on the question');
+
+  // Deterministic and free: no model call anywhere in the path.
+  const route = server.slice(server.indexOf("app.get('/api/prompts/:promptId/brief'"), server.indexOf("app.post('/api/prompts/:promptId/reask'"));
+  assert.ok(!/askEngine|anthropic|fetch\(/.test(route), 'generating a brief spends nothing');
+
+  // The specificity is the measured evidence: verbatim URLs, per engine.
+  const out = buildBrief({
+    project: { brand_name: 'Acme', domain: 'acme.ae', market: 'AE', location_name: null, qualifier: 'buyers' },
+    prompt: { text: 'Which firms do X in Dubai?', cluster: 'x_dubai', ai_search_volume: 100 },
+    persona: null,
+    engines: [{ label: 'Google AI Mode', named: false, measured: true, citations: [{ url: 'https://rival.com/guide', domain: 'rival.com' }] }],
+    siblings: []
+  });
+  assert.ok(out.includes('https://rival.com/guide'), 'the pages to beat are in the brief verbatim');
+  assert.ok(out.includes('Acme is NOT named'), 'with the verdict stated');
+  assert.ok(/\[EDIT:/.test(out), 'and credentials left for the user rather than invented');
+  assert.ok(!/Sandstorm/.test(out), 'nothing hardcodes one tenant into every tenant\u2019s brief');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

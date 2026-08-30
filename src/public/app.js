@@ -874,6 +874,7 @@ async function viewQuestions() {
           <label class="qpick"><input type="checkbox" data-qsel="${p.id}" /> select</label>
           ${p.measured ? `<button class="seeanswer" data-see-answer="${p.id}">Read what each engine said</button>` : ''}
           ${p.measured ? `<button class="seeanswer" data-reask="${p.id}">Ask again now</button>` : ''}
+          <button class="seeanswer" data-brief="${p.id}" title="A ready-to-paste prompt for drafting the article that wins this answer, pre-filled with the pages currently cited instead of you">Copy article brief</button>
           <div class="answers" data-answers hidden></div>
           ${p.snippet ? `<div class="excerpt">${highlight(p.snippet, brand)}</div>` : ''}
           ${chips ? `<div class="chips">${chips}</div>` : ''}
@@ -2288,6 +2289,35 @@ document.addEventListener('click', async (e) => {
           : ''
       }
     </div>`;
+    return;
+  }
+
+  /**
+   * The brief is the recommendation made actionable: the exact prompt to
+   * paste into an assistant, pre-filled with this question's measured
+   * evidence. Copied rather than downloaded because the next step is always
+   * pasting it somewhere. If the clipboard refuses, the text opens in a tab
+   * instead of failing silently.
+   */
+  const brief = e.target.closest('[data-brief]');
+  if (brief) {
+    brief.disabled = true;
+    try {
+      const res = await fetch(`/api/prompts/${brief.dataset.brief}/brief`);
+      if (!res.ok) throw new Error('Could not build the brief');
+      const text = await res.text();
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('Brief copied. Paste it into Claude or ChatGPT to draft the article; the cited pages to beat are listed at the top.');
+      } catch {
+        window.open(`/api/prompts/${brief.dataset.brief}/brief`, '_blank');
+        toast('Clipboard was blocked, so the brief opened in a new tab instead.');
+      }
+    } catch (err) {
+      toast(String(err.message || err), 'warn');
+    } finally {
+      brief.disabled = false;
+    }
     return;
   }
 
