@@ -4065,6 +4065,10 @@ await test('the model is a priced, per-project, recorded choice', async () => {
   // first call - the silent August switches are why this exists.
   assert.ok(/model changed: \$\{pm\.model\} to \$\{now\}/.test(job), 'the cycle writes the note itself');
   assert.ok(/chosenModel\[engine\] \|\| null/.test(job), 'and asks with the chosen model');
+  // projectModels was declared after its first use; every cycle threw a
+  // ReferenceError before its first log line.
+  assert.ok(job.indexOf('const projectModels =') < job.indexOf('projectModels', job.indexOf('const CAP')),
+    'projectModels is declared before the estimate reads it');
 });
 
 await test('asking again shows its outcome somewhere that survives', async () => {

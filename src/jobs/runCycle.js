@@ -142,6 +142,10 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
    * MAX_CYCLE_COST_USD, or pass force, when an expensive cycle is the
    * intention. What it removes is the version nobody chose.
    */
+  // Declared here, before the estimate reads it. It was declared further
+  // down, after its first use, and every cycle died on a ReferenceError
+  // before printing anything - a button that "did nothing".
+  const projectModels = project.models || {};
   const CAP = Number(process.env.MAX_CYCLE_COST_USD || 15);
   const priced = await many(
     `SELECT engine, AVG(cost_usd)::float AS per
@@ -261,7 +265,6 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
    * where the models silently switched cost real money and left no record,
    * so now the record writes itself before the first call is made.
    */
-  const projectModels = project.models || {};
   const { resolveModel, ENGINES: ENGINE_CFG } = await import('../lib/dataforseo.js');
   const chosenModel = {};
   for (const eng of budget.engines) {
