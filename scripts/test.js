@@ -4126,6 +4126,18 @@ await test('asking again on all engines survives the budget check', async () => 
     'and the budget check degrades instead of throwing');
 });
 
+await test('the run menu prices both options before anything spends', async () => {
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  // Price before permission, at the moment of choosing - and computed with
+  // the same arithmetic as the cost cap, so the menu and the refusal can
+  // never disagree.
+  assert.ok(/costAll: all \* perQuestion/.test(server), 'the scope route prices what it counts');
+  assert.ok(/perCall\.get\(e\) \?\? 0\.03/.test(server), 'unmeasured engines priced pessimistically');
+  assert.ok(/money\(d\.costAll\)/.test(app) && /money\(d\.costUnrun\)/.test(app), 'both menu options show it');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

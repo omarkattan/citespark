@@ -2101,12 +2101,17 @@ async function refreshRunScope() {
   if (!d) return;
 
   // Both options carry their size, so neither is chosen blind.
+  // Each option carries its size AND its price, from the same arithmetic
+  // the cost cap applies, so nothing here is chosen blind and a refusal
+  // never contradicts the menu. "~" is honest: measured history where it
+  // exists, a deliberately pessimistic default where it does not.
+  const money = (n) => `~$${n < 10 ? n.toFixed(2) : n.toFixed(0)}`;
   const full = $('runFullCount');
-  if (full) full.textContent = d.all ? ` (${d.all}, ${d.checksAll} checks)` : ' (no questions yet)';
+  if (full) full.textContent = d.all ? ` (${d.all}, ${d.checksAll} checks, ${money(d.costAll)})` : ' (no questions yet)';
   if ($('runFullBtn')) $('runFullBtn').disabled = d.all === 0;
 
   const el = $('runUnrunCount');
-  if (el) el.textContent = d.unrun ? ` (${d.unrun}, ${d.checksUnrun} checks)` : ' (none waiting)';
+  if (el) el.textContent = d.unrun ? ` (${d.unrun}, ${d.checksUnrun} checks, ${money(d.costUnrun)})` : ' (none waiting)';
   if ($('runUnrunBtn')) $('runUnrunBtn').disabled = d.unrun === 0;
 }
 

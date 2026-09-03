@@ -1,7 +1,9 @@
-URGENT cycle fix - 2 files.
+Run menu prices - 3 files.
 
-src/jobs/runCycle.js  projectModels declared before use; every cycle since
-                      the model-choice delta threw ReferenceError at line 163
-scripts/test.js       pins declaration order
+src/server.js       run-scope returns costAll/costUnrun using the cost-cap
+                    arithmetic (last-cycle actuals, chosen-model price,
+                    pessimistic default)
+src/public/app.js   both run options show \"(268, 1608 checks, ~\$2.60)\"
+scripts/test.js     pins it
 
-No migration. Verify: npm run cycle -- 4 prints Estimated cost.
+No migration.

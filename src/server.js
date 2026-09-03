@@ -1623,15 +1623,45 @@ app.get('/api/projects/:id/run-scope', requireAuth, wrap(async (req, res) => {
     )
   ).n;
 
-  const engines = (project.engines || []).length || 1;
+  const engineList = project.engines || [];
+  const engines = engineList.length || 1;
   const runs = project.runs_per_cycle || 1;
   const latest = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [project.id]))?.d;
+
+  /**
+   * Price both options with the same arithmetic the cycle's cost cap will
+   * apply: this project's last-cycle per-engine actuals, the chosen model's
+   * measured price where one is set, a pessimistic default where there is
+   * no history. The menu quoting one number and the cap enforcing another
+   * would make the refusal look like a malfunction.
+   */
+  const priced = await many(
+    `SELECT engine, AVG(cost_usd)::float AS per FROM runs
+     WHERE project_id = $1 AND cost_usd > 0
+       AND cycle_date = (SELECT MAX(cycle_date) FROM runs WHERE project_id = $1 AND cost_usd > 0)
+     GROUP BY engine`, [project.id]);
+  const perCall = new Map(priced.map((r) => [r.engine, r.per]));
+  const chosen = project.models || {};
+  if (Object.keys(chosen).length) {
+    const mp = await many(
+      `SELECT engine, model, AVG(cost_usd)::float AS per FROM runs
+       WHERE cost_usd > 0 AND model IS NOT NULL
+       GROUP BY engine, model HAVING COUNT(*) >= 5`, []);
+    for (const [eng, want] of Object.entries(chosen)) {
+      const hit = mp.find((m) => m.engine === eng && (m.model.startsWith(want) || want.startsWith(m.model)));
+      if (hit) perCall.set(eng, hit.per);
+    }
+  }
+  const perQuestion = runs * engineList.reduce((sum, e) => sum + (perCall.get(e) ?? 0.03), 0);
 
   res.json({
     all,
     unrun,
     checksAll: all * engines * runs,
     checksUnrun: unrun * engines * runs,
+    costAll: all * perQuestion,
+    costUnrun: unrun * perQuestion,
+    costMeasured: priced.length > 0,
     // A partial run joins this cycle rather than starting a new one.
     joinsCycle: latest
   });
