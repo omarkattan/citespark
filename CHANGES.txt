@@ -1,9 +1,9 @@
-Run menu prices - 3 files.
+GSC demand-vs-visibility script - 3 files (package.json goes to repo root).
 
-src/server.js       run-scope returns costAll/costUnrun using the cost-cap
-                    arithmetic (last-cycle actuals, chosen-model price,
-                    pessimistic default)
-src/public/app.js   both run options show \"(268, 1608 checks, ~\$2.60)\"
-scripts/test.js     pins it
+scripts/demand.js  npm run demand -- 4 : per-cluster GSC impressions and
+                   clicks beside the AI named rate, GAP lines flagged.
+                   Read-only, one free GSC call, no schema.
+scripts/test.js    pins the rules (never summed, literal match, absent!=zero)
+package.json       adds the demand script
 
-No migration.
+Verify: npm run demand -- 4

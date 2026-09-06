@@ -4138,6 +4138,18 @@ await test('the run menu prices both options before anything spends', async () =
   assert.ok(/money\(d\.costAll\)/.test(app) && /money\(d\.costUnrun\)/.test(app), 'both menu options show it');
 });
 
+await test('demand and visibility sit beside each other, never summed', async () => {
+  const { readFileSync } = await import('node:fs');
+  const d = readFileSync(new URL('./demand.js', import.meta.url), 'utf8');
+  // Impressions and answers are different denominators; one blended number
+  // would have no referent. And the match rule is stated so any row can be
+  // checked by hand.
+  assert.ok(/Side by side, never\n \* summed/.test(d) || /never[\s\S]{0,12}summed/.test(d), 'the rule is written where the code is');
+  assert.ok(/words\.every\(\(w\) => q\.query\.toLowerCase\(\)\.includes\(w\)\)/.test(d), 'the match rule is literal and checkable');
+  assert.ok(/understates demand, never invents it/.test(d), 'unmatched demand is dropped, not guessed');
+  assert.ok(/not measured/.test(d), 'absent stays distinct from zero');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
