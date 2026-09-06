@@ -1,9 +1,12 @@
-GSC demand-vs-visibility script - 3 files (package.json goes to repo root).
+Search demand in the Traffic tab - 5 files.
 
-scripts/demand.js  npm run demand -- 4 : per-cluster GSC impressions and
-                   clicks beside the AI named rate, GAP lines flagged.
-                   Read-only, one free GSC call, no schema.
-scripts/test.js    pins the rules (never summed, literal match, absent!=zero)
-package.json       adds the demand script
+src/lib/demand.js   NEW shared rule: per-cluster impressions/clicks beside
+                    the AI named rate, gaps first, method text in one place.
+                    Used by the script, the tab and (next) the PDF report.
+src/server.js       GET /api/projects/:id/demand; queries carry a source so
+                    Bing joins the same shape when connected
+src/public/app.js   Traffic tab renders the table under the figures
+scripts/demand.js   refactored onto the shared library
+scripts/test.js     pins one-rule-three-surfaces
 
-Verify: npm run demand -- 4
+No migration. Verify: Traffic tab shows "Search demand against AI visibility".

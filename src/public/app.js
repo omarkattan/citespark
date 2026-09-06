@@ -1142,10 +1142,54 @@ async function viewSources() {
   return `<div class="panel"><div class="panel-head"><h2>What the engines read</h2></div>${rows}<p class="dek" style="margin:18px 0 0;font-size:13px">These domains shape the answers in your category. Every one you are absent from is an outreach target with a measurable payoff.</p></div>`;
 }
 
+/**
+ * The demand table: impressions and clicks from the search consoles beside
+ * the AI named rate, gaps first. Lives under Traffic because both answer
+ * "what is actually happening in the market", but they are never mixed -
+ * sessions are arrivals, impressions are demand, and the note says so.
+ */
+function demandSection(d) {
+  if (!d) return '';
+  const failed = (d.sources || []).filter((s) => !s.ok);
+  if (!d.rows?.length) {
+    return `<div class="panel">
+      <div class="panel-head"><h2>Search demand against AI visibility</h2></div>
+      <p class="hint">${failed.length
+        ? `No console is reporting yet. ${failed.map((f) => `${esc(f.name)}: ${esc(f.error)}`).join('. ')}. Connect one in Setup to see real impressions and clicks here.`
+        : 'No cluster matched any search query, so there is nothing to show yet.'}</p>
+    </div>`;
+  }
+  const rows = d.rows.map((r) => `
+    <tr${r.gap ? ' style="background:rgba(179,64,42,.06)"' : ''}>
+      <td>${esc(r.cluster)}${r.gap ? ' <span class="tag warn">gap</span>' : ''}</td>
+      <td style="text-align:right;font-family:var(--mono)">${(r.impressions || 0).toLocaleString()}</td>
+      <td style="text-align:right;font-family:var(--mono)">${(r.clicks || 0).toLocaleString()}</td>
+      <td style="text-align:right;font-family:var(--mono)">${r.rate === null
+        ? '<span class="hint">not measured</span>'
+        : `${Math.round(r.rate * 100)}% <span class="hint">(${r.named} of ${r.measured})</span>`}</td>
+    </tr>`).join('');
+  return `<div class="panel">
+    <div class="panel-head"><h2>Search demand against AI visibility</h2></div>
+    <p class="hint">${esc(d.method)}</p>
+    <table class="tbl" style="width:100%">
+      <thead><tr>
+        <th>Question cluster</th>
+        <th style="text-align:right">Impressions</th>
+        <th style="text-align:right">Clicks</th>
+        <th style="text-align:right">Named in AI answers</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="hint">Rows marked <span class="tag warn">gap</span> have real search demand and almost no presence in AI answers. They are the ones worth a brief.
+    ${failed.length ? `Not counted: ${failed.map((f) => `${esc(f.name)} (${esc(f.error)})`).join(', ')}.` : ''}</p>
+  </div>`;
+}
+
 async function viewTraffic() {
-  const [conn, rows] = await Promise.all([
+  const [conn, rows, demand] = await Promise.all([
     api(`/api/projects/${state.projectId}/ga4`),
-    api(`/api/projects/${state.projectId}/traffic`)
+    api(`/api/projects/${state.projectId}/traffic`),
+    api(`/api/projects/${state.projectId}/demand`)
   ]);
   if (!conn) return '';
 
@@ -1285,6 +1329,8 @@ async function viewTraffic() {
     </div>
   </div>
   <div class="figures">${cells}</div>
+
+  ${demandSection(demand)}
 
   ${
     data.pages?.length

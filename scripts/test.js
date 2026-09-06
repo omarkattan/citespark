@@ -4140,14 +4140,22 @@ await test('the run menu prices both options before anything spends', async () =
 
 await test('demand and visibility sit beside each other, never summed', async () => {
   const { readFileSync } = await import('node:fs');
-  const d = readFileSync(new URL('./demand.js', import.meta.url), 'utf8');
+  const d = readFileSync(new URL('../src/lib/demand.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  // One rule, three surfaces: script, Traffic tab and report must quote the
+  // same figure from the same code, or a client finds two truths.
+  assert.ok(/api\/projects\/:id\/demand/.test(server), 'the tab has a route');
+  assert.ok(/demandSection\(demand\)/.test(app), 'and Traffic renders it');
+  assert.ok(/not measured/.test(app), 'a cluster with no answers is not zero percent');
+  assert.ok(/source: 'google'/.test(server), 'queries carry their console, so Bing can join the same shape');
   // Impressions and answers are different denominators; one blended number
   // would have no referent. And the match rule is stated so any row can be
   // checked by hand.
   assert.ok(/Side by side, never\n \* summed/.test(d) || /never[\s\S]{0,12}summed/.test(d), 'the rule is written where the code is');
-  assert.ok(/words\.every\(\(w\) => q\.query\.toLowerCase\(\)\.includes\(w\)\)/.test(d), 'the match rule is literal and checkable');
-  assert.ok(/understates demand, never invents it/.test(d), 'unmatched demand is dropped, not guessed');
-  assert.ok(/not measured/.test(d), 'absent stays distinct from zero');
+  assert.ok(/words\.every\(\(w\) => text\.includes\(w\)\)/.test(d), 'the match rule is literal and checkable');
+  assert.ok(/understates demand rather than inventing it/.test(d), 'unmatched demand is dropped, not guessed');
+  assert.ok(/rate: c\.measured \? c\.named \/ c\.measured : null/.test(d), 'absent stays distinct from zero');
 });
 
 await test('the evidence says where it asked from', async () => {
