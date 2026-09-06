@@ -1164,7 +1164,9 @@ function demandSection(d) {
   const rows = d.rows.map((r) => `
     <tr${r.gap ? ' style="background:rgba(179,64,42,.07)"' : ''}>
       <td>${esc(r.cluster)}${r.gap ? ' <span class="tag warn">gap</span>' : ''}</td>
-      ${r.measurable ? num(r.impressions) : unmatched('no matching queries')}
+      ${r.measurable
+        ? `<td style="text-align:right;font-family:var(--mono)">${r.impressions.toLocaleString()}<span class="hint" style="display:block;font-size:10px">from ${r.matchedQueries} quer${r.matchedQueries === 1 ? 'y' : 'ies'}</span></td>`
+        : unmatched('no matching queries')}
       ${r.measurable ? num(r.clicks) : unmatched('-')}
       <td style="text-align:right;font-family:var(--mono)">${r.rate === null
         ? '<span class="hint">not measured</span>'
@@ -1172,14 +1174,14 @@ function demandSection(d) {
     </tr>`).join('');
   const unmatchedCount = d.rows.filter((r) => !r.measurable).length;
   return `<div class="panel">
-    <div class="panel-head"><h2>Search demand against AI visibility</h2></div>
+    <div class="panel-head"><h2>Where demand exists but you are not in the answer${helpDot('Two independent sources side by side: real search demand from the search consoles, and AI visibility from the measurement cycles. A topic with heavy search and no AI presence is the clearest case for new content.')}</h2></div>
     <p class="hint">${esc(d.method)}</p>
     <table class="tbl" style="width:100%">
       <thead><tr>
-        <th>Question cluster</th>
-        <th style="text-align:right">Impressions</th>
-        <th style="text-align:right">Clicks</th>
-        <th style="text-align:right">Named in AI answers</th>
+        <th>Topic${helpDot('A group of measured questions on one subject. Topics named from a real search query can be matched to search data; topics named in internal vocabulary cannot, and say so in the next column.')}</th>
+        <th style="text-align:right">Search impressions${helpDot('How often pages appeared in classic search results for queries on this topic, over the last 90 days, from the connected search consoles. This is the total across EVERY query matching the topic, so looking up one of those queries in Search Console on its own will show a smaller number.')}</th>
+        <th style="text-align:right">Clicks${helpDot('Clicks those impressions produced, over the same 90 days. Zero clicks against high impressions means people saw the listing and chose something else.')}</th>
+        <th style="text-align:right">Named in AI answers${helpDot('How often the brand appeared in AI answers to this topic during the most recent measurement cycle. Different window and different denominator from the search columns: one counts searches over 90 days, the other counts answers in one cycle. Never divide one into the other.')}</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
@@ -1187,6 +1189,20 @@ function demandSection(d) {
     ${unmatchedCount ? `${unmatchedCount} cluster${unmatchedCount === 1 ? '' : 's'} could not be matched to any search query, usually because the cluster name is internal vocabulary rather than words anyone types. Their AI visibility is still measured; only their demand is unknown.` : ''}
     ${failed.length ? `Not counted: ${failed.map((f) => `${esc(f.name)} (${esc(f.error)})`).join(', ')}.` : ''}</p>
   </div>`;
+}
+
+/**
+ * A "?" beside anything that needs a sentence of explanation.
+ *
+ * One mechanism for the whole portal: the bubble itself is a single floating
+ * element handled centrally, so adding an explanation anywhere costs one
+ * call. Every figure a client might screenshot should be able to explain
+ * itself without us in the room - especially the ones whose denominators
+ * differ, which is most of them here.
+ */
+const HELP_BTN = 'flex:0 0 auto;width:16px;height:16px;border-radius:50%;border:1px solid var(--line);background:none;color:var(--ink-3);font-size:10px;line-height:1;cursor:help;padding:0;vertical-align:middle;margin-left:5px;';
+function helpDot(text) {
+  return `<button type="button" style="${HELP_BTN}" data-help="${esc(text)}" aria-label="What does this mean?">?</button>`;
 }
 
 async function viewTraffic() {
@@ -1309,7 +1325,7 @@ async function viewTraffic() {
   ${series.length ? `
   <div class="figures">
     <div class="figure">
-      <div class="label">AI sessions, ${data.days || 30} days</div>
+      <div class="label">Visits from AI assistants${helpDot(`People who arrived at your site from an AI assistant in the last ${data.days || 30} days, counted by Google Analytics. This is arrivals, not how often you are named - a question you win may still send nobody, and some AI traffic arrives with no referrer and is counted as Direct, so treat this as a floor.`)}</div>
       <div class="value">${totals.sessions.toLocaleString()}</div>
       <div class="sub">
         ${cvr.toFixed(1)}% conversion${
@@ -1322,14 +1338,14 @@ async function viewTraffic() {
       </div>
     </div>
     <div class="figure">
-      <div class="label">Conversions</div>
+      <div class="label">Conversions from those visits${helpDot('Goal completions Google Analytics attributes to the AI visits on the left, over the same period. Whether a conversion is a sale, a form or something else depends on how the property is configured.')}</div>
       <div class="value">${Math.round(totals.conversions).toLocaleString()}</div>
-      <div class="sub">from AI referrals</div>
+      <div class="sub">of ${totals.sessions.toLocaleString()} visits</div>
     </div>
     <div class="figure">
-      <div class="label">Revenue</div>
+      <div class="label">Revenue from those visits${helpDot('Revenue Google Analytics attributes to the same AI visits. A dash means the property reports no revenue, which is not the same as zero revenue - most non-ecommerce sites will always show a dash here.')}</div>
       <div class="value">${totals.revenue ? Math.round(totals.revenue).toLocaleString() : '-'}</div>
-      <div class="sub">attributed, 30 days</div>
+      <div class="sub">${totals.revenue ? `over ${data.days || 30} days` : 'not reported by this property'}</div>
     </div>
   </div>
   <div class="figures">${cells}</div>
@@ -1536,7 +1552,7 @@ async function renderFigures() {
       <!-- Ranks only the brands this project tracks that appeared, so being
            the only tracked name present reads 1.0 however many untracked
            firms were listed above. -->
-      <div class="label">Position among tracked brands</div>
+      <div class="label">Position among tracked brands${helpDot('Where the brand ranks against the competitors set up on this project, by how often each is named in the same set of answers. It is not a position in the market, and not a place within the text of an answer - only a rank among the brands being tracked here.')}</div>
       <div class="value ${o.avgOrdinal ? '' : 'dim'}">${o.avgOrdinal ? o.avgOrdinal.toFixed(1) : '-'}</div>
       <div class="sub">1 is first of the brands you track</div>
     </div>
@@ -5142,7 +5158,7 @@ async function viewTrends() {
            tracked name present it reads 1.0, however many untracked firms
            were listed above it. Labelled for what it measures until it can be
            computed against every brand named. -->
-      <div class="label">Position among tracked brands</div>
+      <div class="label">Position among tracked brands${helpDot('Where the brand ranks against the competitors set up on this project, by how often each is named in the same set of answers. It is not a position in the market, and not a place within the text of an answer - only a rank among the brands being tracked here.')}</div>
       <div class="value">${last.avg_ordinal ? Number(last.avg_ordinal).toFixed(1) : '-'}</div>
       <div class="sub">${first.avg_ordinal ? `was ${Number(first.avg_ordinal).toFixed(1)}` : 'no earlier reading'}</div>
     </div>

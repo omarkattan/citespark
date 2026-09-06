@@ -4164,6 +4164,26 @@ await test('demand and visibility sit beside each other, never summed', async ()
   assert.ok(/no matching queries/.test(app), 'which the table states in words');
 });
 
+await test('figures a client might screenshot explain themselves', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  const lib = readFileSync(new URL('../src/lib/demand.js', import.meta.url), 'utf8');
+
+  // One mechanism, module scope, so any view can explain a figure in one call.
+  assert.ok(/function helpDot\(text\)/.test(app), 'the help affordance is shared, not trapped in one renderer');
+  assert.ok((app.match(/helpDot\(/g) || []).length >= 8, 'and is used across the portal, not once');
+
+  // Labels say what the number IS, not which system produced it.
+  assert.ok(/Visits from AI assistants/.test(app), 'sessions are named in plain words');
+  assert.ok(/of \$\{totals\.sessions\.toLocaleString\(\)\} visits/.test(app), 'and a count carries its denominator');
+  assert.ok(/not reported by this property/.test(app), 'a dash is explained, since absent is not zero');
+
+  // The discrepancy a client will hit first: our topic total vs one query
+  // in their own console.
+  assert.ok(/from \$\{r\.matchedQueries\} quer/.test(app), 'each row says how many queries it sums');
+  assert.ok(/summed across every matching/.test(lib), 'and the method text states the summing rule');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

@@ -1,10 +1,13 @@
-Demand table row types - 4 files.
+Portal labels and help bubbles - 3 files.
 
-src/lib/demand.js   unmatched clusters report null, not 0; measurable flag;
-                    gap threshold named; sort puts gaps first, unmatchable last
-src/public/app.js   unmatched rows read "no matching queries" and the note
-                    explains why their demand is unknown, not zero
-scripts/demand.js   same distinction in the shell table
-scripts/test.js     pins it
+src/public/app.js   helpDot() promoted to shared use; "?" bubbles on the
+                    traffic figures, all four demand columns, the panel
+                    heading and Position among tracked brands. Labels
+                    rewritten: "Visits from AI assistants", "Conversions
+                    from those visits" (with denominator), revenue dash
+                    explained. Each demand row shows how many queries it sums.
+src/lib/demand.js   method text states the summing rule and says topic
+                    instead of cluster
+scripts/test.js     pins coverage and the denominators
 
 No migration.

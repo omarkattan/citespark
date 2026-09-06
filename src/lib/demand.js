@@ -27,11 +27,12 @@ export const GAP_MIN_IMPRESSIONS = 500;
 export const DEMAND_METHOD =
   `Impressions and clicks come from the connected search consoles over the last ${DEMAND_WINDOW_DAYS} days. ` +
   'The AI named rate comes from the most recent measurement cycle. They are shown side by side, never combined: ' +
-  'one counts searches, the other counts answers. A query is matched to a cluster when every word of the cluster ' +
-  'name appears in the query, so any row can be checked by hand. Queries matching no cluster are left out, which ' +
-  'understates demand rather than inventing it. Clusters whose names cannot appear inside a real ' +
-  'search query, such as the generator vocabulary ones, match nothing and are shown as no matching ' +
-  'queries rather than as zero impressions: the demand is unmeasured here, not absent.';
+  'one counts searches, the other counts answers. A query is matched to a topic when every word of the topic ' +
+  'name appears in the query, so any row can be checked by hand. Impressions are summed across every matching ' +
+  'query, so looking up one of those queries on its own in a search console will show a smaller number. ' +
+  'Queries matching no topic are left out, which understates demand rather than inventing it. Topics whose ' +
+  'names cannot appear inside a real search query, such as internal vocabulary ones, match nothing and are ' +
+  'shown as no matching queries rather than as zero impressions: the demand is unmeasured here, not absent.';
 
 /** Literal, checkable matching. Deliberately not fuzzy. */
 export function matchQueries(clusterName, queries) {
