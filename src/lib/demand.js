@@ -21,12 +21,17 @@ import { many } from '../db/index.js';
 
 export const DEMAND_WINDOW_DAYS = 90;
 
+/** Enough searching that absence from AI answers is worth acting on. */
+export const GAP_MIN_IMPRESSIONS = 500;
+
 export const DEMAND_METHOD =
   `Impressions and clicks come from the connected search consoles over the last ${DEMAND_WINDOW_DAYS} days. ` +
   'The AI named rate comes from the most recent measurement cycle. They are shown side by side, never combined: ' +
   'one counts searches, the other counts answers. A query is matched to a cluster when every word of the cluster ' +
   'name appears in the query, so any row can be checked by hand. Queries matching no cluster are left out, which ' +
-  'understates demand rather than inventing it.';
+  'understates demand rather than inventing it. Clusters whose names cannot appear inside a real ' +
+  'search query, such as the generator vocabulary ones, match nothing and are shown as no matching ' +
+  'queries rather than as zero impressions: the demand is unmeasured here, not absent.';
 
 /** Literal, checkable matching. Deliberately not fuzzy. */
 export function matchQueries(clusterName, queries) {
@@ -68,15 +73,31 @@ export async function demandByCluster(projectId, queries) {
       named: c.named,
       // Absent stays absent: a cluster with no answers this cycle is not 0%.
       rate: c.measured ? c.named / c.measured : null,
-      impressions,
-      clicks,
+      impressions: hit.length ? impressions : null,
+      clicks: hit.length ? clicks : null,
       matchedQueries: hit.length,
+      /**
+       * Two kinds of row share this table and must not read alike. A cluster
+       * imported from a real search query matches itself and reports real
+       * demand. A cluster named in generator vocabulary - "category
+       * discovery", "qualified best" - cannot appear verbatim inside anyone's
+       * search, so it matches nothing. Printing 0 impressions for the second
+       * kind states a measurement that was never taken, and a client reading
+       * the table cannot tell the two apart. Null means unmatched; zero means
+       * matched and genuinely unsearched.
+       */
+      measurable: hit.length > 0,
       // The row worth acting on: real demand, and the brand is not in the answer.
-      gap: impressions >= 500 && c.measured > 0 && c.named / c.measured < 0.15
+      gap: hit.length > 0 && impressions >= GAP_MIN_IMPRESSIONS && c.measured > 0 && c.named / c.measured < 0.15
     };
   });
 
-  // Gaps first, then by demand: the table should open on what to act on.
-  out.sort((a, b) => (b.gap - a.gap) || (b.impressions - a.impressions));
+  // Gaps first, then real demand, then the unmatchable rows last: the table
+  // should open on what to act on and end on what it cannot see.
+  out.sort((a, b) =>
+    (b.gap - a.gap) ||
+    (b.measurable - a.measurable) ||
+    ((b.impressions || 0) - (a.impressions || 0))
+  );
   return out;
 }

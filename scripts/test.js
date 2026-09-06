@@ -4156,6 +4156,12 @@ await test('demand and visibility sit beside each other, never summed', async ()
   assert.ok(/words\.every\(\(w\) => text\.includes\(w\)\)/.test(d), 'the match rule is literal and checkable');
   assert.ok(/understates demand rather than inventing it/.test(d), 'unmatched demand is dropped, not guessed');
   assert.ok(/rate: c\.measured \? c\.named \/ c\.measured : null/.test(d), 'absent stays distinct from zero');
+  // Two row types share the table: clusters named from real queries, which
+  // report real demand, and generator-vocabulary names that can never match
+  // a search. Printing 0 for the second states an untaken measurement.
+  assert.ok(/impressions: hit\.length \? impressions : null/.test(d), 'unmatched demand is null, never zero');
+  assert.ok(/measurable: hit\.length > 0/.test(d), 'and the row says which kind it is');
+  assert.ok(/no matching queries/.test(app), 'which the table states in words');
 });
 
 await test('the evidence says where it asked from', async () => {

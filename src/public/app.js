@@ -1159,15 +1159,18 @@ function demandSection(d) {
         : 'No cluster matched any search query, so there is nothing to show yet.'}</p>
     </div>`;
   }
+  const num = (n) => `<td style="text-align:right;font-family:var(--mono)">${n.toLocaleString()}</td>`;
+  const unmatched = (label) => `<td style="text-align:right;font-family:var(--mono);color:var(--ink-3)">${label}</td>`;
   const rows = d.rows.map((r) => `
-    <tr${r.gap ? ' style="background:rgba(179,64,42,.06)"' : ''}>
+    <tr${r.gap ? ' style="background:rgba(179,64,42,.07)"' : ''}>
       <td>${esc(r.cluster)}${r.gap ? ' <span class="tag warn">gap</span>' : ''}</td>
-      <td style="text-align:right;font-family:var(--mono)">${(r.impressions || 0).toLocaleString()}</td>
-      <td style="text-align:right;font-family:var(--mono)">${(r.clicks || 0).toLocaleString()}</td>
+      ${r.measurable ? num(r.impressions) : unmatched('no matching queries')}
+      ${r.measurable ? num(r.clicks) : unmatched('-')}
       <td style="text-align:right;font-family:var(--mono)">${r.rate === null
         ? '<span class="hint">not measured</span>'
         : `${Math.round(r.rate * 100)}% <span class="hint">(${r.named} of ${r.measured})</span>`}</td>
     </tr>`).join('');
+  const unmatchedCount = d.rows.filter((r) => !r.measurable).length;
   return `<div class="panel">
     <div class="panel-head"><h2>Search demand against AI visibility</h2></div>
     <p class="hint">${esc(d.method)}</p>
@@ -1181,6 +1184,7 @@ function demandSection(d) {
       <tbody>${rows}</tbody>
     </table>
     <p class="hint">Rows marked <span class="tag warn">gap</span> have real search demand and almost no presence in AI answers. They are the ones worth a brief.
+    ${unmatchedCount ? `${unmatchedCount} cluster${unmatchedCount === 1 ? '' : 's'} could not be matched to any search query, usually because the cluster name is internal vocabulary rather than words anyone types. Their AI visibility is still measured; only their demand is unknown.` : ''}
     ${failed.length ? `Not counted: ${failed.map((f) => `${esc(f.name)} (${esc(f.error)})`).join(', ')}.` : ''}</p>
   </div>`;
 }

@@ -33,10 +33,9 @@ console.log(`\nSearch demand vs AI visibility - ${project.name}\n`);
 console.log('cluster'.padEnd(30) + 'impr'.padStart(9) + 'clicks'.padStart(8) + '   named in AI answers');
 for (const r of table) {
   const rate = r.rate === null ? 'not measured' : `${Math.round(r.rate * 100)}% (${r.named} of ${r.measured})`;
-  console.log(
-    (r.gap ? '* ' : '  ') + r.cluster.padEnd(28) +
-    String(r.impressions).padStart(9) + String(r.clicks).padStart(8) + '   ' + rate
-  );
+  const impr = r.measurable ? String(r.impressions).padStart(9) : '        -';
+  const clk = r.measurable ? String(r.clicks).padStart(8) : '       -';
+  console.log((r.gap ? '* ' : '  ') + r.cluster.padEnd(28) + impr + clk + '   ' + rate);
 }
 console.log(`\n* = real demand, almost no AI presence. ${DEMAND_METHOD}`);
 await pool.end();
