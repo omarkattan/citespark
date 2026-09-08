@@ -607,6 +607,29 @@ function manualPersonaForm() {
   </details>`;
 }
 
+/**
+ * A Setup panel that can be folded away.
+ *
+ * Setup grew to a dozen blocks on one page - buyer types, engines, brands,
+ * connections, danger zone - and reading it meant scrolling past everything
+ * irrelevant to the task at hand. Each block now collapses, and the ones
+ * people touch rarely start closed, so the page opens on what is usually
+ * needed rather than on everything at once.
+ *
+ * Uses <details>, which the browser handles: keyboard, find-in-page and
+ * screen readers all work without a line of our own state management.
+ */
+function panelFold(title, body, { open = true, help = null, sub = null } = {}) {
+  return `<details class="panel fold" ${open ? 'open' : ''}>
+    <summary class="panel-head" style="cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none">
+      <h2 style="margin:0;flex:1">${title}${help ? helpDot(help) : ''}</h2>
+      ${sub ? `<span class="hint" style="font-size:11px">${esc(sub)}</span>` : ''}
+      <span class="fold-mark" aria-hidden="true" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">&#9662;</span>
+    </summary>
+    <div style="padding-top:4px">${body}</div>
+  </details>`;
+}
+
 async function loadPersonas() {
   const box = $('personaList');
   if (!box) return;
@@ -3749,23 +3772,24 @@ async function viewSetup() {
         <span id="s_saved" class="sub" style="font-family:var(--mono);font-size:11px;color:var(--good);margin-left:10px"></span>
       </div>
 
-      <div class="panel">
-        <div class="panel-head">
-          <h2>Where we look</h2>
+      <details class="panel fold" open>
+        <summary class="panel-head" style="cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none">
+          <h2 style="margin:0">Where we look${helpDot('Which AI surfaces are asked every cycle. Each one you switch off reduces the cost of the next cycle and stops that surface being measured; nothing already recorded is deleted.')}</h2>
           <div class="spacer"></div>
           <div class="bulk">
             <button class="ghost" data-bulk-engines="all">Use all ${Math.min(allowed, engines.length)}</button>
             <button class="ghost" data-bulk-engines="min">Just ChatGPT</button>
           </div>
           <span class="sub" data-engine-allowance="${allowed}" style="font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-left:10px">${chosen.length} of ${allowed} allowed</span>
-        </div>
+          <span class="fold-mark" aria-hidden="true" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">&#9662;</span>
+        </summary>
         ${engineRows}
         <p class="hint" style="margin-top:12px">
           Each surface you add multiplies the cost of every cycle. Two or three chosen deliberately beats all six switched on.
           ${allowed < engines.length ? `Your plan allows ${allowed}. <button type="button" class="ghost" data-goto-billing="1" style="padding:3px 8px;font-size:10px">Upgrade</button>` : ''}
         </p>
         <span id="e_saved" class="sub" style="font-family:var(--mono);font-size:11px;color:var(--good)"></span>
-      </div>
+      </details>
 
       <div class="panel">
         <div class="panel-head"><h2>Competitors</h2></div>
@@ -3777,18 +3801,24 @@ async function viewSetup() {
         </div>
       </div>
 
-      <div class="panel">
-        <div class="panel-head"><h2>Remove this site</h2></div>
-        <p class="dek" style="margin:0 0 14px;font-size:13.5px">Deletes <b>${esc(p.name)}</b>, its questions, every answer recorded against it and its action list. There is no undo, so export anything you need first.</p>
+      <details class="panel fold">
+        <summary class="panel-head" style="cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none">
+          <h2 style="margin:0;flex:1">Remove this site</h2>
+          <span class="fold-mark" aria-hidden="true" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">&#9662;</span>
+        </summary>
+        <p class="dek" style="margin:8px 0 14px;font-size:13.5px">Deletes <b>${esc(p.name)}</b>, its questions, every answer recorded against it and its action list. There is no undo, so export anything you need first.</p>
         <button class="ghost danger" id="s_delete">Delete ${esc(p.name)}</button>
-      </div>
+      </details>
     </div>
 
     <div>
-    <div class="panel" id="personaPanel">
-      <div class="panel-head">
-        <h2>Who is asking</h2>
+    <details class="panel fold" id="personaPanel">
+      <summary class="panel-head" style="cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none">
+        <h2 style="margin:0">Who is asking${helpDot('Buyer types. The same question gets a different answer depending on who is asking it, so each buyer type is asked separately and measured separately.')}</h2>
         <div class="spacer"></div>
+        <span class="fold-mark" aria-hidden="true" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">&#9662;</span>
+      </summary>
+      <div style="display:flex;justify-content:flex-end;margin:-4px 0 8px">
         <button class="ghost" id="suggestPersonas">Suggest buyer types</button>
       </div>
       <p class="hint">
@@ -3796,7 +3826,7 @@ async function viewSetup() {
         buyer are shown different companies. One number for both hides which of them cannot see you.
       </p>
       <div id="personaList"></div>
-    </div>
+    </details>
 
     <div class="panel" id="gscPanel">
       <div class="panel-head">

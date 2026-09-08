@@ -4186,6 +4186,22 @@ await test('figures a client might screenshot explain themselves', async () => {
   assert.ok(/summed across every matching/.test(lib), 'and the method text states the summing rule');
 });
 
+await test('long Setup blocks fold away', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  // Setup grew to a dozen blocks on one page and reading it meant scrolling
+  // past everything irrelevant to the task in hand.
+  const folds = [...app.matchAll(/<details class="panel fold"/g)];
+  assert.ok(folds.length >= 3, 'the long blocks fold');
+  for (const f of folds) {
+    const seg = app.slice(f.index, f.index + 3000);
+    const su = seg.indexOf('</summary>'), de = seg.indexOf('</details>');
+    assert.ok(su > 0 && de > su, 'each fold closes its summary before itself');
+  }
+  // An action must never be hidden behind the fold that contains it.
+  assert.ok(/suggestPersonas/.test(app) && /data-bulk-engines/.test(app), 'header actions survive');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

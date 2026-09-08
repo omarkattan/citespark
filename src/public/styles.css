@@ -2132,3 +2132,11 @@ a.ans-source:hover { color: var(--accent); text-decoration: underline; }
 .spend-row .spend-amt { flex: 0 0 auto; white-space: nowrap; font-family: var(--mono);
   font-size: 12px; min-width: 56px; text-align: right; }
 .warn-text { color: var(--bad, #b3402a); }
+
+/* Folding Setup panels. The marker rotates so the state is visible at a
+   glance; the native triangle is hidden because the summary is a full row. */
+.panel.fold > summary::-webkit-details-marker { display: none; }
+.panel.fold > summary { list-style: none; }
+.panel.fold > summary:hover h2 { color: var(--accent, var(--ink)); }
+.panel.fold[open] > summary .fold-mark { transform: rotate(180deg); }
+.panel.fold > summary .fold-mark { display: inline-block; transition: transform .15s ease; }
