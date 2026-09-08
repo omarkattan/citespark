@@ -1155,8 +1155,10 @@ function demandSection(d) {
     return `<div class="panel">
       <div class="panel-head"><h2>Search demand against AI visibility</h2></div>
       <p class="hint">${failed.length
-        ? `No console is reporting yet. ${failed.map((f) => `${esc(f.name)}: ${esc(f.error)}`).join('. ')}. Connect one in Setup to see real impressions and clicks here.`
-        : 'No cluster matched any search query, so there is nothing to show yet.'}</p>
+        ? `No console is reporting yet. ${failed.map((f) => `${esc(f.name)}: ${esc(f.error)}`).join('. ')}.
+           <button class="ghost" data-goto-setup style="margin-left:6px">Connect in Setup</button>
+           <span style="display:block;margin-top:6px">Impressions and clicks exist nowhere else: they come from the search consoles, not from us and not from Analytics.</span>`
+        : 'No topic matched any search query, so there is nothing to show yet. This happens when topic names are internal vocabulary rather than words people type.'}</p>
     </div>`;
   }
   const num = (n) => `<td style="text-align:right;font-family:var(--mono)">${n.toLocaleString()}</td>`;

@@ -4162,6 +4162,8 @@ await test('demand and visibility sit beside each other, never summed', async ()
   assert.ok(/impressions: hit\.length \? impressions : null/.test(d), 'unmatched demand is null, never zero');
   assert.ok(/measurable: hit\.length > 0/.test(d), 'and the row says which kind it is');
   assert.ok(/no matching queries/.test(app), 'which the table states in words');
+  // An instruction to go somewhere should be the way of going there.
+  assert.ok(/data-goto-setup style=/.test(app), 'the not-connected state offers a button, not prose directions');
 });
 
 await test('figures a client might screenshot explain themselves', async () => {
