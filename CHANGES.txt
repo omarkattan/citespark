@@ -1,9 +1,16 @@
-Collapsible Setup blocks - 3 files.
+Feedback fixes 1 and 2 - 4 files.
 
-src/public/app.js    "Who is asking", "Where we look" and "Remove this site"
-                     fold; panelFold() helper for future blocks; help
-                     bubbles added on the two measurement blocks
-src/public/styles.css  marker rotates with state
-scripts/test.js      pins tag order and that header actions survive
+src/lib/ga4.js     NEW ga4Readiness(project): one rule for whether Analytics
+                   is usable, honouring the deployment credential, with a
+                   distinct reason for each unready state
+src/lib/report.js  the report now uses that rule. It tested the project own
+                   token alone, so a site syncing fine through the shared
+                   credential was told Analytics was not connected
+src/public/app.js  "Not run - press run cycle" becomes "Not measured yet"
+                   with a button that opens the run menu and scrolls to it
+scripts/test.js    pins both (286 -> 288 checks)
 
-No migration. Native <details>, so keyboard and find-in-page work.
+Four pre-existing test failures are unchanged by this delta (verified against
+the untouched upload).
+
+No migration.

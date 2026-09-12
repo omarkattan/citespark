@@ -417,14 +417,12 @@ function groupActions(items) {
 async function aiTraffic(projectId) {
   const project = await one('SELECT ga4_property_id, ga4_refresh_token FROM projects WHERE id = $1', [projectId]);
 
-  if (!project?.ga4_refresh_token || !project?.ga4_property_id) {
-    return {
-      connected: false,
-      why: project?.ga4_refresh_token
-        ? 'Google is connected but no Analytics property has been chosen for this site.'
-        : 'Google Analytics is not connected for this site, so we cannot show what the assistants sent. Connecting it is read-only and takes one screen.'
-    };
-  }
+  // Same readiness rule as the sync. This used to test the project's own
+  // token alone, so a site syncing fine through the deployment credential
+  // was told on its own report that Analytics was not connected.
+  const { ga4Readiness } = await import('./ga4.js');
+  const ready = ga4Readiness(project);
+  if (!ready.connected) return { connected: false, why: ready.why };
 
   /**
    * Read the table the sync actually writes to.

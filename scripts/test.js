@@ -4202,6 +4202,41 @@ await test('long Setup blocks fold away', async () => {
   assert.ok(/suggestPersonas/.test(app) && /data-bulk-engines/.test(app), 'header actions survive');
 });
 
+await test('Analytics readiness is one rule, and the report obeys it', async () => {
+  const { ga4Readiness } = await import('../src/lib/ga4.js');
+  const { readFileSync } = await import('node:fs');
+  const report = readFileSync(new URL('../src/lib/report.js', import.meta.url), 'utf8');
+
+  // The report tested the project's own token alone while the sync also
+  // accepted the deployment credential, so a site whose data was syncing
+  // happily was told on its own report that Analytics was not connected.
+  const saved = process.env.GOOGLE_REFRESH_TOKEN;
+  const savedProp = process.env.GA4_PROPERTY_ID;
+  process.env.GOOGLE_REFRESH_TOKEN = 'env';
+  process.env.GA4_PROPERTY_ID = '999';
+  assert.equal(ga4Readiness({}).connected, true, 'the deployment credential counts as connected');
+  process.env.GOOGLE_REFRESH_TOKEN = '';
+  process.env.GA4_PROPERTY_ID = '';
+  assert.equal(ga4Readiness({}).connected, false, 'and nothing at all still reads as not connected');
+  assert.ok(ga4Readiness({ ga4_refresh_token: 'x' }).why.includes('no Analytics property'),
+    'each unready state explains itself rather than sharing one message');
+  if (saved !== undefined) process.env.GOOGLE_REFRESH_TOKEN = saved;
+  if (savedProp !== undefined) process.env.GA4_PROPERTY_ID = savedProp;
+
+  assert.ok(/ga4Readiness\(project\)/.test(report), 'the report uses the shared rule');
+  assert.ok(!/!project\?\.ga4_refresh_token \|\| !project\?\.ga4_property_id/.test(report), 'and not its own narrower one');
+});
+
+await test('a site with no cycle is told where to start one', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
+  // "Press run cycle" sent a first-time user hunting for a control whose
+  // name they had not learned yet.
+  assert.ok(/data-start-first-cycle/.test(app), 'the empty state offers a button');
+  assert.ok(!/press run cycle/.test(app), 'not an instruction to find one');
+  assert.ok(/btn\?\.click\(\)/.test(app), 'which opens the existing run menu, not a second path');
+});
+
 await test('the evidence says where it asked from', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');

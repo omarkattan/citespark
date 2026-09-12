@@ -1551,7 +1551,18 @@ document.addEventListener('click', async (e) => {
 async function renderFigures() {
   const o = state.overview;
   if (!o || !o.cycle) {
-    $('figures').innerHTML = `<div class="figure"><div class="label">Status</div><div class="value dim">Not run</div><div class="sub">press run cycle</div></div>`;
+    /**
+     * An instruction to press something should be the thing, or at least say
+     * where it is. "Press run cycle" sent a first-time user hunting the
+     * screen for a control they had not learned the name of yet.
+     */
+    $('figures').innerHTML = `<div class="figure" style="flex:1">
+      <div class="label">Status</div>
+      <div class="value dim">Not measured yet</div>
+      <div class="sub">Nothing has been asked for this site.</div>
+      <button class="ghost" data-start-first-cycle style="margin-top:10px">Start the first measurement</button>
+      <div class="sub" style="margin-top:6px">Opens the run menu at the top right, where you can price the cycle before it runs.</div>
+    </div>`;
     return;
   }
   const engineCells = o.engines
@@ -2506,6 +2517,14 @@ document.addEventListener('click', async (e) => {
     const top = r.bottom + 8 + b.offsetHeight > innerHeight ? r.top - b.offsetHeight - 8 : r.bottom + 8;
     b.style.top = `${Math.max(8, top)}px`;
     b.style.left = `${Math.max(8, Math.min(r.left, innerWidth - b.offsetWidth - 8))}px`;
+    return;
+  }
+
+  if (e.target.closest('[data-start-first-cycle]')) {
+    const btn = $('runBtn');
+    btn?.click();                       // opens the menu, which prices each option
+    btn?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    btn?.focus();
     return;
   }
 

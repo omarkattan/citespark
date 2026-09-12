@@ -312,14 +312,40 @@ function isoDate(compact) {
   return `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
 }
 
+/**
+ * Is Analytics usable for this site, and if not, precisely why not?
+ *
+ * The rule has three sources - the project's own token, then the deployment
+ * env - and every caller must apply the same one. The report applied a
+ * narrower rule than the sync did, so a site whose data was syncing happily
+ * through the env credential was told on its own report that Analytics was
+ * not connected. A warning that contradicts the data beside it costs more
+ * trust than a missing section ever would.
+ *
+ * Returns why: null when usable, so callers can print the reason instead of
+ * inventing one.
+ */
+export function ga4Readiness(project) {
+  const token = Boolean(project?.ga4_refresh_token) || Boolean(process.env.GOOGLE_REFRESH_TOKEN);
+  const property = Boolean(project?.ga4_property_id) || Boolean(process.env.GA4_PROPERTY_ID);
+  if (token && property) return { connected: true, why: null };
+  if (token && !property) {
+    return { connected: false, why: 'Google is connected but no Analytics property has been chosen for this site.' };
+  }
+  if (!token && property) {
+    return { connected: false, why: 'An Analytics property is set for this site but Google is not connected. Reconnect it in Setup.' };
+  }
+  return {
+    connected: false,
+    why: 'Google Analytics is not connected for this site, so we cannot show what the assistants sent. Connecting it is read-only and takes one screen.'
+  };
+}
+
 export async function syncGa4(projectId, { days = 540 } = {}) {
   const project = await one('SELECT * FROM projects WHERE id = $1', [projectId]);
   const property = project?.ga4_property_id || process.env.GA4_PROPERTY_ID;
-  const hasToken = project?.ga4_refresh_token || process.env.GOOGLE_REFRESH_TOKEN;
-
-  if (!property || !hasToken) {
-    return { skipped: true, reason: 'Google Analytics is not connected for this site' };
-  }
+  const ready = ga4Readiness(project);
+  if (!ready.connected) return { skipped: true, reason: ready.why };
 
   const dateRanges = [{ startDate: `${days}daysAgo`, endDate: 'yesterday' }];
   const metrics = [
