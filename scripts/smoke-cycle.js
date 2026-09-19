@@ -235,7 +235,7 @@ try {
   check('mentions table has rows (analyseRun ran)', () => assert.ok(mentionRows.length > 0, 'no mention rows'));
 
   const citationRows = await q(
-    `SELECT id FROM citations c JOIN runs r ON r.id = c.run_id WHERE r.project_id = $1`,
+    `SELECT c.id FROM citations c JOIN runs r ON r.id = c.run_id WHERE r.project_id = $1`,
     [projectId]
   );
   check('citations table has rows (citation path ran)', () => assert.ok(citationRows.length > 0, 'no citation rows'));
