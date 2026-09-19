@@ -266,6 +266,7 @@ export async function resolveModel(engine, cfg, override = null) {
   // price in front of it. The cycle cost cap still guards both.
   if (override) return override;
   if (cfg.model) return cfg.model; // explicit env override always wins
+  if (MOCK) return FALLBACK_MODEL[engine] || 'mock-model'; // no network in mock mode
 
   const cached = modelCache.get(engine);
   if (cached && Date.now() - cached.at < MODEL_CACHE_MS) return cached.model;
