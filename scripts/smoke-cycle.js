@@ -149,6 +149,10 @@ try {
   console.log('\n[setup] creating schema and tables');
   await q(`CREATE SCHEMA ${SCHEMA}`);
   await q(`SET search_path TO ${SCHEMA}`);
+  // Make every subsequent connection (including runCycle's own pool) default
+  // to this schema. We restore public at teardown.
+  const dbUser = new URL(SMOKE_URL).username;
+  await q(`ALTER ROLE "${dbUser}" SET search_path TO ${SCHEMA}`);
 
   const schemaPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '../src/db/schema.sql');
   const schemaSql = readFileSync(schemaPath, 'utf8');
@@ -267,6 +271,8 @@ try {
   // Always tear down the schema, whether tests passed or failed.
   console.log(`\n[teardown] dropping schema ${SCHEMA}`);
   try {
+    const dbUser = new URL(SMOKE_URL).username;
+    await smokePool.query(`ALTER ROLE "${dbUser}" RESET search_path`);
     await smokePool.query(`DROP SCHEMA ${SCHEMA} CASCADE`);
     console.log('  dropped');
   } catch (err) {
