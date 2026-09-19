@@ -4,6 +4,7 @@
  * Run with: node scripts/test.js
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { analyseRun } from '../src/lib/analyze.js';
 import { askEngine, domainOf } from '../src/lib/dataforseo.js';
 import { evaluateRules } from '../src/lib/recommend.js';
@@ -5212,6 +5213,29 @@ await test('falls back to templates without an API key', async () => {
   assert.equal(prompts.length, 10);
   assert.ok(prompts.every((p) => !/sandstorm/i.test(p.text)), 'never leaks the brand name into the question');
   assert.ok(prompts.every((p) => p.text.length > 20));
+});
+
+console.log('\nsmoke test script');
+
+await test('smoke-cycle.js exists and checks the right things', async () => {
+  const src = fs.readFileSync(new URL('./smoke-cycle.js', import.meta.url), 'utf8');
+  // must connect to SMOKE_DATABASE_URL, not DATABASE_URL
+  assert.ok(/SMOKE_DATABASE_URL/.test(src), 'reads SMOKE_DATABASE_URL');
+  // must refuse if they match
+  assert.ok(/SMOKE_URL.*DATABASE_URL|DATABASE_URL.*SMOKE_URL/.test(src), 'guards against pointing at the real DB');
+  // must run with MOCK_MODE
+  assert.ok(/MOCK_MODE.*true|true.*MOCK_MODE/.test(src), 'sets MOCK_MODE=true');
+  // must actually call runCycleForProject
+  assert.ok(/runCycleForProject/.test(src), 'calls runCycleForProject');
+  // must assert DB rows were written
+  assert.ok(/runs.*row|row.*runs/i.test(src), 'asserts run rows in DB');
+  assert.ok(/mention.*row|row.*mention/i.test(src), 'asserts mention rows in DB');
+  assert.ok(/citation.*row|row.*citation/i.test(src), 'asserts citation rows in DB');
+  // must assert zero spend (MOCK_MODE guarantee)
+  assert.ok(/spend.*0|costUsd.*0|0.*spend/i.test(src), 'asserts zero spend');
+  // must clean up the schema
+  assert.ok(/finally/.test(src), 'has finally block for teardown');
+  assert.ok(/DROP SCHEMA/i.test(src), 'drops the schema in teardown');
 });
 
 console.log(`\n${pass} checks passed\n`);
