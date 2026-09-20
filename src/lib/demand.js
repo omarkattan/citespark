@@ -27,20 +27,42 @@ export const GAP_MIN_IMPRESSIONS = 500;
 export const DEMAND_METHOD =
   `Impressions and clicks come from the connected search consoles over the last ${DEMAND_WINDOW_DAYS} days. ` +
   'The AI named rate comes from the most recent measurement cycle. They are shown side by side, never combined: ' +
-  'one counts searches, the other counts answers. A query is matched to a topic when every word of the topic ' +
-  'name appears in the query, so any row can be checked by hand. Impressions are summed across every matching ' +
-  'query, so looking up one of those queries on its own in a search console will show a smaller number. ' +
-  'Queries matching no topic are left out, which understates demand rather than inventing it. Topics whose ' +
-  'names cannot appear inside a real search query, such as internal vocabulary ones, match nothing and are ' +
-  'shown as no matching queries rather than as zero impressions: the demand is unmeasured here, not absent.';
+  'one counts searches, the other counts answers. A GSC query is matched to a topic when it shares at least one ' +
+  'meaningful word with any of the questions in that topic — so "what activities can I do in Hatta" would match ' +
+  'the activities topic even if the topic is labelled with an internal name. Impressions are summed across every ' +
+  'matching query, so looking up one query on its own in Search Console will show a smaller number. ' +
+  'Queries matching no topic are left out, which understates demand rather than inventing it.';
 
-/** Literal, checkable matching. Deliberately not fuzzy. */
-export function matchQueries(clusterName, queries) {
-  const words = String(clusterName).toLowerCase().split(/[_\s-]+/).filter((w) => w.length > 2);
-  if (!words.length) return [];
+/**
+ * Match GSC queries against a cluster.
+ *
+ * Two-pass strategy:
+ * 1. Try matching against the actual question texts (the real language a buyer
+ *    uses). A question like "what activities can I do in Hatta" shares words
+ *    with real GSC queries even when the cluster name "activity_based" does not.
+ * 2. Fall back to matching on the cluster name itself, for clusters that were
+ *    imported directly from real search queries and whose name IS the query.
+ *
+ * A GSC query is included if ANY question text (or the cluster name) produces
+ * a word-level overlap of at least one meaningful word (>2 chars). This is
+ * intentionally broader than the original all-words-must-match rule, because
+ * the purpose is to surface demand that exists - the user can verify by eye.
+ */
+export function matchQueries(clusterName, queries, questionTexts = []) {
+  // Tokenise each question and the cluster name into meaningful words.
+  const tokenise = (s) => String(s).toLowerCase().split(/[_\s\-?]+/).filter((w) => w.length > 2);
+
+  const allWordSets = [
+    tokenise(clusterName),
+    ...questionTexts.map(tokenise)
+  ].filter((ws) => ws.length > 0);
+
+  if (!allWordSets.length) return [];
+
   return queries.filter((q) => {
-    const text = String(q.query || '').toLowerCase();
-    return words.every((w) => text.includes(w));
+    const qText = String(q.query || '').toLowerCase();
+    // A query matches if ANY of our word sets has at least one word in the query.
+    return allWordSets.some((words) => words.some((w) => qText.includes(w)));
   });
 }
 
@@ -49,22 +71,38 @@ export function matchQueries(clusterName, queries) {
  *        console; source lets Bing join later without changing this shape.
  */
 export async function demandByCluster(projectId, queries) {
-  const clusters = await many(
-    `SELECT p.cluster,
-            COUNT(DISTINCT p.id)::int AS questions,
-            COUNT(m.run_id) FILTER (WHERE r.cycle_date = (SELECT MAX(cycle_date) FROM runs WHERE project_id = $1 AND ok))::int AS measured,
-            COUNT(*) FILTER (WHERE m.mentioned AND r.cycle_date = (SELECT MAX(cycle_date) FROM runs WHERE project_id = $1 AND ok))::int AS named
-     FROM prompts p
-     LEFT JOIN runs r ON r.prompt_id = p.id AND r.ok
-     LEFT JOIN mentions m ON m.run_id = r.id AND m.entity_id =
-       (SELECT id FROM entities WHERE project_id = $1 AND kind = 'owned' ORDER BY id LIMIT 1)
-     WHERE p.project_id = $1 AND p.active
-     GROUP BY p.cluster`,
-    [projectId]
-  );
+  const [clusters, questionRows] = await Promise.all([
+    many(
+      `SELECT p.cluster,
+              COUNT(DISTINCT p.id)::int AS questions,
+              COUNT(m.run_id) FILTER (WHERE r.cycle_date = (SELECT MAX(cycle_date) FROM runs WHERE project_id = $1 AND ok))::int AS measured,
+              COUNT(*) FILTER (WHERE m.mentioned AND r.cycle_date = (SELECT MAX(cycle_date) FROM runs WHERE project_id = $1 AND ok))::int AS named
+       FROM prompts p
+       LEFT JOIN runs r ON r.prompt_id = p.id AND r.ok
+       LEFT JOIN mentions m ON m.run_id = r.id AND m.entity_id =
+         (SELECT id FROM entities WHERE project_id = $1 AND kind = 'owned' ORDER BY id LIMIT 1)
+       WHERE p.project_id = $1 AND p.active
+       GROUP BY p.cluster`,
+      [projectId]
+    ),
+    // Fetch every active question text so matchQueries can use real language
+    // rather than internal cluster-name vocabulary.
+    many(
+      `SELECT cluster, text FROM prompts WHERE project_id = $1 AND active`,
+      [projectId]
+    )
+  ]);
+
+  // Index question texts by cluster for O(1) lookup.
+  const textsByCluster = new Map();
+  for (const r of questionRows) {
+    if (!textsByCluster.has(r.cluster)) textsByCluster.set(r.cluster, []);
+    textsByCluster.get(r.cluster).push(r.text);
+  }
 
   const out = clusters.map((c) => {
-    const hit = matchQueries(c.cluster, queries);
+    const questionTexts = textsByCluster.get(c.cluster) || [];
+    const hit = matchQueries(c.cluster, queries, questionTexts);
     const impressions = hit.reduce((n, q) => n + (q.impressions || 0), 0);
     const clicks = hit.reduce((n, q) => n + (q.clicks || 0), 0);
     return {
