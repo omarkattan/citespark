@@ -3969,7 +3969,7 @@ async function viewSetup() {
         <button id="q_add">Add as written</button>
       </div>
       <p class="hint" style="margin:6px 0 0">
-        A topic such as <code>retirement planning</code> becomes the questions your buyers would ask about it, using
+        A topic such as <code>${esc((p.category || '').split(/\s+/).slice(0, 3).join(' ') || 'your category')}</code> becomes the questions your buyers would ask about it, using
         what this site already knows about your category and audience.
       </p>
       <div id="qTopicPanel"></div>
@@ -4541,7 +4541,7 @@ document.addEventListener('click', async (e) => {
 
   if (t.id === 'q_topic') {
     const topic = $('q_text').value.trim();
-    if (topic.length < 3) return setupErr('Give it a topic, such as retirement planning.');
+    if (topic.length < 3) return setupErr('Give it a topic — what a buyer would search for in your category.');
 
     t.disabled = true;
     t.textContent = 'Thinking';
