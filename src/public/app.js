@@ -1166,6 +1166,26 @@ async function viewSources() {
 }
 
 /**
+ * Render rows for the demand table. Extracted so the sort handler can
+ * re-render without rebuilding the whole section.
+ */
+function renderDemandRows(rows) {
+  return rows
+    .map((r) => {
+      const rateVal = r.measurable ? r.rate : null;
+      const rateTxt = rateVal != null ? `${(rateVal * 100).toFixed(0)}%` : '-';
+      const isGap = r.measurable && r.impressions > 0 && rateVal != null && rateVal < 0.2;
+      return `<tr data-cluster="${esc(r.cluster)}" data-impressions="${r.impressions ?? 0}" data-clicks="${r.clicks ?? 0}" data-rate="${rateVal ?? -1}">
+        <td>${esc(r.cluster)}${!r.measurable ? ` <span class="tag muted" title="Topic name not found in search queries">unmatched</span>` : ''}${isGap ? ` <span class="tag warn">gap</span>` : ''}</td>
+        <td style="text-align:right">${r.measurable ? (r.impressions ?? 0).toLocaleString() : '-'}</td>
+        <td style="text-align:right">${r.measurable ? (r.clicks ?? 0).toLocaleString() : '-'}</td>
+        <td style="text-align:right">${rateTxt}</td>
+      </tr>`;
+    })
+    .join('');
+}
+
+/**
  * The demand table: impressions and clicks from the search consoles beside
  * the AI named rate, gaps first. Lives under Traffic because both answer
  * "what is actually happening in the market", but they are never mixed -
@@ -1184,35 +1204,35 @@ function demandSection(d) {
         : 'No topic matched any search query, so there is nothing to show yet. This happens when topic names are internal vocabulary rather than words people type.'}</p>
     </div>`;
   }
-  const num = (n) => `<td style="text-align:right;font-family:var(--mono)">${n.toLocaleString()}</td>`;
-  const unmatched = (label) => `<td style="text-align:right;font-family:var(--mono);color:var(--ink-3)">${label}</td>`;
-  const rows = d.rows.map((r) => `
-    <tr${r.gap ? ' style="background:rgba(179,64,42,.07)"' : ''}>
-      <td>${esc(r.cluster)}${r.gap ? ' <span class="tag warn">gap</span>' : ''}</td>
-      ${r.measurable
-        ? `<td style="text-align:right;font-family:var(--mono)">${r.impressions.toLocaleString()}<span class="hint" style="display:block;font-size:10px">from ${r.matchedQueries} quer${r.matchedQueries === 1 ? 'y' : 'ies'}</span></td>`
-        : unmatched('no matching queries')}
-      ${r.measurable ? num(r.clicks) : unmatched('-')}
-      <td style="text-align:right;font-family:var(--mono)">${r.rate === null
-        ? '<span class="hint">not measured</span>'
-        : `${Math.round(r.rate * 100)}% <span class="hint">(${r.named} of ${r.measured})</span>`}</td>
-    </tr>`).join('');
+  const panelId = 'demandPanel';
+  const tableId = 'demandTbl';
+  const bodyId  = 'demandBody';
+
+  // Sortable demand table - rendered client-side after paint via a data attribute.
+  // Rows are embedded as JSON so the sort function can re-render without a round trip.
+  const rowData = JSON.stringify(d.rows);
+
   const unmatchedCount = d.rows.filter((r) => !r.measurable).length;
-  return `<div class="panel">
-    <div class="panel-head"><h2>Where demand exists but you are not in the answer${helpDot('Two independent sources side by side: real search demand from the search consoles, and AI visibility from the measurement cycles. A topic with heavy search and no AI presence is the clearest case for new content.')}</h2></div>
-    <p class="hint">${esc(d.method)}</p>
-    <table class="tbl" style="width:100%">
-      <thead><tr>
-        <th>Topic${helpDot('A group of measured questions on one subject. Topics named from a real search query can be matched to search data; topics named in internal vocabulary cannot, and say so in the next column.')}</th>
-        <th style="text-align:right">Search impressions${helpDot('How often pages appeared in classic search results for queries on this topic, over the last 90 days, from the connected search consoles. This is the total across EVERY query matching the topic, so looking up one of those queries in Search Console on its own will show a smaller number.')}</th>
-        <th style="text-align:right">Clicks${helpDot('Clicks those impressions produced, over the same 90 days. Zero clicks against high impressions means people saw the listing and chose something else.')}</th>
-        <th style="text-align:right">Named in AI answers${helpDot('How often the brand appeared in AI answers to this topic during the most recent measurement cycle. Different window and different denominator from the search columns: one counts searches over 90 days, the other counts answers in one cycle. Never divide one into the other.')}</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <p class="hint">Rows marked <span class="tag warn">gap</span> have real search demand and almost no presence in AI answers. They are the ones worth a brief.
-    ${unmatchedCount ? `${unmatchedCount} cluster${unmatchedCount === 1 ? '' : 's'} could not be matched to any search query, usually because the cluster name is internal vocabulary rather than words anyone types. Their AI visibility is still measured; only their demand is unknown.` : ''}
-    ${failed.length ? `Not counted: ${failed.map((f) => `${esc(f.name)} (${esc(f.error)})`).join(', ')}.` : ''}</p>
+  return `<div class="panel" id="${panelId}">
+    <div class="panel-head panel-head--collapsible" data-collapse-target="${panelId}-body">
+      <h2>Where demand exists but you are not in the answer${helpDot('Two independent sources side by side: real search demand from the search consoles, and AI visibility from the measurement cycles. A topic with heavy search and no AI presence is the clearest case for new content.')}</h2>
+      <button class="panel-collapse-btn" aria-expanded="true" aria-controls="${panelId}-body" title="Collapse section">&#8211;</button>
+    </div>
+    <div id="${panelId}-body">
+      <p class="hint">${esc(d.method)}</p>
+      <table class="tbl sortable-tbl" id="${tableId}" style="width:100%" data-rows='${rowData.replace(/'/g, "&#39;")}'>
+        <thead><tr>
+          <th data-sort="cluster" data-sort-type="str" class="sort-asc">Topic${helpDot('A group of measured questions on one subject. Topics named from a real search query can be matched to search data; topics named in internal vocabulary cannot, and say so in the next column.')}</th>
+          <th style="text-align:right" data-sort="impressions" data-sort-type="num">Search impressions${helpDot('How often pages appeared in classic search results for queries on this topic, over the last 90 days, from the connected search consoles. This is the total across EVERY query matching the topic, so looking up one of those queries in Search Console on its own will show a smaller number.')}</th>
+          <th style="text-align:right" data-sort="clicks" data-sort-type="num">Clicks${helpDot('Clicks those impressions produced, over the same 90 days. Zero clicks against high impressions means people saw the listing and chose something else.')}</th>
+          <th style="text-align:right" data-sort="rate" data-sort-type="num">Named in AI answers${helpDot('How often the brand appeared in AI answers to this topic during the most recent measurement cycle. Different window and different denominator from the search columns: one counts searches over 90 days, the other counts answers in one cycle. Never divide one into the other.')}</th>
+        </tr></thead>
+        <tbody id="${bodyId}">${renderDemandRows(d.rows)}</tbody>
+      </table>
+      <p class="hint">Rows marked <span class="tag warn">gap</span> have real search demand and almost no presence in AI answers. They are the ones worth a brief.
+      ${unmatchedCount ? `${unmatchedCount} cluster${unmatchedCount === 1 ? '' : 's'} could not be matched to any search query, usually because the cluster name is internal vocabulary rather than words anyone types. Their AI visibility is still measured; only their demand is unknown.` : ''}
+      ${failed.length ? `Not counted: ${failed.map((f) => `${esc(f.name)} (${esc(f.error)})`).join(', ')}.` : ''}</p>
+    </div>
   </div>`;
 }
 
@@ -1375,38 +1395,42 @@ async function viewTraffic() {
   </div>
   <div class="figures">${cells}</div>
 
-  ${demandSection(demand)}
-
   ${
     data.pages?.length
-      ? `<div class="panel">
-          <div class="panel-head"><h2>Where AI traffic lands</h2></div>
-          <p class="hint" style="margin:0 0 12px">
-            The pages assistants actually send people to, and what happens next. A page with sessions and no
-            conversions is the clearest thing on this screen to go and fix.
-          </p>
-          <div class="pchead">
-            <div>Page</div>
-            <div class="pcnum">Sessions</div>
-            <div class="pcnum">Conversions</div>
-            <div class="pcnum">Rate</div>
+      ? `<div class="panel" id="trafficLandsPanel">
+          <div class="panel-head panel-head--collapsible" data-collapse-target="trafficLandsPanel-body">
+            <h2>Where AI traffic lands${helpDot('The pages assistants actually send people to, and what happens next. A page with sessions and no conversions is the clearest thing on this screen to go and fix.')}</h2>
+            <button class="panel-collapse-btn" aria-expanded="true" aria-controls="trafficLandsPanel-body" title="Collapse section">&#8211;</button>
           </div>
-          ${data.pages
-            .map((p) => {
-              const rate = p.sessions ? (p.conversions / p.sessions) * 100 : 0;
-              return `<div class="pcrow">
-                <div><a class="pcp" href="${esc(p.landing_page)}" target="_blank" rel="noopener">${esc(
-                  String(p.landing_page).replace(/^https?:\/\/(www\.)?[^/]+/, '') || '/'
-                )}</a></div>
-                <div class="pcnum">${p.sessions.toLocaleString()}</div>
-                <div class="pcnum">${Math.round(p.conversions).toLocaleString()}</div>
-                <div class="pcnum ${p.sessions > 20 && rate === 0 ? 'down' : ''}">${rate.toFixed(1)}%</div>
-              </div>`;
-            })
-            .join('')}
+          <div id="trafficLandsPanel-body">
+            <table class="tbl sortable-tbl" style="width:100%">
+              <thead><tr>
+                <th data-sort="page" data-sort-type="str" class="sort-asc">Page</th>
+                <th class="pcnum" data-sort="sessions" data-sort-type="num" style="text-align:right">Sessions</th>
+                <th class="pcnum" data-sort="conversions" data-sort-type="num" style="text-align:right">Conversions</th>
+                <th class="pcnum" data-sort="rate" data-sort-type="num" style="text-align:right">Rate</th>
+              </tr></thead>
+              <tbody>
+                ${data.pages
+                  .map((p) => {
+                    const rate = p.sessions ? (p.conversions / p.sessions) * 100 : 0;
+                    const path = String(p.landing_page).replace(/^https?:\/\/(www\.)?[^/]+/, '') || '/';
+                    return `<tr data-page="${esc(p.landing_page)}" data-sessions="${p.sessions}" data-conversions="${p.conversions}" data-rate="${rate}">
+                      <td><a class="pcp" href="${esc(p.landing_page)}" target="_blank" rel="noopener">${esc(path)}</a></td>
+                      <td class="pcnum" style="text-align:right">${p.sessions.toLocaleString()}</td>
+                      <td class="pcnum" style="text-align:right">${Math.round(p.conversions).toLocaleString()}</td>
+                      <td class="pcnum ${p.sessions > 20 && rate === 0 ? 'down' : ''}" style="text-align:right">${rate.toFixed(1)}%</td>
+                    </tr>`;
+                  })
+                  .join('')}
+              </tbody>
+            </table>
+          </div>
         </div>`
       : ''
   }
+
+  ${demandSection(demand)}
 
   <div class="panel"><p class="dek" style="margin:0;font-size:13.5px">
     <b>native</b> is Google's AI Assistant channel, accurate but only from mid-2026 onward.
@@ -2496,6 +2520,60 @@ document.addEventListener('click', async (e) => {
    * rate), and its own switch. The projection updates as switches flip, and
    * nothing here spends anything: it only changes what the next cycle asks.
    */
+  /**
+   * Collapsible panels: clicking the collapse button toggles the panel body.
+   */
+  const collapseBtn = e.target.closest('.panel-collapse-btn');
+  if (collapseBtn) {
+    const targetId = collapseBtn.getAttribute('aria-controls');
+    const body = document.getElementById(targetId);
+    if (body) {
+      const isExpanded = collapseBtn.getAttribute('aria-expanded') === 'true';
+      collapseBtn.setAttribute('aria-expanded', isExpanded ? 'false' : 'true');
+      collapseBtn.innerHTML = isExpanded ? '&#43;' : '&#8211;';
+      collapseBtn.title = isExpanded ? 'Expand section' : 'Collapse section';
+      body.hidden = isExpanded;
+    }
+    return;
+  }
+
+  /**
+   * Sortable tables: clicking a sortable <th> re-sorts the tbody rows.
+   * Rows must carry data-* attributes matching the column's data-sort value.
+   */
+  const sortTh = e.target.closest('th[data-sort]');
+  if (sortTh) {
+    const table = sortTh.closest('table');
+    if (!table) return;
+    const key = sortTh.dataset.sort;
+    const type = sortTh.dataset.sortType || 'str';
+    const wasAsc = sortTh.classList.contains('sort-asc');
+    const asc = !wasAsc;
+
+    // Clear sort indicators on all ths in this table
+    table.querySelectorAll('th[data-sort]').forEach((th) => {
+      th.classList.remove('sort-asc', 'sort-desc');
+    });
+    sortTh.classList.add(asc ? 'sort-asc' : 'sort-desc');
+
+    const tbody = table.querySelector('tbody');
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort((a, b) => {
+      const av = a.dataset[key] ?? '';
+      const bv = b.dataset[key] ?? '';
+      let cmp;
+      if (type === 'num') {
+        cmp = parseFloat(av) - parseFloat(bv);
+      } else {
+        cmp = av.localeCompare(bv);
+      }
+      return asc ? cmp : -cmp;
+    });
+    rows.forEach((r) => tbody.appendChild(r));
+    return;
+  }
+
   /**
    * The "?" beside a control. Hover titles exist but nobody hovers on a
    * phone and nobody discovers them on desktop, so each key control gets a
