@@ -2542,7 +2542,7 @@ document.addEventListener('click', async (e) => {
    * Rows must carry data-* attributes matching the column's data-sort value.
    */
   const sortTh = e.target.closest('th[data-sort]');
-  if (sortTh) {
+  if (sortTh && !e.target.closest('[data-help]')) {
     const table = sortTh.closest('table');
     if (!table) return;
     const key = sortTh.dataset.sort;
