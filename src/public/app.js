@@ -3953,7 +3953,7 @@ async function viewSetup() {
 
     <div class="panel">
       <div class="panel-head">
-        <h2>Questions</h2>
+        <h2>Monitored questions</h2>
         <div class="spacer"></div>
         <div class="bulk">
           <button class="ghost" data-bulk-prompts="true" ${active === data.prompts.length ? 'disabled' : ''}>Resume all</button>
@@ -3961,7 +3961,7 @@ async function viewSetup() {
         </div>
         <button class="ghost" id="q_generate">Suggest 10 more</button>
       </div>
-      <p class="dek" style="margin:0 0 12px;font-size:13px">Write these the way a customer types them, never with the brand name in. Paused questions stay in the record but are not asked.</p>
+      <p class="dek" style="margin:0 0 12px;font-size:13px">These are the questions Cited asks every AI engine on each cycle to measure whether your brand is named in the answer. Write them the way a buyer types them, never with your brand name in. Paused questions stay in the record but are skipped.</p>
 
       <div class="qcompose">
         <input id="q_text" placeholder="A question a buyer would type, or a topic to build questions from" autocomplete="off" />
