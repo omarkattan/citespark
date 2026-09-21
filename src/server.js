@@ -3475,7 +3475,7 @@ app.get('/api/public/index', wrap(async (req, res) => {
   res.json(data);
 }));
 
-for (const page of ['privacy', 'terms']) {
+for (const page of ['privacy', 'terms', 'about']) {
   app.get(`/${page}`, (_req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(path.join(publicDir, `${page}.html`));

@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>About Cited: Why Sandstorm Digital Built an AI Visibility Tool</title>
+<meta name="description" content="Cited started as an internal problem. Sandstorm Digital needed to know whether their clients were being named by AI — and no tool measured it. So they built one." />
+<meta property="og:title" content="Why we built Cited" />
+<meta property="og:description" content="Sandstorm Digital needed to know whether AI was naming their clients. No tool measured it. So they built one." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://cited.ae/about" />
+<meta property="og:site_name" content="Cited" />
+<meta property="og:image" content="https://cited.ae/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:image" content="https://cited.ae/og.png" />
+<link rel="canonical" href="https://cited.ae/about" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='8' fill='%2308120d'/%3E%3Cpath d='M15 8H9v24h6M25 8h6v24h-6' stroke='%23e9e3d5' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M20 11l2.6 6.4L29 20l-6.4 2.6L20 29l-2.6-6.4L11 20l6.4-2.6z' fill='%2335e08a'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/landing.css" />
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "AboutPage",
+      "@id": "https://cited.ae/about",
+      "url": "https://cited.ae/about",
+      "name": "About Cited",
+      "description": "Why Sandstorm Digital built Cited, an AI visibility tool that measures whether AI engines name your brand when buyers ask category questions.",
+      "publisher": {
+        "@type": "Organization",
+        "name": "Sandstorm Digital",
+        "url": "https://sandstormdigital.com",
+        "address": {
+          "@type": "PostalAddress",
+          "addressLocality": "Dubai",
+          "addressRegion": "Dubai Media City",
+          "addressCountry": "AE"
+        }
+      },
+      "inLanguage": "en"
+    }
+  ]
+}
+</script>
+<style>
+  .about-hero {
+    padding: 80px 0 64px;
+    border-bottom: 1px solid var(--line);
+  }
+  .about-hero .eyebrow { margin-bottom: 16px; }
+  .about-hero h1 {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    font-weight: 400;
+    line-height: 1.15;
+    color: var(--sand);
+    max-width: 780px;
+    margin: 0 0 24px;
+  }
+  .about-hero h1 em { font-style: italic; }
+  .about-lede {
+    font-size: 1.15rem;
+    line-height: 1.65;
+    color: var(--ink-2);
+    max-width: 640px;
+    margin: 0;
+  }
+
+  .about-video-section {
+    padding: 72px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .video-wrap {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 56px;
+    align-items: center;
+  }
+  @media (max-width: 720px) {
+    .video-wrap { grid-template-columns: 1fr; gap: 32px; }
+  }
+  .video-embed {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-2, #111);
+    /* YouTube Shorts are 9:16 */
+    aspect-ratio: 9 / 16;
+    max-width: 320px;
+  }
+  .video-embed iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+  }
+  .video-copy h2 {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-size: clamp(1.6rem, 3.5vw, 2.2rem);
+    font-weight: 400;
+    color: var(--sand);
+    line-height: 1.25;
+    margin: 0 0 20px;
+  }
+  .video-copy h2 em { font-style: italic; }
+  .video-copy p {
+    color: var(--ink-2);
+    line-height: 1.7;
+    margin: 0 0 16px;
+  }
+  .video-copy p:last-child { margin-bottom: 0; }
+
+  .about-body {
+    padding: 72px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .about-body .inner {
+    max-width: 700px;
+  }
+  .about-body h2 {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    font-weight: 400;
+    color: var(--sand);
+    line-height: 1.3;
+    margin: 0 0 20px;
+  }
+  .about-body h2 em { font-style: italic; }
+  .about-body p {
+    color: var(--ink-2);
+    line-height: 1.75;
+    margin: 0 0 20px;
+    font-size: 1.05rem;
+  }
+  .about-body p:last-child { margin-bottom: 0; }
+  .about-body .pull {
+    border-left: 3px solid var(--spark);
+    padding-left: 20px;
+    margin: 32px 0;
+    font-size: 1.1rem;
+    color: var(--sand);
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-style: italic;
+    line-height: 1.5;
+  }
+
+  .about-what {
+    padding: 72px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .what-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 32px;
+    margin-top: 40px;
+  }
+  .what-item {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 24px;
+  }
+  .what-item .what-icon {
+    font-size: 1.4rem;
+    margin-bottom: 12px;
+  }
+  .what-item h3 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--sand);
+    margin: 0 0 8px;
+    letter-spacing: 0.01em;
+  }
+  .what-item p {
+    font-size: 0.9rem;
+    color: var(--ink-2);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .about-cta {
+    padding: 80px 0;
+    text-align: center;
+  }
+  .about-cta h2 {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-size: clamp(1.6rem, 4vw, 2.5rem);
+    font-weight: 400;
+    color: var(--sand);
+    margin: 0 0 16px;
+  }
+  .about-cta h2 em { font-style: italic; }
+  .about-cta p {
+    color: var(--ink-2);
+    font-size: 1.05rem;
+    margin: 0 0 32px;
+  }
+  .about-cta .cta-row {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-in">
+    <a class="logo" href="/" aria-label="Cited home">
+      <svg width="30" height="30" viewBox="0 0 40 40" role="img" aria-hidden="true">
+        <path d="M15 8H9v24h6M25 8h6v24h-6" stroke="var(--sand)" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M20 11l2.6 6.4L29 20l-6.4 2.6L20 29l-2.6-6.4L11 20l6.4-2.6z" fill="var(--spark)"/>
+      </svg>
+      <span class="logo-text">Cit<em>ed</em><sup class="wordmark-tm">&trade;</sup></span><span class="beta" title="Cited is in beta. Things will change, and your feedback shapes what changes.">beta</span>
+    </a>
+    <div class="spacer"></div>
+    <a class="nav-link hide-sm" href="/uae">UAE Index</a>
+    <a class="nav-link hide-sm" href="/mena">MENA Index</a>
+    <a class="nav-link hide-sm" href="/#how">How it works</a>
+    <a class="nav-link hide-sm" href="/#pricing">Pricing</a>
+    <a class="nav-link hide-sm" href="/about" aria-current="page">About</a>
+    <a class="btn hide-sm" href="/app">Sign in</a>
+
+    <button class="navtoggle" id="navToggle" aria-expanded="false" aria-controls="navMenu" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+
+  <div class="navmenu" id="navMenu" hidden>
+    <a href="/#try">Check your brand</a>
+    <a href="/uae">UAE AI Visibility Index</a>
+    <a href="/mena">MENA AI Visibility Index</a>
+    <a href="/#who-asks">Who is asking</a>
+    <a href="/#how">How it works</a>
+    <a href="/#actions">What you get</a>
+    <a href="/#pricing">Pricing</a>
+    <a href="/#faqs">FAQs</a>
+    <a href="/about">About</a>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+    <a class="navmenu-cta" href="/app">Sign in</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header class="about-hero">
+  <div class="wrap">
+    <p class="eyebrow">About Cited</p>
+    <h1>We needed this tool. <em>It did not exist.</em> So we built it.</h1>
+    <p class="about-lede">
+      Cited is built by Sandstorm Digital, a digital marketing agency working in
+      search since 2013. We built it because our own clients needed to know whether
+      AI was naming them - and every tool we looked at measured the wrong thing.
+    </p>
+  </div>
+</header>
+
+<!-- Video + origin story -->
+<section class="about-video-section">
+  <div class="wrap">
+    <div class="video-wrap">
+      <div>
+        <div class="video-embed">
+          <iframe
+            src="https://www.youtube-nocookie.com/embed/bmzcSNhInzo"
+            title="Why Sandstorm Digital built Cited"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowfullscreen
+            loading="lazy"
+          ></iframe>
+        </div>
+      </div>
+      <div class="video-copy">
+        <h2>Why we built <em>Cited</em></h2>
+        <p>
+          We have been running search for clients across the Gulf and MENA since 2013. In 2024 we
+          started noticing something strange: traffic from AI tools was arriving with no referrer,
+          landing on pages that had never ranked highly for anything, from buyers who converted faster
+          than organic visitors.
+        </p>
+        <p>
+          We asked the obvious question - which of our clients was actually being named when buyers
+          asked ChatGPT or Perplexity about their category? We looked for a tool to answer it. Nothing
+          we found measured named rate properly. Rank trackers measured page rankings. Listening tools
+          counted mentions in text they scraped. Neither told us what we actually needed: does AI
+          recommend this client when someone asks who to call?
+        </p>
+        <p>
+          So we built Cited to answer exactly that question, and nothing more.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Origin body -->
+<section class="about-body">
+  <div class="wrap">
+    <div class="inner">
+      <h2>The problem we were <em>actually</em> trying to solve</h2>
+      <p>
+        Search has always been a bet on what buyers type. The question was whether
+        your page matched. AI changes that bet. The question is now whether the
+        model names you when the buyer asks for a recommendation - and the model
+        draws from everything it has seen, not just what you publish.
+      </p>
+      <div class="pull">
+        "A clinic ranking first for 'clear aligners Dubai' was invisible in every
+        AI answer about orthodontics. Their competitor, ranked fifth, was named in
+        nine out of ten. Neither of them knew."
+      </div>
+      <p>
+        Measuring this with existing tools meant running prompts by hand, reading
+        through answers, keeping a spreadsheet. It was manual, inconsistent, and
+        impossible to run across a full question set at any useful frequency.
+      </p>
+      <p>
+        Cited automates that entirely. It writes the questions, asks every engine,
+        reads every answer, and tells you not just where you stand but what you
+        should change and in what order.
+      </p>
+
+      <h2 style="margin-top:48px">Why we run it on our own clients first</h2>
+      <p>
+        Every measurement method in Cited was tested on real client accounts
+        before it became a product feature. If a detection rule did not hold up
+        under live data, it did not ship. If an action recommendation did not
+        move the number it claimed to target, we took it out.
+      </p>
+      <p>
+        That is not a marketing claim. It is the only way to know whether the
+        tool actually works, and it means Sandstorm Digital uses Cited the same
+        way any customer does - with real stakes behind the numbers.
+      </p>
+
+      <h2 style="margin-top:48px">Who it is built for</h2>
+      <p>
+        Brands and agencies that take search seriously, who already know their
+        way around Google Search Console and want the same rigour applied to
+        AI answers. It is not a tool for dipping a toe in. It is for people
+        who want to know the real number, understand where it comes from,
+        and fix what is driving it.
+      </p>
+      <p>
+        The agency plan supports multiple sites so you can run it across a
+        portfolio. Every project is fully independent: its own question set,
+        its own competitors, its own buyer types, its own measurement cycle.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- What Cited does -->
+<section class="about-what">
+  <div class="wrap">
+    <p class="eyebrow">What it measures</p>
+    <h2 style="font-family:'Instrument Serif',Georgia,serif;font-size:clamp(1.5rem,3vw,2rem);font-weight:400;color:var(--sand);line-height:1.3;margin:0 0 8px;">Six engines. One honest number.</h2>
+    <p class="note" style="max-width:600px;margin:0;">Cited asks your buyers' real questions across every major AI surface and turns what it finds into a ranked list of things to fix.</p>
+    <div class="what-grid">
+      <div class="what-item">
+        <div class="what-icon">&#128293;</div>
+        <h3>Named rate</h3>
+        <p>How often each engine names your brand when someone asks a buying question in your category.</p>
+      </div>
+      <div class="what-item">
+        <div class="what-icon">&#128202;</div>
+        <h3>Share of voice</h3>
+        <p>How you compare to named competitors across the same question set and the same engines.</p>
+      </div>
+      <div class="what-item">
+        <div class="what-icon">&#128279;</div>
+        <h3>Citation sources</h3>
+        <p>Which domains the engine cited to build the answer - your site, your rivals, or third parties.</p>
+      </div>
+      <div class="what-item">
+        <div class="what-icon">&#128269;</div>
+        <h3>Fan-out queries</h3>
+        <p>The Google searches an engine runs before writing its answer. If you do not rank for these, you were never a candidate.</p>
+      </div>
+      <div class="what-item">
+        <div class="what-icon">&#127919;</div>
+        <h3>Buyer types</h3>
+        <p>The same question asked as each of your real buyer types, so you see where you are strong and where you are invisible.</p>
+      </div>
+      <div class="what-item">
+        <div class="what-icon">&#9989;</div>
+        <h3>Ranked actions</h3>
+        <p>Every gap becomes a specific, assignable action with evidence attached. Not a score. A to-do list.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="about-cta">
+  <div class="wrap">
+    <h2>See where you stand. <em>Right now.</em></h2>
+    <p>No account needed to run your first check.</p>
+    <div class="cta-row">
+      <a class="btn" href="/#try">Check your brand for free</a>
+      <a class="btn ghost" href="/app">Open Cited</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-top">
+      <a class="logo" href="/" aria-label="Cited home">
+        <svg width="28" height="28" viewBox="0 0 40 40" role="img" aria-hidden="true">
+          <path d="M15 8H9v24h6M25 8h6v24h-6" stroke="var(--sand)" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M20 11l2.6 6.4L29 20l-6.4 2.6L20 29l-2.6-6.4L11 20l6.4-2.6z" fill="var(--spark)"/>
+        </svg>
+        <span class="logo-text">Cit<em>ed</em></span>
+      </a>
+
+      <div class="foot-cols">
+        <div class="foot-col">
+          <h4>Product</h4>
+          <a href="/#try">Check your brand</a>
+          <a href="/#who-asks">Who is asking</a>
+          <a href="/#how">How it works</a>
+          <a href="/#actions">What you get</a>
+          <a href="/#pricing">Pricing</a>
+          <a href="/#faqs">FAQs</a>
+        </div>
+        <div class="foot-col">
+          <h4>Research</h4>
+          <a href="/uae">UAE AI Visibility Index</a>
+          <a href="/mena">MENA AI Visibility Index</a>
+        </div>
+        <div class="foot-col">
+          <h4>Company</h4>
+          <a href="/about">About</a>
+          <a href="https://sandstormdigital.com" target="_blank" rel="noopener">Sandstorm Digital</a>
+          <a href="https://sandstormdigital.com/contact-us/" target="_blank" rel="noopener">Contact</a>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <button type="button" class="foot-feedback" data-open-feedback>Send feedback</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot-base">
+      <p class="copyright">Copyright &copy; 2013-<span id="year">2026</span> Sandstorm Digital&reg;. All rights reserved.</p>
+      <p class="production">
+        Another <a href="https://sandstormdigital.com" target="_blank" rel="noopener">Sandstorm Digital</a> Production
+      </p>
+    </div>
+  </div>
+</footer>
+
+<script>
+  document.getElementById('year').textContent = new Date().getFullYear();
+</script>
+<script src="/feedback.js"></script>
+<script src="/nav.js"></script>
+</body>
+</html>
