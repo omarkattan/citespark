@@ -26,10 +26,10 @@ async function overview(tasks){
  vm.runInContext(app.slice(app.indexOf('async function viewOverview()'),app.indexOf('async function viewConnections()')),h);
  return {html:await h.viewOverview(),seen};
 }
-test('Overview excludes only unrelated source reviews and fills its three slots from remaining tasks',async()=>{
+test('Overview excludes only unrelated source reviews and balances categories and prefers sources with a relevance check',async()=>{
  const tasks=[{id:1,type:'source_gap',sourceReview:{status:'irrelevant'}},{id:2,type:'source_gap',sourceReview:{status:'uncertain'}},{id:3,type:'source_gap'},{id:4,type:'competitor_comparison'},{id:5,type:'source_gap',sourceReview:{status:'relevant'}}];
  const before=JSON.stringify(tasks);const result=await overview(tasks);
- assert.deepEqual(result.seen,[2,3,4]);assert.match(result.html,/All opportunities \(5\)/);assert.match(result.html,/Nothing was dismissed or deleted/);assert.equal(JSON.stringify(tasks),before);
+ assert.deepEqual(result.seen,[4,5,3]);assert.match(result.html,/All opportunities \(5\)/);assert.match(result.html,/Nothing was dismissed or deleted/);assert.equal(JSON.stringify(tasks),before);
 });
 test('all-unrelated state does not claim that no open tasks exist',async()=>{
  const result=await overview([{id:1,type:'source_gap',sourceReview:{status:'irrelevant'}}]);

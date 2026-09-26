@@ -245,7 +245,36 @@ async function viewOverview() {
   state.people = data?.people || [];
   const tasks = Array.isArray(data?.tasks) ? data.tasks : null;
   const unrelated = tasks?.filter(t => ['source_gap','competitor_page'].includes(t.type) && t.sourceReview?.status === 'irrelevant') || [];
-  const suggested = tasks?.filter(t => !unrelated.includes(t)) || [];
+  const eligible = (tasks || []).filter(t => !unrelated.includes(t) && (!t.status || ['open', 'doing'].includes(t.status)));
+  // This is a review order, not a model of expected visibility gains.
+  // Use local calendar dates, matching the task due-date display.
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  const due = t => /^\d{4}-\d{2}-\d{2}/.test(t.due_date || '') ? t.due_date.slice(0,10) : null;
+  const suggested = [];
+  const add = (task, reason) => {
+    if (suggested.length < 3 && !suggested.some(item => item.task.id === task.id)) suggested.push({task, reason});
+  };
+  eligible.filter(t => due(t) && due(t) <= today)
+    .sort((a,b) => due(a).localeCompare(due(b)))
+    .forEach(t => add(t, due(t) < today ? 'Overdue. Review your scheduled work first.' : 'Due today. Review your scheduled work first.'));
+  eligible.filter(t => t.status === 'doing').forEach(t => add(t, 'Already in progress. Continue the work you started.'));
+  const group = t => ['source_gap','competitor_page'].includes(t.type) ? 'sources'
+    : t.type === 'competitor_comparison' ? 'competitors'
+    : t.type === 'content_gap' || t.evidence?.prompt_id ? 'questions' : 'other';
+  const groups = ['questions','competitors','sources','other'].map(kind => eligible.filter(t => group(t) === kind));
+  const sourceOrder = t => ({relevant:0,uncertain:2}[t.sourceReview?.status] ?? 1);
+  groups[2].sort((a,b) => sourceOrder(a)-sourceOrder(b));
+  const reasons = ['Review a buyer question and its stored answer evidence.', 'Compare the evidence for a tracked competitor.', 'Check a cited source against the buyer question.', 'Review another type of opportunity.'];
+  // One per available category before repeating. Preserve queue order within
+  // each category, except sources with a relevant check come first.
+  for (let round=0; round < eligible.length && suggested.length < 3; round++) {
+    groups.forEach((items,index) => {
+      const task=items[round];
+      if (task) add(task, index === 2 && task.sourceReview?.status === 'relevant'
+        ? 'A relevance check is available for this page and question. Review it before acting.' : reasons[index]);
+    });
+  }
   const measured = Boolean(o.cycle && o.runs > 0 && o.visibility != null);
   const next = scope && Number.isFinite(scope.all) ? `${scope.all} active questions · ${scope.checksAll} answer checks · estimated $${Number(scope.costAll || 0).toFixed(2)}` : 'Review the question count and estimated cost before running.';
   const openCount = data?.counts && Number.isFinite(data.counts.open) && Number.isFinite(data.counts.doing) ? data.counts.open + data.counts.doing : tasks?.length;
@@ -263,10 +292,11 @@ async function viewOverview() {
         <button class="ghost" data-open-view="answers">Inspect measured answers</button></section>
     </div>
     <section aria-label="Next actions" id="overviewNext">
-    <div class="panel-head"><div><h2>What to do next</h2><p class="hint">${openCount != null ? `${openCount} open task${openCount === 1 ? '' : 's'}. ` : ''}Review one task at a time. This shortlist follows the work queue order; it does not predict improvement.</p></div>
+    <div class="panel-head"><div><h2>What to do next</h2><p class="hint">${openCount != null ? `${openCount} open task${openCount === 1 ? '' : 's'}. ` : ''}Review one task at a time. Due or overdue work comes first, then work in progress, then a mix of question, competitor and source reviews. This order does not predict improvement.</p></div>
       <button class="ghost" data-open-view="actions">All opportunities${openCount != null ? ` (${openCount})` : ''}</button></div>
+    ${openCount > (tasks?.length || 0) && tasks ? `<p class="hint">This shortlist considers the first ${tasks.length} tasks returned by the work queue. Open Opportunities to review the full list by category.</p>` : ''}
     <p class="hint">A completed task records work done. A later measurement is needed to assess visibility changes.</p>
-    ${tasks === null ? '<div class="notice">The task list could not be loaded. Open Opportunities to try again.</div>' : suggested.length ? suggested.slice(0,3).map(task => taskCard(task, true)).join('') : `<div class="panel"><h3>${unrelated.length ? 'No other tasks to prioritise' : measured ? 'No open tasks' : 'Review questions before your first run'}</h3><p>${unrelated.length ? 'The remaining source reviews were judged unrelated to their checked questions. They remain available in Opportunities.' : measured ? 'Check completed work in Opportunities, or review your questions before the next measurement.' : 'Add questions manually, use suggestions or connect Google Search Console.'}</p><button class="ghost" data-open-view="${measured ? 'actions' : 'questions'}">${measured ? 'Open opportunities' : 'Open questions'}</button></div>`}
+    ${tasks === null ? '<div class="notice">The task list could not be loaded. Open Opportunities to try again.</div>' : suggested.length ? suggested.map(({task, reason}) => taskCard(task, true, reason)).join('') : `<div class="panel"><h3>${unrelated.length ? 'No other tasks to prioritise' : measured ? 'No open tasks' : 'Review questions before your first run'}</h3><p>${unrelated.length ? 'The remaining source reviews were judged unrelated to their checked questions. They remain available in Opportunities.' : measured ? 'Check completed work in Opportunities, or review your questions before the next measurement.' : 'Add questions manually, use suggestions or connect Google Search Console.'}</p><button class="ghost" data-open-view="${measured ? 'actions' : 'questions'}">${measured ? 'Open opportunities' : 'Open questions'}</button></div>`}
     ${unrelated.length ? `<p class="hint">${unrelated.length} source review${unrelated.length === 1 ? ' was' : 's were'} left out of this shortlist because the checked page and question appeared unrelated. Nothing was dismissed or deleted. <button class="ghost" data-open-view="actions">View all opportunities</button></p>` : ''}
     </section>
     <details class="panel fold overview-measurement"><summary>Plan the next measurement</summary><p>${esc(next)}</p><p class="hint">Paused questions are excluded. Running again uses answer checks.</p><button class="ghost" data-open-view="questions">Review questions</button> <button class="ghost" data-start-first-cycle>Review cost and run</button></details>
@@ -538,7 +568,7 @@ function renderSourceReview(review) {
   </div>`;
 }
 
-function taskCard(t, compact = false) {
+function taskCard(t, compact = false, selectionReason = '') {
   const ev = t.evidence || {};
   const sourceReview = ['source_gap', 'competitor_page'].includes(t.type);
   const questionReview = t.type === 'content_gap';
@@ -576,7 +606,7 @@ function taskCard(t, compact = false) {
 
   return `
   <article class="rec ${t.status}" data-type="${esc(t.type)}" data-task="${t.id}">
-    ${compact ? `<details class="queue-task"><summary><span class="queue-heading"><span class="rec-title">${esc(title)}</span><span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span></span><span class="queue-summary">${esc(summary)}</span>${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}${dueLabel(t)}<span class="queue-open">Review task</span><span class="queue-close">Close task</span></summary><div class="queue-body">` : ''}
+    ${compact ? `<details class="queue-task"><summary><span class="queue-heading"><span class="rec-title">${esc(title)}</span><span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span></span><span class="queue-summary">${esc(summary)}</span>${selectionReason ? `<span class="queue-summary"><b>Why this task:</b> ${esc(selectionReason)}</span>` : ''}${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}${dueLabel(t)}<span class="queue-open">Review task</span><span class="queue-close">Close task</span></summary><div class="queue-body">` : ''}
     <div class="rec-top"${compact ? ' hidden' : ''}>
       <div class="rec-title">${esc(title)}</div>
       <div class="rec-pri">priority ${Number(t.priority).toFixed(1)} &middot; effort ${Number(t.effort)}/5</div>
