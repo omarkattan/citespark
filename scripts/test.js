@@ -1025,10 +1025,10 @@ await test('advice differs by source, and never says to pitch a competitor', () 
   assert.equal(byDomain['digitalgravity.ae'].type, 'competitor_page');
   assert.ok(!/pitch|contribut|request inclusion|get listed on it\b/i.test(byDomain['digitalgravity.ae'].action.replace('there is no version of this where you get listed on it', '')),
     'must not suggest getting onto a competitor site');
-  assert.ok(/teardown|why that page/i.test(byDomain['digitalgravity.ae'].action));
+  assert.match(byDomain['digitalgravity.ae'].action, /Review relevance first/);
 
-  assert.ok(/claim/i.test(byDomain['clutch.co'].action), 'a directory should say claim the profile');
-  assert.ok(/downvoted|honestly|real account/i.test(byDomain['reddit.com'].action), 'community advice must warn against planting');
+  assert.match(byDomain['clutch.co'].title, /^Review whether/);
+  assert.match(byDomain['reddit.com'].action, /does not justify/);
 
   // Things you can act on should outrank things you cannot.
   assert.ok(byDomain['clutch.co'].priority > byDomain['digitalgravity.ae'].priority);
@@ -1085,31 +1085,13 @@ await test('the explanation parser accepts whatever shape the model returns', as
   assert.equal(parse(''), null);
 });
 
-await test('a teardown produces real advice with no model at all', async () => {
-  const html = `<html><head><title>Best SEO Agencies in Dubai 2026</title>
-    <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[]}</script>
-    <meta property="article:modified_time" content="2026-07-28T10:00:00Z"></head><body>
-    <h2>Which SEO agency is best for an ecommerce brand in the UAE?</h2>
-    <p>Retainers run AED 8,000 to AED 25,000, 45% higher than 2024, with 30% charging more.</p>
-    <table><tr><td>a</td></tr></table></body></html>`;
-  const q = 'Which SEO agency is best for an ecommerce brand in the UAE?';
-
-  const st = td.readStructure(html, q);
+await test('a structural fallback withholds advice when relevance cannot be established', async () => {
+  const st = td.readStructure('<h2>Best tracking tool</h2><p>AED 100</p><table><tr><td>Example</td></tr></table>', 'Best tracking tool');
   const d = td.deterministicExplanation(st, 'competitor');
-
-  assert.ok(d.why.length >= 3, 'must explain itself without a model');
-  assert.ok(d.actions.length >= 3, 'must still give actions');
-  assert.ok(d.why.some((w) => /heading/i.test(w)));
-  assert.ok(d.actions.some((a) => /FAQPage schema/i.test(a.do)));
-  assert.ok(d.actions.some((a) => /table/i.test(a.do)));
-
-  // And a page with nothing notable must say so rather than invent a reason.
-  const bare = td.readStructure('<html><head><title>Home</title></head><body><p>We are a company.</p></body></html>', q);
-  const d2 = td.deterministicExplanation(bare, 'competitor');
-  assert.ok(/reason for the citation is unknown/i.test(d2.why[0]));
-  assert.ok(!/domain.s authority/i.test(d2.why[0]), 'missing evidence must not become a guessed cause');
-  assert.equal(d2.confidence, 'low');
-  assert.ok(d2.actions.length >= 1, 'even then, say what to do instead');
+  assert.equal(d.relevance.status, 'uncertain');
+  assert.equal(d.actions.length, 0);
+  assert.equal(d.why.length, 0);
+  assert.match(d.relevance.reason, /reason for the citation is unknown/i);
 });
 
 console.log('\nstored credentials');

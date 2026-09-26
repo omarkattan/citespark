@@ -115,59 +115,6 @@ function citableAdvice(prompt, ownDomain, competitorDomains) {
 
 
 /**
- * Advice per kind of source. The distinction that matters is whether you can
- * realistically appear on it at all: telling someone to pitch a contribution
- * to a competitor's homepage is worse than saying nothing.
- */
-const SOURCE_ADVICE = {
-  directory: {
-    effort: 2,
-    title: (d, n) => `Claim your profile on ${d}`,
-    action: (d, n) =>
-      `${d} is cited across ${n} of your tracked questions, and you are not in what it returns. This is the cheapest gap on the list to close. ` +
-      `Claim and complete the profile, get recent reviews posted, and make sure the services you list use the same wording as the questions you want to win. ` +
-      `Directories are cited because they read as neutral third-party summaries, so the profile matters more than the link.`
-  },
-  community: {
-    effort: 3,
-    title: (d, n) => `${d} shapes ${n} of your answers`,
-    action: (d, n) =>
-      `Engines lean on ${d} because it reads as unfiltered opinion. You cannot buy your way in, and an obvious plant will be downvoted and may be held against you. ` +
-      `The workable version is to answer questions in your category honestly, from a real account with history, disclosing who you are. ` +
-      `One genuinely useful answer to an existing thread is worth more than a new post about yourself.`
-  },
-  competitor: {
-    effort: 4,
-    title: (d, n) => `A competitor's own site is answering ${n} of your questions`,
-    action: (d, n) =>
-      `${d} belongs to a competitor, so there is no version of this where you get listed on it. The useful question is why that page was chosen at all. ` +
-      `Run the page teardown on this action to see which structural features earned the citation, then match them on your own equivalent page.`
-  },
-  reference: {
-    effort: 5,
-    title: (d, n) => `${d} is cited for ${n} of your questions`,
-    action: (d, n) =>
-      `${d} is a reference source. Inclusion is governed by notability rules rather than outreach, and pushing at it usually backfires. ` +
-      `Treat this as context rather than a task: it tells you the engine wants an authoritative, neutral framing for this question, which you can supply on your own page with clear sourcing and dates.`
-  },
-  publisher: {
-    effort: 3,
-    title: (d, n) => `Get published on ${d}`,
-    action: (d, n) =>
-      `${d} is cited across ${n} of your questions and accepts outside contributions. Pitch a piece that answers one of those questions properly rather than a company profile. ` +
-      `Contributed articles get cited when they carry original data or a clear methodology, so lead with something only you can say.`
-  },
-  editorial: {
-    effort: 2,
-    title: (d, n) => `${d} shapes ${n} of your questions`,
-    action: (d, n) =>
-      `Cited across ${n} of your tracked questions and you are not in it. Work out whether it is a roundup you could be added to, a review you could earn, or a piece you could contribute to. ` +
-      `Use the page teardown on this action first, so the pitch names the specific gap in their coverage rather than asking to be added.`
-  },
-  own: { effort: 1, title: (d) => `Your own page is being cited`, action: (d) => `${d} is already a source for these answers. Nothing to do here.` }
-};
-
-/**
  * Score volume relative to this project's own question set, not an absolute
  * scale. An absolute scale collapses: if a model assigns every question a
  * high volume they all hit the ceiling and every action lands on the same
@@ -661,7 +608,6 @@ export function evaluateRules({
     const { kind, reachable } = classifySource(s.domain, { ownDomain, competitorDomains });
     if (kind === 'own') continue;
 
-    const advice = SOURCE_ADVICE[kind] || SOURCE_ADVICE.editorial;
     // Worth knowing about, but a source you cannot appear on is not a task in
     // the same sense, so it should not outrank things you can act on.
     const weight = reachable ? 1 : 0.55;
@@ -669,8 +615,8 @@ export function evaluateRules({
     out.push(
       rec({
         type: kind === 'competitor' ? 'competitor_page' : 'source_gap',
-        title: advice.title(s.domain, s.prompts),
-        action: advice.action(s.domain, s.prompts),
+        title: `Review whether ${s.domain} answers your buyers' questions`,
+        action: 'Check the question, original answer and cited page for the same buyer need. A citation alone does not justify copying page features, claiming a listing or doing outreach. Review relevance first. One page analysis does not validate every question on this card.',
         targetUrl: s.sample_url,
         impact: Math.min(100, s.n * 6) * weight,
         evidence: {

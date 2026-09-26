@@ -298,6 +298,8 @@ function renderTeardown(d) {
   ].filter(Boolean);
 
   const ex = d.explanation;
+  const relevance = ex?.relevance;
+  const canSuggest = relevance?.status === 'relevant';
   // Older cached analyses stored the classifier object instead of its label.
   const sourceKind = typeof d.kind === 'string' ? d.kind : d.kind?.kind || 'unknown';
   return `
@@ -309,14 +311,19 @@ function renderTeardown(d) {
     </div>
     <p class="hint">These are observations and suggestions to check. A citation does not tell us why the engine selected this page. Your own page has not been compared here.</p>
 
+    ${!canSuggest ? `<div class="notice"><b>${relevance?.status === 'irrelevant' ? 'Review this question: source appears unrelated' : 'Review this question: relevance is uncertain'}</b>
+      <p>${esc(relevance?.reason || 'This analysis does not establish whether the page answers the buyer question.')}</p>
+      <p>Check the question and the original answer. If the question is right, the citation may be wrong. Suggested page changes and outreach are withheld.</p>
+      <button class="ghost" data-review-question>Review questions</button></div>` : '<p class="hint">The analysis found a relevant passage. Check its interpretation before acting.</p>'}
+    ${canSuggest ? `<p class="hint">${esc(relevance.reason)}</p><blockquote>${esc(relevance.evidence)}</blockquote>` : ''}
     ${signals.length ? `<p class="teardown-label">What the page has</p><div class="chips">${signals.map((s) => `<span class="chip">${esc(s)}</span>`).join('')}</div>` : ''}
     ${st.headingsMatchingQuestion?.length ? `<p class="teardown-label">Headings that answer the question</p>
       <div class="chips">${st.headingsMatchingQuestion.map((h) => `<span class="chip dashed">${esc(h)}</span>`).join('')}</div>` : ''}
 
-    ${ex?.why?.length ? `<p class="teardown-label">Page observations and possible explanations</p>
+    ${canSuggest && ex?.why?.length ? `<p class="teardown-label">Page observations and possible explanations</p>
       <ul class="teardown-list">${ex.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
 
-    ${ex?.actions?.length ? `<p class="teardown-label">Changes to consider after checking relevance</p>
+    ${canSuggest && ex?.actions?.length ? `<p class="teardown-label">Changes to consider after checking relevance</p>
       <ul class="teardown-list actions">${ex.actions.map((a) => `<li><b>${esc(a.do)}</b><span>${esc(a.because)}</span></li>`).join('')}</ul>` : ''}
 
     ${st.partial ? '<p class="hint">Read through our renderer because the page blocks direct requests, so schema and table detection were unavailable.</p>' : ''}
@@ -432,6 +439,9 @@ const TYPE_LABEL = {
 
 function taskCard(t) {
   const ev = t.evidence || {};
+  const sourceReview = ['source_gap', 'competitor_page'].includes(t.type);
+  const reviewTitle = `Review whether ${ev.domain || 'this source'} answers your buyers' questions`;
+  const reviewAction = 'A citation is evidence to inspect, not an instruction to copy a page or seek a listing. Check the question, original answer and cited page for the same buyer need before making changes. Analysis of one page does not establish relevance for every question on this card.';
   const bits = [];
   // A tag with detail behind it opens that detail rather than being inert.
   const opens = evidenceDetails(t) ? ' data-open-detail' : '';
@@ -455,7 +465,7 @@ function taskCard(t) {
   return `
   <article class="rec ${t.status}" data-type="${esc(t.type)}" data-task="${t.id}">
     <div class="rec-top">
-      <div class="rec-title">${esc(t.title)}</div>
+      <div class="rec-title">${esc(sourceReview ? reviewTitle : t.title)}</div>
       <div class="rec-pri">priority ${Number(t.priority).toFixed(1)} &middot; effort ${Number(t.effort)}/5</div>
     </div>
 
@@ -466,7 +476,7 @@ function taskCard(t) {
       ${t.notes ? '<span class="tag">has notes</span>' : ''}
     </div>
 
-    <p class="rec-action">${esc(t.action)}</p>
+    <p class="rec-action">${esc(sourceReview ? reviewAction : t.action)}</p>
     ${ev.snippet ? `<div class="excerpt">${highlight(ev.snippet, state.overview?.project?.brand_name)}</div>` : ''}
 
     <div class="rec-foot">
@@ -475,7 +485,7 @@ function taskCard(t) {
       ${t.target_url ? `<a class="tag" href="${esc(t.target_url)}" target="_blank" rel="noopener">open source</a>` : ''}
       <span style="flex:1"></span>
       ${ev.analysable && ev.url && ev.question
-        ? `<button class="ghost" data-teardown="${t.id}" data-url="${esc(ev.url)}" data-question="${esc(ev.question)}">Why were they cited?</button>`
+        ? `<button class="ghost" data-teardown="${t.id}" data-url="${esc(ev.url)}" data-question="${esc(ev.question)}">Check source relevance</button>`
         : ''}
       ${
         /**
@@ -3608,12 +3618,17 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  if (e.target.closest('[data-review-question]')) {
+    document.querySelector('[data-view="questions"]').click();
+    return;
+  }
+
   const td = e.target.closest('[data-teardown]');
   if (td) {
     const id = td.dataset.teardown;
     const box = $(`teardown-${id}`);
     box.hidden = false;
-    box.innerHTML = '<p class="hint">Reading the page and working out why it was chosen</p>';
+    box.innerHTML = '<p class="hint">Reading the page and checking whether it answers the buyer question</p>';
     td.disabled = true;
 
     const res = await fetch(`/api/projects/${state.projectId}/teardown`, {

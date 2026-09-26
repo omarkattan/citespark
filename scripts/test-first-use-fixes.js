@@ -46,7 +46,7 @@ test('analysis context normalises old classification objects and separates brand
   assert.notDeepEqual(teardownContext({...base,ownBrand:'Other'}),context);
   assert.notDeepEqual(teardownContext({...base,ownDomain:'other.ae'}),context);
   assert.notDeepEqual(teardownContext({...base,kind:'competitor'}),context);
-  assert.equal(context.version,2);
+  assert.equal(context.version,3);
 });
 
 test('cached advice lookup is scoped to version, exact brand, domain and source kind', async () => {
