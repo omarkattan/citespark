@@ -1,0 +1,54 @@
+{
+  "release": "20260926-trust-1",
+  "baseline_commit": "332463930a5ec3ab2ad313b760a59dbf263207a8",
+  "files": [
+    {
+      "path": "scripts/test.js",
+      "bytes": 281855,
+      "sha256": "5b02b68009f4bbe9f054e94c541f4ccb68b2c2c0140921c320d25718a443cf23",
+      "baseline_sha256": "87fc6c161c3f5a4a47778480dbe959e34f7a22cd81065cdd99207f473e1b3b72"
+    },
+    {
+      "path": "src/jobs/runCycle.js",
+      "bytes": 29769,
+      "sha256": "9892aa84079f6b87b65cff3eaea77e746901b099fdc6887ba68debf671731b65",
+      "baseline_sha256": "9073c886cb45e51e2964c4a763cef299e74aa59bd2b103fed93ef7b34b2f1120"
+    },
+    {
+      "path": "src/lib/brief.js",
+      "bytes": 14453,
+      "sha256": "59ca88e1000e82fa9128ceae5a3ffe8454e300b96630b9f2e6e75ebee842e713",
+      "baseline_sha256": "b368347b57d1292eb6d3647dea4b1e12578327289ae142df70148b7c7b769789"
+    },
+    {
+      "path": "src/lib/teardown.js",
+      "bytes": 21071,
+      "sha256": "9e6d59a292c88d0cc34a1639fdeac824ded44ca20a6a8f0c19b8c46b63744888",
+      "baseline_sha256": "85f9fe4675b8c5c1fe2dfbef22adf25e37541a77f77f7a577706455807c9a916"
+    },
+    {
+      "path": "src/public/app.js",
+      "bytes": 238402,
+      "sha256": "3ce6adc8ce83a0aee561502e4e475d6bb5ab2d4d4d453e91033e41a8acc1b047",
+      "baseline_sha256": "ec9e57c40c32b44ea3cad2385c752fd56a2acf35549c55aa56bfebc65c410383"
+    },
+    {
+      "path": "src/public/index.html",
+      "bytes": 8893,
+      "sha256": "fbf130cab92fd6b096493b3d670bccb9df2d94d8885b68ad8208ada41081e05d",
+      "baseline_sha256": "43ee6fc39c3429486482ee2bf836d0d637d209e42b2cdf3c287e665372623d8c"
+    },
+    {
+      "path": "src/server.js",
+      "bytes": 148355,
+      "sha256": "d4d2376e082b0c565e20f71a680645ec599368c55f4257dc80c438646e24423f",
+      "baseline_sha256": "7ef7ef9193d5c6b420e2f2d68c048f01784fdf64edd1ae31f081ee51ad4f74c9"
+    },
+    {
+      "path": "scripts/test-first-use-fixes.js",
+      "bytes": 7444,
+      "sha256": "686ed9e55bf2ad4716af8c8c3905d42f54aa7837ef4ca09bd10aa0cf2764decd",
+      "baseline_sha256": null
+    }
+  ]
+}

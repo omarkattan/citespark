@@ -420,6 +420,7 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
   });
 
   await recordUsage(project.org_id, billable, spend);
+  report({ phase: 'thinking' });
 
   /**
    * Read the pages that shaped this cycle's answers.

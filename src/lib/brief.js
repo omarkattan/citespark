@@ -13,7 +13,7 @@
  * produce two identical briefs, and generating one costs nothing. The
  * methodology sections are adapted from the agency's own working prompt.
  * Sections that are inherently about the user's organisation (expertise,
- * years of experience) are left as [EDIT: ...] markers rather than invented,
+ * years of experience) are left as [fill] fields or [EDIT: ...] markers rather than invented,
  * because inventing credentials in a brief about trustworthiness would be a
  * poor start.
  */
@@ -39,7 +39,7 @@ export function buildBrief({ project, prompt, persona, engines, siblings }) {
         : `${project.brand_name} is NOT named`;
     const cites = e.citations.length
       ? e.citations.map((c) => `    cites: ${c.url || c.domain}`).join('\n')
-      : `    cites: nothing - this engine answered from its own knowledge, so there is\n    no citation slot to win; the tactic is being in its training and being\n    consistent everywhere else it looks`;
+      : `    cites: no citations were stored for this answer. This does not establish whether web search was used or why no sources were returned`;
     // The claim to displace, not just who holds it (review finding: without
     // the stated figures, the target degrades to "write better and hope").
     const says = e.answer
@@ -120,15 +120,15 @@ ${marketLine}${project.market === 'AE' ? ', with GCC relevance where appropriate
 TARGET AUDIENCE:
 ${persona ? persona : (project.qualifier || '[EDIT: who buys this]')}.
 
-MEASURED EVIDENCE (from Cited, ${new Date().toISOString().slice(0, 10)}; do not skip this)
+STORED ANSWER EVIDENCE (brief generated ${new Date().toISOString().slice(0, 10)}; this is not the measurement date)
 
-This question is asked to AI engines an estimated ${prompt.ai_search_volume || '[unknown]'} times per month. Here is what each engine currently answers, and which pages it cites:
+Monthly volume for this question is not verified in this brief. Do not present stored planning estimates as measured demand. The following are stored answer samples and their citations, not proof of what every buyer sees:
 
 ${evidence}
 
 ${tiers}
 
-The priority pages above currently own this answer. Read those in full before writing. The article must beat them on specificity, sourcing and local relevance, not merely match them. Where they give a range, give the range plus the variables that move it. Where they cite nothing, cite primary sources. Where they are generic, be ${marketLine}-specific.
+First confirm that this question describes the target audience's actual need. Check the cited pages for relevance. If the answers concern a different product category, flag the question for review instead of producing an article from unrelated sources. A citation is not proof that a page is relevant or that its features caused the citation. Read relevant priority pages in full before writing. Aim for useful, well-sourced content; do not promise citations. Where they give a range, give the range plus the variables that move it. Where they cite nothing, cite primary sources. Where they are generic, be ${marketLine}-specific.
 
 PRIMARY OBJECTIVE:
 
@@ -144,7 +144,7 @@ Within the first 100 words, provide a concise answer to the primary question. Th
 
 3. CREATE A "QUICK ANSWER" BOX
 
-Immediately after the introduction, include: estimated answer or range, key variables, a typical ${marketLine} scenario, an important caveat, and a recommended approach. Every bullet must be understandable without reading the rest of the article.
+Immediately after the introduction, include: estimated answer or range, key variables, a typical scenario in ${marketLine}, an important caveat, and a recommended approach. Every bullet must be understandable without reading the rest of the article.
 
 4. LOCAL SPECIFICITY
 
@@ -160,11 +160,11 @@ At least one table that directly helps answer the search query. Ranges for prici
 
 7. INCLUDE A "WHAT AFFECTS THE ANSWER?" SECTION
 
-For each main variable: what it is, why it matters, its likely impact, and a ${marketLine} example. No vague statements.
+For each main variable: what it is, why it matters, its likely impact, and an example from ${marketLine}. No vague statements.
 
 8. PROVIDE A REALISTIC EXAMPLE
 
-A realistic ${marketLine} business scenario, hypothetical and labelled as such, showing how the recommendation, budget or timeline changes for it. State clearly that the example is illustrative.
+A realistic business scenario in ${marketLine}, hypothetical and labelled as such, showing how the recommendation, budget or timeline changes for it. State clearly that the example is illustrative.
 
 9. DISTINGUISH FACT FROM EXPERIENCE
 

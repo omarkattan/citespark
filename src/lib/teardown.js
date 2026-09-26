@@ -133,12 +133,15 @@ export function readStructure(html, question = '') {
 
 /* ---------------- the explanation ---------------- */
 
-const SYSTEM = `You explain why an AI assistant cited a particular page, and what the reader should change on their own site.
+const SYSTEM = `You inspect a page cited by an AI assistant and suggest changes worth testing on the reader's site. You cannot know the engine's reason for selecting the page.
 
 You will be given the question that was asked, a structural summary of the page that was cited, and what kind of source it is.
 
 Rules:
-- Ground every claim in the structural evidence provided. If the evidence does not support a reason, say the page shows no obvious structural advantage and the citation likely reflects the domain's authority.
+- Separate observed page features from possible explanations. Never claim that a feature, schema, domain authority or a wording change caused or guarantees a citation. If the reason is unknown, say so.
+- Check whether the page answers the question. If it is unrelated, recommend reviewing the question and citation before copying the page or doing outreach.
+- The reader's page has not been inspected. Never claim it lacks a feature. Ask the reader to check it first.
+- Use the exact owned brand and domain supplied. Do not invent another spelling or domain. Prefer "your site" when naming the brand is unnecessary.
 - Never suggest getting listed on a competitor's own website. Where the source is a competitor, the advice is to match what earned the citation, not to seek inclusion.
 - Be specific and concrete. "Add an H2 that asks the question verbatim and answer it in the first 50 words" beats "improve your content".
 - Prefer three good actions over six vague ones.
@@ -188,7 +191,7 @@ function parseExplanation(raw) {
   return null;
 }
 
-export async function explainCitation({ question, url, kind, structure, ownBrand }) {
+export async function explainCitation({ question, url, kind, structure, ownBrand, ownDomain }) {
   const summary = [
     `Question asked: ${question}`,
     `Cited page: ${url}`,
@@ -210,7 +213,8 @@ export async function explainCitation({ question, url, kind, structure, ownBrand
     ``,
     `Page text: ${structure.excerpt}`,
     ``,
-    ownBrand ? `The reader's brand is ${ownBrand}.` : ''
+    ownBrand ? `Exact owned brand: ${ownBrand}.` : '',
+    ownDomain ? `Exact owned domain: ${ownDomain}. Do not substitute another domain.` : ''
   ].join('\n');
 
   const raw = await complete(summary, { system: SYSTEM, maxTokens: 1800 });
@@ -220,7 +224,7 @@ export async function explainCitation({ question, url, kind, structure, ownBrand
   // One retry with the shape spelled out, then give up on the model.
   const retry = await complete(
     `${summary}\n\nRespond with a single JSON object and nothing else, in exactly this shape:\n{"why":["...","...","..."],"actions":[{"do":"...","because":"..."}],"confidence":"medium"}`,
-    { maxTokens: 1800 }
+    { system: SYSTEM, maxTokens: 1800 }
   );
   return parseExplanation(retry);
 }
@@ -238,21 +242,21 @@ export function deterministicExplanation(structure, kind) {
   const s = structure;
 
   if (s.headingsMatchingQuestion?.length) {
-    why.push(`It asks the question back as a heading: "${s.headingsMatchingQuestion[0]}". Engines strongly favour a page that visibly addresses the exact question.`);
+    why.push(`It asks the question back as a heading: "${s.headingsMatchingQuestion[0]}". This shows topical alignment; it does not establish why the engine cited it.`);
     actions.push({
       do: `Add an H2 to your matching page that states the question almost verbatim, then answer it in the following 40 to 60 words.`,
-      because: 'This page does exactly that, and it is the single most repeatable feature of cited pages.'
+      because: 'This is an observed feature of this page. Check whether the same structure would help your readers.'
     });
   } else {
     actions.push({
       do: 'Add a heading that states the question and answer it immediately beneath.',
-      because: 'Neither this page nor yours does it, so it is available to whoever moves first.'
+      because: 'No matching heading was found on the cited page. Check your own page before deciding whether this change is useful.'
     });
   }
 
   if (s.hasFaqSchema) {
     why.push('It carries FAQ structured data, which makes the question and answer pairs machine-readable rather than something to infer from prose.');
-    actions.push({ do: 'Add FAQPage schema covering the questions you want to win.', because: 'The cited page has it and yours can too, at no editorial cost.' });
+    actions.push({ do: 'Add FAQPage schema covering the questions you want to win.', because: 'The cited page has it. Only use appropriate markup for visible content; this is not a promise of AI citations.' });
   }
   if (s.hasReviewSchema) {
     why.push('It exposes review or rating markup, which reads as third-party corroboration.');
@@ -263,27 +267,27 @@ export function deterministicExplanation(structure, kind) {
   }
   if (s.tables > 0) {
     why.push(`It contains ${s.tables} table${s.tables === 1 ? '' : 's'}. Tabular comparisons are easy to extract and hard to paraphrase from memory.`);
-    actions.push({ do: 'Add a comparison table with the criteria a buyer actually weighs.', because: 'Tables are among the most reliably quoted elements on a cited page.' });
+    actions.push({ do: 'Add a comparison table with the criteria a buyer actually weighs.', because: 'The cited page uses tables. Consider one only if it helps answer the buyer\'s question.' });
   }
   if (s.statMentions >= 3) {
-    why.push(`It quotes ${s.statMentions} specific figures or prices. Concrete numbers are the thing an engine cannot invent, so it cites the source.`);
-    actions.push({ do: 'Put real figures on the page: prices, ranges, timeframes, sample sizes.', because: 'A page with numbers gets cited; a page of adjectives gets paraphrased.' });
+    why.push(`It quotes ${s.statMentions} specific figures or prices. This is an observed page feature, not proof of the reason for its citation.`);
+    actions.push({ do: 'Put real figures on the page: prices, ranges, timeframes, sample sizes.', because: 'Use sourced numbers where they answer the question. Their presence does not guarantee a citation.' });
   }
   if (s.hasAuthor) why.push('It names an author, which contributes to how trustworthy the page reads.');
   if (s.publishedOrUpdated) {
     why.push(`It states a date of ${String(s.publishedOrUpdated).slice(0, 10)}, so freshness is verifiable rather than assumed.`);
     if (!actions.some((a) => /date/i.test(a.do))) {
-      actions.push({ do: 'Show a visible last-updated date and keep it honest.', because: 'Undated pages lose to dated ones on questions where recency matters.' });
+      actions.push({ do: 'Show a visible last-updated date and keep it honest.', because: 'A truthful date helps readers assess freshness; it does not establish a citation advantage.' });
     }
   }
 
   if (!why.length) {
-    why.push('The page shows no obvious structural advantage. The citation most likely reflects the authority of the domain rather than anything on the page itself.');
+    why.push('No clear structural explanation was found. The reason for the citation is unknown.');
     actions.push({
       do: kind === 'competitor'
-        ? 'Treat this as a brand and corroboration problem rather than a content one: earn mentions on the sources this engine already trusts.'
-        : 'Focus on being cited by the sources this engine already reads, rather than on rewriting this page.',
-      because: 'Nothing on the page explains the citation, so matching its structure will not close the gap.'
+        ? 'Review whether this competitor page answers the question before deciding on a content or outreach task.'
+        : 'Check whether this cited page is relevant to the question before deciding what action to take.',
+      because: 'The available page evidence does not support a specific explanation or guaranteed improvement.'
     });
   }
 
@@ -331,13 +335,29 @@ function structureFromRendered(r = {}, question = '') {
 
 /* ---------------- orchestration ---------------- */
 
-export async function teardown({ url, question, kind, ownBrand, useCache = true }) {
+// Page advice depends on the owned brand, not just the cited URL. Version the
+// interpretation so old object-shaped classifications and advice are not reused.
+export function teardownContext({ kind, ownBrand, ownDomain }) {
+  const value = typeof kind === 'string' ? kind : kind?.kind;
+  const allowed = ['unknown', 'own', 'competitor', 'directory', 'community', 'reference', 'publisher', 'editorial'];
+  return {
+    version: 2,
+    kind: allowed.includes(value) ? value : 'unknown',
+    ownBrand: String(ownBrand || '').trim(),
+    ownDomain: String(ownDomain || '').trim().toLowerCase()
+  };
+}
+
+export async function teardown({ url, question, kind, ownBrand, ownDomain, useCache = true }) {
+  const context = teardownContext({ kind, ownBrand, ownDomain });
+  kind = context.kind;
   if (useCache) {
     const cached = await one(
       `SELECT result FROM page_teardowns
-       WHERE url = $1 AND question = $2 AND created_at > now() - interval '30 days'
+       WHERE url = $1 AND question = $2 AND result->'context' = $3::jsonb
+         AND created_at > now() - interval '30 days'
        ORDER BY created_at DESC LIMIT 1`,
-      [url, question]
+      [url, question, JSON.stringify(context)]
     );
     if (cached?.result) return { ...cached.result, cached: true };
   }
@@ -354,13 +374,14 @@ export async function teardown({ url, question, kind, ownBrand, useCache = true 
     ? readStructure(page.html, question)
     : structureFromRendered(page.structured, question);
 
-  const modelled = await explainCitation({ question, url, kind, structure, ownBrand });
+  const modelled = await explainCitation({ question, url, kind, structure, ownBrand, ownDomain });
   const explanation = modelled || deterministicExplanation(structure, kind);
 
   const result = {
     ok: true,
     url,
     kind,
+    context,
     structure: {
       // keep the page text out of what we store and return
       ...structure,
@@ -399,6 +420,7 @@ export async function teardownTopCited(projectId, { limit = 5, cycle = null } = 
   if (!day) return { torn: 0, pages: [], reason: 'Nothing measured yet.' };
 
   const own = String(project.domain || '').replace(/^www\./, '').toLowerCase();
+  const rivals = await many("SELECT domain FROM entities WHERE project_id = $1 AND kind = 'competitor'", [projectId]);
 
   // Most cited first, our own pages excluded: the question is what everyone
   // else is doing that gets them quoted.
@@ -424,8 +446,9 @@ export async function teardownTopCited(projectId, { limit = 5, cycle = null } = 
       const result = await teardown({
         url: p.url,
         question: p.question,
-        kind: classifySource(p.domain, { ownDomain: own }),
-        ownBrand: project.brand_name
+        kind: classifySource(p.domain, { ownDomain: own, competitorDomains: rivals.map((r) => r.domain) }).kind,
+        ownBrand: project.brand_name,
+        ownDomain: project.domain
       });
       done.push({ url: p.url, citations: p.citations, ok: Boolean(result && !result.error) });
     } catch (err) {

@@ -807,7 +807,7 @@ app.post('/api/projects/:id/teardown', requireAuth, wrap(async (req, res) => {
   });
 
   try {
-    const result = await teardown({ url, question, kind, ownBrand: project.brand_name });
+    const result = await teardown({ url, question, kind, ownBrand: project.brand_name, ownDomain: project.domain });
     if (!result.ok) return res.status(422).json(result);
     res.json(result);
   } catch (err) {
@@ -3511,6 +3511,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
+    release: '20260926-trust-1',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

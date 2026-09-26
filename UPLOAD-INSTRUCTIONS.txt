@@ -1,0 +1,86 @@
+CITED - FIXES BATCH 1
+Release: 20260926-trust-1
+Prepared: 26 September 2026
+
+WHAT TO DRAG INTO GITHUB
+
+Unzip Cited-Fixes-Batch-1.zip. Open the extracted Cited-Fixes-Batch-1 folder.
+Drag ONLY its two folders, src and scripts, together into GitHub's Upload files page.
+Start at the repository ROOT, where package.json, src and scripts are visible.
+
+Do not upload the ZIP itself. Do not drag the outer Cited-Fixes-Batch-1 folder.
+Do not open GitHub's src folder first: that would risk creating src/src.
+The src folder in this package contains only changed files. Existing files in the
+repository remain in place; do not delete or replace the whole repository folder.
+
+STEP BY STEP
+
+1. Open https://github.com/omarkattan/citespark
+2. At the repository root, select Add file > Upload files.
+3. Drag the extracted src and scripts folders into the upload area together.
+4. Confirm all EIGHT paths below are preserved. If GitHub displays only basenames,
+   inspect the proposed changes on a new branch before merging. Do not proceed
+   with root-level app.js, brief.js, teardown.js or server.js.
+5. Use commit message: Fix first-use measurement copy and source analysis
+6. Prefer Create a new branch, name it fixes/first-use-trust-1, then Propose changes.
+7. On the pull request, check Files changed against the eight paths below and
+   merge when correct. If you choose a direct main commit instead, check paths
+   carefully first; that may trigger Render deployment immediately.
+8. Wait for Render service srv-d9nin8m to finish deploying the new main commit.
+9. Tell me it is deployed so I can check the live release and behaviour.
+
+EXPECTED PATHS (not eight files at the repository root)
+
+src/jobs/runCycle.js
+src/lib/brief.js
+src/lib/teardown.js
+src/public/app.js
+src/public/index.html
+src/server.js
+scripts/test.js
+scripts/test-first-use-fixes.js
+
+Seven existing files are updated. One new regression-test file is added.
+All eight should be in one commit. No settings, secrets, database changes or
+new npm packages are required by this batch.
+
+IF FOLDER UPLOAD DOES NOT PRESERVE PATHS
+
+Cancel the pending upload. Do not commit flattened files. The same files can be
+uploaded one directory at a time on a NEW BRANCH, starting in each exact matching
+GitHub directory. Merge that branch only after all eight paths are present.
+This avoids deploying a partly uploaded batch.
+
+DEPLOYMENT CHECK
+
+The public /api/version response should contain release: 20260926-trust-1.
+Its commit should match your new GitHub commit. That is a server marker only.
+The loaded HTML should reference /app.js?v=20260926-trust-1, and the live app.js
+hash should match MANIFEST.json. The file manifest also supports Render shell
+checks if we need to verify every backend file rather than just the release marker.
+
+In the app:
+- Questions show readable topic names and 'demand unverified'.
+- Source analysis renders a source type without [OBJECT OBJECT].
+- Source analysis no longer presents a 'high confidence' causal badge.
+- Raw answers describe the provider/API collection method.
+- Briefs do not present stored demand estimates as measured monthly volume.
+- First-run progress shows 'Measurement in progress'.
+- Newly created sites open Questions for review.
+
+BASELINE AND ROLLBACK
+
+This package is based on GitHub main commit:
+332463930a5ec3ab2ad313b760a59dbf263207a8
+
+At preparation, GitHub and the uploaded originals matched for every changed
+existing file. Live app.js matched byte for byte. Live /api/version reported
+commit 3324639. Backend files were not read from the Render filesystem.
+
+If main has changed since this package was prepared, have the files rebased before
+uploading; otherwise full-file uploads could overwrite newer work.
+If rollback is necessary, revert this upload/merge commit and redeploy. No data
+migration or historical measurement recount is part of this release.
+
+Official folder-upload guidance:
+https://docs.github.com/en/repositories/working-with-files/managing-files/adding-a-file-to-a-repository

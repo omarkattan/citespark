@@ -1106,7 +1106,8 @@ await test('a teardown produces real advice with no model at all', async () => {
   // And a page with nothing notable must say so rather than invent a reason.
   const bare = td.readStructure('<html><head><title>Home</title></head><body><p>We are a company.</p></body></html>', q);
   const d2 = td.deterministicExplanation(bare, 'competitor');
-  assert.ok(/no obvious structural advantage/i.test(d2.why[0]));
+  assert.ok(/reason for the citation is unknown/i.test(d2.why[0]));
+  assert.ok(!/domain.s authority/i.test(d2.why[0]), 'missing evidence must not become a guessed cause');
   assert.equal(d2.confidence, 'low');
   assert.ok(d2.actions.length >= 1, 'even then, say what to do instead');
 });
@@ -3408,9 +3409,10 @@ await test('the answer panel explains why a manual check differs', async () => {
   // Everyone checks a surprising result by asking the engine themselves and
   // finds a different answer. Without this the tool looks broken when it is
   // measuring the thing it says it measures.
-  assert.ok(/fresh, signed-out session/.test(app), 'the panel must say what was measured');
+  assert.ok(/Assistant results use API measurements/.test(app), 'the panel must identify the collection method');
   assert.ok(/history, saved memories and location/.test(app), 'and why a personal check differs');
-  assert.ok(/only this one describes what a stranger sees/.test(app), 'without implying the customer is wrong');
+  assert.ok(/not recordings of a signed-out consumer chat session/.test(app), 'must not claim consumer-session equivalence');
+  assert.ok(!/only this one describes what a stranger sees/.test(app), 'must not generalise one sample to every buyer');
 });
 
 await test('a truncated answer cannot support "not named"', async () => {

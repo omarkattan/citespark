@@ -298,22 +298,25 @@ function renderTeardown(d) {
   ].filter(Boolean);
 
   const ex = d.explanation;
+  // Older cached analyses stored the classifier object instead of its label.
+  const sourceKind = typeof d.kind === 'string' ? d.kind : d.kind?.kind || 'unknown';
   return `
     <div class="teardown-head">
-      <span class="tag">${esc(d.kind)}</span>
+      <span class="tag">${esc(sourceKind)}</span>
       ${d.cached ? '<span class="tag">from cache</span>' : ''}
-      ${ex?.confidence ? `<span class="tag">${esc(ex.confidence)} confidence</span>` : ''}
+      <span class="tag">interpretation, not a proven cause</span>
       <a class="tag" href="${esc(d.url)}" target="_blank" rel="noopener">open page</a>
     </div>
+    <p class="hint">These are observations and suggestions to check. A citation does not tell us why the engine selected this page. Your own page has not been compared here.</p>
 
     ${signals.length ? `<p class="teardown-label">What the page has</p><div class="chips">${signals.map((s) => `<span class="chip">${esc(s)}</span>`).join('')}</div>` : ''}
     ${st.headingsMatchingQuestion?.length ? `<p class="teardown-label">Headings that answer the question</p>
       <div class="chips">${st.headingsMatchingQuestion.map((h) => `<span class="chip dashed">${esc(h)}</span>`).join('')}</div>` : ''}
 
-    ${ex?.why?.length ? `<p class="teardown-label">Why it was probably cited</p>
+    ${ex?.why?.length ? `<p class="teardown-label">Page observations and possible explanations</p>
       <ul class="teardown-list">${ex.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
 
-    ${ex?.actions?.length ? `<p class="teardown-label">What to do on your page</p>
+    ${ex?.actions?.length ? `<p class="teardown-label">Changes to consider after checking relevance</p>
       <ul class="teardown-list actions">${ex.actions.map((a) => `<li><b>${esc(a.do)}</b><span>${esc(a.because)}</span></li>`).join('')}</ul>` : ''}
 
     ${st.partial ? '<p class="hint">Read through our renderer because the page blocks direct requests, so schema and table detection were unavailable.</p>' : ''}
@@ -890,7 +893,7 @@ async function viewQuestions() {
           <p class="prompt-q">${esc(asked)}</p>
           ${p.persona ? `<div class="asked-as" title="${esc(p.personaDescriptor || '')}"><span>asked as</span> ${esc(p.persona)}</div>` : ''}
           <div class="prompt-tags">
-            ${esc(p.cluster)} &middot; ${esc(p.intent)} &middot; est. AI volume <b>${p.volume ?? '-'}</b>
+            ${esc(p.cluster?.replace(/[_-]/g, ' '))} &middot; ${esc(p.intent)} &middot; <span title="Stored demand estimates do not have a verified source attached. They are not measured monthly question counts.">demand unverified</span>
             ${p.active ? '' : ' &middot; <span class="paused">paused</span>'}
           </div>
           ${p.measured ? runStrip(p.runs) : '<div class="notrun">not asked yet, it will run on the next cycle</div>'}
@@ -1034,7 +1037,7 @@ async function viewQuestions() {
                 <select id="qcluster" data-select-group="cluster">
                   <option value="all">Everything</option>
                   ${clusters
-                    .map((c) => `<option value="${esc(c)}">${esc(c.replace(/-/g, ' '))} (${count((p) => p.cluster === c)})</option>`)
+                    .map((c) => `<option value="${esc(c)}">${esc(c.replace(/[_-]/g, ' '))} (${count((p) => p.cluster === c)})</option>`)
                     .join('')}
                 </select>
               </span>`
@@ -1056,10 +1059,10 @@ async function viewQuestions() {
         <span class="qpick">
           <label for="qsort">Sort</label>
           <select id="qsort">
-            <option value="opportunity">Biggest opportunity</option>
+            <option value="opportunity">Suggested priority</option>
             <option value="rate-asc">Least visible first</option>
             <option value="rate-desc">Most visible first</option>
-            <option value="volume">Most asked first</option>
+            <option value="volume">Stored demand estimate (unverified)</option>
             <option value="az">A to Z</option>
           </select>
         </span>
@@ -1072,7 +1075,8 @@ async function viewQuestions() {
       <div class="spacer"></div>
       <span class="meta" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">filled tick = you were named</span>
     </div>
-    ${waiting ? `<p class="hint" style="margin:0 0 12px">${waiting} question${waiting === 1 ? ' has' : 's have'} not been asked yet. Run a cycle to measure ${waiting === 1 ? 'it' : 'them'}.</p>` : ''}
+    ${waiting ? `<p class="hint" style="margin:0 0 12px">${waiting} question${waiting === 1 ? ' has' : 's have'} not been asked yet. Review the questions for relevance before starting a measurement. You can edit the question set in <button class="ghost" data-goto-setup>Setup</button>.</p>` : ''}
+    <p class="hint">Suggested priority uses visibility and stored demand estimates. Those estimates may be generated or imported; their source is not verified here. They are not measured monthly AI question counts.</p>
     ${
       byPersona?.rows?.length > 1
         ? `<div class="panel" style="margin-bottom:16px">
@@ -1575,6 +1579,10 @@ document.addEventListener('click', async (e) => {
 async function renderFigures() {
   const o = state.overview;
   if (!o || !o.cycle) {
+    if (state.measurementRunning) {
+      $('figures').innerHTML = `<div class="figure" style="flex:1"><div class="label">Status</div><div class="value dim">Measurement in progress</div><div class="sub">Answers and actions will appear when this measurement finishes.</div></div>`;
+      return;
+    }
     /**
      * An instruction to press something should be the thing, or at least say
      * where it is. "Press run cycle" sent a first-time user hunting the
@@ -1928,6 +1936,11 @@ const ENGINE_LABEL = {
  * whether the brand came back named, turns the wait into the product.
  */
 function showProgress(phase, done, total, recent = []) {
+  state.measurementRunning = true;
+  if (!state.overview?.cycle) {
+    $('brandDek').textContent = 'Your first measurement is in progress. The status above shows what is happening.';
+    renderFigures();
+  }
   $('cycleBar').hidden = false;
   $('cycleLabel').textContent = PHASE_LABEL[phase] || 'Working';
   $('cycleCount').textContent = total ? `${done} of ${total} answers` : '';
@@ -1962,6 +1975,11 @@ function showProgress(phase, done, total, recent = []) {
 }
 
 function hideProgress() {
+  state.measurementRunning = false;
+  if (!state.overview?.cycle) {
+    $('brandDek').textContent = 'No completed measurement yet. Review your questions, then start a measurement.';
+    renderFigures();
+  }
   $('cycleBar').hidden = true;
   $('cycleFill').style.width = '0%';
   if ($('cycleFeed')) {
@@ -2474,8 +2492,8 @@ document.addEventListener('click', async (e) => {
         </div>
         <pre style="margin:0;padding:12px 14px;max-height:420px;overflow:auto;white-space:pre-wrap;font-size:11.5px;line-height:1.6;font-family:var(--mono)">${esc(text)}</pre>
         <div style="padding:8px 12px;border-top:1px solid var(--line);font-size:11px;color:var(--ink-3)">
-          Paste it into Claude or ChatGPT to draft the article. The pages to beat are listed at the top,
-          and the two [EDIT: ...] markers are yours to fill.
+          Review the question and cited pages first. Complete the [fill] fields and any [EDIT: ...] markers
+          with verified business information before using this brief in Claude or ChatGPT.
         </div>`;
       brief.closest('.q-actions')?.after(box);
       brief.textContent = 'Hide brief';
@@ -2927,10 +2945,10 @@ document.addEventListener('click', async (e) => {
       : (window.COUNTRIES.find(([c]) => c === proj.market)?.[1] || proj.market || 'your market');
 
     const preamble = `<p class="hint" style="margin:0 0 10px">
-      This is what the engine returned to a fresh, signed-out session in ${esc(askedFrom)}.
-      Asking the same question in your own account can differ: your history, saved memories and location all shape
-      what comes back, and a brand you have been researching is far more likely to appear. Neither answer is wrong,
-      but only this one describes what a stranger sees.
+      These are provider-collected answers. Assistant results use API measurements; Google AI results use search-result collection.
+      This project's configured market/location is ${esc(askedFrom)}; location support varies by engine.
+      These are not recordings of a signed-out consumer chat session. Your own results can differ with the model,
+      collection time, history, saved memories and location. Treat this as a defined sample, not every buyer's experience.
     </p>`;
 
     box.innerHTML = preamble + (d?.runs || [])
@@ -3780,7 +3798,7 @@ async function viewSetup() {
       (q) => `<div class="row ${q.active ? '' : 'off'}" data-filter-text="${esc(`${q.text} ${q.cluster} ${q.intent}`.toLowerCase())}">
         <div class="grow">
           <div class="name">${esc(q.text)}</div>
-          <div class="sub">${esc(q.cluster)} &middot; ${esc(q.intent)} &middot; volume ${q.ai_search_volume}</div>
+          <div class="sub">${esc(q.cluster?.replace(/[_-]/g, ' '))} &middot; ${esc(q.intent)} &middot; demand unverified</div>
         </div>
         <button class="ghost" data-toggle-prompt="${q.id}" data-active="${q.active}">${q.active ? 'Pause' : 'Resume'}</button>
         <button class="ghost" data-del-prompt="${q.id}">Delete</button>
@@ -4860,7 +4878,8 @@ $('siteSave').addEventListener('click', async () => {
     if (!res.ok) throw new Error(json.error || 'Could not create the site');
     $('siteDialog').close();
     await loadProjectList(json.project.id);
-    document.querySelector('.tab[data-view="setup"]').click();
+    document.querySelector('.tab[data-view="questions"]').click();
+    toast('Your questions are ready. Review their relevance before the first measurement.');
   } catch (err) {
     $('siteError').textContent = err.message;
   } finally {
