@@ -25,13 +25,11 @@ export const DEMAND_WINDOW_DAYS = 90;
 export const GAP_MIN_IMPRESSIONS = 500;
 
 export const DEMAND_METHOD =
-  `Impressions and clicks come from the connected search consoles over the last ${DEMAND_WINDOW_DAYS} days. ` +
-  'The AI named rate comes from the most recent measurement cycle. They are shown side by side, never combined: ' +
-  'one counts searches, the other counts answers. A GSC query is matched to a topic when it shares at least one ' +
-  'meaningful word with any of the questions in that topic — so "what activities can I do in Hatta" would match ' +
-  'the activities topic even if the topic is labelled with an internal name. Impressions are summed across every ' +
-  'matching query, so looking up one query on its own in Search Console will show a smaller number. ' +
-  'Queries matching no topic are left out, which understates demand rather than inventing it.';
+  `Search impressions and clicks cover the last ${DEMAND_WINDOW_DAYS} days of connected console data. ` +
+  'AI visibility uses measured answers from the latest cycle. These are different clocks and denominators, never combined. ' +
+  'Candidate query matches use case-insensitive substring overlap with any topic or question token longer than two characters. ' +
+  'This broad rule can match common words and unrelated intent. Impressions are summed across every matching query, not unique people or AI questions. ' +
+  'A query can match multiple topics, so topic totals must not be added together. Queries matching no topic are left out. Review query examples before acting.';
 
 /**
  * Match GSC queries against a cluster.
@@ -115,6 +113,7 @@ export async function demandByCluster(projectId, queries) {
       impressions: hit.length ? impressions : null,
       clicks: hit.length ? clicks : null,
       matchedQueries: hit.length,
+      queryExamples: hit.slice(0, 5).map(q => String(q.query || '')),
       /**
        * Two kinds of row share this table and must not read alike. A cluster
        * imported from a real search query matches itself and reports real

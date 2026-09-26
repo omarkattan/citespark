@@ -2490,12 +2490,13 @@ await test('a rejected request is not blamed on the provider', async () => {
   // The disable button is the thing that must not appear for our own bug.
   // Checking the wording is not enough: the honest copy says "not a reason to
   // switch it off", which contains the word either way.
-  const ourBranch = block.slice(block.indexOf('const ourNote'), block.indexOf('const theirNote'));
-  assert.ok(!/data-goto-setup/.test(ourBranch), 'do not offer to disable a working engine over our bug');
-  assert.ok(/not a reason to switch/i.test(ourBranch), 'and say so plainly');
-
-  const theirBranch = block.slice(block.indexOf('const theirNote'), block.indexOf('const advice'));
-  assert.ok(/data-goto-setup/.test(theirBranch), 'a genuinely broken provider can still be switched off');
+  const vm = await import('node:vm');
+  const h = vm.createContext({esc: value => String(value || '')});
+  vm.runInContext(block, h);
+  const result = error => h.failureNote({attempted:10,failed:[{engine:'chatgpt',count:10,rate:1,mostlyBroken:true,error}]});
+  assert.ok(!/data-goto-setup/.test(result('Invalid Field')), 'invalid requests do not recommend disabling an engine');
+  assert.ok(!/data-goto-setup/.test(result('rate limit')), 'rate limits do not recommend disabling an engine');
+  assert.ok(/data-goto-setup/.test(result('Internal server error')), 'persistent provider errors still offer settings');
 });
 
 console.log('\ncycle progress');
@@ -4136,8 +4137,8 @@ await test('demand and visibility sit beside each other, never summed', async ()
   // would have no referent. And the match rule is stated so any row can be
   // checked by hand.
   assert.ok(/Side by side, never\n \* summed/.test(d) || /never[\s\S]{0,12}summed/.test(d), 'the rule is written where the code is');
-  assert.ok(/words\.every\(\(w\) => text\.includes\(w\)\)/.test(d), 'the match rule is literal and checkable');
-  assert.ok(/understates demand rather than inventing it/.test(d), 'unmatched demand is dropped, not guessed');
+  assert.ok(/words\.some\(\(w\) => qText\.includes\(w\)\)/.test(d), 'the match rule is literal and checkable');
+  assert.ok(/common words and unrelated intent/.test(d), 'the broad matching rule discloses false positives');
   assert.ok(/rate: c\.measured \? c\.named \/ c\.measured : null/.test(d), 'absent stays distinct from zero');
   // Two row types share the table: clusters named from real queries, which
   // report real demand, and generator-vocabulary names that can never match
@@ -4146,7 +4147,7 @@ await test('demand and visibility sit beside each other, never summed', async ()
   assert.ok(/measurable: hit\.length > 0/.test(d), 'and the row says which kind it is');
   assert.ok(/no matching queries/.test(app), 'which the table states in words');
   // An instruction to go somewhere should be the way of going there.
-  assert.ok(/data-goto-setup style=/.test(app), 'the not-connected state offers a button, not prose directions');
+  assert.ok(/data-open-gsc style=/.test(app), 'the not-connected state offers a button, not prose directions');
 });
 
 await test('figures a client might screenshot explain themselves', async () => {

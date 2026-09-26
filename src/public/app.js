@@ -1340,14 +1340,14 @@ async function viewSources() {
 function renderDemandRows(rows) {
   return rows
     .map((r) => {
-      const rateVal = r.measurable ? r.rate : null;
-      const rateTxt = rateVal != null ? `${(rateVal * 100).toFixed(0)}%` : '-';
+      const rateVal = r.rate;
+      const rateTxt = rateVal != null ? `${(rateVal * 100).toFixed(0)}%` : 'Not measured';
       const isGap = r.measurable && r.impressions > 0 && rateVal != null && rateVal < 0.2;
       return `<tr data-cluster="${esc(r.cluster)}" data-impressions="${r.impressions ?? 0}" data-clicks="${r.clicks ?? 0}" data-rate="${rateVal ?? -1}">
-        <td>${esc(r.cluster)}${!r.measurable ? ` <span class="tag muted" title="Topic name not found in search queries">unmatched</span>` : ''}${isGap ? ` <span class="tag warn">gap</span>` : ''}</td>
+        <td>${esc(r.cluster)}${!r.measurable ? ` <span class="tag muted" title="No matching queries in the retrieved search data">no matching queries</span>` : ''}${isGap ? ` <span class="tag warn">review match</span>` : ''}${r.measurable ? `<div class="hint">from ${r.matchedQueries} quer${r.matchedQueries === 1 ? 'y' : 'ies'} · candidate matches</div>` : ''}${r.queryExamples?.length ? `<details><summary>Inspect query examples</summary><p class="hint">${r.queryExamples.map(esc).join(' · ')}</p><p class="hint">Up to five examples. A text match does not establish the same buyer intent.</p></details>` : ''}</td>
         <td style="text-align:right">${r.measurable ? (r.impressions ?? 0).toLocaleString() : '-'}</td>
         <td style="text-align:right">${r.measurable ? (r.clicks ?? 0).toLocaleString() : '-'}</td>
-        <td style="text-align:right">${rateTxt}</td>
+        <td style="text-align:right">${rateTxt}<div class="hint">${r.measured ? `${r.named} of ${r.measured} measured answers` : 'No measured answers in the latest cycle'}</div></td>
       </tr>`;
     })
     .join('');
@@ -1367,7 +1367,7 @@ function demandSection(d) {
       <div class="panel-head"><h2>Search demand against AI visibility</h2></div>
       <p class="hint">${failed.length
         ? `No console is reporting yet. ${failed.map((f) => `${esc(f.name)}: ${esc(f.error)}`).join('. ')}.
-           <button class="ghost" data-goto-setup style="margin-left:6px">Connect in Setup</button>
+           <button class="ghost" data-open-view="questions" data-open-gsc style="margin-left:6px">Open Search Console connection</button>
            <span style="display:block;margin-top:6px">Impressions and clicks exist nowhere else: they come from the search consoles, not from us and not from Analytics.</span>`
         : 'No topic matched any search query, so there is nothing to show yet. This happens when topic names are internal vocabulary rather than words people type.'}</p>
     </div>`;
@@ -1383,22 +1383,22 @@ function demandSection(d) {
   const unmatchedCount = d.rows.filter((r) => !r.measurable).length;
   return `<div class="panel" id="${panelId}">
     <div class="panel-head panel-head--collapsible" data-collapse-target="${panelId}-body">
-      <h2>Where demand exists but you are not in the answer${helpDot('Two independent sources side by side: real search demand from the search consoles, and AI visibility from the measurement cycles. A topic with heavy search and no AI presence is the clearest case for new content.')}</h2>
+      <h2>Search queries beside AI visibility${helpDot('Two independent sources side by side: real search demand from the search consoles, and AI visibility from the measurement cycles. Query-to-topic matches are broad text matches. Review their intent before using them to prioritise work.')}</h2>
       <button class="panel-collapse-btn" aria-expanded="true" aria-controls="${panelId}-body" title="Collapse section">&#8211;</button>
     </div>
     <div id="${panelId}-body">
       <p class="hint">${esc(d.method)}</p>
       <table class="tbl sortable-tbl" id="${tableId}" style="width:100%" data-rows='${rowData.replace(/'/g, "&#39;")}'>
         <thead><tr>
-          <th data-sort="cluster" data-sort-type="str" class="sort-asc">Topic${helpDot('A group of measured questions on one subject. Topics named from a real search query can be matched to search data; topics named in internal vocabulary cannot, and say so in the next column.')}</th>
+          <th data-sort="cluster" data-sort-type="str" class="sort-asc">Topic${helpDot('A group of measured questions on one subject. Search queries are matched using text from the topic and its questions. An unmatched topic can still have measured AI answers.')}</th>
           <th style="text-align:right" data-sort="impressions" data-sort-type="num">Search impressions${helpDot('How often pages appeared in classic search results for queries on this topic, over the last 90 days, from the connected search consoles. This is the total across EVERY query matching the topic, so looking up one of those queries in Search Console on its own will show a smaller number.')}</th>
-          <th style="text-align:right" data-sort="clicks" data-sort-type="num">Clicks${helpDot('Clicks those impressions produced, over the same 90 days. Zero clicks against high impressions means people saw the listing and chose something else.')}</th>
+          <th style="text-align:right" data-sort="clicks" data-sort-type="num">Clicks${helpDot('Clicks those impressions produced, over the same 90 days. Zero clicks means no clicks were recorded for these matching queries. It does not establish why.')}</th>
           <th style="text-align:right" data-sort="rate" data-sort-type="num">Named in AI answers${helpDot('How often the brand appeared in AI answers to this topic during the most recent measurement cycle. Different window and different denominator from the search columns: one counts searches over 90 days, the other counts answers in one cycle. Never divide one into the other.')}</th>
         </tr></thead>
         <tbody id="${bodyId}">${renderDemandRows(d.rows)}</tbody>
       </table>
-      <p class="hint">Rows marked <span class="tag warn">gap</span> have real search demand and almost no presence in AI answers. They are the ones worth a brief.
-      ${unmatchedCount ? `${unmatchedCount} cluster${unmatchedCount === 1 ? '' : 's'} could not be matched to any search query, usually because the cluster name is internal vocabulary rather than words anyone types. Their AI visibility is still measured; only their demand is unknown.` : ''}
+      <p class="hint">Rows marked <span class="tag warn">review match</span> combine search impressions with low measured AI visibility. Inspect the query examples before treating this as an opportunity. Queries can appear in more than one topic, so do not sum topic totals.
+      ${unmatchedCount ? `${unmatchedCount} cluster${unmatchedCount === 1 ? '' : 's'} could not be matched to any search query, usually because the cluster name is internal vocabulary rather than words anyone types. AI visibility is shown independently wherever answers have been measured. Unmatched search data is unknown, not zero.` : ''}
       ${failed.length ? `Not counted: ${failed.map((f) => `${esc(f.name)} (${esc(f.error)})`).join(', ')}.` : ''}</p>
     </div>
   </div>`;
@@ -2259,7 +2259,7 @@ function failureNote(s) {
   const brokenNote = failing.length
     ? `<br /><br /><b>${failing.map((b) => esc(b.engine)).join(' and ')}</b> ${failing.length === 1 ? 'is' : 'are'} failing most of the time, so ${failing.length === 1 ? 'it is' : 'they are'} adding nothing to your numbers.
        Switch ${failing.length === 1 ? 'it' : 'them'} off under <b>Where we look</b> until the provider is reliable again, and your remaining surfaces will run faster.
-       <button class="ghost" data-goto-setup="1" style="margin-left:6px;padding:4px 9px;font-size:10px">Open Setup</button>`
+       <button class="ghost" data-goto-setup="1" style="margin-left:6px;padding:4px 9px;font-size:10px">Open measurement settings</button>`
     : '';
 
   const theirNote = limitNote + brokenNote;
