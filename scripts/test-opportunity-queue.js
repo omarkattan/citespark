@@ -45,7 +45,7 @@ test('updating an open task retains the expanded queue card and its new status',
  h.replaceCard(2,{...tasks[1],status:'doing'});
  const card=document.querySelector('[data-task="2"]');assert.equal(card.querySelector('.queue-task').open,true);assert.match(card.querySelector('summary').textContent,/In progress/);assert.ok(card.querySelector('[data-status="done"]'));
 });
-test('Overview task cards remain expanded rather than inheriting array indexes as options',()=>{
+test('Task cards require an explicit compact option rather than inheriting array indexes',()=>{
  const {h,document}=harness();document.body.innerHTML=tasks.map(t=>h.taskCard(t)).join('');assert.equal(document.querySelectorAll('.queue-task').length,0);
  assert.doesNotMatch(app,/\.map\(taskCard\)/);
 });

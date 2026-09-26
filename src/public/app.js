@@ -248,24 +248,28 @@ async function viewOverview() {
   const suggested = tasks?.filter(t => !unrelated.includes(t)) || [];
   const measured = Boolean(o.cycle && o.runs > 0 && o.visibility != null);
   const next = scope && Number.isFinite(scope.all) ? `${scope.all} active questions · ${scope.checksAll} answer checks · estimated $${Number(scope.costAll || 0).toFixed(2)}` : 'Review the question count and estimated cost before running.';
+  const openCount = data?.counts && Number.isFinite(data.counts.open) && Number.isFinite(data.counts.doing) ? data.counts.open + data.counts.doing : tasks?.length;
   const cycles = history?.cycles || [];
   const changes = !history || history.error ? 'Trend history could not be loaded.' : cycles.length < 2
     ? (cycles.length ? 'One measurement so far. A second is needed before comparing changes.' : 'No completed measurements yet.')
     : `${cycles.length} measurements available. Open the trend view for the comparable question-and-engine cohort and any measurement-method changes.`;
-  return `<div class="overview-intro"><div><p class="eyebrow">Your next move</p><h2>${measured ? 'Turn the evidence into action' : 'Start with the questions your buyers ask'}</h2>
-    <p>${measured ? `Latest measurement: ${esc(shortDate(o.cycle))}. Review the work below before deciding what to change.` : 'Review your questions and their origins, then measure how AI engines answer them.'}</p></div>
-    <button class="ghost" data-open-view="questions">Review questions</button></div>
-    <div class="overview-summary">
-      <section class="panel"><h3>Where you stand</h3><p class="overview-number">${measured ? pct(o.visibility) : 'Not measured'}</p>
+  return `<div class="overview-intro"><div><p class="eyebrow">Your next move</p><h2>${measured ? 'What needs your attention' : 'Start with the questions your buyers ask'}</h2>
+    <p>${measured ? `Latest measurement: ${esc(shortDate(o.cycle))}. Start with one evidence review below.` : 'Review your questions and their origins, then measure how AI engines answer them.'}</p></div>
+    ${measured && suggested.length ? '<button class="btn" data-overview-next>Review next task</button>' : '<button class="btn" data-open-view="questions">Review questions</button>'}</div>
+    <div class="overview-summary overview-focus">
+      <section class="panel"><h3>What changed</h3><p>${esc(changes)}</p><p class="hint">Compare the same questions and engines before calling a difference a trend.</p><button class="ghost" data-open-view="trends">Review changes over time</button></section>
+      <section class="panel"><h3>What matters</h3><p class="overview-number">${measured ? pct(o.visibility) : 'Not measured'}</p>
         <p class="hint">${measured ? `Named in ${pct(o.visibility)} of ${o.runs} successfully measured answers in the latest cycle. This is your tracked question set, not the whole market.` : 'No measured visibility is available yet.'}</p>
-        <button class="ghost" data-open-view="rivals">Compare tracked brands</button></section>
-      <section class="panel"><h3>What changed?</h3><p>${esc(changes)}</p><p class="hint">Use the trend view to compare the same questions. A change in the question set is not automatically a change in visibility.</p><button class="ghost" data-open-view="trends">Review changes over time</button></section>
-      <section class="panel"><h3>Next measurement</h3><p>${esc(next)}</p><p class="hint">Paused questions are excluded. Running again uses answer checks.</p><button class="ghost" data-start-first-cycle>Review cost and run</button></section>
+        <button class="ghost" data-open-view="answers">Inspect measured answers</button></section>
     </div>
-    <div class="panel-head"><div><h2>What to do next</h2><p class="hint">Up to three tasks to review next. Sources already judged unrelated stay in Opportunities.</p></div>
-      <button class="ghost" data-open-view="actions">All opportunities${tasks ? ` (${tasks.length})` : ''}</button></div>
-    ${tasks === null ? '<div class="notice">The task list could not be loaded. Open Opportunities to try again.</div>' : suggested.length ? suggested.slice(0,3).map(task => taskCard(task)).join('') : `<div class="panel"><h3>${unrelated.length ? 'No other tasks to prioritise' : measured ? 'No open tasks' : 'Review questions before your first run'}</h3><p>${unrelated.length ? 'The remaining source reviews were judged unrelated to their checked questions. They remain available in Opportunities.' : measured ? 'Check completed work in Opportunities, or review your questions before the next measurement.' : 'Add questions manually, use suggestions or connect Google Search Console.'}</p><button class="ghost" data-open-view="${measured ? 'actions' : 'questions'}">${measured ? 'Open opportunities' : 'Open questions'}</button></div>`}
+    <section aria-label="Next actions" id="overviewNext">
+    <div class="panel-head"><div><h2>What to do next</h2><p class="hint">${openCount != null ? `${openCount} open task${openCount === 1 ? '' : 's'}. ` : ''}Review one task at a time. This shortlist follows the work queue order; it does not predict improvement.</p></div>
+      <button class="ghost" data-open-view="actions">All opportunities${openCount != null ? ` (${openCount})` : ''}</button></div>
+    <p class="hint">A completed task records work done. A later measurement is needed to assess visibility changes.</p>
+    ${tasks === null ? '<div class="notice">The task list could not be loaded. Open Opportunities to try again.</div>' : suggested.length ? suggested.slice(0,3).map(task => taskCard(task, true)).join('') : `<div class="panel"><h3>${unrelated.length ? 'No other tasks to prioritise' : measured ? 'No open tasks' : 'Review questions before your first run'}</h3><p>${unrelated.length ? 'The remaining source reviews were judged unrelated to their checked questions. They remain available in Opportunities.' : measured ? 'Check completed work in Opportunities, or review your questions before the next measurement.' : 'Add questions manually, use suggestions or connect Google Search Console.'}</p><button class="ghost" data-open-view="${measured ? 'actions' : 'questions'}">${measured ? 'Open opportunities' : 'Open questions'}</button></div>`}
     ${unrelated.length ? `<p class="hint">${unrelated.length} source review${unrelated.length === 1 ? ' was' : 's were'} left out of this shortlist because the checked page and question appeared unrelated. Nothing was dismissed or deleted. <button class="ghost" data-open-view="actions">View all opportunities</button></p>` : ''}
+    </section>
+    <details class="panel fold overview-measurement"><summary>Plan the next measurement</summary><p>${esc(next)}</p><p class="hint">Paused questions are excluded. Running again uses answer checks.</p><button class="ghost" data-open-view="questions">Review questions</button> <button class="ghost" data-start-first-cycle>Review cost and run</button></details>
     <div class="overview-footer"><button class="ghost" data-open-view="assigned">See assigned work</button>
       <a class="ghost" href="/api/projects/${state.projectId}/report?print=1" target="_blank" rel="noopener">Open client report</a>
       <span class="hint">Choose report dates in Opportunities.</span></div>`;
@@ -2033,6 +2037,11 @@ document.querySelectorAll('[data-section]').forEach(button => {
   });
 });
 document.addEventListener('click', async event => {
+  if (event.target.closest('[data-overview-next]')) {
+    const task = $('overviewNext')?.querySelector('.queue-task');
+    if (task) { task.open = true; task.querySelector('summary')?.focus(); task.scrollIntoView({block: 'start', behavior: 'smooth'}); }
+    return;
+  }
   const button = event.target.closest('[data-open-view]');
   if (!button || !VIEW_SECTION[button.dataset.openView]) return;
   state.view = button.dataset.openView;
@@ -3992,7 +4001,7 @@ function replaceCard(id, task) {
   if (!card) return;
   const wrapper = document.createElement('div');
   const expanded = card.querySelector('.queue-task')?.open;
-  wrapper.innerHTML = taskCard(task, state.view === 'actions');
+  wrapper.innerHTML = taskCard(task, ['actions', 'overview'].includes(state.view));
   if (expanded && wrapper.querySelector('.queue-task')) wrapper.querySelector('.queue-task').open = true;
   card.replaceWith(wrapper.firstElementChild);
   refreshTaskCounts();
