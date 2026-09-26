@@ -105,6 +105,23 @@ for (const size of [0,1,21]) test(`complete Questions screen renders ${size} que
  vm.runInContext(slice('function searchBox(', '/* ---------- search console import'),h);
  document.body.innerHTML=await h.viewQuestions();h.applyQuestionView();
  assert.equal(document.querySelectorAll('.prompt').length,size);
+ assert.equal(document.querySelector('#questionAdd').open,false);
+ assert.equal(document.querySelector('.question-filters').open,false);
+ assert.ok(document.querySelector('.question-list-panel').compareDocumentPosition(document.querySelector('#questionAdd')) & 4);
+ assert.equal(document.getElementById('qBulk').hidden,true);
+ assert.ok(document.getElementById('qBulk').contains(document.getElementById('qSelShown')));
+ for(const row of document.querySelectorAll('.prompt')) {
+  assert.equal(row.querySelector('.question-more').open,false);
+  assert.ok(row.querySelector('.question-more [data-brief]'));
+  assert.ok(row.querySelector('[data-qsel]'));
+  if(row.querySelector('[data-see-answer]'))assert.equal(row.querySelector('.question-more').contains(row.querySelector('[data-see-answer]')),false);
+ }
+ let scrolled=false;document.getElementById('questionAdd').scrollIntoView=()=>scrolled=true;
+ const handlerStart=app.indexOf("document.addEventListener('click', async event => {\n  if (event.target.closest('[data-question-add]'))");
+ vm.runInContext(app.slice(handlerStart,app.indexOf("$('projectPicker').addEventListener",handlerStart)),h);
+ document.querySelector('[data-question-add]').click();
+ assert.equal(document.getElementById('questionAdd').open,true);assert.equal(document.activeElement.id,'q_text');assert.equal(scrolled,true);
+
  assert.match(document.querySelector('#gscPanel summary').textContent,/sandstormdigital.com/);
  if(size>1){
   assert.match(document.querySelector('#qcluster').textContent,/seo \(11\)/);
@@ -115,4 +132,11 @@ for (const size of [0,1,21]) test(`complete Questions screen renders ${size} que
   assert.equal(document.querySelectorAll('.prompt:not([hidden])').length,1);
   assert.match(document.querySelector('.prompt:not([hidden])').textContent,/Original GSC query examples/);
  }
+});
+test('bulk controls appear after selecting a question and disappear when cleared',()=>{
+ const {h,document}=harness();document.body.innerHTML='<div id="qBulk" hidden><span id="qBulkCount"></span></div><input type="checkbox" data-qsel="1">';
+ vm.runInContext(slice('function refreshBulkBar()', "document.addEventListener('change'"),h);
+ const checkbox=document.querySelector('input');h.refreshBulkBar();assert.equal(document.getElementById('qBulk').hidden,true);
+ checkbox.checked=true;h.refreshBulkBar();assert.equal(document.getElementById('qBulk').hidden,false);assert.equal(document.getElementById('qBulkCount').textContent,'1 selected');
+ checkbox.checked=false;h.refreshBulkBar();assert.equal(document.getElementById('qBulk').hidden,true);
 });

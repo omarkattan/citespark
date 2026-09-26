@@ -2256,3 +2256,14 @@ a.ans-source:hover { color: var(--accent); text-decoration: underline; }
   #siteDialog { padding: 20px 16px 0; }
   #siteForm > .sheet-foot button { flex: 1; white-space: normal; }
 }
+
+/* Questions: list first, secondary tools on demand. */
+.question-add { scroll-margin-top: 110px; }
+.question-add > summary, .question-filters > summary, .question-more > summary { cursor: pointer; padding: 12px 0; font-size: 13px; }
+.question-add[open] > summary { margin-bottom: 16px; }
+.question-filters { margin-bottom: 12px; }
+.question-more { min-width: 0; }
+.question-more[open] { flex-basis: 100%; }
+.question-more > .q-actions { padding: 10px 0; }
+.question-list-panel .panel-head { flex-wrap: wrap; }
+.question-list-panel .qbulk { flex-wrap: wrap; }

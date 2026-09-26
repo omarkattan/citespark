@@ -1179,9 +1179,7 @@ function gscQuestionPanel(gsc = {}) {
 }
 
 function questionTools(p, scope, gsc = {}) {
-  return `<div class="panel"><div class="panel-head"><h2>Your next measurement</h2><button class="ghost" data-start-first-cycle>Review cost and run</button></div>
-    <p>${scope ? `${scope.all} active questions &middot; ${scope.checksAll} answer checks &middot; estimated $${Number(scope.costAll || 0).toFixed(2)}` : 'Open the run menu to check the current question count and cost.'}</p>
-    <p class="hint">Paused and superseded questions stay in your history and do not run. Pausing a question does not cancel a measurement already in progress.</p></div>
+  return `<details class="panel question-add" id="questionAdd"><summary>Add questions and connect sources</summary>
     <div class="panel"><h2>Add questions</h2><p class="hint">Write a buyer question, start from a topic, use suggestions from your site, or import from the sources below.</p>
       <div class="qcompose question-compose"><input id="q_text" aria-label="Question or topic" placeholder="A buyer question or topic" autocomplete="off" />
       <button id="q_add">Add as written</button><button class="ghost" id="q_topic">Suggest from topic</button><button class="ghost" id="q_generate">Suggest from site</button></div>
@@ -1204,6 +1202,7 @@ function questionTools(p, scope, gsc = {}) {
     </details>
 
     ${gscQuestionPanel(gsc)}
+    </details>
 
 `;
 }
@@ -1248,27 +1247,15 @@ async function viewQuestions() {
             ${p.active ? '' : ' &middot; <span class="paused">paused</span>'}
           </div>
           ${p.measured ? runStrip(p.runs) : `<div class="notrun">${p.active ? 'Not asked yet. Included in the next cycle.' : 'Not asked yet. Paused and excluded from the next cycle.'}</div>`}
-          ${(() => {
-            /**
-             * Actions that look like actions, with the emphasis following the
-             * verdict. These were 10.5px borderless text, indistinguishable
-             * from the metadata line above them: nobody found "Copy article
-             * brief" without being told it existed. And one emphasis for
-             * every row would be wrong too - on a question the brand is
-             * losing, the brief is the point; on one it is winning, reading
-             * the evidence is. The row already knows which it is.
-             */
-            const losing = p.measured && (p.rate || 0) < 0.5;
-            const HELP_STYLE = 'flex:0 0 auto;width:16px;height:16px;border-radius:50%;border:1px solid var(--line);background:none;color:var(--ink-3);font-size:10px;line-height:1;cursor:help;padding:0;margin-left:-4px;';
-            const qh = (text) => `<button type="button" style="${HELP_STYLE}" data-help="${esc(text)}" aria-label="What does this do?">?</button>`;
-            return `<div class="q-actions">
-              ${p.measured ? `<button class="ghost" data-see-answer="${p.id}">Read what each engine said</button>${qh('Opens the stored answers from the last cycle, one per engine, with every source cited as a full clickable address. Free - nothing is re-asked.')}` : ''}
-              <button class="ghost ${losing ? 'q-cta' : ''}" data-brief="${p.id}">See brief for suggested content</button>${qh('Opens the ready-made brief for the article that wins this answer: the question, the exact pages engines currently cite instead of you, related questions for the FAQs, and the full methodology. Read it here, then copy it into Claude or ChatGPT to draft. Free, and identical every time.')}
-              ${p.measured ? `<button class="ghost" data-reask="${p.id}">Ask again now</button>${qh('Asks this question again on every engine right now, about $0.05 and 30 seconds. Incomplete earlier answers are replaced, sound ones are kept as extra samples. The fresh answers appear under Read what each engine said.')}` : ''}
+          <div class="q-actions">
+            ${p.measured ? `<button class="btn" data-see-answer="${p.id}">Read answers</button>` : ''}
+            <details class="question-more"><summary>More actions</summary><div class="q-actions">
+              <button class="ghost" data-brief="${p.id}">Review content brief</button>
+              ${p.measured ? `<button class="ghost" data-reask="${p.id}">Ask again now</button><span class="hint">Starts immediately and uses answer checks.</span>` : ''}
               ${p.replacedBy ? '<span class="tag">Superseded by a newer revision</span>' : `<button class="ghost" data-question-toggle="${p.id}">${p.active ? 'Pause' : 'Resume'}</button><button class="ghost" data-question-edit="${p.id}">Edit wording</button>`}
-              <label class="qpick"><input type="checkbox" data-qsel="${p.id}" /> select</label>
-            </div>`;
-          })()}
+            </div></details>
+            <label class="qpick"><input type="checkbox" data-qsel="${p.id}" /> Select</label>
+          </div>
           <div class="question-editor" id="question-edit-${p.id}" hidden></div>
           <div class="answers" data-answers hidden></div>
           ${p.snippet ? `<div class="excerpt">${highlight(p.snippet, brand)}</div>` : ''}
@@ -1337,6 +1324,16 @@ async function viewQuestions() {
   const bulkBar = `
     <div class="qbulk" id="qBulk" hidden>
       <span class="qbulk-count" id="qBulkCount"></span>
+      <div class="qtool">
+        <span class="qtool-k">Select</span>
+        <div class="taskbar">
+          <button class="tfilter" id="qSelShown">All shown</button>
+          <button class="tfilter" id="qSelUntagged">Untagged only</button>
+          <button class="tfilter" id="qSelNone">None</button>
+        </div>
+      </div>
+
+
       <select id="qBulkPersona">
         <option value="">Set buyer type…</option>
         <option value="none">Asked plainly</option>
@@ -1372,15 +1369,6 @@ async function viewQuestions() {
             </div>`
           : ''
       }
-
-      <div class="qtool">
-        <span class="qtool-k">Select</span>
-        <div class="taskbar">
-          <button class="tfilter" id="qSelShown">All shown</button>
-          <button class="tfilter" id="qSelUntagged">Untagged only</button>
-          <button class="tfilter" id="qSelNone">None</button>
-        </div>
-      </div>
 
       <div class="qtool qtool-row">
         ${
@@ -1422,14 +1410,16 @@ async function viewQuestions() {
       </div>
     </div>`;
 
-  return tools + `<div class="panel">
+  const advancedActive = typeof qState !== 'undefined' && (['state','persona','cluster','intent'].some(k => qState[k] && qState[k] !== 'all') || (qState.sort && qState.sort !== 'opportunity'));
+  return `<div class="panel question-list-panel">
     <div class="panel-head">
-      <h2>Your questions</h2>
+      <h2>Your questions</h2><button class="btn" data-question-add>Add questions</button><button class="ghost" data-start-first-cycle>Review cost and run</button>
       <div class="spacer"></div>
       <span class="meta" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">filled tick = you were named</span>
     </div>
+    <p class="hint">${scope && Number.isFinite(scope.all) ? `${scope.all} active questions &middot; ${scope.checksAll} answer checks &middot; estimated $${Number(scope.costAll).toFixed(2)}` : 'Review the current question count and cost before running.'}</p>
     ${waiting ? `<p class="hint" style="margin:0 0 12px">${waiting} question${waiting === 1 ? ' has' : 's have'} not been asked yet. Review the questions for relevance before starting a measurement. Use Edit wording or Pause on a question below.</p>` : ''}
-    <p class="hint">Suggested priority uses visibility and stored demand estimates. Those estimates may be generated or imported; their source is not verified here. They are not measured monthly AI question counts.</p>
+
     ${
       byPersona?.rows?.length > 1
         ? `<div class="panel" style="margin-bottom:16px">
@@ -1480,14 +1470,17 @@ async function viewQuestions() {
     }
     <div class="qtools"><label>Status <select data-select-group="activity"><option value="active">Active for next run</option><option value="all">All, including history</option><option value="paused">Paused or superseded</option></select></label>
       <label>Origin <select data-select-group="origin"><option value="all">All origins</option>${[...new Set(prompts.map(p => p.source?.startsWith('gsc') ? 'gsc' : p.source || 'unknown'))].map(source => `<option value="${esc(source)}">${esc(source === 'gsc' ? 'Google Search Console' : questionSourceLabel(source))}</option>`).join('')}</select></label></div>
-    ${filters}
+    ${searchBox('promptFilter', 'Search questions, topics or cited domains', 'promptFilterCount')}
+    <details class="question-filters"${advancedActive ? ' open' : ''}><summary>Advanced filters and sorting</summary>
+    <p class="hint">Suggested priority uses visibility and stored demand estimates. Those estimates may be generated or imported; their source is not verified here. They are not measured monthly AI question counts.</p>
+    ${filters}</details>
+    <p class="hint">Select a question to organise several at once.</p>
     ${bulkBar}
-    ${searchBox('promptFilter', 'Filter by question, cluster or cited domain', 'promptFilterCount')}
     <div id="promptList">
       ${rows}
       <p class="hint" data-filter-empty hidden>No question matches that.</p>
     </div>
-  </div>`;
+  </div>${tools}`;
 }
 
 async function viewRivals() {
@@ -2148,6 +2141,7 @@ async function boot() {
     const tab = returned.what === 'gsc' ? 'questions' : 'traffic';
     state.view = tab;
     await render();
+    if (returned.what === 'gsc' && $('questionAdd')) $('questionAdd').open = true;
     if (!returned.ok) {
       const el = returned.what === 'gsc' ? $('setupError') : $('ga4Error');
       if (el) el.textContent = returned.message;
@@ -2185,6 +2179,11 @@ document.querySelectorAll('[data-section]').forEach(button => {
   });
 });
 document.addEventListener('click', async event => {
+  if (event.target.closest('[data-question-add]')) {
+    const panel = $('questionAdd');
+    if (panel) { panel.open = true; $('q_text')?.focus(); panel.scrollIntoView({block:'start', behavior:'smooth'}); }
+    return;
+  }
   if (event.target.closest('[data-overview-next]')) {
     const task = $('overviewNext')?.querySelector('.queue-task');
     if (task) { task.open = true; task.querySelector('summary')?.focus(); task.scrollIntoView({block: 'start', behavior: 'smooth'}); }
@@ -2195,7 +2194,7 @@ document.addEventListener('click', async event => {
   state.view = button.dataset.openView;
   if (state.view === 'actions') state.taskFilter = 'active';
   await render();
-  if (button.hasAttribute('data-open-gsc') && $('gscPanel')) { $('gscPanel').open = true; $('gscPanel').scrollIntoView({block:'start'}); }
+  if (button.hasAttribute('data-open-gsc') && $('gscPanel')) { if ($('questionAdd')) $('questionAdd').open = true; $('gscPanel').open = true; $('gscPanel').scrollIntoView({block:'start'}); }
 });
 
 $('projectPicker').addEventListener('change', (e) => {

@@ -26,7 +26,7 @@ test('complete Overview renders three compact tasks, two summary panels and sepa
 test('primary action opens and focuses the first task without a paid run',async()=>{
  const {h,document}=harness();document.getElementById('view').innerHTML=await h.viewOverview();
  let scrolled=false;document.querySelector('.queue-task').scrollIntoView=()=>scrolled=true;
- const start=app.indexOf("document.addEventListener('click', async event => {\n  if (event.target.closest('[data-overview-next]'))");
+ const start=app.indexOf("document.addEventListener('click', async event => {\n  if (event.target.closest('[data-question-add]'))");
  vm.runInContext(app.slice(start,app.indexOf("$('projectPicker').addEventListener",start)),h);
  document.querySelector('[data-overview-next]').click();assert.equal(document.querySelector('.queue-task').open,true);assert.equal(document.activeElement,document.querySelector('.queue-task summary'));assert.equal(scrolled,true);
 });

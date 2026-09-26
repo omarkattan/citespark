@@ -76,3 +76,12 @@ if(process.env.PREVIEW_PATH){
  const css=document.createElement('style');css.textContent=readFileSync(new URL('../src/public/styles.css',import.meta.url),'utf8');document.head.appendChild(css);
  writeFileSync(process.env.PREVIEW_PATH,'<!doctype html>'+document.documentElement.outerHTML);
 }
+test('Settings Search Console shortcut opens both the source container and import panel',async()=>{
+ const {h,document}=harness();let scrolled=false;
+ document.body.insertAdjacentHTML('beforeend','<button id="gscShortcut" data-open-view="questions" data-open-gsc>Manage Search Console</button><details id="questionAdd"><summary>Add questions</summary><details id="gscPanel"><summary>Import</summary></details></details>');
+ document.getElementById('gscPanel').scrollIntoView=()=>scrolled=true;h.render=async()=>{};
+ const start=app.indexOf("document.addEventListener('click', async event => {\n  if (event.target.closest('[data-question-add]'))");
+ vm.runInContext(app.slice(start,app.indexOf("$('projectPicker').addEventListener",start)),h);
+ document.getElementById('gscShortcut').click();await new Promise(resolve=>setTimeout(resolve,0));
+ assert.equal(document.getElementById('questionAdd').open,true);assert.equal(document.getElementById('gscPanel').open,true);assert.equal(scrolled,true);
+});

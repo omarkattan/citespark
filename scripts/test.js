@@ -3267,12 +3267,12 @@ await test('generated questions are approved, not saved', async () => {
   assert.ok(/Nothing usable came back/.test(server), 'an empty result must say so');
 });
 
-await test('the composer sits above the list it adds to', async () => {
+await test('question source tools remain available below the focused list', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
   const panel = app.slice(app.indexOf('function questionTools('), app.indexOf('async function viewQuestions('));
   assert.ok(/q_topic/.test(panel) && /q_add/.test(panel), 'manual and topic entry stay together');
-  assert.ok(/return tools \+/.test(app), 'source tools precede the question list');
+  assert.ok(/id="questionAdd"/.test(panel) && /data-question-add/.test(app), 'source tools have a dedicated opener');
 });
 
 console.log('\nre-asking one question');
@@ -3973,8 +3973,8 @@ await test('question actions look like actions, led by the verdict', async () =>
 
   // One emphasis for every row would be as wrong as none: on a losing
   // question the brief is the point, on a winning one the evidence is.
-  assert.ok(/const losing = p\.measured && \(p\.rate \|\| 0\) < 0\.5/.test(app), 'the row decides from its own verdict');
-  assert.ok(/losing \? 'q-cta'/.test(app), 'and the brief carries the accent only when losing');
+  assert.ok(/class="btn" data-see-answer="\$\{p.id\}"/.test(app), 'stored answers are the primary action');
+  assert.ok(/class="question-more"/.test(app), 'secondary actions remain available on demand');
 
   // Every action says what it does and what it costs before it is pressed.
   assert.ok(/about \$0\.05/.test(app), 'asking again states its price up front');
@@ -4091,10 +4091,10 @@ await test('every key control can be asked what it does', async () => {
   // Hover titles help nobody on a phone. A visible "?" beside a control is
   // the difference between a feature and a rumour about one.
   assert.ok(/id = 'helpBubble'/.test(app), 'one bubble serves the site');
-  assert.ok((app.match(/\$\{qh\(/g) || []).length >= 3, 'each question action carries one');
+  assert.ok(/Read answers/.test(app) && /More actions/.test(app), 'question actions use direct labels and secondary disclosure');
   assert.ok((app.match(/data-help=/g) || []).length >= 2, 'rendered through the helper and on the cost card');
-  assert.ok(/about \$0\.05 and 30 seconds/.test(app), 'the paid action states its price in its help');
-  assert.ok(/aria-label="What does this do\?"/.test(app), 'reachable by screen reader, not only by eye');
+  assert.ok(/Starts immediately and uses answer checks/.test(app), 'the paid action explains its immediate effect');
+  assert.ok(/aria-label="What does this mean\?"/.test(app), 'reachable by screen reader, not only by eye');
 });
 
 await test('asking again on all engines survives the budget check', async () => {
