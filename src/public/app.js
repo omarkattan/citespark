@@ -300,10 +300,10 @@ function opportunityKind(task) {
   return 'other';
 }
 
-function opportunityFilters(tasks, selected = 'all') {
+function opportunityFilters(tasks, selected = 'all', counts = null) {
   const labels = {all: 'All opportunities', questions: 'Question reviews', sources: 'Source reviews', competitors: 'Competitor reviews', other: 'Other actions'};
   return `<label class="queue-filter">Focus <select id="opportunityKind">${Object.entries(labels).map(([key, label]) => {
-    const count = key === 'all' ? tasks.length : tasks.filter(task => opportunityKind(task) === key).length;
+    const count = counts?.[key] ?? (key === 'all' ? tasks.length : tasks.filter(task => opportunityKind(task) === key).length);
     return `<option value="${key}"${selected === key ? ' selected' : ''}>${label} (${count})</option>`;
   }).join('')}</select></label>`;
 }
@@ -312,7 +312,7 @@ async function viewActions() {
   const filter = state.taskFilter || 'active';
   if (state.opportunityProject !== state.projectId) { state.opportunityKind = 'all'; state.opportunityProject = state.projectId; }
   const kind = state.opportunityKind || 'all';
-  const data = await api(`/api/projects/${state.projectId}/recommendations?status=${filter}`);
+  const data = await api(`/api/projects/${state.projectId}/recommendations?status=${filter}&kind=${kind}`);
   if (!data) return '';
   state.people = data.people || [];
 
@@ -342,7 +342,7 @@ async function viewActions() {
   </div></details>`;
 
   const bar = `<div class="taskbar">
-      ${tab('active', 'To do', c.open + c.doing)}
+      ${tab('active', 'Open work', c.open + c.doing)}
       ${tab('doing', 'In progress', c.doing)}
       ${tab('done', 'Done', c.done)}
       ${tab('dismissed', 'Dismissed', c.dismissed)}
@@ -361,21 +361,11 @@ async function viewActions() {
         </div>`
       : '';
 
-  // Before the early return: an empty filter must not hide the deliverable.
-  if (!data.tasks.length) {
-    // The report covers every cycle, so an empty filter is no reason to hide it.
-    return reportBar + bar + `<div class="empty"><h2>${
-      filter === 'done' ? 'Nothing finished yet' : filter === 'dismissed' ? 'Nothing dismissed' : 'No actions in this view'
-    }</h2><p>${
-      filter === 'active'
-        ? 'Actions are generated after a measurement finishes. Completed or dismissed actions are in their own filters.'
-        : 'Try another filter.'
-    }</p></div>` + suppressedPanel;
-  }
-
   const tasks = data.tasks.filter(task => kind === 'all' || opportunityKind(task) === kind);
-  const intro = `<div class="panel queue-intro"><h2>Your work queue</h2><p>Choose a focus, then open a task to review its evidence and next step.</p><p class="hint">Completing a task records work done. A later measurement is needed to assess any change in AI visibility.</p>${opportunityFilters(data.tasks, kind)}</div>`;
-  return intro + bar + `<div id="opportunityQueue">${tasks.length ? tasks.map(task => taskCard(task, true)).join('') : '<div class="empty"><h2>No tasks match this focus</h2><p>Choose another focus or status above.</p></div>'}</div>` + reportBar + suppressedPanel;
+  const intro = `<div class="panel queue-intro"><h2>Your work queue</h2><p>Choose a focus, then open a task to review its evidence and next step.</p><p class="hint">Completing a task records work done. A later measurement is needed to assess any change in AI visibility.</p>${opportunityFilters(data.tasks, kind, data.focusCounts)}</div>`;
+  const total = filter === 'active' ? c.open + c.doing : filter === 'all' ? c.total : c[filter];
+  const resultCount = `<p class="hint" id="queueCount">${tasks.length} shown of ${total} matching tasks${total > tasks.length ? '. Showing the first 100 by due date and priority.' : '.'}</p>`;
+  return intro + bar + resultCount + `<div id="opportunityQueue">${tasks.length ? tasks.map(task => taskCard(task, true)).join('') : '<div class="empty"><h2>No tasks match this focus</h2><p>Choose another focus or status above.</p></div>'}</div>` + reportBar + suppressedPanel;
 }
 
 const STATUS_LABEL = { open: 'To do', doing: 'In progress', done: 'Done', dismissed: 'Dismissed' };
@@ -4009,15 +3999,18 @@ function replaceCard(id, task) {
 }
 
 async function refreshTaskCounts() {
-  const data = await api(`/api/projects/${state.projectId}/recommendations?status=${state.taskFilter || 'active'}`);
+  const data = await api(`/api/projects/${state.projectId}/recommendations?status=${state.taskFilter || 'active'}&kind=${state.opportunityKind || 'all'}`);
   if (!data) return;
   const focus = $('opportunityKind');
   if (focus) {
     const holder = document.createElement('div');
-    holder.innerHTML = opportunityFilters(data.tasks || [], state.opportunityKind || 'all');
+    holder.innerHTML = opportunityFilters(data.tasks || [], state.opportunityKind || 'all', data.focusCounts);
     focus.innerHTML = holder.querySelector('select').innerHTML;
   }
   const c = data.counts;
+  const filter = state.taskFilter || 'active';
+  const total = filter === 'active' ? c.open + c.doing : filter === 'all' ? c.total : c[filter];
+  if ($('queueCount')) $('queueCount').textContent = `${data.tasks.length} shown of ${total} matching tasks${total > data.tasks.length ? '. Showing the first 100 by due date and priority.' : '.'}`;
   const set = (id, n) => {
     const el = document.querySelector(`[data-task-filter="${id}"] span`);
     if (el) el.textContent = n;

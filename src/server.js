@@ -700,6 +700,15 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
   const valid = ['open', 'doing', 'done', 'dismissed', 'all', 'active'];
   if (!valid.includes(status)) return res.status(400).json({ error: 'Unknown status filter' });
 
+  const kind = String(req.query.kind || 'all');
+  if (!['all', 'sources', 'questions', 'competitors', 'other'].includes(kind)) return res.status(400).json({error: 'Unknown focus filter'});
+  const kindSql = `CASE
+    WHEN type IN ('source_gap', 'competitor_page') THEN 'sources'
+    WHEN type = 'competitor_comparison' THEN 'competitors'
+    WHEN type = 'content_gap' OR COALESCE(evidence->>'prompt_id', '') NOT IN ('', '0', 'false') THEN 'questions'
+    ELSE 'other' END`;
+  const kindWhere = kind === 'all' ? '' : ` AND (${kindSql}) = '${kind}'`;
+
   // Sort by what needs attention: anything overdue first, then by due date,
   // then by priority. A task with a date beats an unowned one with a higher score.
   const where =
@@ -710,7 +719,7 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
 
   const rows = await many(
     `SELECT * FROM recommendations
-     WHERE project_id = $1 ${where}
+     WHERE project_id = $1 ${where} ${kindWhere}
      ORDER BY
        CASE WHEN due_date IS NOT NULL AND due_date < CURRENT_DATE AND status IN ('open','doing') THEN 0 ELSE 1 END,
        due_date NULLS LAST,
@@ -727,9 +736,15 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
        COUNT(*) FILTER (WHERE status = 'dismissed')::int AS dismissed,
        COUNT(*) FILTER (WHERE due_date < CURRENT_DATE AND status IN ('open','doing'))::int AS overdue,
        COUNT(*)::int AS total
-     FROM recommendations WHERE project_id = $1`,
+     FROM recommendations WHERE project_id = $1 ${kindWhere}`,
     [project.id]
   );
+
+  // Focus counts cover the selected status across all rows, not only the 100 returned cards.
+  const groups = await many(`SELECT (${kindSql}) AS kind, COUNT(*)::int AS count
+    FROM recommendations WHERE project_id = $1 ${where} GROUP BY 1`, params);
+  const focusCounts = {all: 0, questions: 0, sources: 0, competitors: 0, other: 0};
+  for (const group of groups) { focusCounts[group.kind] = group.count; focusCounts.all += group.count; }
 
   const people = await many(
     `SELECT DISTINCT assignee FROM recommendations
@@ -742,6 +757,8 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
   res.json({
     tasks: await attachSourceReviews(project, rows),
     counts,
+    focusCounts,
+    limit: 100,
     people: [...new Set([...members.map((m) => m.email), ...people.map((p) => p.assignee)])]
   });
 }));
@@ -3540,7 +3557,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260926-opportunity-queue-14',
+    release: '20260926-queue-counts-15',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
