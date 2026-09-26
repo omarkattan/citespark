@@ -965,7 +965,34 @@ function questionSourceLabel(source) {
     gsc:'GSC import', 'gsc+model':'GSC-derived, AI rephrased', 'gsc-query':'GSC query'})[source] || source || 'Origin not recorded';
 }
 
-function questionTools(p, scope) {
+function gscQuestionPanel(gsc = {}) {
+  return `    <details class="panel fold" id="gscPanel"><summary>Import from Google Search Console ${gsc.siteUrl ? `&middot; ${esc(gsc.siteUrl)}` : gsc.connected ? '&middot; choose a property' : gsc.error ? '&middot; status unavailable' : '&middot; connect an account'}</summary>
+      <div class="panel-head">
+        <h2>From Search Console</h2>
+        <div class="spacer"></div>
+        ${
+          gsc.siteUrl
+            ? `<button class="ghost" id="gscSwitch" title="Choose a different property">Change property</button>
+               <button class="ghost danger" id="gscDisconnect">Disconnect</button>`
+            : ''
+        }
+        <button class="ghost" id="gscLoad">Find questions people already ask</button>
+      </div>
+      <p class="hint" style="margin:0">
+        Search Console supplies real Google search queries. We group them and may rephrase them into buyer questions for you to review before importing. Google search impressions are not AI question counts.
+        ${
+          gsc.siteUrl
+            ? `<br />Reading <b>${esc(gsc.siteUrl)}</b>${
+                gsc.email ? ` as ${esc(gsc.email)}` : ''
+              }. Analytics and Search Console can use different Google accounts.`
+            : ''
+        }
+      </p>
+      <div id="gscBody"></div>
+    </details>`;
+}
+
+function questionTools(p, scope, gsc = {}) {
   return `<div class="panel"><div class="panel-head"><h2>Your next measurement</h2><button class="ghost" data-start-first-cycle>Review cost and run</button></div>
     <p>${scope ? `${scope.all} active questions &middot; ${scope.checksAll} answer checks &middot; estimated $${Number(scope.costAll || 0).toFixed(2)}` : 'Open the run menu to check the current question count and cost.'}</p>
     <p class="hint">Paused and superseded questions stay in your history and do not run. Pausing a question does not cancel a measurement already in progress.</p></div>
@@ -990,30 +1017,7 @@ function questionTools(p, scope) {
       <div id="personaList"></div>
     </details>
 
-    <details class="panel fold" id="gscPanel"><summary>Import from Google Search Console ${p.gsc_site_url ? `&middot; ${esc(p.gsc_site_url)}` : '&middot; connect an account'}</summary>
-      <div class="panel-head">
-        <h2>From Search Console</h2>
-        <div class="spacer"></div>
-        ${
-          p.gsc_site_url
-            ? `<button class="ghost" id="gscSwitch" title="Choose a different property">Change property</button>
-               <button class="ghost danger" id="gscDisconnect">Disconnect</button>`
-            : ''
-        }
-        <button class="ghost" id="gscLoad">Find questions people already ask</button>
-      </div>
-      <p class="hint" style="margin:0">
-        Search Console supplies real Google search queries. We group them and may rephrase them into buyer questions for you to review before importing. Google search impressions are not AI question counts.
-        ${
-          p.gsc_site_url
-            ? `<br />Reading <b>${esc(p.gsc_site_url)}</b>${
-                p.gsc_account_email ? ` as ${esc(p.gsc_account_email)}` : ''
-              }. Analytics and Search Console can use different Google accounts.`
-            : ''
-        }
-      </p>
-      <div id="gscBody"></div>
-    </details>
+    ${gscQuestionPanel(gsc)}
 
 `;
 }
@@ -1022,7 +1026,8 @@ async function viewQuestions() {
   const prompts = (await api(`/api/projects/${state.projectId}/prompts`)) || [];
   state.questionRows = new Map(prompts.map(p => [String(p.id), p]));
   const scope = await api(`/api/projects/${state.projectId}/run-scope`).catch(() => null);
-  const tools = questionTools(state.overview?.project || {}, scope);
+  const gsc = await api(`/api/projects/${state.projectId}/gsc`).catch(() => ({error: true}));
+  const tools = questionTools(state.overview?.project || {}, scope, gsc || {error: true});
   const brand = state.overview?.project?.brand_name;
   const rows = prompts
     .map((p) => {
@@ -1130,7 +1135,6 @@ async function viewQuestions() {
   const clusters = [...new Set(prompts.map((p) => p.cluster).filter(Boolean))].sort();
   const intents = [...new Set(prompts.map((p) => p.intent).filter(Boolean))].sort();
 
-  const count = (fn) => prompts.filter(fn).length;
   const chip = (group, value, label, n) =>
     `<button class="tfilter${value === 'all' ? ' is-on' : ''}" data-group="${group}" data-value="${esc(value)}">${esc(label)}${
       n === undefined ? '' : ` ${n}`
@@ -1162,10 +1166,10 @@ async function viewQuestions() {
         <span class="qtool-k">Show</span>
         <div class="taskbar">
           ${chip('state', 'all', 'All', prompts.length)}
-          ${count((p) => p.measured && p.rate === 0) ? chip('state', 'invisible', 'Never named', count((p) => p.measured && p.rate === 0)) : ''}
-          ${count((p) => p.measured && p.rate > 0 && p.rate < 0.5) ? chip('state', 'weak', 'Named sometimes', count((p) => p.measured && p.rate > 0 && p.rate < 0.5)) : ''}
-          ${count((p) => p.measured && p.rate >= 0.5) ? chip('state', 'strong', 'Named often', count((p) => p.measured && p.rate >= 0.5)) : ''}
-          ${count((p) => !p.measured) ? chip('state', 'unrun', 'Not asked yet', count((p) => !p.measured)) : ''}
+          ${chip('state', 'invisible', 'Never named', 0)}
+          ${chip('state', 'weak', 'Named sometimes', 0)}
+          ${chip('state', 'strong', 'Named often', 0)}
+          ${chip('state', 'unrun', 'Not asked yet', 0)}
         </div>
       </div>
 
@@ -1291,7 +1295,7 @@ async function viewQuestions() {
       <label>Origin <select data-select-group="origin"><option value="all">All origins</option>${[...new Set(prompts.map(p => p.source?.startsWith('gsc') ? 'gsc' : p.source || 'unknown'))].map(source => `<option value="${esc(source)}">${esc(source === 'gsc' ? 'Google Search Console' : questionSourceLabel(source))}</option>`).join('')}</select></label></div>
     ${filters}
     ${bulkBar}
-    ${prompts.length > 8 ? searchBox('promptFilter', 'Filter by question, cluster or cited domain', 'promptFilterCount') : ''}
+    ${searchBox('promptFilter', 'Filter by question, cluster or cited domain', 'promptFilterCount')}
     <div id="promptList">
       ${rows}
       <p class="hint" data-filter-empty hidden>No question matches that.</p>
@@ -1664,16 +1668,14 @@ document.addEventListener('click', async (e) => {
    */
   if (e.target.id === 'gscSwitch') {
     e.target.disabled = true;
-    await api(`/api/projects/${state.projectId}/ga4/disconnect`, { method: 'POST', body: { what: 'gsc' } });
-    await render();
-    setTimeout(() => $('gscLoad')?.click(), 300);
+    try { await loadGscSites(); } finally { e.target.disabled = false; }
     return;
   }
 
   if (e.target.id === 'gscDisconnect') {
-    if (!confirm('Disconnect Google from this site? Analytics goes with it, since they share one connection. Questions already imported are kept.')) return;
+    if (!confirm('Disconnect Search Console from this site? Imported questions are kept. Google Analytics stays connected.')) return;
     e.target.disabled = true;
-    await api(`/api/projects/${state.projectId}/ga4/disconnect`, { method: 'POST', body: { what: 'all' } });
+    await api(`/api/projects/${state.projectId}/ga4/disconnect`, { method: 'POST', body: { what: 'gsc' } });
     await render();
     return;
   }
@@ -2523,20 +2525,31 @@ function applyQuestionView() {
 
   const rows = [...list.querySelectorAll('.prompt')];
   let shown = 0;
+  const counts = {all: 0, invisible: 0, weak: 0, strong: 0, unrun: 0};
 
   for (const r of rows) {
     const d = r.dataset;
     const ok =
       (qState.activity === 'all' || (qState.activity === 'active' ? d.active === 'true' : d.active !== 'true')) &&
       (qState.origin === 'all' || d.source === qState.origin) &&
-      (qState.state === 'all' || d.state === qState.state) &&
       (qState.persona === 'all' ||
         (qState.persona === 'none' ? !d.persona : d.persona === qState.persona)) &&
       (qState.cluster === 'all' || d.cluster === qState.cluster) &&
       (qState.intent === 'all' || d.intent === qState.intent) &&
       (!qState.text || d.filterText.includes(qState.text));
-    r.hidden = !ok;
-    if (ok) shown++;
+    if (ok) { counts.all++; counts[d.state]++; }
+    const visible = ok && (qState.state === 'all' || d.state === qState.state);
+    r.hidden = !visible;
+    if (visible) shown++;
+  }
+
+  const labels = {all: 'All', invisible: 'Never named', weak: 'Named sometimes', strong: 'Named often', unrun: 'Not asked yet'};
+  for (const chip of document.querySelectorAll('[data-group="state"]')) {
+    const key = chip.dataset.value;
+    chip.textContent = `${labels[key]} ${counts[key]}`;
+    chip.classList.toggle('is-on', key === qState.state);
+    chip.setAttribute('aria-pressed', String(key === qState.state));
+    chip.hidden = key !== 'all' && counts[key] === 0 && key !== qState.state;
   }
 
   const num = (r, k) => Number(r.dataset[k]);
@@ -2567,7 +2580,7 @@ function applyQuestionView() {
     list.appendChild(empty);
   }
   const counter = document.getElementById('promptFilterCount');
-  if (counter) counter.textContent = shown === rows.length ? '' : `${shown} of ${rows.length}`;
+  if (counter) counter.textContent = `${shown} shown · ${counts.all} match filters · ${rows.length} total including history`;
 }
 
 document.addEventListener('click', async (e) => {
@@ -4165,7 +4178,8 @@ function searchBox(id, placeholder, countId) {
 function importRoom(d) {
   const cap = d?.limit?.questions;
   const used = d?.limit?.active;
-  if (!cap || used === undefined) return '';
+  if (cap === Number.MAX_SAFE_INTEGER) return 'Unlimited active questions on this plan.';
+  if (cap == null || used === undefined) return '';
   const room = Math.max(0, cap - used);
   if (room === 0) {
     return `This site is at its limit of ${cap} active questions. Pause or delete one before importing, or upgrade for more.`;
@@ -4301,11 +4315,23 @@ document.addEventListener('click', async (e) => {
   const site = e.target.closest('[data-gsc-site]');
   if (site) {
     site.disabled = true;
-    await fetch(`/api/projects/${state.projectId}/gsc/site`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ siteUrl: site.dataset.gscSite })
-    });
-    await loadGscCandidates();
+    try {
+      const projectId = state.projectId;
+      const res = await fetch(`/api/projects/${projectId}/gsc/site`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteUrl: site.dataset.gscSite })
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Could not save this property.');
+      const gsc = await api(`/api/projects/${projectId}/gsc`);
+      if (state.projectId !== projectId || !$('gscPanel')) return;
+      $('gscPanel').outerHTML = gscQuestionPanel(gsc);
+      $('gscPanel').open = true;
+      await loadGscCandidates();
+    } catch (error) {
+      const body = $('gscBody');
+      if (body) body.insertAdjacentHTML('afterbegin', `<p class="error" role="alert">${esc(error.message)}</p>`);
+    } finally { site.disabled = false; }
   }
 
   if (e.target.id === 'gscNone') {
@@ -4422,8 +4448,7 @@ const FILTERS = {
   gscFilter: ['gscList', 'gscFilterCount'],
   gscSiteFilter: ['gscSiteList', 'gscSiteCount'],
   ga4Filter: ['ga4List', 'ga4FilterCount'],
-  qFilter: ['qList', 'qFilterCount'],
-  promptFilter: ['promptList', 'promptFilterCount']
+  qFilter: ['qList', 'qFilterCount']
 };
 
 document.addEventListener('input', (e) => {

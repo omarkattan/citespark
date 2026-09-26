@@ -2312,8 +2312,8 @@ await test('the Search Console panel offers a way out', async () => {
   assert.ok(/id="gscDisconnect"/.test(app), 'disconnect must be reachable from Search Console');
   assert.ok(/id="gscSwitch"/.test(app), 'and changing property must not require disconnecting');
 
-  // Both surfaces share a credential, so say that before taking it away.
-  assert.ok(/Analytics goes with it, since they share one connection/.test(app), 'the consequence must be stated');
+  // Search Console now has a separate grant and must leave Analytics intact.
+  assert.ok(/Google Analytics stays connected/.test(app), 'the consequence must be stated');
 });
 
 await test('connecting returns to whatever was being connected', async () => {
