@@ -401,13 +401,10 @@ export function evaluateRules({
           type: 'content_gap',
           title: `Invisible for: "${p.text}"`,
           action:
-            `Not named once across ${p.owned.runs} answers` +
-            (rivals.length ? `, while ${rivals.join(', ')} ${rivals.length > 1 ? 'were' : 'was'}. ` : '. ') +
-            (topQuery
-              ? `The engine got there by searching "${topQuery}", so start by checking your rank for that. If you are off page one you are not even in the candidate set, and no amount of rewriting fixes that. `
-              : '') +
-            `On the page itself: answer the question in the first 40 to 60 words before any preamble, use the question as an H2, and include a sentence that names you plainly ` +
-            `("${project.brand_name} is a ...") so the model has something to attribute.`,
+            `You were not named in ${p.owned.runs} measured answers. This does not establish why. ` +
+            (topQuery ? `The stored search trace includes "${topQuery}". A search trace does not establish your ranking or explain source selection. ` : '') +
+            'Read the original answers and cited pages, confirm the question fits your buyers, and identify any specific missing information on your relevant page. ' +
+            'Update that page only if the review supports a change. Pause irrelevant questions. Record what you reviewed and use a later measurement to check the outcome.',
           impact: volumeScore * 1.0,
           evidence: {
             prompt_id: p.id,
