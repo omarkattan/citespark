@@ -2051,7 +2051,7 @@ await test('the report draws the conclusion, from this client\'s own numbers', a
 
   // A table of percentages leaves the reader to work out what it means, and
   // that is the part they are paying for.
-  assert.ok(/What that means here/.test(html), 'the reading must be rendered');
+  assert.ok(/Observations from this sample/.test(html), 'the reading must be rendered');
 
   // Every sentence has to be built from measured values, so two clients with
   // different data get different advice rather than the same paragraph.
@@ -2060,9 +2060,9 @@ await test('the report draws the conclusion, from this client\'s own numbers', a
   assert.ok(/\$\{median\.toLocaleString\(\)\}/.test(fn));
 
   // The advice has to be able to say "do not bother", or it is not advice.
-  assert.ok(/unlikely to be the lever/.test(fn), 'an absent feature can be the wrong thing to chase');
-  assert.ok(/baseline rather than an advantage/.test(fn), 'a universal feature is not a differentiator');
-  assert.ok(/differentiator rather than catching up/.test(fn), 'a rare one might be');
+  assert.ok(/does not establish whether it helps/.test(fn), 'absence does not establish usefulness');
+  assert.ok(/no uncited comparison group/.test(fn), 'a cited-only sample cannot establish an advantage');
+  assert.ok(/does not show whether adding the feature/.test(fn), 'rarity is not evidence of benefit');
 
   // One page is several points at these sample sizes.
   assert.ok(/thin: n < 25/.test(lib), 'the sample caveat must survive past eight pages');
@@ -2206,7 +2206,7 @@ await test('the report is offered like a deliverable, and never hidden', async (
   // It was a ghost link at the end of a right-aligned row, which reads as a
   // minor control next to the real ones.
   assert.ok(/class="reportbar"/.test(app), 'the report needs its own bar');
-  assert.ok(/<a class="btn" href="\/api\/projects\/\$\{state\.projectId\}\/report\?print=1"/.test(app), 'and a primary button, not a ghost link');
+  assert.ok(/<a class="btn"[^>]*href="\/api\/projects\/\$\{state\.projectId\}\/report\?print=1"/.test(app), 'and a primary button, not a ghost link');
   assert.ok(/\.reportbar \{[\s\S]{0,400}border: 1px solid var\(--you\)/.test(css), 'visibly separated from the list below it');
 
   // It sat below an early return, so filtering to a view with no tasks
@@ -4787,9 +4787,9 @@ await test('the cited-page sample says how it was gathered', async () => {
   // This section was built only from pages someone had clicked, so a pattern
   // from three hand-picked pages read exactly like one from thirty.
   assert.ok(/universe/.test(lib), 'the report must know how many pages could have been read');
-  assert.ok(/thin: n < 8/.test(lib), 'and flag a sample too small to lean on');
+  assert.ok(/thin: n < 25/.test(lib), 'and flag a sample too small to lean on');
   assert.ok(/How this was measured/.test(html), 'the page must state its own sample');
-  assert.ok(/indicative rather than settled/.test(html), 'and say when to distrust it');
+  assert.ok(/small, selected sample/.test(html), 'and say when to distrust it');
 });
 
 await test('cited pages are read automatically, not only on request', async () => {
@@ -4815,7 +4815,7 @@ await test('the report does not claim a fix caused a change', async () => {
   // reader to join them. Too much moves at once in these systems to attribute
   // a change to a single edit, and a report that implies otherwise is selling.
   assert.ok(/do not claim one caused the other/i.test(lib), 'the caveat must be explicit');
-  assert.ok(/measurement did not run rather than returning zero/i.test(lib), 'and absence must not read as zero');
+  assert.ok(/unmeasured or unmatched, not zero/i.test(lib), 'and absence must not read as zero');
 });
 
 await test('the report is readable without the app', async () => {
@@ -4826,7 +4826,7 @@ await test('the report is readable without the app', async () => {
   assert.ok(/@page/.test(html), 'it must be printable');
   assert.ok(/page-break/.test(html), 'without splitting tables across pages');
   assert.ok(/How to read this/.test(html), 'and carry its own caveats');
-  assert.ok(!/<script/.test(html), 'and need no javascript');
+  assert.ok(/print\n\s*\? `<script>/.test(html) && /window\.print\(\)/.test(html), 'only the optional print-dialog helper needs JavaScript');
 });
 
 console.log('\ncontrast');

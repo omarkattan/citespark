@@ -203,8 +203,8 @@ async function citedPagePatterns(projectId) {
 
   if (noSchema / n >= 0.3) {
     reading.push({
-      point: 'Citation here is running on authority, not page craft.',
-      why: `${noSchema} of the ${n} pages being cited carry no structured data at all. Pages are winning citations because of who publishes them rather than how they are built, so structural changes to your own pages will move this less than getting onto the sources that already shape these answers.`
+      point: 'Some inspected cited pages have no detected structured data.',
+      why: `${noSchema} of the ${n} pages being cited carry no structured data at all. This does not identify why those pages were selected. A failed or incomplete extraction may also miss markup.`
     });
   }
 
@@ -219,8 +219,8 @@ async function citedPagePatterns(projectId) {
     const share = count / n;
     if (share > 0 && share <= 0.2) {
       reading.push({
-        point: `Only ${count} of ${n} cited page${count === 1 ? '' : 's'} ${label}.`,
-        why: 'Rare enough that doing it well is a differentiator rather than catching up, and cheap enough to be worth testing on a page you already rank with.'
+        point: `Only ${count} of ${n} cited page${n === 1 ? '' : 's'} ${label}.`,
+        why: 'This describes the inspected sample only. It does not show whether adding the feature would improve citation likelihood.'
       });
     }
     if (share === 0 && withSchema > 0 && label.includes('schema')) {
@@ -228,7 +228,7 @@ async function citedPagePatterns(projectId) {
         // "carrys" came from pluralising the verb blindly. The subject is
         // singular here, so the verb needs its real third-person form.
         point: `No cited page ${{ carry: 'carries', answer: 'answers', quote: 'quotes', name: 'names' }[label.split(' ')[0]] || label.split(' ')[0]} ${label.split(' ').slice(1).join(' ')}.`,
-        why: 'Structured data is being read successfully on the others, so this is a real absence rather than a measurement gap. Adding it would not match what is winning here, and is unlikely to be the lever.'
+        why: 'This feature was not detected in the inspected sample. That does not establish whether it helps, and extraction can miss page features.'
       });
     }
   }
@@ -240,7 +240,7 @@ async function citedPagePatterns(projectId) {
     if (count / n >= 0.75) {
       reading.push({
         point: `${pct(count)}% of cited pages ${label}.`,
-        why: 'That is close to universal in this category, so it reads as a baseline rather than an advantage. A page without one is at a disadvantage; a page with one is merely eligible.'
+        why: 'Common in this inspected sample does not mean required for citation. There is no uncited comparison group here to establish an advantage.'
       });
     }
   }
@@ -249,7 +249,7 @@ async function citedPagePatterns(projectId) {
   if (median) {
     reading.push({
       point: `Cited pages run to about ${median.toLocaleString()} words.`,
-      why: 'Useful as a target for anything written to compete with them, and as a check on whether an existing page is substantial enough to be quoted from.'
+      why: 'This is a descriptive median of inspected pages, not a recommended word-count target.'
     });
   }
 
@@ -290,7 +290,8 @@ async function trend(projectId, period = {}) {
     `SELECT r.cycle_date,
             COUNT(*) FILTER (WHERE m.mentioned)::float / NULLIF(COUNT(*), 0) AS rate,
             COUNT(*) FILTER (WHERE m.mentioned)::int AS named_count,
-            COUNT(DISTINCT r.prompt_id)::int AS questions
+            COUNT(DISTINCT r.prompt_id)::int AS questions,
+            COUNT(*)::int AS answers
      FROM runs r
      JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
@@ -311,20 +312,21 @@ async function trend(projectId, period = {}) {
              AND ($3::date IS NULL OR cycle_date <= $3)
          ),
          everywhere AS (
-           SELECT r.prompt_id FROM runs r
+           SELECT r.prompt_id, r.engine FROM runs r
            WHERE r.project_id = $1 AND r.ok
              AND ($2::date IS NULL OR r.cycle_date >= $2)
              AND ($3::date IS NULL OR r.cycle_date <= $3)
-           GROUP BY r.prompt_id
+           GROUP BY r.prompt_id, r.engine
            HAVING COUNT(DISTINCT r.cycle_date) = (SELECT COUNT(*) FROM cycles)
          )
      SELECT r.cycle_date,
             COUNT(*) FILTER (WHERE m.mentioned)::float / NULLIF(COUNT(*), 0) AS rate,
-            COUNT(DISTINCT r.prompt_id)::int AS questions
+            COUNT(DISTINCT r.prompt_id)::int AS questions,
+            COUNT(*)::int AS answers
      FROM runs r
      JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
-     WHERE r.project_id = $1 AND r.ok AND r.prompt_id IN (SELECT prompt_id FROM everywhere)
+     WHERE r.project_id = $1 AND r.ok AND (r.prompt_id, r.engine) IN (SELECT prompt_id, engine FROM everywhere)
        AND ($2::date IS NULL OR r.cycle_date >= $2)
        AND ($3::date IS NULL OR r.cycle_date <= $3)
      GROUP BY r.cycle_date ORDER BY r.cycle_date`,
@@ -497,13 +499,13 @@ async function aiTraffic(projectId) {
  * the first question anyone asks, which is whether this is bad or normal.
  */
 async function rivals(projectId, period = {}) {
-  const day = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [projectId]))?.d;
+  const day = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok AND ($2::date IS NULL OR cycle_date >= $2) AND ($3::date IS NULL OR cycle_date <= $3)', [projectId, period.from ?? null, period.to ?? null]))?.d;
   if (!day) return [];
 
   return many(
     `SELECT e.name, e.kind,
             COUNT(*) FILTER (WHERE m.mentioned)::float / NULLIF(COUNT(*), 0) AS rate,
-            COUNT(*) FILTER (WHERE m.mentioned)::int AS named
+            COUNT(*) FILTER (WHERE m.mentioned)::int AS named, COUNT(*)::int AS answers
      FROM mentions m
      JOIN runs r ON r.id = m.run_id
      JOIN entities e ON e.id = m.entity_id
@@ -584,7 +586,11 @@ export async function buildReport(projectId, range = {}) {
   const last = series.at(-1)?.rate ?? null;
 
   // Titles carry the raw prompt text, so they are cleaned once here.
-  for (const item of p.items) item.title = readable(item.title, personas);
+  for (const item of p.items) {
+    item.title = readable(item.title, personas);
+    if (['source_gap','competitor_page'].includes(item.type)) item.title = `Review cited source: ${item.evidence?.domain || item.target_url || 'source recorded in this finding'}`;
+    if (item.type === 'competitor_comparison') item.title = `Review competitor evidence: ${item.evidence?.competitor || 'tracked competitor'}`;
+  }
 
   /**
    * The three things to do, at the top.
@@ -597,18 +603,18 @@ export async function buildReport(projectId, range = {}) {
   const priorities = [];
 
   const worstAudience = (personaRows || []).filter((x) => x.questions >= 3).at(-1);
-  if (worstAudience && (worstAudience.named_rate || 0) < 0.1) {
+  if (worstAudience && worstAudience.named_rate != null && worstAudience.named_rate < 0.1) {
     priorities.push({
-      do: `Write for ${worstAudience.persona}.`,
-      because: `They ask ${worstAudience.questions} of your tracked questions and you appear in ${Math.round((worstAudience.named_rate || 0) * 100)}% of the answers they get. That is a specific audience with a specific gap, which is a more tractable brief than raising visibility in general.`
+      do: worstAudience.persona === 'Asked plainly' ? 'Review questions asked without a buyer profile.' : `Review questions for ${worstAudience.persona}.`,
+      because: `This group contains ${worstAudience.questions} tracked questions and ${worstAudience.answers} measured answers in the latest cycle within the selected dates. You were named in ${Math.round(worstAudience.named_rate * 100)}% of those answers. Check that the questions represent the buyer need before deciding whether content is missing.`
     });
   }
 
   const topSource = (s.sources || []).find((x) => x.persistent);
   if (topSource) {
     priorities.push({
-      do: `Earn a mention on ${topSource.domain}.`,
-      because: `It shaped answers to ${topSource.questions} of your questions in every cycle we measured, and never cites you. Getting onto a source that already shapes this category is usually faster than ranking a new page.`
+      do: `Review the relevance of ${topSource.domain}.`,
+      because: `It was cited for ${topSource.questions} tracked questions in the stored history. Read the original answers and cited pages before considering outreach. A citation does not establish relevance or show that a listing will improve visibility.`
     });
   }
 
@@ -616,8 +622,8 @@ export async function buildReport(projectId, range = {}) {
   if (rival) {
     const us = competitors.find((x) => x.kind === 'owned');
     priorities.push({
-      do: `Close the gap with ${rival.name}.`,
-      because: `They are named in ${Math.round((rival.rate || 0) * 100)}% of answers against your ${Math.round((us?.rate || 0) * 100)}%. A comparison page that treats them honestly is the usual way in, because the engines are already answering the comparison for buyers.`
+      do: `Review where ${rival.name} appears.`,
+      because: `They were named in ${rival.named} of ${rival.answers} measured answers in the latest cycle within the selected dates. Inspect those answers and their sources for the same buyer need. This does not explain why the competitor appeared or establish that a comparison page is needed.`
     });
   }
 
@@ -625,7 +631,7 @@ export async function buildReport(projectId, range = {}) {
   if (deadPage) {
     priorities.push({
       do: `Fix what happens on ${deadPage.page}.`,
-      because: `AI assistants sent ${deadPage.sessions} sessions there in 90 days and none converted. Visibility is working on that page and the page is not.`
+      because: `GA4 recorded ${deadPage.sessions} AI-referral sessions there in 90 days and no recorded conversions. Check conversion tracking and the visitor journey before concluding that the page is failing.`
     });
   }
 
@@ -646,7 +652,8 @@ export async function buildReport(projectId, range = {}) {
       comparableCount: points.stable.at(-1)?.questions ?? 0,
       first,
       last,
-      change: first !== null && last !== null ? last - first : null,
+      change: comparable && first !== null && last !== null ? last - first : null,
+      lastAnswers: series.at(-1)?.answers ?? null,
       // Absolute counts, because a rate over a growing question set falls
       // even when the brand is named more often than before.
       firstNamed: points.all[0]?.named_count ?? null,
@@ -682,12 +689,13 @@ export async function buildReport(projectId, range = {}) {
       .slice(0, 3),
     // Stated once, at the top of the object, so no consumer has to infer it.
     caveats: [
-      'Counts come from stored answers. Where a number is missing, the measurement did not run rather than returning zero.',
+      'Counts come from stored answers. Missing values mean unmeasured or unmatched, not zero.',
+      'Visibility and buyer groups use the selected dates. Recurring findings, source history, page samples and completed work use all stored history. GA4 traffic covers its separate 90-day window.',
       'Completed actions and visibility changes are shown side by side. We do not claim one caused the other: too much moves at once in these systems to attribute a change to a single edit.',
-      'A source citing a competitor is not proof it will cite you. It is evidence that the source shapes answers in your category and is worth pursuing.',
+      'A citation does not establish relevance or explain selection. Review the exact question, answer and page before deciding on content changes or outreach.',
       comparable
-        ? 'The trend is measured on the questions asked in every cycle, so a change means something moved in the answers rather than in what we asked. The full question set is shown separately.'
-        : 'Not enough cycles share a common question set yet, so the trend covers every question asked. Once three cycles share questions, this becomes a like-for-like comparison.'
+        ? 'The comparison uses question-and-engine pairs measured in every selected cycle. It describes the observed sample, not statistical significance or the effect of a specific action. Model changes and different sample counts can still affect results.'
+        : 'No comparable movement is reported. At least two cycles with common question-and-engine pairs are needed. Individual cycle rates may cover different sets.'
     ]
   };
 }

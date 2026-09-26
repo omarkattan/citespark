@@ -8,7 +8,7 @@
 
 const esc = (s) =>
   String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-const pct = (n) => `${Math.round((n || 0) * 100)}%`;
+const pct = (n) => n == null ? 'Not measured' : `${Math.round(n * 100)}%`;
 const date = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 
 /** A trend line, drawn small. Inline SVG so it survives printing and email. */
@@ -61,7 +61,7 @@ const escapeHtmlAttr = (s) => String(s == null ? '' : s).replace(/"/g, '&quot;')
 export function reportHtml(r, { print = false } = {}) {
   const recurring = r.persistence.items.filter((i) => i.standing === 'recurring');
   const persistentSources = r.sources.sources.filter((s) => s.persistent).slice(0, 12);
-  const changeWord = r.trend.change === null ? null : r.trend.change > 0.02 ? 'up' : r.trend.change < -0.02 ? 'down' : 'flat';
+  const changeWord = !r.trend.comparable || r.trend.cycles < 2 || r.trend.change == null ? null : r.trend.change > 0.02 ? 'up' : r.trend.change < -0.02 ? 'down' : 'flat';
 
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8" />
@@ -240,7 +240,7 @@ ${
 ${
   r.trend.cycles
     ? `<p class="lede">
-        ${esc(r.project.brand)} was named in <b>${pct(r.trend.last)}</b> of answers in the most recent cycle${
+        ${esc(r.project.brand)} was named in <b>${pct(r.trend.last)}</b> of ${r.trend.lastAnswers ?? 'an unrecorded number of'} measured answers in the latest selected cycle${r.trend.comparable ? ' for the common question-and-engine set' : ''}${
           changeWord && r.trend.cycles > 1
             ? `, ${changeWord === 'flat' ? 'about level with' : `${changeWord} from`} ${pct(r.trend.first)} when we started`
             : ''
@@ -258,14 +258,14 @@ ${
             good, because that comparison is the only one with meaning.
           -->
           <div class="v">${pct(r.trend.last)}</div>
-          <div class="s">of answers, most recent cycle</div>
+          <div class="s">${r.trend.lastAnswers ?? 'Unrecorded count of'} measured answers, latest selected cycle${r.trend.comparable ? ', common question-and-engine set' : ''}</div>
         </div>
         <div class="card">
           <div class="k">Movement</div>
           <div class="v ${r.trend.change > 0.02 ? 'good' : r.trend.change < -0.02 ? 'bad' : ''}">${
-            r.trend.change === null ? '&mdash;' : `${r.trend.change > 0 ? '+' : ''}${Math.round(r.trend.change * 100)}`
-          }<span style="font-size:16px">pts</span></div>
-          <div class="s">since the first cycle</div>
+            !changeWord ? '&mdash;' : `${r.trend.change > 0 ? '+' : ''}${Math.round(r.trend.change * 100)}`
+          }<span style="font-size:16px">${changeWord ? 'pts' : ''}</span></div>
+          <div class="s">${changeWord ? 'observed change since the first selected cycle, same question-and-engine pairs' : 'Not enough comparable measurements'}</div>
         </div>
         <div class="card">
           <div class="k">Your site cited</div>
@@ -285,14 +285,15 @@ ${
         </div>
       </div>
 
-      ${sparkline(r.trend.points)}
+      ${r.trend.comparable ? sparkline(r.trend.points) : '<p class="note">Cycle rates below are separate samples. No comparable trend is shown.</p>'}
 
-      <table><thead><tr><th>Cycle</th><th class="num">Questions</th><th class="num">Named in</th><th class="barcell"></th></tr></thead><tbody>
+      <table><thead><tr><th>Cycle</th><th class="num">Questions</th><th class="num">Measured answers</th><th class="num">Named in</th><th class="barcell"></th></tr></thead><tbody>
       ${r.trend.points
         .map(
           (p) => `<tr>
             <td>${date(p.cycle_date)}</td>
             <td class="num">${p.questions}</td>
+            <td class="num">${p.answers ?? 'Not recorded'}</td>
             <td class="num">${pct(p.rate)}</td>
             <td class="barcell"><span class="bar"><i style="width:${Math.round((p.rate || 0) * 100)}%"></i></span></td>
           </tr>`
@@ -304,8 +305,7 @@ ${
 
 <h2>What keeps coming back</h2>
 <p class="note">
-  These appeared in every cycle we measured, not only the most recent one. That makes them settled facts about how
-  this category is answered rather than variation between runs, which is why they are worth doing first.
+  These findings occurred in at least 60% of three or more stored cycles. Recurrence makes them worth reviewing, but does not establish their cause or prove a remedy.
 </p>
 ${
   recurring.length
@@ -379,8 +379,7 @@ ${
         .join('')}
       </tbody></table>
       <div class="callout">
-        A source appearing in every cycle is not a passing mention. It is part of how this category gets answered,
-        and being absent from it is a standing disadvantage.
+        Repeated citations show a pattern in the stored answers. Check the page and question for relevance before deciding whether to act.
       </div>`
     : '<p>Not enough cycles yet to say which sources persist.</p>'
 }
@@ -392,16 +391,16 @@ ${
         <b>How this was measured.</b>
         Read from <b>${r.patterns.pages}</b> of the ${r.patterns.universe} pages cited in answers to your questions.
         The most-cited pages are read automatically at the end of each cycle, and any page you asked about yourself is
-        included too.
+        included too. These pages are not a random sample and may include unrelated sources. Page features do not establish why a source was cited.
         ${
           r.patterns.thin
-            ? ' At this sample size treat the shares below as indicative rather than settled: run more cycles and they will firm up.'
+            ? ' This is a small, selected sample. Additional cycles do not guarantee a representative sample.'
             : ''
         }
         ${r.patterns.medianWords ? ` Median length ${r.patterns.medianWords.toLocaleString()} words.` : ''}
       </div>
 
-      <table><thead><tr><th>Feature</th><th class="num">Share of cited pages</th><th class="barcell"></th></tr></thead><tbody>
+      <table><thead><tr><th>Feature</th><th class="num">Share of inspected pages</th><th class="barcell"></th></tr></thead><tbody>
       ${r.patterns.features
         .map(
           ([label, p]) => `<tr>
@@ -414,7 +413,7 @@ ${
       </tbody></table>
       ${
         r.patterns.reading?.length
-          ? `<h3 style="font-size:14px;margin:26px 0 8px">What that means here</h3>
+          ? `<h3 style="font-size:14px;margin:26px 0 8px">Observations from this sample</h3>
             ${r.patterns.reading
               .map(
                 (x) => `<div class="reading">
@@ -554,8 +553,8 @@ ${
           (t) => `<div class="theme">
             <div class="theme-head">
               <b>${esc(t.label)}</b>
-              <span class="theme-count">${t.items.length} question${t.items.length === 1 ? '' : 's'}${
-                t.recurring ? `, ${t.recurring} in every cycle` : ''
+              <span class="theme-count">${t.items.length} finding${t.items.length === 1 ? '' : 's'}${
+                t.recurring ? `, ${t.recurring} recurring` : ''
               }</span>
             </div>
             <ul class="theme-eg">
@@ -662,7 +661,7 @@ export function reportCsv(r) {
       ['Generated', day(r.generatedAt)],
       ['Measurement cycles', r.trend.cycles],
       ['Named in, most recent cycle', r.trend.last == null ? '' : `${Math.round(r.trend.last * 100)}%`],
-      ['Measured on a like-for-like question set', r.trend.comparable ? 'yes' : 'no'],
+      ['Measured on a like-for-like question-and-engine set', r.trend.comparable ? 'yes' : 'no'],
       ['Questions in that set', r.trend.comparableCount || ''],
       ['Times named, first cycle', r.trend.firstNamed ?? ''],
       ['Times named, latest cycle', r.trend.lastNamed ?? ''],
@@ -676,8 +675,8 @@ export function reportCsv(r) {
 
   section(
     'Visibility by cycle',
-    ['cycle_date', 'questions_asked', 'named_in_pct'],
-    (r.trend.all || []).map((p) => [day(p.cycle_date), p.questions, Math.round((p.rate || 0) * 100)])
+    ['cycle_date', 'questions_asked', 'measured_answers', 'named_in_pct'],
+    (r.trend.all || []).map((p) => [day(p.cycle_date), p.questions, p.answers ?? '', p.rate == null ? '' : Math.round(p.rate * 100)])
   );
 
   section(
@@ -726,7 +725,7 @@ export function reportCsv(r) {
 
   section(
     'Findings grouped by theme',
-    ['theme', 'questions_affected', 'recurring'],
+    ['theme', 'findings', 'recurring'],
     (r.themes || []).map((t) => [t.label, t.items.length, t.recurring])
   );
 
