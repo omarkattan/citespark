@@ -51,3 +51,33 @@ test('question evidence labels absent legacy denominators rather than inventing 
  const fresh=h.evidenceDetails({...base,evidence:{competitor:'Rival',questions:[{question:'Which?',own_rate:0,competitor_rate:100,own_runs:3,competitor_runs:3}]}});
  assert.match(fresh,/measured answers: you 3, competitor 3/);
 });
+
+test('legacy question tasks show measured evidence and conditional action, with no ranking promises',()=>{
+ const t={...base,type:'content_gap',title:'Invisible for buyer',action:'If you are off page one you are not even in the candidate set',evidence:{prompt_id:7,prompt:'Which <agency>?',own_rate:0,runs:6}};
+ const before=JSON.stringify(t);const html=cardHarness().taskCard(t);
+ assert.match(html,/not named in 6 measured answers/);assert.match(html,/Which &lt;agency&gt;/);
+ assert.match(html,/If you find a specific missing answer/);assert.match(html,/Completion does not mean visibility has improved/);
+ assert.doesNotMatch(html,/off page one|first 40 to 60|you 0%/);
+ assert.match(html,/class="btn" data-see-answer="7"/);assert.match(html,/data-status="doing"/);assert.equal(JSON.stringify(t),before);
+});
+test('question task missing denominator does not invent a zero measurement',()=>{
+ const html=cardHarness().taskCard({...base,type:'content_gap',evidence:{prompt:'Which?',own_rate:0}});
+ assert.match(html,/complete answer count was not recorded/);assert.doesNotMatch(html,/not named in 0|you 0%/);assert.match(html,/Inspect stored answers/);
+});
+test('new question recommendations retain evidence and priority with conditional advice',()=>{
+ const p={id:7,text:'Which agency?',cluster:'selection',owned:{runs:6},competitors:new Map()};
+ const h=vm.createContext({p,ownRate:0,out:[],rec:x=>x,rate:()=>0,volumeScore:25,topQuery:'agency dubai',fanOut:[{query:'agency dubai'}]});
+ vm.runInContext(recommend.slice(recommend.indexOf('    /* Rule 1:'),recommend.indexOf('    /* Rule 2:')),h);
+ const r=h.out[0];assert.equal(r.type,'content_gap');assert.equal(r.impact,25);assert.equal(r.evidence.runs,6);assert.equal(r.evidence.own_rate,0);assert.equal(r.evidence.prompt_id,7);
+ assert.match(r.action,/only if the review supports/);assert.doesNotMatch(r.action,/off page one|40 to 60|as an H2/);
+});
+test('full Opportunities view keeps report controls collapsed for both populated and empty lists',async()=>{
+ const {JSDOM}=await import(process.env.JSDOM_MODULE || 'jsdom');
+ for(const tasks of [[],[base]]){
+  const h=vm.createContext({state:{projectId:26},esc,taskCard:()=>'<article>Review task</article>',api:async()=>({tasks,counts:{open:tasks.length,doing:0,done:0,dismissed:0,total:tasks.length}})});
+  vm.runInContext(app.slice(app.indexOf('async function viewActions()'),app.indexOf('\nfunction ',app.indexOf('async function viewActions()'))),h);
+  const document=new JSDOM(await h.viewActions()).window.document;
+  const report=document.querySelector('details');assert.equal(report.open,false);assert.equal(report.querySelector('summary').textContent,'Export report or data');
+  assert.ok(document.getElementById('repFrom'));assert.ok(document.getElementById('repCsv'));assert.ok(document.querySelector('[data-task-filter="active"]'));
+ }
+});

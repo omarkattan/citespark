@@ -304,7 +304,7 @@ async function viewActions() {
    * and it sat below an early return, so filtering to an empty view removed
    * it altogether.
    */
-  const reportBar = `<div class="reportbar">
+  const reportBar = `<details class="panel fold"><summary>Export report or data</summary><div class="reportbar">
     <div class="reportbar-text">
       <b>Client report</b>
       <span>Leave the dates empty for everything measured so far, or set a period to report on one month.</span>
@@ -316,7 +316,7 @@ async function viewActions() {
     </span>
     <a class="btn" id="repOpen" href="/api/projects/${state.projectId}/report?print=1" target="_blank" rel="noopener">Download report</a>
     <a class="ghost" id="repCsv" href="/api/projects/${state.projectId}/report?format=csv" download>Download data</a>
-  </div>`;
+  </div></details>`;
 
   const bar = `<div class="taskbar">
       ${tab('active', 'To do', c.open + c.doing)}
@@ -497,7 +497,7 @@ function evidenceDetails(t) {
 const TYPE_LABEL = {
   decline_alert: 'visibility dropped',
   source_gap: 'a cited source to review',
-  content_gap: 'a question you lose',
+  content_gap: 'question visibility to review',
   engine_gap: 'strong on one engine, absent on another',
   competitor_comparison: 'competitor evidence to review',
   ordinal_push: 'named late in the answer',
@@ -522,13 +522,19 @@ function renderSourceReview(review) {
 function taskCard(t) {
   const ev = t.evidence || {};
   const sourceReview = ['source_gap', 'competitor_page'].includes(t.type);
+  const questionReview = t.type === 'content_gap';
+  const questionTitle = `Review visibility for: ${ev.prompt || 'this buyer question'}`;
+  const knownRuns = Number.isInteger(ev.runs) && ev.runs > 0;
+  const questionObservation = knownRuns && ev.own_rate === 0
+    ? `You were not named in ${ev.runs} measured answers stored with this task.`
+    : 'Review the stored answers. A complete answer count was not recorded with this task.';
   const competitorReview = t.type === 'competitor_comparison';
   const competitorTitle = `Review where ${ev.competitor || 'a tracked competitor'} appears more often`;
   const reviewTitle = `Review whether ${ev.domain || 'this source'} answers your buyers' questions`;
   const bits = [];
   // A tag with detail behind it opens that detail rather than being inert.
   const opens = evidenceDetails(t) ? ' data-open-detail' : '';
-  if (!competitorReview && ev.own_rate !== undefined) bits.push(`<span class="tag">you ${ev.own_rate}%</span>`);
+  if (!competitorReview && !questionReview && ev.own_rate !== undefined) bits.push(`<span class="tag">you ${ev.own_rate}%</span>`);
   if (!competitorReview && ev.competitor_rate !== undefined) bits.push(`<span class="tag${opens ? ' clickable' : ''}"${opens}>${esc(ev.competitor)} ${ev.competitor_rate}%</span>`);
   if (ev.citations !== undefined) bits.push(`<span class="tag${opens ? ' clickable' : ''}"${opens}>${ev.citations} citations</span>`);
   if (ev.prompts !== undefined) bits.push(`<span class="tag${opens ? ' clickable' : ''}"${opens}>${ev.prompts} questions</span>`);
@@ -548,7 +554,7 @@ function taskCard(t) {
   return `
   <article class="rec ${t.status}" data-type="${esc(t.type)}" data-task="${t.id}">
     <div class="rec-top">
-      <div class="rec-title">${esc(sourceReview ? reviewTitle : competitorReview ? competitorTitle : t.title)}</div>
+      <div class="rec-title">${esc(sourceReview ? reviewTitle : competitorReview ? competitorTitle : questionReview ? questionTitle : t.title)}</div>
       <div class="rec-pri">priority ${Number(t.priority).toFixed(1)} &middot; effort ${Number(t.effort)}/5</div>
     </div>
 
@@ -559,7 +565,13 @@ function taskCard(t) {
       ${t.notes ? '<span class="tag">has notes</span>' : ''}
     </div>
 
-    ${sourceReview || competitorReview ? `<div class="task-guidance">
+    ${questionReview ? `<div class="task-guidance">
+      <p><b>Observed</b><br>${esc(questionObservation)} This result does not establish why you were absent.</p>
+      <p><b>Check next</b><br>Read the answers and cited pages. Confirm the question concerns a buyer you serve, then compare the information those sources provide with your relevant page.</p>
+      <p><b>Action supported now</b><br>If you find a specific missing answer or supporting evidence, record the gap and update the relevant page. If the question does not fit your business, pause it in Questions. Search rank and answer formatting alone do not explain selection.</p>
+      <p class="hint">Mark this task done when the review and any chosen change are complete. Completion does not mean visibility has improved; a later measurement checks that.</p>
+      ${!ev.prompt_id ? '<button class="ghost" data-open-view="answers">Inspect stored answers</button>' : ''}
+    </div>` : sourceReview || competitorReview ? `<div class="task-guidance">
       <p><b>Observed</b><br>${sourceReview ? 'This page was cited in the stored answers associated with this task. Relevance is specific to the checked page and question.' : `${esc(ev.competitor || 'A tracked competitor')} was named more often on the questions listed below. This does not establish why it appeared.`}</p>
       <p><b>Check next</b><br>${sourceReview ? 'Read the buyer question and original answer, then check whether the cited page addresses the same need.' : 'Read the question-level evidence, the original answers and their cited pages. Confirm they concern the same buyer need and market.'}</p>
       <p><b>Action supported now</b><br>${sourceReview ? 'Review relevance before deciding on page changes or outreach.' : 'Investigate the gap. A comparison page is an option only if that review reveals a relevant buyer comparison your content does not answer. No content change is established by this task alone.'}</p>
@@ -584,7 +596,7 @@ function taskCard(t) {
          * that needed doing.
          */
         ev.prompt_id
-          ? `<button class="ghost" data-see-answer="${ev.prompt_id}">Read the answers</button>
+          ? `<button class="${questionReview ? 'btn' : 'ghost'}" data-see-answer="${ev.prompt_id}">Read the answers</button>
              <button class="ghost" data-reask="${ev.prompt_id}">Ask again now</button>`
           : ''
       }
