@@ -58,6 +58,7 @@ test('renderer suppresses unsafe actions from legacy and blocked results',()=>{
 });
 test('stored source cards show review copy without changing evidence or task state',()=>{
   const h=vm.createContext({esc,evidenceDetails:()=>'',dueLabel:()=>'',STATUS_LABEL:{open:'To do'},TYPE_LABEL:{},state:{},highlight:esc});
+  vm.runInContext(app.slice(app.indexOf('function renderSourceReview('), app.indexOf('function taskCard(')),h);
   const a=app.indexOf('function taskCard(');const end=app.indexOf('\nfunction ',a+1);
   vm.runInContext(app.slice(a,end),h);
   for(const type of ['source_gap','competitor_page']){

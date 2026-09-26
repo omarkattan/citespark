@@ -1,6 +1,6 @@
 import { fetchPage } from './discover.js';
 import { complete } from './anthropic.js';
-import { one, query } from '../db/index.js';
+import { one, many, query } from '../db/index.js';
 
 /**
  * Why was this page cited?
@@ -432,4 +432,37 @@ export async function teardownTopCited(projectId, { limit = 5, cycle = null } = 
   }
 
   return { torn: done.filter((d) => d.ok).length, attempted: done.length, pages: done, cycle: day };
+}
+
+/** Read saved page/question reviews only. Never starts a provider call. */
+export async function attachSourceReviews(project, tasks) {
+  const candidates = tasks.filter(t => ['source_gap', 'competitor_page'].includes(t.type) && t.evidence?.url && t.evidence?.question);
+  if (!candidates.length) return tasks;
+  const competitors = await many("SELECT domain FROM entities WHERE project_id = $1 AND kind = 'competitor'", [project.id]);
+  const requests = candidates.flatMap(t => {
+    let host;
+    try { host = new URL(t.evidence.url).hostname; } catch { return []; }
+    const { kind } = classifySource(host, { ownDomain: project.domain, competitorDomains: competitors.map(c => c.domain) });
+    return [{ id: t.id, url: t.evidence.url, question: t.evidence.question,
+      context: teardownContext({kind, ownBrand: project.brand_name, ownDomain: project.domain}) }];
+  });
+  if (!requests.length) return tasks;
+  const saved = await many(`
+    SELECT request.id, review.result->'explanation'->'relevance' AS relevance, review.created_at
+    FROM jsonb_to_recordset($1::jsonb) AS request(id int, url text, question text, context jsonb)
+    JOIN LATERAL (
+      SELECT result, created_at FROM page_teardowns
+      WHERE url = request.url AND question = request.question
+        AND result->'context' = request.context
+        AND result->>'ok' = 'true'
+        AND created_at > now() - interval '30 days'
+      ORDER BY created_at DESC LIMIT 1
+    ) review ON true`, [JSON.stringify(requests)]);
+  const reviews = new Map(saved.map(row => [String(row.id), row]));
+  return tasks.map(task => {
+    const row = reviews.get(String(task.id));
+    if (!row || !['relevant', 'irrelevant', 'uncertain'].includes(row.relevance?.status)) return task;
+    return {...task, sourceReview: {status: row.relevance.status, reason: String(row.relevance.reason || ''),
+      question: task.evidence.question, checkedAt: row.created_at}};
+  });
 }

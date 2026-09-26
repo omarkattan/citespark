@@ -16,7 +16,7 @@ import { generatePrompts } from './lib/prompts.js';
 import { discoverSite } from './lib/discover.js';
 import { PLANS, PLAN_ORDER, planFor } from './lib/plans.js';
 import { proposeQuestions, runDemo, checkLimits, hashIp, DEMO_CONFIG } from './lib/demo.js';
-import { teardown } from './lib/teardown.js';
+import { teardown, attachSourceReviews } from './lib/teardown.js';
 import { notifyTrial, notifySignup, notifyPaid, notifyFeedback, notifyAssignment, looksLikeEmail, emailConfigured } from './lib/notify.js';
 import { listSites as listGscSites, candidates as gscCandidates, importQuestions } from './lib/gsc.js';
 import { landscape, PLATFORMS, mentionsConfigured } from './lib/mentions.js';
@@ -733,7 +733,7 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
   const members = await many('SELECT email FROM users WHERE org_id = $1 ORDER BY email', [req.session.orgId]);
 
   res.json({
-    tasks: rows,
+    tasks: await attachSourceReviews(project, rows),
     counts,
     people: [...new Set([...members.map((m) => m.email), ...people.map((p) => p.assignee)])]
   });
@@ -3511,7 +3511,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260926-relevance-2',
+    release: '20260926-visible-3',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

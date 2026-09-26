@@ -522,16 +522,16 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
  */
 async function summarise(projectId, cycle, { runs, spend, recs, trimmed, estimated, attempted, billable, failed }) {
   const rate = async (cycleDate) => {
-    if (!cycleDate) return null;
+    if (!cycleDate) return { rate: null, answers: 0 };
     const row = await one(
-      `SELECT SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS r
+      `SELECT COUNT(*)::int AS answers, SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS r
        FROM runs cr
        JOIN mentions m ON m.run_id = cr.id
        JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
        WHERE cr.project_id = $1 AND cr.cycle_date = $2 AND cr.ok`,
       [projectId, cycleDate]
     );
-    return row?.r === null || row?.r === undefined ? null : Number(row.r);
+    return { rate: row?.r === null || row?.r === undefined ? null : Number(row.r), answers: Number(row?.answers || 0) };
   };
 
   const prev = await one(
@@ -539,8 +539,9 @@ async function summarise(projectId, cycle, { runs, spend, recs, trimmed, estimat
     [projectId, cycle]
   );
 
-  const now = await rate(cycle);
-  const before = await rate(prev?.d);
+  const measured = await rate(cycle);
+  const now = measured.rate;
+  const before = (await rate(prev?.d)).rate;
 
   const topSources = await many(
     `SELECT c.domain, COUNT(*)::int AS n
@@ -576,6 +577,7 @@ async function summarise(projectId, cycle, { runs, spend, recs, trimmed, estimat
     recommendations: recs.length,
     openActions: openCount.n,
     visibility: now,
+    measuredAnswers: measured.answers,
     visibilityBefore: before,
     delta: now !== null && before !== null ? now - before : null,
     topActions: recs.slice(0, 3).map((r) => ({ type: r.type, title: r.title, priority: r.priority })),

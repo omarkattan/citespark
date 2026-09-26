@@ -270,10 +270,10 @@ async function viewActions() {
   if (!data.tasks.length) {
     // The report covers every cycle, so an empty filter is no reason to hide it.
     return reportBar + bar + `<div class="empty"><h2>${
-      filter === 'done' ? 'Nothing finished yet' : filter === 'dismissed' ? 'Nothing dismissed' : 'Nothing to do here'
+      filter === 'done' ? 'Nothing finished yet' : filter === 'dismissed' ? 'Nothing dismissed' : 'No actions in this view'
     }</h2><p>${
       filter === 'active'
-        ? 'Run a cycle and the engine writes the task list from what it finds.'
+        ? 'Actions are generated after a measurement finishes. Completed or dismissed actions are in their own filters.'
         : 'Try another filter.'
     }</p></div>` + suppressedPanel;
   }
@@ -424,7 +424,7 @@ function evidenceDetails(t) {
  */
 const TYPE_LABEL = {
   decline_alert: 'visibility dropped',
-  source_gap: 'a source that ignores you',
+  source_gap: 'a cited source to review',
   content_gap: 'a question you lose',
   engine_gap: 'strong on one engine, absent on another',
   competitor_comparison: 'a competitor ahead of you',
@@ -436,6 +436,16 @@ const TYPE_LABEL = {
   sentiment_correction: 'how you are described',
   named_not_cited: 'named, but the link went elsewhere'
 };
+
+function renderSourceReview(review) {
+  const labels = {relevant: 'Source appears relevant', irrelevant: 'Source appears unrelated', uncertain: 'Source relevance is uncertain'};
+  if (!labels[review?.status]) return '<p class="hint">Source relevance has not been checked for this page and question.</p>';
+  return `<div class="notice"><b>${esc(labels[review.status])}</b>
+    <p>${esc(review.reason)}</p>
+    <p>Checked question: ${esc(review.question)}</p>
+    ${review.status !== 'relevant' ? '<p>Page changes and outreach are withheld. Review the question and original answer first.</p><button class="ghost" data-review-question>Review questions</button>' : '<p>This is an analysis of one page and question, not proof of why it was cited.</p>'}
+  </div>`;
+}
 
 function taskCard(t) {
   const ev = t.evidence || {};
@@ -477,6 +487,7 @@ function taskCard(t) {
     </div>
 
     <p class="rec-action">${esc(sourceReview ? reviewAction : t.action)}</p>
+    ${sourceReview ? `<div id="source-review-${t.id}">${renderSourceReview(t.sourceReview)}</div>` : ''}
     ${ev.snippet ? `<div class="excerpt">${highlight(ev.snippet, state.overview?.project?.brand_name)}</div>` : ''}
 
     <div class="rec-foot">
@@ -485,7 +496,7 @@ function taskCard(t) {
       ${t.target_url ? `<a class="tag" href="${esc(t.target_url)}" target="_blank" rel="noopener">open source</a>` : ''}
       <span style="flex:1"></span>
       ${ev.analysable && ev.url && ev.question
-        ? `<button class="ghost" data-teardown="${t.id}" data-url="${esc(ev.url)}" data-question="${esc(ev.question)}">Check source relevance</button>`
+        ? `<button class="ghost" data-teardown="${t.id}" data-url="${esc(ev.url)}" data-question="${esc(ev.question)}">${t.sourceReview ? 'View relevance details' : 'Check source relevance'}</button>`
         : ''}
       ${
         /**
@@ -2011,9 +2022,16 @@ function deltaFig(s) {
   </div>`;
 }
 
+function answerSampleLabel(s) {
+  return Number.isInteger(s.measuredAnswers) && s.measuredAnswers >= 0
+    ? `${s.measuredAnswers} successful answers in this cycle's visibility sample`
+    : 'Successful-answer sample size unavailable';
+}
+
 function headline(s) {
+  if (s.visibility === null || s.visibility === undefined) return 'Visibility is unmeasured because no successful matched answers are available.';
   if (s.visibility === 0) {
-    return `No engine named you in any of the ${s.runs} answers we read. Every action below exists to change that.`;
+    return `No engine named you in any of the ${answerSampleLabel(s)}. Every action below exists to change that.`;
   }
   if (s.delta !== null && Math.round(s.delta * 100) <= -10) {
     return `You slipped ${Math.abs(Math.round(s.delta * 100))} points since the last cycle. The decline actions below are worth reading first.`;
@@ -2024,7 +2042,7 @@ function headline(s) {
   if (s.topRival && s.topRival.rate > (s.visibility || 0) + 0.2) {
     return `${esc(s.topRival.name)} is named in ${Math.round(s.topRival.rate * 100)}% of answers against your ${Math.round((s.visibility || 0) * 100)}%. Closing that gap is what the top actions are for.`;
   }
-  return `You were named in ${Math.round((s.visibility || 0) * 100)}% of the ${s.runs} answers we read. Here is what to do about the rest.`;
+  return `You were named in ${Math.round((s.visibility || 0) * 100)}% of the ${answerSampleLabel(s)}. Here is what to do about the rest.`;
 }
 
 function failureNote(s) {
@@ -2082,7 +2100,7 @@ function failureNote(s) {
 
   const advice = ourNote + theirNote;
 
-  return `<p class="report-warn">${total} of ${s.attempted} calls did not return an answer. ${list}. Those were not charged to your allowance, and the visibility figure above ignores them.${advice}</p>`;
+  return `<p class="report-warn">${total} of ${s.attempted} calls did not return an answer. ${list}. Failed answers are excluded from visibility. Allowance usage is shown with the cycle cost.${advice}</p>`;
 }
 
 function showReport(s) {
@@ -2102,8 +2120,8 @@ function showReport(s) {
       <div class="report-figures">
         <div class="report-fig">
           <div class="k">Visibility</div>
-          <div class="v">${Math.round((s.visibility || 0) * 100)}%</div>
-          <div class="n">${s.runs} answers read${s.attempted && s.attempted !== s.runs ? ` of ${s.attempted}` : ''}</div>
+          <div class="v">${s.visibility === null || s.visibility === undefined ? '—' : Math.round(s.visibility * 100) + '%'}</div>
+          <div class="n">${answerSampleLabel(s)}</div>
         </div>
         ${deltaFig(s)}
         <div class="report-fig">
@@ -2118,7 +2136,7 @@ function showReport(s) {
             s.estimated && s.spend !== null && s.estimated > s.spend * 1.15
               ? `estimated $${s.estimated.toFixed(2)}, came in under`
               : s.trimmed ? 'trimmed to your allowance' : 'actual, this cycle'
-          }${s.billable !== undefined && s.billable !== s.attempted ? ` &middot; ${s.billable} checks used` : ''}</div>
+          }${s.billable !== undefined ? ` &middot; ${s.billable} checks used` : ''}</div>
         </div>
       </div>
 
@@ -3641,6 +3659,9 @@ document.addEventListener('click', async (e) => {
 
     if (!res.ok) { box.innerHTML = `<p class="error">${esc(d.error)}</p>`; return; }
     box.innerHTML = renderTeardown(d);
+    const summary = $(`source-review-${id}`);
+    if (summary) summary.innerHTML = renderSourceReview({...d.explanation?.relevance, question: td.dataset.question});
+    td.textContent = 'View relevance details';
     return;
   }
 
