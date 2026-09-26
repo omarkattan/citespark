@@ -88,3 +88,31 @@ test('typing a search keeps origin and activity filters instead of a second hand
  assert.deepEqual(x.visible(),['4']);assert.equal(x.count('all'),'All 1');
  assert.equal(document.getElementById('promptFilterCount').textContent,'1 shown · 1 match filters · 4 total including history');
 });
+
+for (const size of [0,1,21]) test(`complete Questions screen renders ${size} questions with real topic and intent dropdowns`,async()=>{
+ const {h,document}=harness();
+ const prompts=Array.from({length:size},(_,i)=>({id:i+1,text:`Buyer question ${i+1}`,active:i!==20,source:i===20?'gsc+model':'generated',cluster:i%2?'ppc':'seo',intent:i%2?'commercial':'discovery',measured:i!==20,rate:0,citations:[],runs:[],originDetails:i===20?{queryExamples:['ecommerce marketing'],property:'https://sandstormdigital.com/'}:{}}));
+ Object.assign(h,{runStrip:()=>'',rateClass:()=>'',pct:x=>`${x*100}%`,api:async path=>{
+  if(path.endsWith('/prompts'))return prompts;
+  if(path.endsWith('/run-scope'))return {all:Math.min(size,20),checksAll:Math.min(size,20)*6,costAll:1.67};
+  if(path.endsWith('/gsc'))return {connected:true,siteUrl:'https://sandstormdigital.com/'};
+  if(path.endsWith('/personas'))return {personas:[]};
+  if(path.endsWith('/duplicate-questions'))return {wasted:0};
+  if(path.endsWith('/by-persona'))return {rows:[]};
+  throw Error(`Unexpected request ${path}`);
+ }});
+ vm.runInContext(slice('function questionSourceLabel(', 'async function viewRivals('),h);
+ vm.runInContext(slice('function searchBox(', '/* ---------- search console import'),h);
+ document.body.innerHTML=await h.viewQuestions();h.applyQuestionView();
+ assert.equal(document.querySelectorAll('.prompt').length,size);
+ assert.match(document.querySelector('#gscPanel summary').textContent,/sandstormdigital.com/);
+ if(size>1){
+  assert.match(document.querySelector('#qcluster').textContent,/seo \(11\)/);
+  assert.match(document.querySelector('#qintent').textContent,/commercial \(10\)/);
+  assert.equal(document.querySelector('[data-value="all"]').textContent,'All 20');
+  assert.equal(document.querySelector('[data-value="unrun"]').textContent,'Not asked yet 0');
+  h.values={activity:'paused',origin:'gsc'};vm.runInContext('Object.assign(qState,values);applyQuestionView()',h);
+  assert.equal(document.querySelectorAll('.prompt:not([hidden])').length,1);
+  assert.match(document.querySelector('.prompt:not([hidden])').textContent,/Original GSC query examples/);
+ }
+});

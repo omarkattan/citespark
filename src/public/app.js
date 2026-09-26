@@ -1135,6 +1135,7 @@ async function viewQuestions() {
   const clusters = [...new Set(prompts.map((p) => p.cluster).filter(Boolean))].sort();
   const intents = [...new Set(prompts.map((p) => p.intent).filter(Boolean))].sort();
 
+  const count = (fn) => prompts.filter(fn).length;
   const chip = (group, value, label, n) =>
     `<button class="tfilter${value === 'all' ? ' is-on' : ''}" data-group="${group}" data-value="${esc(value)}">${esc(label)}${
       n === undefined ? '' : ` ${n}`
