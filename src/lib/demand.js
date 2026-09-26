@@ -24,43 +24,49 @@ export const DEMAND_WINDOW_DAYS = 90;
 /** Enough searching that absence from AI answers is worth acting on. */
 export const GAP_MIN_IMPRESSIONS = 500;
 
+export const DEMAND_MATCH_VERSION = 'whole-word-v2';
+
 export const DEMAND_METHOD =
   `Search impressions and clicks cover the last ${DEMAND_WINDOW_DAYS} days of connected console data. ` +
   'AI visibility uses measured answers from the latest cycle. These are different clocks and denominators, never combined. ' +
-  'Candidate query matches use case-insensitive substring overlap with any topic or question token longer than two characters. ' +
-  'This broad rule can match common words and unrelated intent. Impressions are summed across every matching query, not unique people or AI questions. ' +
-  'A query can match multiple topics, so topic totals must not be added together. Queries matching no topic are left out. Review query examples before acting.';
+  'Query matching v2 uses whole words, ignores common question words, and requires shared subject terms. ' +
+  'At least two specific subject terms must overlap, covering at least half of the shorter subject-term set. Generic marketing and location terms do not count as subject evidence. ' +
+  'A complete topic can also match when all its terms occur in the query and at least one is specific, including a single topic such as SEO. No synonyms or inferred intent are added. ' +
+  'These are candidate matches, not verified intent. Relevant queries may be missed. Impressions are summed across every matching query, not unique people or AI questions. ' +
+  'A query can match multiple topics, so topic totals must not be added together. Queries matching no topic are left out. Review query examples before acting. ' +
+  'Matching changed from broad substring matching in September 2026. Totals may differ from earlier exports because of this rule change, not a change in search performance.';
 
-/**
- * Match GSC queries against a cluster.
- *
- * Two-pass strategy:
- * 1. Try matching against the actual question texts (the real language a buyer
- *    uses). A question like "what activities can I do in Hatta" shares words
- *    with real GSC queries even when the cluster name "activity_based" does not.
- * 2. Fall back to matching on the cluster name itself, for clusters that were
- *    imported directly from real search queries and whose name IS the query.
- *
- * A GSC query is included if ANY question text (or the cluster name) produces
- * a word-level overlap of at least one meaningful word (>2 chars). This is
- * intentionally broader than the original all-words-must-match rule, because
- * the purpose is to surface demand that exists - the user can verify by eye.
- */
+// Deterministic text cleanup only. No stemming, brand detection or measurement changes.
+const QUESTION_WORDS = new Set(('what which who where when why how do does did is are was were be been being can could should would will may i my me you your we our us they their it its a an the and or of for to in on at by with from as into about this that these those best top rated latest find get hire look looking choose choosing typical much many dubai uae abu dhabi united arab emirates دبي الامارات ' +
+  'ما ماذا من كيف اين متى لماذا هل هو هي هذا هذه ذلك التي الذي في على عن الى مع او و افضل').split(' '));
+const GENERIC_TERMS = new Set(('marketing digital service services agency agencies company companies business businesses partner partners dubai uae abu dhabi united arab emirates cost costs price prices pricing comparison selection discovery qualified category benefits benefit improve improving offer offers work working ' +
+  'دبي الامارات شركة شركات وكالة وكالات خدمات خدمة تسويق رقمي افضل').split(' '));
+
+function queryTerms(value) {
+  const clean = String(value || '').normalize('NFKC').toLowerCase()
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآ]/g, 'ا')
+    .replace(/\be[ -]commerce\b/g, 'ecommerce');
+  return [...new Set((clean.match(/[\p{L}\p{N}]+/gu) || [])
+    .filter(word => word.length > 1 && !QUESTION_WORDS.has(word)))];
+}
+
+/** Each question is matched independently. Never assemble a match across unrelated questions. */
 export function matchQueries(clusterName, queries, questionTexts = []) {
-  // Tokenise each question and the cluster name into meaningful words.
-  const tokenise = (s) => String(s).toLowerCase().split(/[_\s\-?]+/).filter((w) => w.length > 2);
-
-  const allWordSets = [
-    tokenise(clusterName),
-    ...questionTexts.map(tokenise)
-  ].filter((ws) => ws.length > 0);
-
-  if (!allWordSets.length) return [];
-
-  return queries.filter((q) => {
-    const qText = String(q.query || '').toLowerCase();
-    // A query matches if ANY of our word sets has at least one word in the query.
-    return allWordSets.some((words) => words.some((w) => qText.includes(w)));
+  const topic = queryTerms(clusterName);
+  const sets = [topic, ...questionTexts.map(queryTerms)].filter(words => words.length);
+  const specific = word => !GENERIC_TERMS.has(word) && !/^\d+$/.test(word);
+  return queries.filter(q => {
+    const terms = queryTerms(q.query);
+    if (!terms.length) return false;
+    const querySet = new Set(terms);
+    return sets.some(words => {
+      const shared = words.filter(word => querySet.has(word));
+      if (!shared.some(specific)) return false;
+      if (words === topic && shared.length === words.length) return true;
+      const subjectMatches = shared.filter(specific);
+      const shorter = Math.min(words.filter(specific).length, terms.filter(specific).length);
+      return subjectMatches.length >= 2 && subjectMatches.length / shorter >= 0.5;
+    });
   });
 }
 

@@ -4137,8 +4137,8 @@ await test('demand and visibility sit beside each other, never summed', async ()
   // would have no referent. And the match rule is stated so any row can be
   // checked by hand.
   assert.ok(/Side by side, never\n \* summed/.test(d) || /never[\s\S]{0,12}summed/.test(d), 'the rule is written where the code is');
-  assert.ok(/words\.some\(\(w\) => qText\.includes\(w\)\)/.test(d), 'the match rule is literal and checkable');
-  assert.ok(/common words and unrelated intent/.test(d), 'the broad matching rule discloses false positives');
+  assert.ok(/querySet\.has\(word\)/.test(d), 'matching uses whole terms');
+  assert.ok(/candidate matches, not verified intent/.test(d), 'matching limitations remain explicit');
   assert.ok(/rate: c\.measured \? c\.named \/ c\.measured : null/.test(d), 'absent stays distinct from zero');
   // Two row types share the table: clusters named from real queries, which
   // report real demand, and generator-vocabulary names that can never match
