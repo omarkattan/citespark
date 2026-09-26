@@ -2198,7 +2198,7 @@ await test('the data export carries more than the action list', async () => {
   assert.ok(/How to read this/.test(fn), 'and the caveats travel with the data');
 });
 
-await test('the report is offered like a deliverable, and never hidden', async () => {
+await test('the report remains available in populated and empty task views', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../src/public/styles.css', import.meta.url), 'utf8');
@@ -2212,7 +2212,7 @@ await test('the report is offered like a deliverable, and never hidden', async (
   // It sat below an early return, so filtering to a view with no tasks
   // removed the deliverable from the screen entirely.
   const view = app.slice(app.indexOf('const reportBar'), app.indexOf('const STATUS_LABEL'));
-  const empties = view.match(/return reportBar \+ bar/g) || [];
+  const empties = view.match(/return [^\n]*reportBar/g) || [];
   assert.ok(empties.length >= 2, 'both the empty and populated paths must include it');
 });
 

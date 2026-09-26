@@ -264,7 +264,7 @@ async function viewOverview() {
     </div>
     <div class="panel-head"><div><h2>What to do next</h2><p class="hint">Up to three tasks to review next. Sources already judged unrelated stay in Opportunities.</p></div>
       <button class="ghost" data-open-view="actions">All opportunities${tasks ? ` (${tasks.length})` : ''}</button></div>
-    ${tasks === null ? '<div class="notice">The task list could not be loaded. Open Opportunities to try again.</div>' : suggested.length ? suggested.slice(0,3).map(taskCard).join('') : `<div class="panel"><h3>${unrelated.length ? 'No other tasks to prioritise' : measured ? 'No open tasks' : 'Review questions before your first run'}</h3><p>${unrelated.length ? 'The remaining source reviews were judged unrelated to their checked questions. They remain available in Opportunities.' : measured ? 'Check completed work in Opportunities, or review your questions before the next measurement.' : 'Add questions manually, use suggestions or connect Google Search Console.'}</p><button class="ghost" data-open-view="${measured ? 'actions' : 'questions'}">${measured ? 'Open opportunities' : 'Open questions'}</button></div>`}
+    ${tasks === null ? '<div class="notice">The task list could not be loaded. Open Opportunities to try again.</div>' : suggested.length ? suggested.slice(0,3).map(task => taskCard(task)).join('') : `<div class="panel"><h3>${unrelated.length ? 'No other tasks to prioritise' : measured ? 'No open tasks' : 'Review questions before your first run'}</h3><p>${unrelated.length ? 'The remaining source reviews were judged unrelated to their checked questions. They remain available in Opportunities.' : measured ? 'Check completed work in Opportunities, or review your questions before the next measurement.' : 'Add questions manually, use suggestions or connect Google Search Console.'}</p><button class="ghost" data-open-view="${measured ? 'actions' : 'questions'}">${measured ? 'Open opportunities' : 'Open questions'}</button></div>`}
     ${unrelated.length ? `<p class="hint">${unrelated.length} source review${unrelated.length === 1 ? ' was' : 's were'} left out of this shortlist because the checked page and question appeared unrelated. Nothing was dismissed or deleted. <button class="ghost" data-open-view="actions">View all opportunities</button></p>` : ''}
     <div class="overview-footer"><button class="ghost" data-open-view="assigned">See assigned work</button>
       <a class="ghost" href="/api/projects/${state.projectId}/report?print=1" target="_blank" rel="noopener">Open client report</a>
@@ -287,8 +287,31 @@ async function viewAnswerEvidence() {
     ${measured.length ? measured.map(q => `<article class="prompt"><div><p class="prompt-q">${esc(q.text)}</p><button class="ghost" data-see-answer="${q.id}">Read what each engine said</button><div class="answers" data-answers hidden></div></div></article>`).join('') : '<p>No measured answers in the latest cycle yet. Review Questions before running a measurement.</p>'}</div>`;
 }
 
+document.addEventListener('change', async event => {
+  if (event.target.id !== 'opportunityKind') return;
+  state.opportunityKind = event.target.value;
+  await render();
+});
+
+function opportunityKind(task) {
+  if (['source_gap', 'competitor_page'].includes(task.type)) return 'sources';
+  if (task.type === 'competitor_comparison') return 'competitors';
+  if (task.evidence?.prompt_id || task.type === 'content_gap') return 'questions';
+  return 'other';
+}
+
+function opportunityFilters(tasks, selected = 'all') {
+  const labels = {all: 'All opportunities', questions: 'Question reviews', sources: 'Source reviews', competitors: 'Competitor reviews', other: 'Other actions'};
+  return `<label class="queue-filter">Focus <select id="opportunityKind">${Object.entries(labels).map(([key, label]) => {
+    const count = key === 'all' ? tasks.length : tasks.filter(task => opportunityKind(task) === key).length;
+    return `<option value="${key}"${selected === key ? ' selected' : ''}>${label} (${count})</option>`;
+  }).join('')}</select></label>`;
+}
+
 async function viewActions() {
   const filter = state.taskFilter || 'active';
+  if (state.opportunityProject !== state.projectId) { state.opportunityKind = 'all'; state.opportunityProject = state.projectId; }
+  const kind = state.opportunityKind || 'all';
   const data = await api(`/api/projects/${state.projectId}/recommendations?status=${filter}`);
   if (!data) return '';
   state.people = data.people || [];
@@ -350,7 +373,9 @@ async function viewActions() {
     }</p></div>` + suppressedPanel;
   }
 
-  return reportBar + bar + data.tasks.map(taskCard).join('') + suppressedPanel;
+  const tasks = data.tasks.filter(task => kind === 'all' || opportunityKind(task) === kind);
+  const intro = `<div class="panel queue-intro"><h2>Your work queue</h2><p>Choose a focus, then open a task to review its evidence and next step.</p><p class="hint">Completing a task records work done. A later measurement is needed to assess any change in AI visibility.</p>${opportunityFilters(data.tasks, kind)}</div>`;
+  return intro + bar + `<div id="opportunityQueue">${tasks.length ? tasks.map(task => taskCard(task, true)).join('') : '<div class="empty"><h2>No tasks match this focus</h2><p>Choose another focus or status above.</p></div>'}</div>` + reportBar + suppressedPanel;
 }
 
 const STATUS_LABEL = { open: 'To do', doing: 'In progress', done: 'Done', dismissed: 'Dismissed' };
@@ -519,7 +544,7 @@ function renderSourceReview(review) {
   </div>`;
 }
 
-function taskCard(t) {
+function taskCard(t, compact = false) {
   const ev = t.evidence || {};
   const sourceReview = ['source_gap', 'competitor_page'].includes(t.type);
   const questionReview = t.type === 'content_gap';
@@ -531,6 +556,10 @@ function taskCard(t) {
   const competitorReview = t.type === 'competitor_comparison';
   const competitorTitle = `Review where ${ev.competitor || 'a tracked competitor'} appears more often`;
   const reviewTitle = `Review whether ${ev.domain || 'this source'} answers your buyers' questions`;
+  const title = sourceReview ? reviewTitle : competitorReview ? competitorTitle : questionReview ? questionTitle : t.title;
+  const summary = sourceReview
+    ? ({relevant:'Source appears relevant', irrelevant:'Source appears unrelated. Review before acting.', uncertain:'Relevance uncertain. Review before acting.'}[t.sourceReview?.status] || 'Source relevance not checked')
+    : questionReview ? questionObservation : TYPE_LABEL[t.type] || 'Review evidence and next step';
   const bits = [];
   // A tag with detail behind it opens that detail rather than being inert.
   const opens = evidenceDetails(t) ? ' data-open-detail' : '';
@@ -553,11 +582,13 @@ function taskCard(t) {
 
   return `
   <article class="rec ${t.status}" data-type="${esc(t.type)}" data-task="${t.id}">
-    <div class="rec-top">
-      <div class="rec-title">${esc(sourceReview ? reviewTitle : competitorReview ? competitorTitle : questionReview ? questionTitle : t.title)}</div>
+    ${compact ? `<details class="queue-task"><summary><span class="queue-heading"><span class="rec-title">${esc(title)}</span><span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span></span><span class="queue-summary">${esc(summary)}</span>${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}${dueLabel(t)}<span class="queue-open">Review task</span><span class="queue-close">Close task</span></summary><div class="queue-body">` : ''}
+    <div class="rec-top"${compact ? ' hidden' : ''}>
+      <div class="rec-title">${esc(title)}</div>
       <div class="rec-pri">priority ${Number(t.priority).toFixed(1)} &middot; effort ${Number(t.effort)}/5</div>
     </div>
 
+    ${compact ? `<p class="hint">Suggested priority ${Number(t.priority).toFixed(1)} · effort ${Number(t.effort)}/5</p>` : ''}
     <div class="task-meta">
       <span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span>
       ${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}
@@ -569,7 +600,7 @@ function taskCard(t) {
       <p><b>Observed</b><br>${esc(questionObservation)} This result does not establish why you were absent.</p>
       <p><b>Check next</b><br>Read the answers and cited pages. Confirm the question concerns a buyer you serve, then compare the information those sources provide with your relevant page.</p>
       <p><b>Action supported now</b><br>If you find a specific missing answer or supporting evidence, record the gap and update the relevant page. If the question does not fit your business, pause it in Questions. Search rank and answer formatting alone do not explain selection.</p>
-      <p class="hint">Mark this task done when the review and any chosen change are complete. Completion does not mean visibility has improved; a later measurement checks that.</p>
+      ${compact ? '' : '<p class="hint">Mark this task done when the review and any chosen change are complete. Completion does not mean visibility has improved; a later measurement checks that.</p>'}
       ${!ev.prompt_id ? '<button class="ghost" data-open-view="answers">Inspect stored answers</button>' : ''}
     </div>` : sourceReview || competitorReview ? `<div class="task-guidance">
       <p><b>Observed</b><br>${sourceReview ? 'This page was cited in the stored answers associated with this task. Relevance is specific to the checked page and question.' : `${esc(ev.competitor || 'A tracked competitor')} was named more often on the questions listed below. This does not establish why it appeared.`}</p>
@@ -634,6 +665,7 @@ function taskCard(t) {
         <span class="hint" id="saved-${t.id}"></span>
       </div>
     </div>
+    ${compact ? '</div></details>' : ''}
   </article>`;
 }
 
@@ -3969,7 +4001,9 @@ function replaceCard(id, task) {
   const card = document.querySelector(`[data-task="${id}"]`);
   if (!card) return;
   const wrapper = document.createElement('div');
-  wrapper.innerHTML = taskCard(task);
+  const expanded = card.querySelector('.queue-task')?.open;
+  wrapper.innerHTML = taskCard(task, state.view === 'actions');
+  if (expanded && wrapper.querySelector('.queue-task')) wrapper.querySelector('.queue-task').open = true;
   card.replaceWith(wrapper.firstElementChild);
   refreshTaskCounts();
 }
@@ -3977,6 +4011,12 @@ function replaceCard(id, task) {
 async function refreshTaskCounts() {
   const data = await api(`/api/projects/${state.projectId}/recommendations?status=${state.taskFilter || 'active'}`);
   if (!data) return;
+  const focus = $('opportunityKind');
+  if (focus) {
+    const holder = document.createElement('div');
+    holder.innerHTML = opportunityFilters(data.tasks || [], state.opportunityKind || 'all');
+    focus.innerHTML = holder.querySelector('select').innerHTML;
+  }
   const c = data.counts;
   const set = (id, n) => {
     const el = document.querySelector(`[data-task-filter="${id}"] span`);

@@ -75,7 +75,7 @@ test('full Opportunities view keeps report controls collapsed for both populated
  const {JSDOM}=await import(process.env.JSDOM_MODULE || 'jsdom');
  for(const tasks of [[],[base]]){
   const h=vm.createContext({state:{projectId:26},esc,taskCard:()=>'<article>Review task</article>',api:async()=>({tasks,counts:{open:tasks.length,doing:0,done:0,dismissed:0,total:tasks.length}})});
-  vm.runInContext(app.slice(app.indexOf('async function viewActions()'),app.indexOf('\nfunction ',app.indexOf('async function viewActions()'))),h);
+  vm.runInContext(app.slice(app.indexOf('function opportunityKind('),app.indexOf('const STATUS_LABEL')),h);
   const document=new JSDOM(await h.viewActions()).window.document;
   const report=document.querySelector('details');assert.equal(report.open,false);assert.equal(report.querySelector('summary').textContent,'Export report or data');
   assert.ok(document.getElementById('repFrom'));assert.ok(document.getElementById('repCsv'));assert.ok(document.querySelector('[data-task-filter="active"]'));

@@ -2204,3 +2204,19 @@ a.ans-source:hover { color: var(--accent); text-decoration: underline; }
 .task-guidance { margin:14px 0;max-width:850px; }
 .task-guidance p { margin:12px 0;line-height:1.6; }
 .task-guidance b { font-size:12px;color:var(--ink-2); }
+
+/* Opportunities: readable queue with detail on demand. */
+.queue-intro h2 { margin-bottom: 8px; }
+.queue-filter { display:flex; align-items:center; gap:12px; margin-top:16px; }
+.queue-filter select { max-width:340px; flex:1; }
+.queue-task > summary { cursor:pointer; list-style:none; }
+.queue-task > summary::-webkit-details-marker { display:none; }
+.queue-task > summary:focus-visible { outline:2px solid var(--ink); outline-offset:6px; }
+.queue-heading { display:flex; align-items:flex-start; gap:16px; }
+.queue-summary { display:block; margin:8px 0; color:var(--ink-2); line-height:1.5; }
+.queue-open { display:block; margin-top:10px; font-size:12px; text-decoration:underline; }
+.queue-task[open] > summary .queue-open { display:none; }
+.queue-close { display:none; margin-top:10px; font-size:12px; text-decoration:underline; }
+.queue-task[open] > summary .queue-close { display:block; }
+.queue-body { border-top:1px solid var(--line); margin-top:16px; padding-top:12px; }
+@media (max-width:600px) { .queue-heading { flex-direction:column; gap:8px; } .queue-filter { align-items:flex-start; flex-direction:column; } .queue-filter select { width:100%; max-width:none; } }
