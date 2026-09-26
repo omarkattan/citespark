@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/styles.css?v=20260926-evidence-advice-21" />
+<link rel="stylesheet" href="/styles.css?v=20260926-setup-review-22" />
 </head>
 <body>
 
@@ -137,7 +137,7 @@
 <dialog id="siteDialog" class="sheet">
   <form method="dialog" id="siteForm">
     <h2>Add a site</h2>
-    <p class="dek" style="margin:8px 0 20px;font-size:13.5px">We generate the question set from this, so the category and customer description matter more than the name.</p>
+    <p class="dek" style="margin:8px 0 20px;font-size:13.5px">Tell us about your business and buyers. We’ll suggest questions for you to review before you run a measurement.</p>
 
     <div class="field">
       <label for="f_domain">Domain</label>
@@ -148,7 +148,7 @@
       <p class="hint" id="f_scanned"></p>
     </div>
     <div class="field"><label for="f_brand">Brand name as customers say it</label><input id="f_brand" placeholder="No legal suffix unless you always use it" /></div>
-    <div class="field"><label for="f_aliases">Also known as, comma separated</label><input id="f_aliases" placeholder="Shortenings, misspellings, the legal name" /></div>
+
     <div class="field"><label for="f_category">What the business does</label><input id="f_category" placeholder="What the business does, in a few words" /></div>
     <div class="field">
       <label for="f_qualifier">Who the customer is</label>
@@ -156,6 +156,8 @@
       <p class="hint">The more specific this is, the better the questions. "UK ecommerce brands" beats "businesses".</p>
     </div>
     <div class="field"><label for="f_market">Market</label><select id="f_market"></select></div>
+    <details id="siteOptional" class="setup-optional"><summary>Optional: other brand names, city and competitors</summary>
+    <div class="field"><label for="f_aliases">Also known as, comma separated</label><input id="f_aliases" placeholder="Shortenings, misspellings, the legal name" /></div>
     <div class="field">
       <label for="f_city">City</label>
       <select id="f_city"><option value="">The whole country</option></select>
@@ -164,9 +166,11 @@
         ChatGPT and the other assistants cannot be asked from a city.</p>
     </div>
     <div class="field">
-      <label for="f_rivals">Competitors, one per line, name then comma then domain</label>
+      <label for="f_rivals">Competitors (optional)</label>
+      <p class="hint">Add one per line, for example: Acme, acme.com. You can change these later.</p>
       <textarea id="f_rivals" rows="5" placeholder="One per line: Name, domain.com&#10;Domain is optional but improves detection"></textarea>
     </div>
+    </details>
 
     <p class="error" id="siteError" role="alert"></p>
     <div class="sheet-foot">
@@ -177,6 +181,6 @@
 </dialog>
 
 <script src="/countries.js"></script>
-<script src="/app.js?v=20260926-evidence-advice-21"></script>
+<script src="/app.js?v=20260926-setup-review-22"></script>
 </body>
 </html>

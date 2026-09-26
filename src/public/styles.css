@@ -2244,3 +2244,15 @@ a.ans-source:hover { color: var(--accent); text-decoration: underline; }
 .answer-original, .ans-sources, .answer-method { margin: 10px 0; }
 .answer-original > summary, .ans-sources > summary, .answer-method > summary { cursor: pointer; font-size: 12px; }
 @media (max-width: 700px) { .answer-reader .ans-model { flex-basis: 100%; overflow-wrap: anywhere; } }
+
+/* Keep setup choices optional and its primary action within reach. */
+#siteDialog { padding-bottom: 0; }
+#siteForm > .sheet-foot { position: sticky; bottom: 0; background: var(--panel); padding: 14px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.setup-optional { margin: 16px 0; }
+.setup-optional > summary { cursor: pointer; padding: 12px 0; font-size: 13px; }
+.setup-optional[open] > summary { margin-bottom: 12px; }
+#projectRunReview button { white-space: normal; }
+@media (max-width: 560px) {
+  #siteDialog { padding: 20px 16px 0; }
+  #siteForm > .sheet-foot button { flex: 1; white-space: normal; }
+}

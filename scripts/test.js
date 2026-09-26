@@ -4218,7 +4218,7 @@ await test('a site with no cycle is told where to start one', async () => {
   // name they had not learned yet.
   assert.ok(/data-start-first-cycle/.test(app), 'the empty state offers a button');
   assert.ok(!/press run cycle/.test(app), 'not an instruction to find one');
-  assert.ok(/btn\?\.click\(\)/.test(app), 'which opens the existing run menu, not a second path');
+  assert.ok(/await reviewProjectRun\(\)/.test(app), 'which opens a selected-site cost review before launch');
 });
 
 await test('the evidence says where it asked from', async () => {

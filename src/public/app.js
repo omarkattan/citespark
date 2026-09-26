@@ -2241,6 +2241,8 @@ const cityCache = new Map();
 async function fillCities(iso, select, hint, selected = '') {
   if (!select) return;
   const country = String(iso || '').toUpperCase();
+  const request = {};
+  select._cityRequest = request;
 
   select.disabled = true;
   select.innerHTML = '<option value="">Loading cities</option>';
@@ -2255,6 +2257,7 @@ async function fillCities(iso, select, hint, selected = '') {
     }
   }
 
+  if (select._cityRequest !== request) return;
   const cities = data.cities || [];
 
   /**
@@ -2544,6 +2547,44 @@ async function pollCycle() {
  * A partial run joins the most recent cycle rather than opening a new one,
  * so the trend keeps comparing like with like.
  */
+async function reviewProjectRun() {
+  if (!state.projectId || document.getElementById('projectRunReview')) return;
+  const projectId = state.projectId;
+  const dialog = document.createElement('dialog');
+  dialog.id = 'projectRunReview';
+  dialog.className = 'sheet';
+  dialog.setAttribute('aria-label', 'Review measurement');
+  dialog.innerHTML = `<h2>Review measurement</h2><p>${esc($('brandTitle').textContent)}</p><div data-run-options><p role="status">Loading question counts and cost…</p></div><div class="sheet-foot"><button class="ghost" data-run-cancel>Cancel</button></div>`;
+  document.body.appendChild(dialog);
+  dialog.addEventListener('close', () => dialog.remove());
+  dialog.querySelector('[data-run-cancel]').addEventListener('click', () => dialog.close());
+  dialog.showModal();
+  const options = dialog.querySelector('[data-run-options]');
+  try {
+    const d = await api(`/api/projects/${projectId}/run-scope`);
+    if (!dialog.isConnected || !dialog.open) return;
+    if (state.projectId !== projectId) throw new Error('The selected site changed. Close and review again.');
+    if (!d || d.error) throw new Error(d?.error || 'Could not load the measurement estimate. Close and try again.');
+    const valid = ['all','unrun','checksAll','checksUnrun','costAll','costUnrun'].every(k => Number.isFinite(d[k]) && d[k] >= 0);
+    if (!valid) throw new Error('The measurement estimate is incomplete. Close and try again.');
+    options.innerHTML = `<p>Only this site will run. Paused questions are excluded.</p>
+      <p>${d.all} active questions · ${d.checksAll} answer checks · estimated $${d.costAll.toFixed(2)}</p>
+      <button class="btn" data-run-confirm="all" ${!d.all ? 'disabled' : ''}>Run active questions</button>
+      <p>${d.unrun} questions never asked · ${d.checksUnrun} answer checks · estimated $${d.costUnrun.toFixed(2)}</p>
+      <button class="ghost" data-run-confirm="unrun" ${!d.unrun ? 'disabled' : ''}>Run only questions never asked</button>
+      <p class="hint">Starting uses answer checks and may incur provider costs. Estimates are not a guaranteed final cost.</p><p role="alert" data-run-error></p>`;
+    for (const button of options.querySelectorAll('[data-run-confirm]')) button.addEventListener('click', async () => {
+      if (state.projectId !== projectId) {options.querySelector('[data-run-error]').textContent = 'The selected site changed. Close and review again.'; return;}
+      if ($('runBtn').disabled) {options.querySelector('[data-run-error]').textContent = 'A measurement is already starting or running.'; return;}
+      for (const b of options.querySelectorAll('button')) b.disabled = true;
+      dialog.close();
+      await startCycle(button.dataset.runConfirm === 'unrun' ? 'unrun' : null);
+    });
+  } catch (error) {
+    if (dialog.isConnected) options.innerHTML = `<p role="alert">${esc(error.message || 'Could not load the estimate.')}</p>`;
+  }
+}
+
 async function startCycle(only = null) {
   const btn = $('runBtn');
   btn.disabled = true;
@@ -3018,10 +3059,7 @@ document.addEventListener('click', async (e) => {
   }
 
   if (e.target.closest('[data-start-first-cycle]')) {
-    const btn = $('runBtn');
-    btn?.click();                       // opens the menu, which prices each option
-    btn?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    btn?.focus();
+    await reviewProjectRun();
     return;
   }
 
@@ -5237,9 +5275,8 @@ $('f_scan').addEventListener('click', async () => {
     $('f_category').value = d.category || '';
     $('f_qualifier').value = d.qualifier || '';
     $('f_market').innerHTML = window.countryOptions(d.market || window.DEFAULT_COUNTRY);
-    if (d.competitors?.length) {
-      $('f_rivals').value = d.competitors.map((c) => `${c.name}${c.domain ? ', ' + c.domain : ''}`).join('\n');
-    }
+    fillCities($('f_market').value, $('f_city'), $('f_cityHint'));
+    $('f_rivals').value = (d.competitors || []).map((c) => `${c.name}${c.domain ? ', ' + c.domain : ''}`).join('\n');
 
     const how = { dataforseo: ' Read through our renderer, since the site blocks direct requests.',
                   browserless: ' Read with a headless browser.' }[d.via] || '';
