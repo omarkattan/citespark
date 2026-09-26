@@ -655,6 +655,7 @@ function taskCard(t, compact = false, selectionReason = '') {
              <button class="ghost" data-reask="${ev.prompt_id}">Ask again now</button>`
           : ''
       }
+      <button class="ghost" data-next-open="${t.id}">${t.notes ? 'Edit next step' : 'Record next step'}</button>
       <button class="ghost" data-task-edit="${t.id}">${t.assignee || t.due_date || t.notes ? 'Edit' : 'Assign'}</button>
       ${buttons.map(([st, label]) => `<button class="ghost" data-rec="${t.id}" data-status="${st}">${label}</button>`).join('')}
       ${canDelete ? `<button class="ghost danger" data-delete-rec="${t.id}" title="Remove it and stop it coming back">Delete</button>` : ''}
@@ -665,6 +666,19 @@ function taskCard(t, compact = false, selectionReason = '') {
     <div class="teardown" id="teardown-${t.id}" hidden></div>
     ${ev.prompt_id ? '<div class="answers" data-answers hidden></div>' : ''}
 
+    <section class="task-next" aria-label="Next step and review notes">
+      <p id="next-summary-${t.id}" style="white-space:pre-wrap"${t.notes ? '' : ' hidden'}>${esc(t.notes || '')}</p>
+      <div id="next-editor-${t.id}" hidden>
+        <div class="field"><label for="next-note-${t.id}">Next step and review notes</label>
+          <p class="hint" id="next-help-${t.id}">What did you find in the answer? Which page or source supports it? What will you change or check next? If no change is justified, record that too.</p>
+          <textarea id="next-note-${t.id}" rows="5" aria-describedby="next-help-${t.id}" placeholder="Finding and evidence link&#10;Page to review or update&#10;Specific next step">${esc(t.notes || '')}</textarea>
+        </div>
+        <p class="hint">Saved in this task's notes. Saving does not mark it done or send an assignment email.</p>
+        <button class="btn" data-next-save="${t.id}">Save next step</button>
+        <button class="ghost" data-next-cancel="${t.id}">Cancel</button>
+      </div>
+      <p class="hint" id="next-feedback-${t.id}" role="status" aria-live="polite"></p>
+    </section>
     <div class="task-edit" id="edit-${t.id}" hidden>
       <div class="task-edit-row">
         <div class="field">
@@ -4024,6 +4038,61 @@ document.addEventListener('click', async (e) => {
     await refreshTaskCounts();
   }
 });
+
+// Save review notes without replacing the card or closing its answer evidence.
+async function handleNextStep(event) {
+  const button = event.target.closest('[data-next-open], [data-next-save], [data-next-cancel]');
+  if (!button) return;
+  const id = button.dataset.nextOpen || button.dataset.nextSave || button.dataset.nextCancel;
+  const editor = $(`next-editor-${id}`);
+  const input = $(`next-note-${id}`);
+  const feedback = $(`next-feedback-${id}`);
+  const save = editor.querySelector('[data-next-save]');
+  if (save.disabled) return;
+  if (button.hasAttribute('data-next-open')) {
+    editor.hidden = false;
+    feedback.textContent = '';
+    input.focus();
+    return;
+  }
+  if (button.hasAttribute('data-next-cancel')) {
+    input.value = input.defaultValue;
+    editor.hidden = true;
+    feedback.textContent = '';
+    document.querySelector(`[data-next-open="${id}"]`)?.focus();
+    return;
+  }
+  save.disabled = true;
+  input.disabled = true;
+  feedback.textContent = 'Saving next step…';
+  try {
+    const response = await fetch(`/api/recommendations/${id}`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({notes: input.value})
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Could not save the next step.');
+    const notes = result.notes || '';
+    input.value = input.defaultValue = notes;
+    const summary = $(`next-summary-${id}`);
+    summary.textContent = notes;
+    summary.hidden = !notes;
+    // The assignment editor edits the same stored field.
+    const existing = $(`n-${id}`);
+    if (existing) existing.value = existing.defaultValue = notes;
+    const opener = document.querySelector(`[data-next-open="${id}"]`);
+    if (opener) opener.textContent = notes ? 'Edit next step' : 'Record next step';
+    editor.hidden = true;
+    feedback.textContent = 'Next step saved.';
+    opener?.focus();
+  } catch (error) {
+    feedback.textContent = error.message || 'Could not save. Your draft is still here. Try again.';
+  } finally {
+    save.disabled = false;
+    input.disabled = false;
+  }
+}
+document.addEventListener('click', handleNextStep);
 
 /** Swap one card without re-rendering the list and losing scroll position. */
 function replaceCard(id, task) {
