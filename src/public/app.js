@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const state = { projectId: null, view: 'actions', overview: null, interval: null };
+const state = { projectId: null, view: 'overview', overview: null, interval: null };
 
 const esc = (s) =>
   String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
@@ -213,6 +213,75 @@ function rateClass(rate) {
   if (rate === 0) return 'zero';
   if (rate < 0.35) return 'low';
   return 'good';
+}
+
+const VIEW_SECTION = {overview:'overview', questions:'questions', actions:'opportunities', assigned:'opportunities',
+  answers:'evidence', connections:'settings', trends:'evidence', rivals:'evidence', sources:'evidence', pages:'evidence', landscape:'evidence', traffic:'evidence', setup:'settings', billing:'settings'};
+const SECTION_DEFAULT = {overview:'overview',questions:'questions',opportunities:'actions',evidence:'answers',settings:'setup'};
+
+function syncNavigation() {
+  const section = VIEW_SECTION[state.view] || 'overview';
+  for (const button of document.querySelectorAll('[data-section]')) {
+    if (button.dataset.section === section) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  }
+  for (const group of document.querySelectorAll('[data-nav-group]')) {
+    group.hidden = group.dataset.navGroup !== section || ['overview','questions'].includes(section);
+  }
+  for (const button of document.querySelectorAll('[data-view]')) {
+    if (button.dataset.view === state.view) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  }
+  $('measurementDetails').hidden = section !== 'evidence';
+}
+
+async function viewOverview() {
+  const o = state.overview || {};
+  const [data, scope, history] = await Promise.all([
+    api(`/api/projects/${state.projectId}/recommendations?status=active`).catch(() => null),
+    api(`/api/projects/${state.projectId}/run-scope`).catch(() => null),
+    api(`/api/projects/${state.projectId}/history`).catch(() => null)
+  ]);
+  state.people = data?.people || [];
+  const tasks = Array.isArray(data?.tasks) ? data.tasks : null;
+  const measured = Boolean(o.cycle && o.runs > 0 && o.visibility != null);
+  const next = scope && Number.isFinite(scope.all) ? `${scope.all} active questions · ${scope.checksAll} answer checks · estimated $${Number(scope.costAll || 0).toFixed(2)}` : 'Review the question count and estimated cost before running.';
+  const cycles = history?.cycles || [];
+  const changes = !history || history.error ? 'Trend history could not be loaded.' : cycles.length < 2
+    ? (cycles.length ? 'One measurement so far. A second is needed before comparing changes.' : 'No completed measurements yet.')
+    : `${cycles.length} measurements available. Open the trend view for the comparable question-and-engine cohort and any measurement-method changes.`;
+  return `<div class="overview-intro"><div><p class="eyebrow">Your next move</p><h2>${measured ? 'Turn the evidence into action' : 'Start with the questions your buyers ask'}</h2>
+    <p>${measured ? `Latest measurement: ${esc(shortDate(o.cycle))}. Review the work below before deciding what to change.` : 'Review your questions and their origins, then measure how AI engines answer them.'}</p></div>
+    <button class="ghost" data-open-view="questions">Review questions</button></div>
+    <div class="overview-summary">
+      <section class="panel"><h3>Where you stand</h3><p class="overview-number">${measured ? pct(o.visibility) : 'Not measured'}</p>
+        <p class="hint">${measured ? `Named in ${pct(o.visibility)} of ${o.runs} successfully measured answers in the latest cycle. This is your tracked question set, not the whole market.` : 'No measured visibility is available yet.'}</p>
+        <button class="ghost" data-open-view="rivals">Compare tracked brands</button></section>
+      <section class="panel"><h3>What changed?</h3><p>${esc(changes)}</p><p class="hint">Use the trend view to compare the same questions. A change in the question set is not automatically a change in visibility.</p><button class="ghost" data-open-view="trends">Review changes over time</button></section>
+      <section class="panel"><h3>Next measurement</h3><p>${esc(next)}</p><p class="hint">Paused questions are excluded. Running again uses answer checks.</p><button class="ghost" data-start-first-cycle>Review cost and run</button></section>
+    </div>
+    <div class="panel-head"><div><h2>What to do next</h2><p class="hint">Up to three tasks in the current priority order. Review source relevance before acting on a citation.</p></div>
+      <button class="ghost" data-open-view="actions">All opportunities${tasks ? ` (${tasks.length})` : ''}</button></div>
+    ${tasks === null ? '<div class="notice">The task list could not be loaded. Open Opportunities to try again.</div>' : tasks.length ? tasks.slice(0,3).map(taskCard).join('') : `<div class="panel"><h3>${measured ? 'No open tasks' : 'Review questions before your first run'}</h3><p>${measured ? 'Check completed work in Opportunities, or review your questions before the next measurement.' : 'Add questions manually, use suggestions or connect Google Search Console.'}</p><button class="ghost" data-open-view="${measured ? 'actions' : 'questions'}">${measured ? 'Open opportunities' : 'Open questions'}</button></div>`}
+    <div class="overview-footer"><button class="ghost" data-open-view="assigned">See assigned work</button>
+      <a class="ghost" href="/api/projects/${state.projectId}/report?print=1" target="_blank" rel="noopener">Open client report</a>
+      <span class="hint">Choose report dates in Opportunities.</span></div>`;
+}
+
+async function viewConnections() {
+  return `<div class="panel"><h2>Connections</h2><p>Connect the sources that help you find questions and measure visits.</p>
+    <h3>Google Search Console</h3><p>Import buyer questions from Google search queries. Search impressions stay separate from AI visibility.</p><button class="ghost" data-open-view="questions" data-open-gsc>Manage Search Console</button>
+    <h3>Google Analytics 4</h3><p>Review AI referral traffic and manage the Google account and property used for it.</p><button class="ghost" data-open-view="traffic">Manage Analytics</button>
+    <p class="hint">Search Console and Analytics can use different Google accounts.</p></div>`;
+}
+
+async function viewAnswerEvidence() {
+  const questions = await api(`/api/projects/${state.projectId}/prompts`);
+  if (!Array.isArray(questions)) return '<div class="notice">Answers could not be loaded. Try opening this view again.</div>';
+  const measured = questions.filter(q => q.measured);
+  return `<div class="panel"><h2>AI answers</h2><p>Read the stored responses and source links from the latest cycle. Opening an answer does not run a new check.</p>
+    <p class="hint">${measured.length} questions with measured answers. Earlier question wording stays attached to its own results.</p>
+    ${measured.length ? measured.map(q => `<article class="prompt"><div><p class="prompt-q">${esc(q.text)}</p><button class="ghost" data-see-answer="${q.id}">Read what each engine said</button><div class="answers" data-answers hidden></div></div></article>`).join('') : '<p>No measured answers in the latest cycle yet. Review Questions before running a measurement.</p>'}</div>`;
 }
 
 async function viewActions() {
@@ -1032,7 +1101,7 @@ async function viewQuestions() {
   const all = (await api(`/api/projects/${state.projectId}/personas`).catch(() => null))?.personas || [];
   for (const pe of all) if (!known.has(pe.id)) known.set(pe.id, pe.name);
   const personas = [...known.entries()];
-  const waiting = prompts.filter((p) => !p.measured).length;
+  const waiting = prompts.filter((p) => p.active && !p.replacedBy && !p.measured).length;
 
   // Two buyer types asking the same thing costs twice and measures once.
   const dupes = await api(`/api/projects/${state.projectId}/duplicate-questions`).catch(() => null);
@@ -1721,13 +1790,17 @@ async function renderFigures() {
 
 async function render() {
   const view = state.view;
+  const renderId = state.renderId = (state.renderId || 0) + 1;
+  syncNavigation();
   $('view').innerHTML = '<div class="empty">Loading</div>';
   const fn = {
-    actions: viewActions, assigned: viewAssigned, pages: viewPages, questions: viewQuestions, rivals: viewRivals,
+    overview: viewOverview, connections: viewConnections, answers: viewAnswerEvidence, actions: viewActions, assigned: viewAssigned, pages: viewPages, questions: viewQuestions, rivals: viewRivals,
     sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling,
     trends: viewTrends, landscape: viewLandscape
   }[view];
-  $('view').innerHTML = await fn();
+  const html = await fn();
+  if (renderId !== state.renderId) return;
+  $('view').innerHTML = html;
   if (view === 'setup') {
     recalcEstimate();
     // The select is rendered empty but for the country option, then filled
@@ -1750,7 +1823,7 @@ async function render() {
     applyQuestionView();
   }
   if (view === 'traffic' && $('ga4Props')) loadGa4Properties();
-  if (view === 'actions' && state.people?.length) {
+  if (['overview', 'actions'].includes(view) && state.people?.length) {
     const dl = document.createElement('datalist');
     dl.id = 'people-list';
     dl.innerHTML = state.people.map((p) => `<option value="${esc(p)}"></option>`).join('');
@@ -1764,7 +1837,7 @@ async function loadProject(id) {
   const p = state.overview.project;
   $('brandTitle').textContent = p.brand_name;
   $('brandDek').textContent = state.overview.cycle
-    ? `Measured across ${state.overview.runs} answers on ${shortDate(state.overview.cycle)}. Every action below is derived from that evidence.`
+    ? `Measured across ${state.overview.runs} answers on ${shortDate(state.overview.cycle)}. Results cover the questions and engines in that measurement.`
     : 'Nothing measured yet. Run a cycle to ask every tracked question across the engines.';
   $('cycleMeta').textContent = state.overview.cycle ? `cycle ${shortDate(state.overview.cycle)}` : 'no data';
   const cap = window.innerWidth < 760 ? 12 : 18;
@@ -1876,7 +1949,6 @@ async function boot() {
     // Wait for the destination before restoring the requested connection workflow.
     const tab = returned.what === 'gsc' ? 'questions' : 'traffic';
     state.view = tab;
-    document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.view === tab)));
     await render();
     if (!returned.ok) {
       const el = returned.what === 'gsc' ? $('setupError') : $('ga4Error');
@@ -1901,12 +1973,26 @@ async function boot() {
   }
 }
 
-document.querySelectorAll('.tab').forEach((tab) => {
+document.querySelectorAll('.tab[data-view]').forEach((tab) => {
   tab.addEventListener('click', async () => {
-    document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', String(t === tab)));
     state.view = tab.dataset.view;
     await render();
   });
+});
+
+document.querySelectorAll('[data-section]').forEach(button => {
+  button.addEventListener('click', async () => {
+    state.view = SECTION_DEFAULT[button.dataset.section];
+    await render();
+  });
+});
+document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-open-view]');
+  if (!button || !VIEW_SECTION[button.dataset.openView]) return;
+  state.view = button.dataset.openView;
+  if (state.view === 'actions') state.taskFilter = 'active';
+  await render();
+  if (button.hasAttribute('data-open-gsc') && $('gscPanel')) { $('gscPanel').open = true; $('gscPanel').scrollIntoView({block:'start'}); }
 });
 
 $('projectPicker').addEventListener('change', (e) => {

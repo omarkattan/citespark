@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/styles.css?v=20260926-questions-4" />
+<link rel="stylesheet" href="/styles.css?v=20260926-navigation-5" />
 </head>
 <body>
 
@@ -60,21 +60,39 @@
   <h1 id="brandTitle">Loading</h1>
   <p class="dek" id="brandDek"></p>
 
-  <div class="figures" id="figures"></div>
-
-  <div class="tabs" role="tablist">
-    <button class="tab" role="tab" aria-selected="true" data-view="actions">Actions</button>
-    <button class="tab" role="tab" aria-selected="false" data-view="trends">Trend</button>
-    <button class="tab" role="tab" aria-selected="false" data-view="assigned">Assigned</button>
-      <button class="tab" role="tab" aria-selected="false" data-view="questions">Questions</button>
-    <button class="tab" role="tab" aria-selected="false" data-view="rivals">Share of voice</button>
-    <button class="tab" role="tab" aria-selected="false" data-view="pages">Pages</button>
-      <button class="tab" role="tab" aria-selected="false" data-view="sources">Sources</button>
-    <button class="tab" role="tab" aria-selected="false" data-view="landscape">Landscape</button>
-    <button class="tab" role="tab" aria-selected="false" data-view="traffic">Traffic</button>
-    <button class="tab" role="tab" aria-selected="false" data-view="setup">Setup</button>
-    <button class="tab" role="tab" aria-selected="false" data-view="billing">Plan</button>
-  </div>
+  <nav class="tabs primary-nav" aria-label="Main sections">
+    <button class="tab" data-section="overview" aria-current="page">Overview</button>
+    <button class="tab" data-section="questions">Questions</button>
+    <button class="tab" data-section="opportunities">Opportunities</button>
+    <button class="tab" data-section="evidence">Evidence</button>
+    <button class="tab" data-section="settings">Settings</button>
+  </nav>
+  <nav class="secondary-nav" aria-label="Section views">
+    <div data-nav-group="overview" hidden><button class="tab" data-view="overview">Overview</button></div>
+    <div data-nav-group="questions" hidden><button class="tab" data-view="questions">Questions</button></div>
+    <div data-nav-group="opportunities" hidden>
+      <button class="tab" data-view="actions">To do</button>
+      <button class="tab" data-view="assigned">Assigned work</button>
+    </div>
+    <div data-nav-group="evidence" hidden>
+      <button class="tab" data-view="answers">AI answers</button>
+      <button class="tab" data-view="trends">Changes over time</button>
+      <button class="tab" data-view="rivals">Competitors</button>
+      <button class="tab" data-view="sources">Cited sources</button>
+      <button class="tab" data-view="pages">Your pages</button>
+      <button class="tab" data-view="landscape">Market research</button>
+      <button class="tab" data-view="traffic">Traffic</button>
+    </div>
+    <div data-nav-group="settings" hidden>
+      <button class="tab" data-view="setup">Site &amp; measurement</button>
+      <button class="tab" data-view="connections">Connections</button>
+      <button class="tab" data-view="billing">Plan &amp; billing</button>
+    </div>
+  </nav>
+  <details id="measurementDetails" class="measurement-details" hidden>
+    <summary>Latest measurement by engine</summary>
+    <div class="figures" id="figures"></div>
+  </details>
 
   <section id="view"></section>
 </main>
@@ -159,6 +177,6 @@
 </dialog>
 
 <script src="/countries.js"></script>
-<script src="/app.js?v=20260926-questions-4"></script>
+<script src="/app.js?v=20260926-navigation-5"></script>
 </body>
 </html>
