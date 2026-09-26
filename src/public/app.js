@@ -1360,7 +1360,7 @@ function renderDemandRows(rows) {
  * sessions are arrivals, impressions are demand, and the note says so.
  */
 function demandSection(d) {
-  if (!d) return '';
+  if (!d || d.error) return `<div class="panel"><h2>Search queries beside AI visibility</h2><p class="notice">Search data could not be loaded. This does not mean there were zero impressions.</p><button class="ghost" data-open-view="traffic">Try again</button><button class="ghost" data-open-view="questions" data-open-gsc>Open Search Console connection</button></div>`;
   const failed = (d.sources || []).filter((s) => !s.ok);
   if (!d.rows?.length) {
     return `<div class="panel">
@@ -1420,15 +1420,16 @@ function helpDot(text) {
 
 async function viewTraffic() {
   const [conn, rows, demand] = await Promise.all([
-    api(`/api/projects/${state.projectId}/ga4`),
-    api(`/api/projects/${state.projectId}/traffic`),
-    api(`/api/projects/${state.projectId}/demand`)
+    api(`/api/projects/${state.projectId}/ga4`).catch(() => null),
+    api(`/api/projects/${state.projectId}/traffic`).catch(() => null),
+    api(`/api/projects/${state.projectId}/demand`).catch(() => null)
   ]);
-  if (!conn) return '';
+  const searchPanel = demandSection(demand);
+  if (!conn || conn.error) return `<div class="panel"><h2>Google Analytics</h2><p class="notice">Analytics connection status could not be loaded. Your Search Console section is independent.</p><button class="ghost" data-open-view="traffic">Try again</button></div>` + searchPanel;
 
   /* not connected */
   if (!conn.connected) {
-    const others = (await api('/api/ga4/connections'))?.connections || [];
+    const others = (await api('/api/ga4/connections').catch(() => null))?.connections || [];
     const reuse = others.length
       ? `<div class="reuse">
           <p class="reuse-label">Already connected on this account</p>
@@ -1454,8 +1455,7 @@ async function viewTraffic() {
       </div>
       <h2>Connect Google Analytics</h2>
       <p class="dek" style="max-width:56ch">
-        This is where visibility turns into money. We read the AI Assistant channel Google added in 2026,
-        and run our own classification from session source so your history reaches back before that channel existed.
+        See recorded sessions and conversions attributed to AI referrals. Search Console works separately and does not require an Analytics connection.
       </p>
       <ul class="connect-list">
         <li>Sessions and conversions from ChatGPT, Perplexity, Gemini, Claude and Copilot</li>
@@ -1467,7 +1467,7 @@ async function viewTraffic() {
         ? `<button id="ga4Connect">${others.length ? 'Connect a different Google account' : 'Connect Google Analytics'}</button>`
         : `<p class="notice" style="margin:0">Google sign-in is not configured on this deployment. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</p>`}
       <p class="error" id="ga4Error" role="alert"></p>
-    </div>`;
+    </div>` + searchPanel;
   }
 
   /* connected but no property chosen yet */
@@ -1486,10 +1486,11 @@ async function viewTraffic() {
         Wrong account? <button type="button" class="ghost" id="ga4Reconnect" style="padding:4px 9px;font-size:10px">Connect a different one</button>
       </p>
       <p class="error" id="ga4Error" role="alert"></p>
-    </div>`;
+    </div>` + searchPanel;
   }
 
   /* connected and configured */
+  if (!rows || rows.error) return `<div class="panel"><h2>AI referral traffic</h2><p class="notice">Traffic data could not be loaded. This does not mean there were zero visits.</p><button class="ghost" data-open-view="traffic">Try again</button></div>` + searchPanel;
   const data = Array.isArray(rows) ? { rows } : rows || {};
   const series = data.rows || [];
   const totals = (series).reduce(
@@ -1598,7 +1599,6 @@ async function viewTraffic() {
       : ''
   }
 
-  ${demandSection(demand)}
 
   <div class="panel"><p class="dek" style="margin:0;font-size:13.5px">
     <b>native</b> is Google's AI Assistant channel, accurate but only from mid-2026 onward.
@@ -1606,7 +1606,7 @@ async function viewTraffic() {
     platforms Google has not yet recognised. Some AI traffic arrives with no referrer and lands in Direct,
     so treat both as a floor rather than a total.
   </p></div>`
-    : `<div class="empty"><h2>No data yet</h2><p>Press <b>Sync now</b> to pull the last 18 months. It takes a minute the first time.</p></div>`}`;
+    : `<div class="empty"><h2>No data yet</h2><p>Press <b>Sync now</b> to pull the last 18 months. It takes a minute the first time.</p></div>`}` + searchPanel;
 }
 
 async function loadGa4Properties() {
