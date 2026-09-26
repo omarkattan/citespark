@@ -617,7 +617,7 @@ function taskCard(t, compact = false, selectionReason = '') {
       <span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span>
       ${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}
       ${dueLabel(t)}
-      ${t.notes ? '<span class="tag">has notes</span>' : ''}
+      <span class="tag" data-task-notes-badge${t.notes ? '' : ' hidden'}>has notes</span>
     </div>
 
     ${questionReview ? `<div class="task-guidance">
@@ -4082,6 +4082,11 @@ async function handleNextStep(event) {
     if (existing) existing.value = existing.defaultValue = notes;
     const opener = document.querySelector(`[data-next-open="${id}"]`);
     if (opener) opener.textContent = notes ? 'Edit next step' : 'Record next step';
+    const card = editor.closest('[data-task]');
+    const badge = card?.querySelector('[data-task-notes-badge]');
+    if (badge) badge.hidden = !notes;
+    const assignment = card?.querySelector('[data-task-edit]');
+    if (assignment) assignment.textContent = result.assignee || result.due_date || notes ? 'Edit' : 'Assign';
     editor.hidden = true;
     feedback.textContent = 'Next step saved.';
     opener?.focus();

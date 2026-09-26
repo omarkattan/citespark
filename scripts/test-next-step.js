@@ -56,3 +56,30 @@ test('clearing notes and returned markup remain safe',async()=>{
  assert.equal(document.getElementById('next-summary-42').hidden,true);assert.equal(document.querySelector('[data-next-open]').textContent,'Record next step');
  const next=harness(()=>({ok:true,json:async()=>({notes:'<img src=x onerror=alert(1)>'})}));await next.act('[data-next-open]');await next.act('[data-next-save]');assert.equal(next.document.querySelector('img'),null);
 });
+
+test('saving and clearing notes updates the badge and assignment label without reload',async()=>{
+ let notes=null;
+ const {document,act}=harness(()=>({ok:true,json:async()=>({notes,assignee:null,due_date:null})}));
+ const badge=document.querySelector('[data-task-notes-badge]');
+ assert.equal(badge.hidden,false);
+ await act('[data-next-open]');document.getElementById('next-note-42').value='';await act('[data-next-save]');
+ assert.equal(badge.hidden,true);assert.equal(document.querySelector('[data-task-edit]').textContent,'Assign');
+ notes='Next step recorded';await act('[data-next-open]');document.getElementById('next-note-42').value=notes;await act('[data-next-save]');
+ assert.equal(badge.hidden,false);assert.equal(document.querySelector('[data-task-edit]').textContent,'Edit');
+ assert.equal(document.querySelectorAll('[data-task-notes-badge]').length,1);
+ assert.equal(document.querySelector('[data-answers]').hidden,false);
+});
+test('clearing notes keeps Edit when an assignee or due date remains',async()=>{
+ for (const fields of [{assignee:'Reviewer',due_date:null},{assignee:null,due_date:'2026-10-01'}]) {
+  const {document,act}=harness(()=>({ok:true,json:async()=>({notes:null,...fields})}));
+  await act('[data-next-open]');document.getElementById('next-note-42').value='';await act('[data-next-save]');
+  assert.equal(document.querySelector('[data-task-notes-badge]').hidden,true);
+  assert.equal(document.querySelector('[data-task-edit]').textContent,'Edit');
+ }
+});
+test('a failed save does not change the badge or assignment label',async()=>{
+ const {document,act}=harness(()=>({ok:false,json:async()=>({error:'Save failed'})}));
+ await act('[data-next-open]');document.getElementById('next-note-42').value='';await act('[data-next-save]');
+ assert.equal(document.querySelector('[data-task-notes-badge]').hidden,false);
+ assert.equal(document.querySelector('[data-task-edit]').textContent,'Edit');
+});
