@@ -2173,3 +2173,10 @@ a.ans-source:hover { color: var(--accent); text-decoration: underline; }
 .panel.fold > summary:hover h2 { color: var(--accent, var(--ink)); }
 .panel.fold[open] > summary .fold-mark { transform: rotate(180deg); }
 .panel.fold > summary .fold-mark { display: inline-block; transition: transform .15s ease; }
+
+/* Questions: source tools and safe wording revisions. */
+.question-compose { display:flex; flex-wrap:wrap; gap:8px; }
+.question-compose input { flex:1 1 260px; }
+.question-editor { margin:12px 0; padding:14px; border:1px solid var(--line); background:var(--paper); }
+.question-editor textarea { display:block; width:100%; box-sizing:border-box; min-height:100px; margin:8px 0; }
+#gscPanel > summary { cursor:pointer; font-weight:600; padding:4px 0; }

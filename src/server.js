@@ -12,6 +12,7 @@ import {
   listProperties, oauthConfigured
 } from './lib/ga4.js';
 import { signState, readState } from './lib/tokens.js';
+import { reviseQuestion } from './lib/question-revisions.js';
 import { generatePrompts } from './lib/prompts.js';
 import { discoverSite } from './lib/discover.js';
 import { PLANS, PLAN_ORDER, planFor } from './lib/plans.js';
@@ -416,7 +417,9 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
    * legitimate state and the list should show it as such.
    */
   const rows = await many(
-    `SELECT p.id, p.text, p.cluster, p.intent, p.ai_search_volume, p.active, p.source,
+    `SELECT p.id, p.text, p.cluster, p.intent, p.ai_search_volume, p.active, p.source, p.revises_prompt_id, p.origin_details,
+            EXISTS (SELECT 1 FROM runs history WHERE history.prompt_id = p.id) AS has_history,
+            (SELECT id FROM prompts newer WHERE newer.revises_prompt_id = p.id ORDER BY id DESC LIMIT 1) AS replaced_by,
             p.persona_id, pe.name AS persona, pe.descriptor AS persona_descriptor,
             r.id AS run_id, r.engine, r.run_index, m.mentioned, m.ordinal, m.snippet,
             -- Being linked as a source is a different outcome from being named
@@ -466,6 +469,10 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
         volume: row.ai_search_volume,
         active: row.active,
         source: row.source,
+        revisesPromptId: row.revises_prompt_id,
+        replacedBy: row.replaced_by,
+        originDetails: row.origin_details,
+        hasHistory: row.has_history,
         personaId: row.persona_id,
         persona: row.persona,
         personaDescriptor: row.persona_descriptor,
@@ -1326,17 +1333,18 @@ app.post('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
   if (overQuestions) return res.status(402).json({ error: overQuestions, upgrade: true });
   const row = await one(
     `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume, source)
-     VALUES ($1,$2,$3,$4,$5,'custom') ON CONFLICT (project_id, text) DO NOTHING RETURNING *`,
+     VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (project_id, text) DO NOTHING RETURNING *`,
     [
       project.id,
       text,
       String(req.body?.cluster || 'custom').toLowerCase(),
       ['discovery', 'comparison', 'commercial', 'problem'].includes(req.body?.intent) ? req.body.intent : 'commercial',
-      Number.isFinite(Number(req.body?.volume)) ? Math.max(0, Math.round(Number(req.body.volume))) : 100
+      Number.isFinite(Number(req.body?.volume)) ? Math.max(0, Math.round(Number(req.body.volume))) : 100,
+      req.body?.source === 'topic' ? 'topic' : 'custom'
     ]
   );
   if (!row) return res.status(409).json({ error: 'That question is already tracked' });
-  await logPromptEvent(project.id, 'added', { promptId: row.id, text: row.text, source: 'custom' });
+  await logPromptEvent(project.id, 'added', { promptId: row.id, text: row.text, source: row.source });
   res.json(row);
 }));
 
@@ -1363,7 +1371,8 @@ app.post('/api/projects/:id/prompts/bulk', requireAuth, wrap(async (req, res) =>
   // Highest estimated volume first, so the cap keeps the questions that matter.
   await query(
     `UPDATE prompts SET active = (id IN (
-       SELECT id FROM prompts WHERE project_id = $1
+       SELECT id FROM prompts q WHERE project_id = $1
+       AND NOT EXISTS (SELECT 1 FROM prompts newer WHERE newer.revises_prompt_id = q.id)
        ORDER BY ai_search_volume DESC, id
        LIMIT $2
      )) WHERE project_id = $1`,
@@ -1386,8 +1395,28 @@ app.post('/api/projects/:id/prompts/bulk', requireAuth, wrap(async (req, res) =>
   });
 }));
 
+app.post('/api/prompts/:promptId/revise', requireAuth, wrap(async (req, res) => {
+  try {
+    const result = await reviseQuestion({ orgId: req.session.orgId, promptId: Number(req.params.promptId),
+      text: req.body?.text, expectedText: req.body?.expectedText });
+    res.json(result);
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    throw error;
+  }
+}));
+
 app.patch('/api/prompts/:promptId', requireAuth, wrap(async (req, res) => {
   const id = Number(req.params.promptId);
+  const current = await one(`SELECT q.* FROM prompts q JOIN projects p ON p.id = q.project_id
+    WHERE q.id = $1 AND p.org_id = $2`, [id, req.session.orgId]);
+  if (!current) return res.status(404).json({error: 'Question not found'});
+  if (req.body?.active === true && !current.active) {
+    const newer = await one('SELECT id FROM prompts WHERE revises_prompt_id = $1 LIMIT 1', [id]);
+    if (newer) return res.status(409).json({error: 'This question has a newer revision. Resume that version instead.'});
+    const limit = await checkCanAddQuestions(req.session.orgId, current.project_id, 1);
+    if (limit) return res.status(402).json({error: limit, upgrade: true});
+  }
 
   /**
    * Buyer type and topic are editable now.
@@ -2665,12 +2694,12 @@ app.post('/api/personas/:personaId/apply', requireAuth, wrap(async (req, res) =>
   const chosen = Array.isArray(req.body?.baseIds) ? req.body.baseIds.map(Number).filter(Boolean) : null;
   const base = chosen?.length
     ? await many(
-        `SELECT text, cluster, intent, ai_search_volume FROM prompts
+        `SELECT id, text, cluster, intent, ai_search_volume, source, origin_details FROM prompts
          WHERE project_id = $1 AND persona_id IS NULL AND id = ANY($2::int[])`,
         [persona.project_id, chosen]
       )
     : await many(
-        `SELECT text, cluster, intent, ai_search_volume FROM prompts
+        `SELECT id, text, cluster, intent, ai_search_volume, source, origin_details FROM prompts
          WHERE project_id = $1 AND persona_id IS NULL AND active
          ORDER BY ai_search_volume DESC NULLS LAST LIMIT $2`,
         [persona.project_id, Math.min(Number(req.body?.limit) || 5, 15)]
@@ -2679,10 +2708,10 @@ app.post('/api/personas/:personaId/apply', requireAuth, wrap(async (req, res) =>
   let added = 0;
   for (const q of base) {
     const r = await query(
-      `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume, source, persona_id, active)
-       VALUES ($1,$2,$3,$4,$5,'persona',$6,true)
+      `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume, source, persona_id, active, origin_details)
+       VALUES ($1,$2,$3,$4,$5,'persona',$6,true,$7::jsonb)
        ON CONFLICT (project_id, text) DO NOTHING`,
-      [persona.project_id, asPersona(q.text, persona), q.cluster, q.intent, q.ai_search_volume, persona.id]
+      [persona.project_id, asPersona(q.text, persona), q.cluster, q.intent, q.ai_search_volume, persona.id, JSON.stringify({...q.origin_details, baseQuestionId: q.id, baseSource: q.source})]
     );
     added += r.rowCount;
   }
@@ -3511,7 +3540,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260926-visible-3',
+    release: '20260926-questions-4',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

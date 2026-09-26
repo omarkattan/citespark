@@ -882,11 +882,69 @@ async function viewPages() {
     </div>`;
 }
 
+function questionSourceLabel(source) {
+  return ({generated:'Site suggestions',custom:'Manual',topic:'Topic suggestions',persona:'Buyer variant',
+    gsc:'GSC import', 'gsc+model':'GSC-derived, AI rephrased', 'gsc-query':'GSC query'})[source] || source || 'Origin not recorded';
+}
+
+function questionTools(p, scope) {
+  return `<div class="panel"><div class="panel-head"><h2>Your next measurement</h2><button class="ghost" data-start-first-cycle>Review cost and run</button></div>
+    <p>${scope ? `${scope.all} active questions &middot; ${scope.checksAll} answer checks &middot; estimated $${Number(scope.costAll || 0).toFixed(2)}` : 'Open the run menu to check the current question count and cost.'}</p>
+    <p class="hint">Paused and superseded questions stay in your history and do not run. Pausing a question does not cancel a measurement already in progress.</p></div>
+    <div class="panel"><h2>Add questions</h2><p class="hint">Write a buyer question, start from a topic, use suggestions from your site, or import from the sources below.</p>
+      <div class="qcompose question-compose"><input id="q_text" aria-label="Question or topic" placeholder="A buyer question or topic" autocomplete="off" />
+      <button id="q_add">Add as written</button><button class="ghost" id="q_topic">Suggest from topic</button><button class="ghost" id="q_generate">Suggest from site</button></div>
+      <div id="qTopicPanel"></div><p class="error" id="setupError" role="alert"></p>
+    </div>
+    <details class="panel fold" id="personaPanel">
+      <summary class="panel-head" style="cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none">
+        <h2 style="margin:0">Who is asking${helpDot('Buyer types. The same question gets a different answer depending on who is asking it, so each buyer type is asked separately and measured separately.')}</h2>
+        <div class="spacer"></div>
+        <span class="fold-mark" aria-hidden="true" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">&#9662;</span>
+      </summary>
+      <div style="display:flex;justify-content:flex-end;margin:-4px 0 8px">
+        <button class="ghost" id="suggestPersonas">Suggest buyer types</button>
+      </div>
+      <p class="hint">
+        The same question gets a different answer depending on who asks it. A price-led buyer and an enterprise
+        buyer are shown different companies. One number for both hides which of them cannot see you.
+      </p>
+      <div id="personaList"></div>
+    </details>
+
+    <details class="panel fold" id="gscPanel"><summary>Import from Google Search Console ${p.gsc_site_url ? `&middot; ${esc(p.gsc_site_url)}` : '&middot; connect an account'}</summary>
+      <div class="panel-head">
+        <h2>From Search Console</h2>
+        <div class="spacer"></div>
+        ${
+          p.gsc_site_url
+            ? `<button class="ghost" id="gscSwitch" title="Choose a different property">Change property</button>
+               <button class="ghost danger" id="gscDisconnect">Disconnect</button>`
+            : ''
+        }
+        <button class="ghost" id="gscLoad">Find questions people already ask</button>
+      </div>
+      <p class="hint" style="margin:0">
+        Search Console supplies real Google search queries. We group them and may rephrase them into buyer questions for you to review before importing. Google search impressions are not AI question counts.
+        ${
+          p.gsc_site_url
+            ? `<br />Reading <b>${esc(p.gsc_site_url)}</b>${
+                p.gsc_account_email ? ` as ${esc(p.gsc_account_email)}` : ''
+              }. Analytics and Search Console can use different Google accounts.`
+            : ''
+        }
+      </p>
+      <div id="gscBody"></div>
+    </details>
+
+`;
+}
+
 async function viewQuestions() {
-  const prompts = await api(`/api/projects/${state.projectId}/prompts`);
-  if (!prompts?.length) {
-    return `<div class="empty"><h2>No questions yet</h2><p>Add some in Setup, or let us suggest them from your site.</p></div>`;
-  }
+  const prompts = (await api(`/api/projects/${state.projectId}/prompts`)) || [];
+  state.questionRows = new Map(prompts.map(p => [String(p.id), p]));
+  const scope = await api(`/api/projects/${state.projectId}/run-scope`).catch(() => null);
+  const tools = questionTools(state.overview?.project || {}, scope);
   const brand = state.overview?.project?.brand_name;
   const rows = prompts
     .map((p) => {
@@ -902,6 +960,7 @@ async function viewQuestions() {
       return `
       <div class="prompt ${p.measured ? '' : 'unmeasured'}"
         data-prompt="${p.id}"
+        data-active="${p.active}" data-source="${esc(p.source?.startsWith('gsc') ? 'gsc' : p.source || 'unknown')}"
         data-persona="${p.personaId || ''}"
         data-cluster="${esc(p.cluster || '')}"
         data-intent="${esc(p.intent || '')}"
@@ -913,11 +972,13 @@ async function viewQuestions() {
         <div style="min-width:0">
           <p class="prompt-q">${esc(asked)}</p>
           ${p.persona ? `<div class="asked-as" title="${esc(p.personaDescriptor || '')}"><span>asked as</span> ${esc(p.persona)}</div>` : ''}
+          <div class="prompt-tags">Origin: ${esc(questionSourceLabel(p.source))}${p.revisesPromptId ? ' &middot; revised wording' : ''}${p.originDetails?.baseSource ? ` &middot; based on ${esc(questionSourceLabel(p.originDetails.baseSource))}` : ''}</div>
+          ${p.originDetails?.queryExamples?.length ? `<details><summary>Original GSC query examples</summary><p class="hint">${esc(p.originDetails.queryExamples.join(' · '))}</p><p class="hint">${esc(p.originDetails.property || 'Property not recorded')} &middot; original search evidence, not measured AI demand</p></details>` : ''}
           <div class="prompt-tags">
             ${esc(p.cluster?.replace(/[_-]/g, ' '))} &middot; ${esc(p.intent)} &middot; <span title="Stored demand estimates do not have a verified source attached. They are not measured monthly question counts.">demand unverified</span>
             ${p.active ? '' : ' &middot; <span class="paused">paused</span>'}
           </div>
-          ${p.measured ? runStrip(p.runs) : '<div class="notrun">not asked yet, it will run on the next cycle</div>'}
+          ${p.measured ? runStrip(p.runs) : `<div class="notrun">${p.active ? 'Not asked yet. Included in the next cycle.' : 'Not asked yet. Paused and excluded from the next cycle.'}</div>`}
           ${(() => {
             /**
              * Actions that look like actions, with the emphasis following the
@@ -935,9 +996,11 @@ async function viewQuestions() {
               ${p.measured ? `<button class="ghost" data-see-answer="${p.id}">Read what each engine said</button>${qh('Opens the stored answers from the last cycle, one per engine, with every source cited as a full clickable address. Free - nothing is re-asked.')}` : ''}
               <button class="ghost ${losing ? 'q-cta' : ''}" data-brief="${p.id}">See brief for suggested content</button>${qh('Opens the ready-made brief for the article that wins this answer: the question, the exact pages engines currently cite instead of you, related questions for the FAQs, and the full methodology. Read it here, then copy it into Claude or ChatGPT to draft. Free, and identical every time.')}
               ${p.measured ? `<button class="ghost" data-reask="${p.id}">Ask again now</button>${qh('Asks this question again on every engine right now, about $0.05 and 30 seconds. Incomplete earlier answers are replaced, sound ones are kept as extra samples. The fresh answers appear under Read what each engine said.')}` : ''}
+              ${p.replacedBy ? '<span class="tag">Superseded by a newer revision</span>' : `<button class="ghost" data-question-toggle="${p.id}">${p.active ? 'Pause' : 'Resume'}</button><button class="ghost" data-question-edit="${p.id}">Edit wording</button>`}
               <label class="qpick"><input type="checkbox" data-qsel="${p.id}" /> select</label>
             </div>`;
           })()}
+          <div class="question-editor" id="question-edit-${p.id}" hidden></div>
           <div class="answers" data-answers hidden></div>
           ${p.snippet ? `<div class="excerpt">${highlight(p.snippet, brand)}</div>` : ''}
           ${chips ? `<div class="chips">${chips}</div>` : ''}
@@ -1090,13 +1153,13 @@ async function viewQuestions() {
       </div>
     </div>`;
 
-  return `<div class="panel">
+  return tools + `<div class="panel">
     <div class="panel-head">
-      <h2>Every question on this site</h2>
+      <h2>Your questions</h2>
       <div class="spacer"></div>
       <span class="meta" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">filled tick = you were named</span>
     </div>
-    ${waiting ? `<p class="hint" style="margin:0 0 12px">${waiting} question${waiting === 1 ? ' has' : 's have'} not been asked yet. Review the questions for relevance before starting a measurement. You can edit the question set in <button class="ghost" data-goto-setup>Setup</button>.</p>` : ''}
+    ${waiting ? `<p class="hint" style="margin:0 0 12px">${waiting} question${waiting === 1 ? ' has' : 's have'} not been asked yet. Review the questions for relevance before starting a measurement. Use Edit wording or Pause on a question below.</p>` : ''}
     <p class="hint">Suggested priority uses visibility and stored demand estimates. Those estimates may be generated or imported; their source is not verified here. They are not measured monthly AI question counts.</p>
     ${
       byPersona?.rows?.length > 1
@@ -1146,6 +1209,8 @@ async function viewQuestions() {
           </div>`
         : ''
     }
+    <div class="qtools"><label>Status <select data-select-group="activity"><option value="active">Active for next run</option><option value="all">All, including history</option><option value="paused">Paused or superseded</option></select></label>
+      <label>Origin <select data-select-group="origin"><option value="all">All origins</option>${[...new Set(prompts.map(p => p.source?.startsWith('gsc') ? 'gsc' : p.source || 'unknown'))].map(source => `<option value="${esc(source)}">${esc(source === 'gsc' ? 'Google Search Console' : questionSourceLabel(source))}</option>`).join('')}</select></label></div>
     ${filters}
     ${bulkBar}
     ${prompts.length > 8 ? searchBox('promptFilter', 'Filter by question, cluster or cited domain', 'promptFilterCount') : ''}
@@ -1665,16 +1730,23 @@ async function render() {
   $('view').innerHTML = await fn();
   if (view === 'setup') {
     recalcEstimate();
-    loadPersonas();
     // The select is rendered empty but for the country option, then filled
     // from the country beside it, so the stored city survives a reload.
     const city = $('s_city');
     if (city) fillCities($('s_market').value, city, $('s_cityHint'), city.dataset.selected || '');
   }
   if (view === 'questions') {
-    // Reset, or a filter from a previous site silently narrows this one.
-    Object.assign(qState, { state: 'all', persona: 'all', cluster: 'all', intent: 'all', sort: 'opportunity', text: '' });
-    for (const el of document.querySelectorAll('[data-select-group]')) el.value = 'all';
+    // Preserve filters on edits, reset when switching projects.
+    if (state.questionFilterProject !== state.projectId) Object.assign(qState, { state: 'all', persona: 'all', cluster: 'all', intent: 'all', sort: 'opportunity', text: '', activity: 'active', origin: 'all' });
+    state.questionFilterProject = state.projectId;
+    loadPersonas();
+    for (const el of document.querySelectorAll('[data-select-group]')) {
+      const key = el.dataset.selectGroup;
+      el.value = qState[key] || 'all';
+      if (!el.value) { el.value = 'all'; qState[key] = 'all'; }
+    }
+    if ($('promptFilter')) $('promptFilter').value = qState.text;
+    if ($('qsort')) $('qsort').value = qState.sort;
     applyQuestionView();
   }
   if (view === 'traffic' && $('ga4Props')) loadGa4Properties();
@@ -1801,18 +1873,17 @@ async function boot() {
   await refreshUsagePill();
 
   if (returned) {
-    // Search Console lives in Setup, Analytics in Traffic.
-    const tab = returned.what === 'gsc' ? 'setup' : 'traffic';
-    document.querySelector(`.tab[data-view="${tab}"]`)?.click();
-
+    // Wait for the destination before restoring the requested connection workflow.
+    const tab = returned.what === 'gsc' ? 'questions' : 'traffic';
+    state.view = tab;
+    document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.view === tab)));
+    await render();
     if (!returned.ok) {
-      setTimeout(() => {
-        const el = returned.what === 'gsc' ? $('setupError') : $('ga4Error');
-        if (el) el.textContent = returned.message;
-      }, 400);
+      const el = returned.what === 'gsc' ? $('setupError') : $('ga4Error');
+      if (el) el.textContent = returned.message;
     } else if (returned.what === 'gsc') {
-      // Straight to the thing they came for, rather than leaving them to find it.
-      setTimeout(() => $('gscLoad')?.click(), 500);
+      $('gscPanel').open = true;
+      await loadGscCandidates();
     }
   }
 
@@ -2349,7 +2420,7 @@ document.addEventListener('click', (e) => {
  * filter and having it silently clear another is the usual way these become
  * untrustworthy.
  */
-const qState = { state: 'all', persona: 'all', cluster: 'all', intent: 'all', sort: 'opportunity', text: '' };
+const qState = { activity: 'active', origin: 'all', state: 'all', persona: 'all', cluster: 'all', intent: 'all', sort: 'opportunity', text: '' };
 
 function applyQuestionView() {
   const list = document.getElementById('promptList');
@@ -2361,6 +2432,8 @@ function applyQuestionView() {
   for (const r of rows) {
     const d = r.dataset;
     const ok =
+      (qState.activity === 'all' || (qState.activity === 'active' ? d.active === 'true' : d.active !== 'true')) &&
+      (qState.origin === 'all' || d.source === qState.origin) &&
       (qState.state === 'all' || d.state === qState.state) &&
       (qState.persona === 'all' ||
         (qState.persona === 'none' ? !d.persona : d.persona === qState.persona)) &&
@@ -3829,19 +3902,6 @@ async function viewSetup() {
         .join('')
     : `<p class="sub" style="font-family:var(--mono);font-size:12px;color:var(--ink-3)">No competitors yet. Add the ones you actually lose pitches to.</p>`;
 
-  const promptRows = data.prompts
-    .map(
-      (q) => `<div class="row ${q.active ? '' : 'off'}" data-filter-text="${esc(`${q.text} ${q.cluster} ${q.intent}`.toLowerCase())}">
-        <div class="grow">
-          <div class="name">${esc(q.text)}</div>
-          <div class="sub">${esc(q.cluster?.replace(/[_-]/g, ' '))} &middot; ${esc(q.intent)} &middot; demand unverified</div>
-        </div>
-        <button class="ghost" data-toggle-prompt="${q.id}" data-active="${q.active}">${q.active ? 'Pause' : 'Resume'}</button>
-        <button class="ghost" data-del-prompt="${q.id}">Delete</button>
-      </div>`
-    )
-    .join('');
-
   const chosen = p.engines?.length ? p.engines : ['chatgpt'];
   const allowed = billing?.plan?.engines ?? 1;
   const cost = active * chosen.length * (p.runs_per_cycle || 1);
@@ -3963,78 +4023,7 @@ async function viewSetup() {
     </div>
 
     <div>
-    <details class="panel fold" id="personaPanel">
-      <summary class="panel-head" style="cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none">
-        <h2 style="margin:0">Who is asking${helpDot('Buyer types. The same question gets a different answer depending on who is asking it, so each buyer type is asked separately and measured separately.')}</h2>
-        <div class="spacer"></div>
-        <span class="fold-mark" aria-hidden="true" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">&#9662;</span>
-      </summary>
-      <div style="display:flex;justify-content:flex-end;margin:-4px 0 8px">
-        <button class="ghost" id="suggestPersonas">Suggest buyer types</button>
-      </div>
-      <p class="hint">
-        The same question gets a different answer depending on who asks it. A price-led buyer and an enterprise
-        buyer are shown different companies. One number for both hides which of them cannot see you.
-      </p>
-      <div id="personaList"></div>
-    </details>
-
-    <div class="panel" id="gscPanel">
-      <div class="panel-head">
-        <h2>From Search Console</h2>
-        <div class="spacer"></div>
-        ${
-          p.gsc_site_url
-            ? `<button class="ghost" id="gscSwitch" title="Choose a different property">Change property</button>
-               <button class="ghost danger" id="gscDisconnect">Disconnect</button>`
-            : ''
-        }
-        <button class="ghost" id="gscLoad">Find questions people already ask</button>
-      </div>
-      <p class="hint" style="margin:0">
-        Your own Search Console data shows what people search before they find you. We cluster it, turn the ones with
-        real demand into questions worth tracking, and use the impressions as the volume behind prioritisation.
-        ${
-          p.gsc_site_url
-            ? `<br />Reading <b>${esc(p.gsc_site_url)}</b>${
-                p.gsc_account_email ? ` as ${esc(p.gsc_account_email)}` : ''
-              }. Analytics and Search Console can use different Google accounts.`
-            : ''
-        }
-      </p>
-      <div id="gscBody"></div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-head">
-        <h2>Monitored questions</h2>
-        <div class="spacer"></div>
-        <div class="bulk">
-          <button class="ghost" data-bulk-prompts="true" ${active === data.prompts.length ? 'disabled' : ''}>Resume all</button>
-          <button class="ghost" data-bulk-prompts="false" ${active === 0 ? 'disabled' : ''}>Pause all</button>
-        </div>
-        <button class="ghost" id="q_generate">Suggest 10 more</button>
-      </div>
-      <p class="dek" style="margin:0 0 12px;font-size:13px">These are the questions Cited asks every AI engine on each cycle to measure whether your brand is named in the answer. Write them the way a buyer types them, never with your brand name in. Paused questions stay in the record but are skipped.</p>
-
-      <div class="qcompose">
-        <input id="q_text" placeholder="A question a buyer would type, or a topic to build questions from" autocomplete="off" />
-        <button class="ghost" id="q_topic" title="Turn a topic into the questions a buyer would actually ask">Generate from topic</button>
-        <button id="q_add">Add as written</button>
-      </div>
-      <p class="hint" style="margin:6px 0 0">
-        A topic such as <code>${esc((p.category || '').split(/\s+/).slice(0, 3).join(' ') || 'your category')}</code> becomes the questions your buyers would ask about it, using
-        what this site already knows about your category and audience.
-      </p>
-      <div id="qTopicPanel"></div>
-      <p class="error" id="setupError" role="alert"></p>
-
-      ${data.prompts.length > 8 ? searchBox('qFilter', 'Filter questions', 'qFilterCount') : ''}
-      <div id="qList">
-        ${promptRows}
-        <p class="hint" data-filter-empty hidden>No question matches that.</p>
-      </div>
-    </div>
+    <div class="panel"><h2>Manage questions</h2><p>Review, add, pause and revise questions, including Search Console imports and buyer variants, in Questions.</p><button class="ghost" data-open-questions>Open Questions</button></div>
     </div>
   </div>`;
 }
@@ -4098,7 +4087,7 @@ function gscCandidateRow(c, i) {
       <span>
         <span class="name">${esc(c.text)}</span>
         <span class="sub">
-          ${c.impressions.toLocaleString()} impressions &middot; ${c.clicks} clicks &middot; position ${pos}
+          ${c.source === 'gsc+model' ? 'AI-rephrased from GSC' : 'Original GSC query'} &middot; ${c.impressions.toLocaleString()} Google search impressions &middot; ${c.clicks} clicks &middot; position ${pos}
           ${c.variants > 1 ? ` &middot; ${c.variants} variations` : ''}
           ${c.alreadyTracked ? ' &middot; already tracked' : ''}
         </span>
@@ -4212,7 +4201,7 @@ async function loadGscSites() {
 }
 
 document.addEventListener('click', async (e) => {
-  if (e.target.id === 'gscLoad') { e.target.disabled = true; await loadGscCandidates(); e.target.disabled = false; }
+  if (e.target.id === 'gscLoad') { if ($('gscPanel')) $('gscPanel').open = true; e.target.disabled = true; await loadGscCandidates(); e.target.disabled = false; }
 
   const site = e.target.closest('[data-gsc-site]');
   if (site) {
@@ -4647,7 +4636,7 @@ document.addEventListener('click', async (e) => {
       const res = await fetch(`/api/projects/${state.projectId}/prompts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
+        body: JSON.stringify({ text, source: 'topic' })
       });
       if (res.ok) added++;
     }
@@ -4725,6 +4714,7 @@ document.addEventListener('click', async (e) => {
     });
     const json = await res.json();
     await render();
+    if (!res.ok) { setupErr(json.error || 'Could not generate questions.'); return; }
     if (json.added === 0) setupErr('Nothing new to add. Every suggestion was already on the list.');
   }
 
@@ -5453,3 +5443,39 @@ async function viewLandscape() {
 }
 
 boot();
+
+// Question management lives alongside the evidence, not in site settings.
+document.addEventListener('click', async e => {
+  const button = e.target.closest('button');
+  if (!button) return;
+  if (button.hasAttribute('data-open-questions')) { document.querySelector('[data-view="questions"]').click(); return; }
+  const id = button.dataset.questionEdit || button.dataset.questionSave || button.dataset.questionToggle || button.dataset.questionCancel;
+  if (!id) return;
+  const question = state.questionRows?.get(String(id));
+  if (!question) return;
+  const box = $(`question-edit-${id}`);
+  if (button.dataset.questionCancel) { box.hidden = true; return; }
+  if (button.dataset.questionEdit) {
+    box.hidden = false;
+    box.innerHTML = `<label for="question-wording-${id}">Question wording</label><textarea id="question-wording-${id}" rows="3" maxlength="500">${esc(question.text)}</textarea>
+      <p class="hint">Saving creates a new version and pauses this one. Earlier answers keep their original wording. The new version keeps its origin and buyer type, but starts without measurements or a demand estimate.</p>
+      <button class="ghost" data-question-save="${id}">Save revision</button><button class="ghost" data-question-cancel="${id}">Cancel</button><p class="error" role="alert" data-question-error></p>`;
+    return;
+  }
+  button.disabled = true;
+  try {
+    const editing = Boolean(button.dataset.questionSave);
+    const res = await fetch(`/api/prompts/${id}${editing ? '/revise' : ''}`, {
+      method: editing ? 'POST' : 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(editing ? {text: $(`question-wording-${id}`).value, expectedText: question.text} : {active: !question.active})
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Could not save the question.');
+    await render();
+    toast(editing ? (result.unchanged ? 'No wording change to save.' : 'Revision saved. Earlier answers are preserved.') : (question.active ? 'Question paused.' : 'Question resumed.'));
+  } catch (error) {
+    const target = button.dataset.questionSave ? box?.querySelector('[data-question-error]') : null;
+    if (target) target.textContent = error.message;
+    else toast(error.message, 'bad');
+  } finally { button.disabled = false; }
+});

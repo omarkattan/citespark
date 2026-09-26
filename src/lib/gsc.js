@@ -326,18 +326,23 @@ export async function candidates(projectId, { days = 90 } = {}) {
 
 /** Add chosen questions, with impressions as the volume figure. */
 export async function importQuestions(projectId, chosen) {
+  const project = await one('SELECT gsc_site_url FROM projects WHERE id = $1', [projectId]);
   let added = 0;
   for (const c of chosen) {
     const row = await one(
-      `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume, source)
-       VALUES ($1,$2,$3,$4,$5,'gsc')
+      `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume, source, origin_details)
+       VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
        ON CONFLICT (project_id, text) DO NOTHING RETURNING id`,
       [
         projectId,
         String(c.text).slice(0, 300),
         String(c.cluster || 'search console').slice(0, 80),
         'commercial',
-        Math.max(0, Math.round(Number(c.impressions) || 0))
+        Math.max(0, Math.round(Number(c.impressions) || 0)),
+        c.source === 'gsc+model' ? 'gsc+model' : c.source === 'gsc' ? 'gsc-query' : 'gsc',
+        JSON.stringify({ property: project?.gsc_site_url || null,
+          queryExamples: (Array.isArray(c.examples) ? c.examples : []).slice(0, 5).map(x => String(x).slice(0, 300)),
+          impressions: Math.max(0, Math.round(Number(c.impressions) || 0)), importedAt: new Date().toISOString() })
       ]
     );
     if (row) added++;

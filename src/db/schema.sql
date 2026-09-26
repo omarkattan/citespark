@@ -619,3 +619,11 @@ CREATE INDEX IF NOT EXISTS method_notes_project ON method_notes (project_id, at)
 -- an env var only the operator knows exists. Empty object means the default
 -- (the environment pin, then scoring), so nothing changes until chosen.
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS models JSONB NOT NULL DEFAULT '{}';
+
+-- Question wording is versioned independently of its measurement history.
+-- Additive fields: safe to leave in place if application code is rolled back.
+ALTER TABLE prompts ADD COLUMN IF NOT EXISTS revises_prompt_id INTEGER;
+ALTER TABLE prompts ADD COLUMN IF NOT EXISTS origin_details JSONB NOT NULL DEFAULT '{}';
+CREATE INDEX IF NOT EXISTS prompts_revision_lookup ON prompts (revises_prompt_id);
+-- Revised wording has no demand estimate. Unknown must not be stored as zero.
+ALTER TABLE prompts ALTER COLUMN ai_search_volume DROP NOT NULL;

@@ -1496,7 +1496,7 @@ await test('a question that has not run yet is still listed', async () => {
   assert.ok(/measured: p\.runs\.length > 0/.test(block));
 
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
-  assert.ok(/not asked yet/.test(app), 'and the UI must say so');
+  assert.ok(/not asked yet/i.test(app), 'and the UI must say so');
 });
 
 await test('a persona question shows which buyer type asked it', async () => {
@@ -2333,7 +2333,7 @@ await test('connecting returns to whatever was being connected', async () => {
   assert.ok(/params\.get\('ga4'\)/.test(fn), 'the older parameter is still understood');
 
   const boot = app.slice(app.indexOf('if (returned) {'), app.indexOf('if (returned) {') + 700);
-  assert.ok(/'gsc' \? 'setup' : 'traffic'/.test(boot), 'each lands on its own tab');
+  assert.ok(/'gsc' \? 'questions' : 'traffic'/.test(boot), 'each lands on its own tab');
   assert.ok(/setupError/.test(boot), 'and a failure is shown where it started');
 });
 
@@ -3269,11 +3269,9 @@ await test('generated questions are approved, not saved', async () => {
 await test('the composer sits above the list it adds to', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
-  const panel = app.slice(app.indexOf('class="qcompose"'), app.indexOf('id="qList"'));
-
-  // It was at the bottom, below sixty questions, which is where nobody looks.
-  assert.ok(panel.length > 0 && panel.length < 1400, 'the composer must come before the list');
-  assert.ok(/q_topic/.test(panel) && /q_add/.test(panel), 'with both actions together');
+  const panel = app.slice(app.indexOf('function questionTools('), app.indexOf('async function viewQuestions('));
+  assert.ok(/q_topic/.test(panel) && /q_add/.test(panel), 'manual and topic entry stay together');
+  assert.ok(/return tools \+/.test(app), 'source tools precede the question list');
 });
 
 console.log('\nre-asking one question');
@@ -4313,7 +4311,7 @@ await test('long filter lists are dropdowns, and still combine', async () => {
 
   // And reopening the view must reset the controls, not just the state
   // behind them, or a stale selection would show while everything is listed.
-  assert.ok(/data-select-group\]'\)\) el\.value = 'all'/.test(app), 'the dropdowns must reset with the rest');
+  assert.ok(/el.value = qState\[key\]/.test(app), 'dropdown values stay aligned with filter state');
 });
 
 await test('the default sort puts the work first', async () => {
