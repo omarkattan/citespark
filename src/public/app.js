@@ -244,6 +244,8 @@ async function viewOverview() {
   ]);
   state.people = data?.people || [];
   const tasks = Array.isArray(data?.tasks) ? data.tasks : null;
+  const unrelated = tasks?.filter(t => ['source_gap','competitor_page'].includes(t.type) && t.sourceReview?.status === 'irrelevant') || [];
+  const suggested = tasks?.filter(t => !unrelated.includes(t)) || [];
   const measured = Boolean(o.cycle && o.runs > 0 && o.visibility != null);
   const next = scope && Number.isFinite(scope.all) ? `${scope.all} active questions · ${scope.checksAll} answer checks · estimated $${Number(scope.costAll || 0).toFixed(2)}` : 'Review the question count and estimated cost before running.';
   const cycles = history?.cycles || [];
@@ -260,9 +262,10 @@ async function viewOverview() {
       <section class="panel"><h3>What changed?</h3><p>${esc(changes)}</p><p class="hint">Use the trend view to compare the same questions. A change in the question set is not automatically a change in visibility.</p><button class="ghost" data-open-view="trends">Review changes over time</button></section>
       <section class="panel"><h3>Next measurement</h3><p>${esc(next)}</p><p class="hint">Paused questions are excluded. Running again uses answer checks.</p><button class="ghost" data-start-first-cycle>Review cost and run</button></section>
     </div>
-    <div class="panel-head"><div><h2>What to do next</h2><p class="hint">Up to three tasks in the current priority order. Review source relevance before acting on a citation.</p></div>
+    <div class="panel-head"><div><h2>What to do next</h2><p class="hint">Up to three tasks to review next. Sources already judged unrelated stay in Opportunities.</p></div>
       <button class="ghost" data-open-view="actions">All opportunities${tasks ? ` (${tasks.length})` : ''}</button></div>
-    ${tasks === null ? '<div class="notice">The task list could not be loaded. Open Opportunities to try again.</div>' : tasks.length ? tasks.slice(0,3).map(taskCard).join('') : `<div class="panel"><h3>${measured ? 'No open tasks' : 'Review questions before your first run'}</h3><p>${measured ? 'Check completed work in Opportunities, or review your questions before the next measurement.' : 'Add questions manually, use suggestions or connect Google Search Console.'}</p><button class="ghost" data-open-view="${measured ? 'actions' : 'questions'}">${measured ? 'Open opportunities' : 'Open questions'}</button></div>`}
+    ${tasks === null ? '<div class="notice">The task list could not be loaded. Open Opportunities to try again.</div>' : suggested.length ? suggested.slice(0,3).map(taskCard).join('') : `<div class="panel"><h3>${unrelated.length ? 'No other tasks to prioritise' : measured ? 'No open tasks' : 'Review questions before your first run'}</h3><p>${unrelated.length ? 'The remaining source reviews were judged unrelated to their checked questions. They remain available in Opportunities.' : measured ? 'Check completed work in Opportunities, or review your questions before the next measurement.' : 'Add questions manually, use suggestions or connect Google Search Console.'}</p><button class="ghost" data-open-view="${measured ? 'actions' : 'questions'}">${measured ? 'Open opportunities' : 'Open questions'}</button></div>`}
+    ${unrelated.length ? `<p class="hint">${unrelated.length} source review${unrelated.length === 1 ? ' was' : 's were'} left out of this shortlist because the checked page and question appeared unrelated. Nothing was dismissed or deleted. <button class="ghost" data-open-view="actions">View all opportunities</button></p>` : ''}
     <div class="overview-footer"><button class="ghost" data-open-view="assigned">See assigned work</button>
       <a class="ghost" href="/api/projects/${state.projectId}/report?print=1" target="_blank" rel="noopener">Open client report</a>
       <span class="hint">Choose report dates in Opportunities.</span></div>`;
@@ -457,7 +460,7 @@ function evidenceDetails(t) {
       `Where ${ev.competitor || 'they'} beat you (${ev.questions.length})`,
       ev.questions.map((q) => ({
         lead: `${q.competitor_rate}%`,
-        text: `${q.question}  \u2014 you ${q.own_rate}%`,
+        text: `${q.question} · you ${q.own_rate}% · ${Number.isFinite(q.own_runs) && Number.isFinite(q.competitor_runs) ? `measured answers: you ${q.own_runs}, competitor ${q.competitor_runs}` : 'answer counts were not recorded on this older task; inspect the stored answers'}`,
         hint: `${ev.competitor}: ${q.competitor_rate}%, you: ${q.own_rate}%`
       }))
     ]);
@@ -496,7 +499,7 @@ const TYPE_LABEL = {
   source_gap: 'a cited source to review',
   content_gap: 'a question you lose',
   engine_gap: 'strong on one engine, absent on another',
-  competitor_comparison: 'a competitor ahead of you',
+  competitor_comparison: 'competitor evidence to review',
   ordinal_push: 'named late in the answer',
   citable_asset: 'nothing worth quoting',
   entity_authority: 'who you are is unclear',
@@ -519,13 +522,14 @@ function renderSourceReview(review) {
 function taskCard(t) {
   const ev = t.evidence || {};
   const sourceReview = ['source_gap', 'competitor_page'].includes(t.type);
+  const competitorReview = t.type === 'competitor_comparison';
+  const competitorTitle = `Review where ${ev.competitor || 'a tracked competitor'} appears more often`;
   const reviewTitle = `Review whether ${ev.domain || 'this source'} answers your buyers' questions`;
-  const reviewAction = 'A citation is evidence to inspect, not an instruction to copy a page or seek a listing. Check the question, original answer and cited page for the same buyer need before making changes. Analysis of one page does not establish relevance for every question on this card.';
   const bits = [];
   // A tag with detail behind it opens that detail rather than being inert.
   const opens = evidenceDetails(t) ? ' data-open-detail' : '';
-  if (ev.own_rate !== undefined) bits.push(`<span class="tag">you ${ev.own_rate}%</span>`);
-  if (ev.competitor_rate !== undefined) bits.push(`<span class="tag${opens ? ' clickable' : ''}"${opens}>${esc(ev.competitor)} ${ev.competitor_rate}%</span>`);
+  if (!competitorReview && ev.own_rate !== undefined) bits.push(`<span class="tag">you ${ev.own_rate}%</span>`);
+  if (!competitorReview && ev.competitor_rate !== undefined) bits.push(`<span class="tag${opens ? ' clickable' : ''}"${opens}>${esc(ev.competitor)} ${ev.competitor_rate}%</span>`);
   if (ev.citations !== undefined) bits.push(`<span class="tag${opens ? ' clickable' : ''}"${opens}>${ev.citations} citations</span>`);
   if (ev.prompts !== undefined) bits.push(`<span class="tag${opens ? ' clickable' : ''}"${opens}>${ev.prompts} questions</span>`);
   if (ev.sessions !== undefined) bits.push(`<span class="tag">${ev.sessions} sessions</span>`);
@@ -544,7 +548,7 @@ function taskCard(t) {
   return `
   <article class="rec ${t.status}" data-type="${esc(t.type)}" data-task="${t.id}">
     <div class="rec-top">
-      <div class="rec-title">${esc(sourceReview ? reviewTitle : t.title)}</div>
+      <div class="rec-title">${esc(sourceReview ? reviewTitle : competitorReview ? competitorTitle : t.title)}</div>
       <div class="rec-pri">priority ${Number(t.priority).toFixed(1)} &middot; effort ${Number(t.effort)}/5</div>
     </div>
 
@@ -555,7 +559,12 @@ function taskCard(t) {
       ${t.notes ? '<span class="tag">has notes</span>' : ''}
     </div>
 
-    <p class="rec-action">${esc(sourceReview ? reviewAction : t.action)}</p>
+    ${sourceReview || competitorReview ? `<div class="task-guidance">
+      <p><b>Observed</b><br>${sourceReview ? 'This page was cited in the stored answers associated with this task. Relevance is specific to the checked page and question.' : `${esc(ev.competitor || 'A tracked competitor')} was named more often on the questions listed below. This does not establish why it appeared.`}</p>
+      <p><b>Check next</b><br>${sourceReview ? 'Read the buyer question and original answer, then check whether the cited page addresses the same need.' : 'Read the question-level evidence, the original answers and their cited pages. Confirm they concern the same buyer need and market.'}</p>
+      <p><b>Action supported now</b><br>${sourceReview ? 'Review relevance before deciding on page changes or outreach.' : 'Investigate the gap. A comparison page is an option only if that review reveals a relevant buyer comparison your content does not answer. No content change is established by this task alone.'}</p>
+      ${competitorReview ? '<button class="ghost" data-open-view="answers">Inspect stored answers</button>' : ''}
+    </div>` : `<p class="rec-action">${esc(t.action)}</p>`}
     ${sourceReview ? `<div id="source-review-${t.id}">${renderSourceReview(t.sourceReview)}</div>` : ''}
     ${ev.snippet ? `<div class="excerpt">${highlight(ev.snippet, state.overview?.project?.brand_name)}</div>` : ''}
 
@@ -756,7 +765,7 @@ async function viewAssigned() {
   if (!data.people.length) {
     return `<div class="empty">
       <h2>Nothing is assigned yet</h2>
-      <p>Assign an action to an email address on the Actions tab. They get the task by email, and a link to their own list that works without a login.</p>
+      <p>Assign an action to an email address in Opportunities. They get the task by email, and a link to their own list that works without a login.</p>
     </div>`;
   }
 

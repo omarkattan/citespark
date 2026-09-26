@@ -475,7 +475,7 @@ export function evaluateRules({
     }
 
     /* Rule 5: note where a competitor leads. Rolled up after the loop, because
-       you write one comparison page per rival, not one per question. */
+       review one grouped evidence task per rival, not one per question. */
     for (const c of p.competitors.values()) {
       const cRate = rate(c.hits, c.runs);
       if (cRate - ownRate >= 0.4 && cRate >= 0.5) {
@@ -483,7 +483,7 @@ export function evaluateRules({
           rivalGaps.set(c.name, { name: c.name, domain: c.domain, questions: [], gapSum: 0, impact: 0 });
         }
         const g = rivalGaps.get(c.name);
-        g.questions.push({ prompt_id: p.id, text: p.text, theirs: Math.round(cRate * 100), yours: Math.round(ownRate * 100) });
+        g.questions.push({ prompt_id: p.id, text: p.text, theirs: Math.round(cRate * 100), yours: Math.round(ownRate * 100), own_runs: p.owned.runs, competitor_runs: c.runs });
         g.gapSum += cRate - ownRate;
         g.impact += volumeScore * (cRate - ownRate);
       }
@@ -578,11 +578,10 @@ export function evaluateRules({
         type: 'competitor_comparison',
         title: `${g.name} beats you on ${n} question${n > 1 ? 's' : ''}`,
         action:
-          `Across ${n} of your tracked question${n > 1 ? 's' : ''}, ${g.name} is named in ${avgTheirs}% of answers against your ${avgYours}%. ` +
-          `Examples: ${examples}. ` +
-          `Write one honest comparison page covering ${g.name}, including the cases where they are the better choice. Balanced comparisons get cited far more often ` +
-          `than one-sided ones, because models favour sources that acknowledge trade-offs. ` +
-          `Then look at what they have that you do not: check which pages of theirs the engines are citing on the Sources tab.`,
+          `Observed: ${g.name} was named more often on ${n} tracked question${n > 1 ? 's' : ''}. Examples: ${examples}. ` +
+          `Check next: inspect the original answers and cited pages for the same buyer need and market. ` +
+          `Action supported now: investigate the gap. Consider a comparison page only if the evidence identifies a relevant buyer comparison your content does not answer. ` +
+          `This result alone does not explain the competitor's appearance or establish that a content change will improve visibility.`,
         targetUrl: g.domain ? `https://${g.domain}` : null,
         impact: Math.min(100, g.impact / Math.max(1, Math.sqrt(n))),
         evidence: {
@@ -593,6 +592,9 @@ export function evaluateRules({
           // opened and read rather than taken on trust.
           questions: g.questions.slice(0, 25).map((q) => ({
             question: q.text,
+            prompt_id: q.prompt_id,
+            own_runs: q.own_runs,
+            competitor_runs: q.competitor_runs,
             own_rate: q.yours,
             competitor_rate: q.theirs
           }))

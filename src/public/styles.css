@@ -2200,3 +2200,7 @@ a.ans-source:hover { color: var(--accent); text-decoration: underline; }
   .overview-intro { align-items:flex-start;flex-direction:column; }
   .primary-nav .tab { font-size:11px;padding:12px 9px; }
 }
+
+.task-guidance { margin:14px 0;max-width:850px; }
+.task-guidance p { margin:12px 0;line-height:1.6; }
+.task-guidance b { font-size:12px;color:var(--ink-2); }
