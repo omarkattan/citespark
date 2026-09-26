@@ -207,6 +207,51 @@ function highlight(text, brand) {
   return safe.replace(re, '<mark>$1</mark>');
 }
 
+// A deliberately small display formatter. Never execute answer HTML, load
+// images, or infer facts. Unsupported Markdown remains text in the reader.
+function answerUrl(value) {
+  try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? value : null; }
+  catch { return null; }
+}
+function answerInline(text) {
+  const tokens = /`([^`\n]+)`|\*\*([^*\n]+)\*\*|\[([^\n]+?)\]\(([^\s)]+)\)/g;
+  let out = '', end = 0;
+  for (const m of text.matchAll(tokens)) {
+    out += esc(text.slice(end,m.index));
+    if (m[1] !== undefined) out += `<code>${esc(m[1])}</code>`;
+    else if (m[2] !== undefined) out += `<strong>${esc(m[2])}</strong>`;
+    else out += answerUrl(m[4]) ? `<a href="${esc(m[4])}" target="_blank" rel="noopener noreferrer">${esc(m[3])}</a>` : esc(m[0]);
+    end = m.index + m[0].length;
+  }
+  return out + esc(text.slice(end));
+}
+function formatAnswer(text) {
+  const lines = String(text || '').replace(/\r\n?/g,'\n').split('\n');
+  const out = []; let paragraph = [], list = null, code = null;
+  const flush = () => { if (paragraph.length) {out.push(`<p>${paragraph.map(answerInline).join('<br>')}</p>`); paragraph=[];} };
+  const closeList = () => {if (list) {out.push(`</${list}>`); list=null;}};
+  for (const line of lines) {
+    if (/^\s*```/.test(line)) {
+      flush(); closeList();
+      if (code !== null) {out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`); code=null;} else code=[];
+      continue;
+    }
+    if (code !== null) {code.push(line);continue;}
+    if (!line.trim()) {flush();closeList();continue;}
+    const heading = line.match(/^#{1,6}\s+(.+)$/);
+    const item = line.match(/^\s*(?:([-+*])\s+|(\d+)[.)]\s+)(.+)$/);
+    if (heading) {flush();closeList();out.push(`<h4>${answerInline(heading[1])}</h4>`);}
+    else if (/^\s*(?:---+|\*\*\*+)\s*$/.test(line)) {flush();closeList();out.push('<hr>');}
+    else if (item) {
+      flush();const kind=item[1] ? 'ul' : 'ol';
+      if (kind !== list) {closeList();list=kind;out.push(`<${kind}>`);}
+      out.push(`<li${item[2] ? ` value="${Number(item[2])}"` : ''}>${answerInline(item[3])}</li>`);
+    } else {closeList();paragraph.push(line);}
+  }
+  flush();closeList();if (code !== null) out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`);
+  return out.join('');
+}
+
 /* ---------- views ---------- */
 
 function rateClass(rate) {
@@ -3225,6 +3270,7 @@ document.addEventListener('click', async (e) => {
     const d = await api(`/api/prompts/${id}/answers`);
     see.textContent = 'Hide the answers';
     box.hidden = false;
+    if (!d || d.error) { box.innerHTML = `<p class="notice">${esc(d?.error || 'Answers could not be loaded. Close and reopen to try again.')}</p>`; return; }
     /**
      * Everyone checks a surprising result by asking the engine themselves,
      * and then finds a different answer. That is not usually a fault in the
@@ -3241,12 +3287,12 @@ document.addEventListener('click', async (e) => {
       ? proj.location_name.split(',')[0]
       : (window.COUNTRIES.find(([c]) => c === proj.market)?.[1] || proj.market || 'your market');
 
-    const preamble = `<p class="hint" style="margin:0 0 10px">
+    const preamble = `<p class="hint">Open an engine to read its stored answer. These are provider-collected samples, not every buyer’s experience.</p><details class="answer-method"><summary>How these answers were collected</summary><p class="hint">
       These are provider-collected answers. Assistant results use API measurements; Google AI results use search-result collection.
       This project's configured market/location is ${esc(askedFrom)}; location support varies by engine.
       These are not recordings of a signed-out consumer chat session. Your own results can differ with the model,
       collection time, history, saved memories and location. Treat this as a defined sample, not every buyer's experience.
-    </p>`;
+    </p></details>`;
 
     box.innerHTML = preamble + (d?.runs || [])
       .map((r) => {
@@ -3269,17 +3315,18 @@ document.addEventListener('click', async (e) => {
         const sample = r.samples > 1
           ? `<span class="ans-sample" title="This question was asked ${r.samples} times on this engine. Engines vary between asks, so samples can differ.">sample ${r.sample} of ${r.samples}</span>`
           : '';
-        return `<div class="ans">
-          <div class="ans-head">
+        return `<details class="ans answer-reader">
+          <summary class="ans-head">
             <span class="ans-engine">${esc(ENGINE_LABEL[r.engine] || r.engine)}</span>
             ${r.model ? `<span class="ans-model">${esc(r.model)}</span>` : ''}
             ${sample}
             ${verdict}
             ${r.truncated ? '<span class="tag warn" title="The answer stopped at our length limit, so anything after that was not measured">cut short</span>' : ''}
-          </div>
+            <span class="ans-sample">${(r.citations || []).length} source${(r.citations || []).length === 1 ? '' : 's'} recorded</span>
+          </summary><div class="answer-content">
           ${
             r.response_text
-              ? `<div class="ans-body" style="overflow-wrap:anywhere;min-width:0">${esc(r.response_text)}</div>`
+              ? `<div class="ans-body formatted-answer" style="overflow-wrap:anywhere;min-width:0">${formatAnswer(r.response_text)}</div><details class="answer-original"><summary>Original stored text</summary><pre>${esc(r.response_text)}</pre></details>`
               : `<p class="hint" style="margin:0">${esc(r.error || 'No answer was returned.')}</p>`
           }
           ${(() => {
@@ -3296,17 +3343,17 @@ document.addEventListener('click', async (e) => {
                 ? '<p class="hint" style="margin:8px 0 0">No sources came back with this answer.</p>'
                 : '';
             }
-            return `<div class="ans-sources">
-              <div class="label" style="margin:10px 0 4px">Sources cited (${cs.length})</div>
-              ${cs.map((c) => c.url
+            return `<details class="ans-sources"><summary>Sources cited (${cs.length})</summary>
+              ${cs.map((c) => answerUrl(c.url)
                 ? `<a href="${esc(c.url)}" target="_blank" rel="noopener" class="ans-source" style="display:block;word-break:break-all;font-size:11px;line-height:1.7">${esc(c.url)}</a>`
-                : `<span class="ans-source dim" style="display:block;word-break:break-all;font-size:11px;line-height:1.7">${esc(c.domain)} (address not recorded)</span>`
+                : `<span class="ans-source dim" style="display:block;word-break:break-all;font-size:11px;line-height:1.7">${esc(c.url || c.domain)} (${c.url ? 'link unavailable' : 'address not recorded'})</span>`
               ).join('')}
-            </div>`;
+            </details>`;
           })()}
-        </div>`;
+        </div></details>`;
       })
-      .join('') || '<p class="hint" style="margin:0">Nothing stored for this question yet.</p>';
+      .join('');
+    if (!d.runs?.length) box.innerHTML += '<p class="hint">Nothing stored for this question yet.</p>';
     return;
   }
 

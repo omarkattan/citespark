@@ -2226,3 +2226,21 @@ a.ans-source:hover { color: var(--accent); text-decoration: underline; }
 #overviewNext .queue-task { scroll-margin-top:110px; }
 .overview-measurement > summary { cursor:pointer; font-weight:600; }
 @media (max-width:700px) { .overview-focus { grid-template-columns:1fr; } }
+
+/* Stored answer reader: summaries first, full evidence on demand. */
+.answer-reader > .ans-head { cursor: pointer; flex-wrap: wrap; list-style: none; }
+.answer-reader > .ans-head::before { content: '+'; font-weight: bold; }
+.answer-reader[open] > .ans-head::before { content: '−'; }
+.answer-reader > .ans-head::-webkit-details-marker { display: none; }
+.answer-reader > .ans-head:focus-visible { outline: 2px solid var(--you); outline-offset: -3px; }
+.answer-content { padding: 0 14px 12px; min-width: 0; }
+.answer-reader .formatted-answer { padding: 4px 0; white-space: normal; max-height: none; overflow: visible; overflow-wrap: anywhere; }
+.formatted-answer p, .formatted-answer ul, .formatted-answer ol { margin: 12px 0; }
+.formatted-answer h4 { margin: 18px 0 8px; font-size: 15px; }
+.formatted-answer li { margin: 6px 0; }
+.formatted-answer ul, .formatted-answer ol { padding-left: 24px; }
+.formatted-answer pre, .answer-original pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.formatted-answer code { font-family: var(--mono); }
+.answer-original, .ans-sources, .answer-method { margin: 10px 0; }
+.answer-original > summary, .ans-sources > summary, .answer-method > summary { cursor: pointer; font-size: 12px; }
+@media (max-width: 700px) { .answer-reader .ans-model { flex-basis: 100%; overflow-wrap: anywhere; } }
