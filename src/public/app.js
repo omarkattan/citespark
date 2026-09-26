@@ -589,18 +589,18 @@ function evidenceDetails(t) {
  * clicked. These say what the action is about instead.
  */
 const TYPE_LABEL = {
-  decline_alert: 'visibility dropped',
+  decline_alert: "Review a possible measurement change",
   source_gap: 'a cited source to review',
   content_gap: 'question visibility to review',
-  engine_gap: 'strong on one engine, absent on another',
+  engine_gap: "Compare answers across engines",
   competitor_comparison: 'competitor evidence to review',
-  ordinal_push: 'named late in the answer',
-  citable_asset: 'nothing worth quoting',
-  entity_authority: 'who you are is unclear',
-  fanout_target: 'the search behind the question',
-  replicate_winner: 'something working, worth repeating',
-  sentiment_correction: 'how you are described',
-  named_not_cited: 'named, but the link went elsewhere'
+  ordinal_push: "Review where the brand appears",
+  citable_asset: "Review mentions and source links",
+  entity_authority: "Review citations and brand naming",
+  fanout_target: "Review recorded search queries",
+  replicate_winner: "Review a page's AI referral outcomes",
+  sentiment_correction: "Review a flagged brand description",
+  named_not_cited: "Review mentions and source links"
 };
 
 function renderSourceReview(review) {
@@ -613,8 +613,66 @@ function renderSourceReview(review) {
   </div>`;
 }
 
+const REVIEW_GUIDANCE = {
+  "citable_asset": [
+    "Review mentions and source links",
+    "This task records brand mentions without a recorded citation to your site in its sample.",
+    "Read the stored answers and source links. Check whether a citation was expected for this question and whether your relevant page supplies the needed facts.",
+    "Update a page or correct a listing only if you identify missing or inaccurate information. A citation gap does not prove that engines distrust your site or that clicks went elsewhere."
+  ],
+  "entity_authority": [
+    "Review citations and brand naming",
+    "This task records citations alongside a low rate of brand naming.",
+    "Compare the cited page with the answer. Check whether the brand identity is accurate and whether naming it is relevant to the question.",
+    "Correct a specific identity error if found. A citation without a name does not diagnose a schema problem."
+  ],
+  "ordinal_push": [
+    "Review where the brand appears",
+    "This task flagged the brand's recorded position in answers.",
+    "Read the original list and check whether its order expresses a ranking. An extracted position is not a measure of attention or preference.",
+    "Record any factual omission or misleading comparison you can substantiate. Do not commission extra references solely to change this position."
+  ],
+  "engine_gap": [
+    "Compare answers across engines",
+    "This task flagged different brand-naming rates across engines in its stored sample.",
+    "Read each engine's answers and check sample sizes, question wording, dates and model settings. Different engines may answer the same question differently.",
+    "Investigate a specific content or access issue only if the evidence supports it. An engine gap alone does not prove a crawling, indexing or profile problem."
+  ],
+  "sentiment_correction": [
+    "Review a flagged brand description",
+    "An automated check flagged negative language. Its interpretation needs review.",
+    "Read the full answer to confirm that the language refers to your brand and is inaccurate or misleading. Check any linked source independently.",
+    "Correct a verified error in material you control, or request a correction with evidence. Do not assume a cited page caused the wording or publish a response before checking."
+  ],
+  "fanout_target": [
+    "Review recorded search queries",
+    "This task includes search queries recorded during answer collection.",
+    "Compare the recorded queries with the buyer question and sources. A trace does not establish your search rank or explain source selection.",
+    "Use a relevant query as a research lead. Validate buyer intent and any missing information before choosing a page change. Page-one ranking is not established here as a requirement for AI inclusion."
+  ],
+  "decline_alert": [
+    "Review a possible measurement change",
+    "Stored cycle summaries differ. This card alone does not establish a like-for-like decline.",
+    "Open the trend view and compare the same questions and engines, including sample sizes and measurement-method changes.",
+    "Only investigate a decline after confirming a comparable cohort. Record a supported finding rather than assuming competitors or indexing caused the difference."
+  ],
+  "replicate_winner": [
+    "Review a page's AI referral outcomes",
+    "This task flagged a page from the available GA4 referral data.",
+    "Inspect the reporting dates, attribution, session count and configured conversion events. Event counts may exceed the number of sessions and are not necessarily converted sessions.",
+    "Check what users did before proposing a change. A high events-per-session ratio does not prove a page format caused conversions or will improve AI visibility elsewhere."
+  ],
+  "named_not_cited": [
+    "Review mentions and source links",
+    "This task flags a difference between brand mentions and recorded source links.",
+    "Read the answer and sources to verify the distinction and whether a citation was relevant to this question.",
+    "Record a specific supported action. A mention without a link does not establish why the engine chose its sources."
+  ]
+};
+
 function taskCard(t, compact = false, selectionReason = '') {
   const ev = t.evidence || {};
+  const review = REVIEW_GUIDANCE[t.type];
   const sourceReview = ['source_gap', 'competitor_page'].includes(t.type);
   const questionReview = t.type === 'content_gap';
   const questionTitle = `Review visibility for: ${ev.prompt || 'this buyer question'}`;
@@ -625,15 +683,15 @@ function taskCard(t, compact = false, selectionReason = '') {
   const competitorReview = t.type === 'competitor_comparison';
   const competitorTitle = `Review where ${ev.competitor || 'a tracked competitor'} appears more often`;
   const reviewTitle = `Review whether ${ev.domain || 'this source'} answers your buyers' questions`;
-  const title = sourceReview ? reviewTitle : competitorReview ? competitorTitle : questionReview ? questionTitle : t.title;
-  const summary = sourceReview
+  const title = review ? `${review[0]}${ev.prompt ? `: ${ev.prompt}` : ''}` : sourceReview ? reviewTitle : competitorReview ? competitorTitle : questionReview ? questionTitle : t.title;
+  const summary = review ? review[1] : sourceReview
     ? ({relevant:'Source appears relevant', irrelevant:'Source appears unrelated. Review before acting.', uncertain:'Relevance uncertain. Review before acting.'}[t.sourceReview?.status] || 'Source relevance not checked')
     : questionReview ? questionObservation : TYPE_LABEL[t.type] || 'Review evidence and next step';
   const bits = [];
   // A tag with detail behind it opens that detail rather than being inert.
   const opens = evidenceDetails(t) ? ' data-open-detail' : '';
-  if (!competitorReview && !questionReview && ev.own_rate !== undefined) bits.push(`<span class="tag">you ${ev.own_rate}%</span>`);
-  if (!competitorReview && ev.competitor_rate !== undefined) bits.push(`<span class="tag${opens ? ' clickable' : ''}"${opens}>${esc(ev.competitor)} ${ev.competitor_rate}%</span>`);
+  if (!review && !competitorReview && !questionReview && ev.own_rate !== undefined) bits.push(`<span class="tag">you ${ev.own_rate}%</span>`);
+  if (!review && !competitorReview && ev.competitor_rate !== undefined) bits.push(`<span class="tag${opens ? ' clickable' : ''}"${opens}>${esc(ev.competitor)} ${ev.competitor_rate}%</span>`);
   if (ev.citations !== undefined) bits.push(`<span class="tag${opens ? ' clickable' : ''}"${opens}>${ev.citations} citations</span>`);
   if (ev.prompts !== undefined) bits.push(`<span class="tag${opens ? ' clickable' : ''}"${opens}>${ev.prompts} questions</span>`);
   if (ev.sessions !== undefined) bits.push(`<span class="tag">${ev.sessions} sessions</span>`);
@@ -665,7 +723,8 @@ function taskCard(t, compact = false, selectionReason = '') {
       <span class="tag" data-task-notes-badge${t.notes ? '' : ' hidden'}>has notes</span>
     </div>
 
-    ${questionReview ? `<div class="task-guidance">
+    ${review ? `<div class="task-guidance"><p><b>Observed</b><br>${esc(review[1])}</p><p><b>Check next</b><br>${esc(review[2])}</p><p><b>Action supported now</b><br>${esc(review[3])}</p>
+      ${t.type === 'decline_alert' ? '<button class="ghost" data-open-view="trends">Check comparable measurements</button>' : t.type === 'replicate_winner' ? '<button class="ghost" data-open-view="traffic">Review referral data</button>' : !ev.prompt_id ? '<button class="ghost" data-open-view="answers">Inspect stored answers</button>' : ''}</div>` : questionReview ? `<div class="task-guidance">
       <p><b>Observed</b><br>${esc(questionObservation)} This result does not establish why you were absent.</p>
       <p><b>Check next</b><br>Read the answers and cited pages. Confirm the question concerns a buyer you serve, then compare the information those sources provide with your relevant page.</p>
       <p><b>Action supported now</b><br>If you find a specific missing answer or supporting evidence, record the gap and update the relevant page. If the question does not fit your business, pause it in Questions. Search rank and answer formatting alone do not explain selection.</p>
@@ -681,7 +740,7 @@ function taskCard(t, compact = false, selectionReason = '') {
     ${ev.snippet ? `<div class="excerpt">${highlight(ev.snippet, state.overview?.project?.brand_name)}</div>` : ''}
 
     <div class="rec-foot">
-      <span class="tag kind">${esc(TYPE_LABEL[t.type] || t.type.replace(/_/g, ' '))}</span>
+      <span class="tag kind">${esc(review ? review[0] : TYPE_LABEL[t.type] || t.type.replace(/_/g, ' '))}</span>
       ${bits.join('')}
       ${t.target_url ? `<a class="tag" href="${esc(t.target_url)}" target="_blank" rel="noopener">open source</a>` : ''}
       <span style="flex:1"></span>

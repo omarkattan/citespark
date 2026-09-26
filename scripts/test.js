@@ -542,11 +542,11 @@ await test('named but not cited names who took the click', () => {
   // A property portal is a portal, not an editorial site, and the advice
   // differs: claim the listing rather than pitch a contribution.
   assert.equal(r.evidence.took_the_citation[0].kind, 'directory');
-  assert.ok(/listing there is accurate/i.test(r.action));
+  assert.ok(/only if you identify missing or inaccurate information/i.test(r.action));
 
   // The split that makes this actionable rather than generic.
-  assert.ok(/only you can verify/i.test(r.action));
-  assert.ok(/never be trusted on/i.test(r.action));
+  assert.ok(/does not prove/i.test(r.action));
+  assert.ok(!/never be trusted on/i.test(r.action));
 });
 
 const project = { id: 1, brand_name: 'Sandstorm Digital', domain: 'sandstormdigital.com' };
@@ -662,7 +662,7 @@ await test('engine_gap fires when one engine is blind to you', () => {
   const r = recs.find((x) => x.type === 'engine_gap');
   assert.ok(r);
   assert.equal(r.evidence.worst, 'perplexity');
-  assert.ok(/PerplexityBot/i.test(r.action), 'gives the engine-specific fix');
+  assert.ok(/does not prove a crawling, indexing or profile problem/i.test(r.action), 'does not invent an engine-specific cause');
 });
 
 await test('sentiment_correction carries the excerpt as evidence', () => {
