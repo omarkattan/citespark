@@ -15,7 +15,9 @@ export async function lockMeasurements(projectId) {
 }
 export function measurementSettings(project, models, engines, runs, maxTokens, entities = []) {
  return {version:1,market:project.market,locationName:project.location_name || null,models,
-   engines:[...engines].sort(),runs,maxTokens, detection:'visible-text-v2',
+   engines:[...engines].sort(),runs,maxTokens,
+   ...(engines.some(e=>e==='ai_mode'||e==='ai_overview') ? {googleLocalePolicy:'country-map-v2-question-script-ar-en-v1'} : {}),
+   detection:'visible-text-v2',
    entities:entities.map(e=>({id:e.id,name:e.name,aliases:e.aliases,domain:e.domain,kind:e.kind,ambiguous_name:e.ambiguous_name})).sort((a,b)=>a.id-b.id)};
 }
 export async function startMeasurement(projectId, day, settings) {

@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { googleLocale } from './google-locale.js';
 
 /**
  * DataForSEO AI Optimization API client.
@@ -82,7 +83,7 @@ export const ENGINE_IDS = Object.keys(ENGINES);
 /** SERP calls want a location name, not an ISO code. */
 export const LOCATIONS = {
   AE: 'United Arab Emirates', SA: 'Saudi Arabia', QA: 'Qatar', KW: 'Kuwait',
-  BH: 'Bahrain', OM: 'Oman', EG: 'Egypt', GB: 'United Kingdom', US: 'United States',
+  BH: 'Bahrain', OM: 'Oman', EG: 'Egypt', JO: 'Jordan', GB: 'United Kingdom', US: 'United States',
   IN: 'India', DE: 'Germany', FR: 'France', ES: 'Spain', IT: 'Italy',
   NL: 'Netherlands', CA: 'Canada', AU: 'Australia', IE: 'Ireland',
   ZA: 'South Africa', SG: 'Singapore', PK: 'Pakistan', TR: 'Turkey',
@@ -720,6 +721,9 @@ async function askGoogle({ cfg, prompt, market, locationName = null }) {
    */
   const wantAsync = String(process.env.AI_OVERVIEW_ASYNC ?? 'true').toLowerCase() !== 'false';
 
+  let locale;
+  try { locale = googleLocale(prompt, market, locationName, LOCATIONS); }
+  catch (err) { return {ok:false,text:'',citations:[],fanOut:[],costUsd:0,model:cfg.label,error:err.message}; }
   const body = [
     {
       keyword: prompt.slice(0, 700),
@@ -730,8 +734,7 @@ async function askGoogle({ cfg, prompt, market, locationName = null }) {
        * that, which is why the setup screen says so rather than implying
        * the city applies everywhere.
        */
-      location_name: locationName || LOCATIONS[market] || 'United Arab Emirates',
-      language_code: 'en',
+      ...locale,
       device: 'desktop',
       ...(isMode ? {} : { depth: 10, ...(wantAsync ? { load_async_ai_overview: true } : {}) })
     }

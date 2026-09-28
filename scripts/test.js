@@ -3541,7 +3541,7 @@ await test('the city reaches the Google call and nothing else', async () => {
   const df = readFileSync(new URL('../src/lib/dataforseo.js', import.meta.url), 'utf8');
   const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
 
-  assert.ok(/location_name: locationName \|\| LOCATIONS\[market\]/.test(df), 'a city when set, the country otherwise');
+  assert.ok(/googleLocale\(prompt, market, locationName, LOCATIONS\)/.test(df), 'Google resolves the selected city or country through the checked locale helper');
   assert.equal((job.match(/locationName: project\.location_name/g) || []).length, 2, 'both cycle call sites pass it');
 
   // The LLM endpoints take a country code at most, and two of them reject

@@ -1,3 +1,4 @@
+import { historicalGoogleWarnings } from './google-locale.js';
 import { coverageFor } from './measurement-coverage.js';
 import { hasAnswerText, NO_OVERVIEW, possibleTruncation } from './answer-quality.js';
 
@@ -75,5 +76,5 @@ export async function reportEvidence(projectId, period, many) {
     const facts = summariseEvidence(subset).totals;
     return {engine, measured:facts.measured, failed:facts.failed, unmeasured:facts.unmeasured};
   });
-  return { ...result, engineCoverage, measurement: batches[0] || null, cycle: rows[0]?.cycle_date || null };
+  return { ...result, engineCoverage, localeWarnings: historicalGoogleWarnings(batches[0], result.questions), measurement: batches[0] || null, cycle: rows[0]?.cycle_date || null };
 }
