@@ -3288,7 +3288,7 @@ document.addEventListener('click', async (e) => {
       d = { error: `The request never completed: ${err.message}. If the console shows a blocked request, a security policy or extension between the browser and cited.ae is stopping it.` };
     } finally {
       again.disabled = false;
-      again.textContent = 'Ask again now';
+      again.textContent = engine ? `Ask ${ENGINE_LABEL[engine] || engine} only` : 'Ask again now';
     }
 
     const finish = (html, showRead) => {
@@ -3333,21 +3333,26 @@ document.addEventListener('click', async (e) => {
      * their click apparently do nothing. The outcome now goes to a toast,
      * which survives the redraw, and says where the fresh answers are.
      */
-    const replaced = (d.results || []).reduce((n, r) => n + (r.replaced || 0), 0);
-    const rows = (d.results || []).map((r) =>
-      `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)">
-        <span>${esc(ENGINE_LABEL[r.engine] || r.engine)}</span>
-        <span style="font-family:var(--mono);font-size:11px;color:${r.named ? 'var(--you)' : 'var(--ink-3)'}">${r.named == null ? 'not measured' : r.named ? 'named you' : 'did not name you'}</span>
+    const results = d.results || [];
+    const successful = results.filter(r => r.ok === true);
+    const failed = results.filter(r => r.ok !== true);
+    const replaced = successful.reduce((n,r) => n + (r.replaced || 0),0);
+    const rows = results.map(r =>
+      `<div style="padding:8px 0;border-bottom:1px solid var(--line)">
+        <b>${esc(ENGINE_LABEL[r.engine] || r.engine)}</b>: ${r.ok !== true ? 'request failed' : r.named == null ? 'collected, but not measured' : r.named ? 'named you' : 'did not name you'}
+        ${r.ok !== true ? `<p class="hint">${esc(r.error || 'The provider did not return a usable result.')}</p>` : ''}
       </div>`).join('');
-    finish(
-      `<div style="margin-bottom:8px">Done. Every engine answered fresh:</div>${rows}
-       <div style="margin-top:10px;font-size:12px;color:var(--ink-3)">${
-         replaced
-           ? `${replaced} failed earlier answer${replaced === 1 ? ' was' : 's were'} replaced. Sound ones were kept as extra samples.`
-           : 'Stored alongside the earlier answers as extra samples.'
-       }</div>`,
-      true
-    );
+    const heading = !results.length ? 'No result was returned.'
+      : !successful.length ? 'No new answer was collected.'
+      : failed.length ? `${successful.length} engine answered, ${failed.length} failed.`
+      : successful.length === 1 ? 'One engine answered.' : `${successful.length} engines answered.`;
+    const outcome = !successful.length ? 'Your completed measurement is unchanged.'
+      : replaced ? `${replaced} failed earlier sample${replaced === 1 ? ' was' : 's were'} replaced in the new measurement. Sound ones were kept as extra samples. Earlier measurements remain in the archive.`
+      : 'New answers were stored in a separate measurement alongside earlier samples. Earlier measurements remain in the archive.';
+    finish(`<div style="margin-bottom:8px">${heading}</div>${rows}
+      <p class="hint">${outcome}</p>${Number.isFinite(d.spend) ? `<p class="hint">Recorded provider cost: $${Number(d.spend).toFixed(4)}</p>` : ''}`,
+      successful.length > 0);
+
     return;
   }
 
