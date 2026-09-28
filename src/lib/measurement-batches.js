@@ -46,6 +46,15 @@ export async function inheritMeasurement(batch, settings) {
  // JSONB equality ignores object key order, unlike JSON.stringify.
  const match=await one('SELECT settings=$2::jsonb AND NOT legacy AS same FROM measurement_batches WHERE id=$1',[prior.id,JSON.stringify(settings)]);
  if (!match?.same) throw new Error('Settings changed or historical settings are unknown. Run all active questions to start a clean measurement.');
+ const current=await one('SELECT collection_plan FROM measurement_batches WHERE id=$1',[batch.id]);
+ if (Array.isArray(prior.collection_plan)) {
+   const merged=new Map();
+   for(const item of [...prior.collection_plan,...(current?.collection_plan || [])]) merged.set(`${item.prompt_id}:${item.engine}:${item.run_index}`,item);
+   await query('UPDATE measurement_batches SET collection_plan=$2::jsonb WHERE id=$1',[batch.id,JSON.stringify([...merged.values()])]);
+ } else {
+   // Do not pretend a partial new plan describes an older full snapshot.
+   await query('UPDATE measurement_batches SET collection_plan=NULL WHERE id=$1',[batch.id]);
+ }
  await query(`INSERT INTO measurement_members(measurement_id,run_id)
  SELECT $1,run_id FROM measurement_answers WHERE measurement_id=$2`,[batch.id,prior.id]);
 }

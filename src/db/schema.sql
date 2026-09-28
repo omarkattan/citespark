@@ -669,3 +669,10 @@ CREATE OR REPLACE VIEW measurement_answers AS
 CREATE OR REPLACE VIEW reporting_runs AS
  SELECT r.* FROM runs r JOIN measurement_answers a ON a.run_id=r.id
  JOIN published_measurements b ON b.id=a.measurement_id;
+
+-- Batch 30: planned checks are metadata, separate from model/detection settings.
+ALTER TABLE measurement_batches ADD COLUMN IF NOT EXISTS collection_plan JSONB;
+-- Expand the projection explicitly after the additive table change.
+CREATE OR REPLACE VIEW published_measurements AS
+ SELECT DISTINCT ON (project_id,cycle_date) * FROM measurement_batches
+ WHERE status='completed' ORDER BY project_id,cycle_date,completed_at DESC,id DESC;

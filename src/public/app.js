@@ -325,8 +325,8 @@ async function viewOverview() {
   const openCount = data?.counts && Number.isFinite(data.counts.open) && Number.isFinite(data.counts.doing) ? data.counts.open + data.counts.doing : tasks?.length;
   const cycles = history?.cycles || [];
   const changes = !history || history.error ? 'Trend history could not be loaded.' : cycles.length < 2
-    ? (cycles.length ? 'One measurement so far. A second is needed before comparing changes.' : 'No completed measurements yet.')
-    : `${cycles.length} measurements available. Open the trend view for the comparable question-and-engine cohort and any measurement-method changes.`;
+    ? (cycles.length ? 'One day of results is available. Daily charts use its latest completed measurement. Earlier same-day runs remain in Measurement archive.' : 'No completed measurements yet.')
+    : `${cycles.length} days of results available. Open the trend view for the comparable question-and-engine cohort and any measurement-method changes.`;
   return `<div class="overview-intro"><div><p class="eyebrow">Your next move</p><h2>${measured ? 'What needs your attention' : 'Start with the questions your buyers ask'}</h2>
     <p>${measured ? `Latest measurement: ${esc(shortDate(o.cycle))}. Start with one evidence review below.` : 'Review your questions and their origins, then measure how AI engines answer them.'}</p></div>
     ${measured && suggested.length ? '<button class="btn" data-overview-next>Review next task</button>' : '<button class="btn" data-open-view="questions">Review questions</button>'}</div>
@@ -2373,7 +2373,7 @@ function hideProgress() {
 
 function deltaFig(s) {
   if (s.delta === null || s.delta === undefined) {
-    return `<div class="report-fig"><div class="k">Change</div><div class="v">-</div><div class="n">first cycle, nothing to compare</div></div>`;
+    return `<div class="report-fig"><div class="k">Change</div><div class="v">-</div><div class="n">${esc(s.comparisonReason || 'No comparable change available for this measurement.')}</div></div>`;
   }
   const pts = Math.round(s.delta * 100);
   const dir = pts > 0 ? 'up' : pts < 0 ? 'down' : '';
@@ -2408,13 +2408,13 @@ function headline(s) {
 }
 
 function failureNote(s) {
-  if (!s.failed?.length) return '';
-  const total = s.failed.reduce((n, f) => n + f.count, 0);
-  const broken = s.failed.filter((f) => f.mostlyBroken);
+  if (!s.failed?.length && !s.skipped) return '';
+  const total = (s.failed || []).reduce((n, f) => n + f.count, 0);
+  const broken = (s.failed || []).filter((f) => f.mostlyBroken);
 
-  const list = s.failed
+  const list = (s.failed || [])
     .map((f) => {
-      const pct = f.rate ? ` (${Math.round(f.rate * 100)}% of its calls)` : '';
+      const pct = f.rate ? ` (${Math.round(f.rate * 100)}% of its attempted checks)` : '';
       return `<b>${esc(f.engine)}</b> failed ${f.count} time${f.count === 1 ? '' : 's'}${pct}${f.error ? `, ${esc(f.error)}` : ''}`;
     })
     .join('; ');
@@ -2462,7 +2462,7 @@ function failureNote(s) {
 
   const advice = ourNote + theirNote;
 
-  return `<p class="report-warn">${total} of ${s.attempted} calls did not return an answer. ${list}. Failed answers are excluded from visibility. Allowance usage is shown with the cycle cost.${advice}</p>`;
+  return `<p class="report-warn">${s.planned ?? s.attempted} checks planned, ${s.attempted} attempted, ${s.skipped || 0} skipped. ${total} attempted checks failed. Provider retries can add underlying requests. ${list}. Failed answers are excluded from visibility. Allowance usage is shown with the cycle cost.${advice}</p>`;
 }
 
 function showReport(s) {
@@ -3244,6 +3244,7 @@ document.addEventListener('click', async (e) => {
   const again = e.target.closest('[data-reask]');
   if (again) {
     const id = again.dataset.reask;
+    const engine = again.dataset.reaskEngine || null;
     again.disabled = true;
 
     /**
@@ -3258,10 +3259,10 @@ document.addEventListener('click', async (e) => {
     ov.id = 'reaskOverlay';
     ov.setAttribute('style', 'position:fixed;inset:0;z-index:70;background:rgba(20,20,18,.55);display:flex;align-items:center;justify-content:center;padding:20px;');
     ov.innerHTML = `<div style="background:var(--paper);border-radius:8px;max-width:460px;width:100%;padding:22px 24px;box-shadow:0 10px 40px rgba(0,0,0,.35);">
-      <div style="font-weight:600;font-size:15px;margin-bottom:6px">Asking every engine again</div>
+      <div style="font-weight:600;font-size:15px;margin-bottom:6px">${engine ? `Asking ${esc(ENGINE_LABEL[engine] || engine)} only` : 'Asking every engine again'}</div>
       <div data-reask-body style="font-size:13px;line-height:1.6;color:var(--ink-2)">
-        All engines are being asked this question right now, fresh and signed out.
-        Costs about $0.05 and usually takes 20 to 40 seconds. Leave this open.
+        ${engine ? 'Only this engine is being asked.' : 'All configured engines are being asked.'}
+        This uses provider/API measurement and answer checks. Cost depends on the selected model and returned answer. Leave this open.
       </div>
       <div data-reask-actions style="margin-top:16px;display:none;gap:8px;justify-content:flex-end"></div>
     </div>`;
@@ -3279,7 +3280,7 @@ document.addEventListener('click', async (e) => {
     let d;
     try {
       const res = await fetch(`/api/prompts/${id}/reask`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(engine ? { engine } : {})
       });
       d = await res.json().catch(() => ({ error: `The server replied ${res.status} without a readable body.` }));
       if (!res.ok && !d.error) d.error = `The server replied ${res.status}.`;
@@ -3419,7 +3420,7 @@ document.addEventListener('click', async (e) => {
             ${verdict}
             ${r.truncated ? '<span class="tag warn" title="Possible truncation based on text length and ending. The provider has not confirmed this. The stored answer is retained.">possibly cut short</span>' : ''}
             <span class="ans-sample">${(r.citations || []).length} source${(r.citations || []).length === 1 ? '' : 's'} recorded</span>
-          </summary><div class="answer-content">
+          </summary><div class="answer-content"><p><button class="ghost" data-reask="${esc(id)}" data-reask-engine="${esc(r.engine)}">Ask ${esc(ENGINE_LABEL[r.engine] || r.engine)} only</button> <span class="hint">Starts immediately and uses one answer check. Provider retries may add requests.</span></p>
           ${
             r.response_text
               ? `<div class="ans-body formatted-answer" style="overflow-wrap:anywhere;min-width:0">${formatAnswer(r.response_text)}</div><details class="answer-original"><summary>Original stored text</summary><pre>${esc(r.response_text)}</pre></details>`
@@ -5651,9 +5652,9 @@ async function viewTrends() {
   if (h.cycles.length === 1) {
     const c = h.cycles[0];
     return `<div class="empty">
-      <h2>One cycle so far</h2>
+      <h2>One day of results</h2>
       <p>You were named in <b>${Math.round(c.rate * 100)}%</b> of ${c.runs} answers on ${esc(shortDate(c.date))}.
-      Movement needs a second cycle to compare against, so this page fills in from the next run.</p>
+      Daily charts use the latest completed measurement per day. Earlier same-day runs remain in Measurement archive. A comparison needs another day with matching settings and a common question-and-engine cohort.</p>
     </div>`;
   }
 

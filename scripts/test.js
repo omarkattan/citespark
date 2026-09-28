@@ -3977,7 +3977,7 @@ await test('question actions look like actions, led by the verdict', async () =>
   assert.ok(/class="question-more"/.test(app), 'secondary actions remain available on demand');
 
   // Every action says what it does and what it costs before it is pressed.
-  assert.ok(/about \$0\.05/.test(app), 'asking again states its price up front');
+  assert.ok(/uses one answer check/.test(app), 'single-engine retry states its allowance use before it is pressed');
 });
 
 await test('the cost figure opens into causes with switches', async () => {
@@ -4077,7 +4077,7 @@ await test('asking again shows its outcome somewhere that survives', async () =>
   assert.ok(/finally \{/.test(block), 'the button always comes back');
   assert.ok(/The request never completed/.test(block), 'and a dead request is named, not swallowed');
   assert.ok(!/again\.textContent = named/.test(block), 'and no longer onto a node the render destroys');
-  assert.ok(/20 to 40 seconds/.test(block), 'the wait is stated while it runs');
+  assert.ok(/Leave this open/.test(block), 'the wait is explained without promising a fixed provider response time');
   assert.ok(block.includes('data-see-answer="${id}"'), 'reading opens the evidence itself, not directions to it');
   // Opened three screens down reads as nothing happened.
   assert.ok(/scrollIntoView/.test(block), 'and scrolls it into view');

@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {requestCounts} from '../src/lib/measurement-coverage.js';
 import {archiveHtml,measurementHtml} from '../src/lib/measurement-archive.js';
 const {PGlite}=await import(process.env.PGLITE_MODULE || '@electric-sql/pglite');
 const migration=readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8').split('-- Batch 29:')[1];
@@ -107,7 +108,7 @@ const collectSource=jobSource.slice(jobSource.indexOf('async function collectPro
 const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
 async function collectionFixture(failSave=false){
  const events=[],inserts=[];let registered;
- const deps={one:async(sql,params)=>{
+ const deps={requestCounts,one:async(sql,params)=>{
   if(sql.includes('FROM projects'))return {id:27,org_id:1,brand_name:'Acme',engines:['gemini'],runs_per_cycle:1};
   if(sql.includes('INSERT INTO runs')){inserts.push(params);if(failSave)throw Error('write failed');return {id:1};}
   return null;

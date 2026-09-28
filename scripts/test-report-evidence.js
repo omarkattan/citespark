@@ -6,7 +6,7 @@ import {writeFileSync} from 'node:fs';
 const base={prompt_id:1,text:'Which provider?',source:'gsc',engine:'chatgpt',ok:true,mentioned:false,cited:false,response_text:'A finished answer.'};
 test('failed and absent measurements do not become zero; citations can exist without naming',()=>{
  const e=summariseEvidence([base,{...base,engine:'claude',mentioned:true},{...base,engine:'gemini',cited:true},{...base,ok:false},{...base,mentioned:null}]);
- assert.deepEqual(e.totals,{attempted:5,measured:3,named:1,cited:1,failed:1,unmeasured:1,possiblyTruncated:0,noOverview:0,missingText:0});
+ assert.deepEqual(e.totals,{missingChecks:null,expectedChecks:null,coverageBasis:'unknown',attempted:5,measured:3,named:1,cited:1,failed:1,unmeasured:1,possiblyTruncated:0,noOverview:0,missingText:0});
  assert.equal(e.coveredQuestions,1);assert.equal(e.priorities[0].owner,'Measurement owner');
 });
 test('incomplete answers are visible and cannot generate the gap action',()=>{

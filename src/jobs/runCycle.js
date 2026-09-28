@@ -1,3 +1,4 @@
+import { requestCounts } from '../lib/measurement-coverage.js';
 import { lockMeasurements, measurementSettings, startMeasurement, finishMeasurement, comparableSettings, inheritMeasurement } from '../lib/measurement-batches.js';
 import { retrySamples, collectionLimit, possibleTruncation } from '../lib/answer-quality.js';
 import 'dotenv/config';
@@ -290,6 +291,8 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
   const batch = await startMeasurement(projectId, cycle,
     measurementSettings(project, chosenModel, budget.engines, budget.runs, ceiling, entities));
   registerBatch(batch);
+  await query('UPDATE measurement_batches SET collection_plan=$2::jsonb WHERE id=$1',
+    [batch.id, JSON.stringify(jobs.map(j=>({prompt_id:j.prompt.id,text:j.prompt.text,source:j.prompt.source,engine:j.engine,run_index:j.runIndex})))]);
   if (only) await inheritMeasurement(batch, batch.settings);
   let persistenceErrors = 0;
 
@@ -316,6 +319,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
   const GIVE_UP_AFTER = Number(process.env.ENGINE_GIVE_UP_AFTER || 12);
   const consecutive = new Map();
   const abandoned = new Map();
+  const attemptsPerEngine = new Map();
 
   await pooled(jobs, async ({ prompt, engine, runIndex }) => {
     if (abandoned.has(engine)) {
@@ -327,6 +331,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
     noteAsked(asking);
     report({ phase: 'asking' });
 
+    attemptsPerEngine.set(engine, (attemptsPerEngine.get(engine) || 0) + 1);
     const answer = await askEngine({
       engine,
       prompt: prompt.text,
@@ -481,8 +486,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
     });
   }
 
-  const attemptsPerEngine = new Map();
-  for (const j of jobs) attemptsPerEngine.set(j.engine, (attemptsPerEngine.get(j.engine) || 0) + 1);
+
 
   const failed = [...failures.entries()].map(([engine, f]) => {
     const tried = attemptsPerEngine.get(engine) || f.n;
@@ -534,10 +538,10 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
 
   const summary = await summarise(projectId, cycle, {
     runs: done, spend, recs, trimmed: budget.trimmed, estimated: budget.estimateUsd,
-    attempted: jobs.length, billable, failed
+    ...requestCounts(jobs.length, attemptsPerEngine), billable, failed
   });
   summary.measurementId = batch.id;
-  if (!(await comparableSettings(projectId))) { summary.change = null; summary.delta = null; }
+  if (!(await comparableSettings(projectId))) { summary.change = null; summary.delta = null; summary.comparisonReason = 'No comparable change available. Daily charts use the latest completed run per day, and settings must match.'; }
   console.log(
     `Done. ${done}/${jobs.length} usable runs (${billable} billed), $${spend.toFixed(4)} spent, ${recs.length} recommendations.`
   );
@@ -549,7 +553,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
  * What actually changed this cycle, in the terms a person cares about:
  * did visibility move, what is new to do, and what did it cost.
  */
-async function summarise(projectId, cycle, { runs, spend, recs, trimmed, estimated, attempted, billable, failed }) {
+async function summarise(projectId, cycle, { runs, spend, recs, trimmed, estimated, planned, attempted, skipped, billable, failed }) {
   const rate = async (cycleDate) => {
     if (!cycleDate) return { rate: null, answers: 0 };
     const row = await one(
@@ -599,7 +603,9 @@ async function summarise(projectId, cycle, { runs, spend, recs, trimmed, estimat
     runs,
     spend: Math.round(spend * 1000) / 1000,
     estimated: estimated ?? null,
+    planned: planned ?? attempted ?? runs,
     attempted: attempted ?? runs,
+    skipped: skipped ?? 0,
     billable: billable ?? runs,
     failed: failed || [],
     trimmed,

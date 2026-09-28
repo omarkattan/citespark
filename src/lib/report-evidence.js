@@ -1,9 +1,11 @@
+import { coverageFor } from './measurement-coverage.js';
 import { hasAnswerText, NO_OVERVIEW, possibleTruncation } from './answer-quality.js';
 
 /** Shared report facts from persisted measurements, never a second detection pass. */
-export function summariseEvidence(rows, { maxTokens = 2000 } = {}) {
+export function summariseEvidence(rows, { maxTokens = 2000, coverage = null } = {}) {
   const questions = new Map();
-  const totals = { attempted: rows.length, measured: 0, named: 0, cited: 0, failed: 0, unmeasured: 0, possiblyTruncated: 0, noOverview: 0, missingText: 0 };
+  for(const q of coverage?.questions || []) questions.set(q.id,{...q,measured:0,named:0,cited:0,failed:0,unmeasured:0,possiblyTruncated:0,engines:new Set()});
+  const totals = { missingChecks: coverage?.missing ?? null, expectedChecks: coverage?.expected ?? null, coverageBasis: coverage?.basis || 'unknown', attempted: rows.length, measured: 0, named: 0, cited: 0, failed: 0, unmeasured: 0, possiblyTruncated: 0, noOverview: 0, missingText: 0 };
   for (const row of rows) {
     if (!questions.has(row.prompt_id)) questions.set(row.prompt_id, { id: row.prompt_id, text: row.text, source: row.source,
       measured: 0, named: 0, cited: 0, failed: 0, unmeasured: 0, possiblyTruncated: 0, engines: new Set() });
@@ -24,13 +26,13 @@ export function summariseEvidence(rows, { maxTokens = 2000 } = {}) {
   const supported = list.filter(q => q.measured > 0);
   const strongest = supported.filter(q => q.named > 0).sort((a,b) => b.named/b.measured-a.named/a.measured || b.measured-a.measured || a.id-b.id)[0] || null;
   // A partial, failed or unmeasured sample cannot support a confident gap action.
-  const gaps = supported.filter(q => !q.named && !q.cited && !q.possiblyTruncated && !q.failed && !q.unmeasured && q.engines.length >= 2)
+  const gaps = supported.filter(q => !q.named && !q.cited && !q.possiblyTruncated && !q.failed && !q.unmeasured && !q.missing && q.engines.length >= 2)
     .sort((a,b) => b.measured-a.measured || a.id-b.id);
   const citationAsset = supported.filter(q => q.cited > 0).sort((a,b) => b.cited/b.measured-a.cited/a.measured || b.measured-a.measured || a.id-b.id)[0] || null;
   const priorities = [];
-  if (totals.possiblyTruncated || totals.failed || totals.unmeasured > totals.noOverview) priorities.push({
+  if (totals.possiblyTruncated || totals.failed || totals.missingChecks || totals.unmeasured > totals.noOverview) priorities.push({
     do: 'Resolve incomplete evidence before interpreting gaps.',
-    because: `${totals.possiblyTruncated} measured answers may be cut short, ${totals.failed} calls failed and ${totals.unmeasured} successful answers have no brand measurement. Review those stored answers before treating absence as a content gap.`,
+    because: `${totals.possiblyTruncated} measured answers may be cut short, ${totals.failed} calls failed, ${totals.missingChecks ?? 'an unknown number of'} planned checks have no stored result, and ${totals.unmeasured} successful answers have no brand measurement. Review those stored answers before treating absence as a content gap.`,
     owner: 'Measurement owner', done: 'Affected questions have a reviewed, complete measurement or a clearly recorded limitation.'
   });
   if (gaps[0]) priorities.push({ do: 'Review a buyer question with no recorded presence.',
@@ -65,6 +67,6 @@ export async function reportEvidence(projectId, period, many) {
   const batches = await many(`SELECT * FROM published_measurements WHERE project_id=$1
     AND ($2::date IS NULL OR cycle_date >= $2) AND ($3::date IS NULL OR cycle_date <= $3)
     ORDER BY cycle_date DESC LIMIT 1`,[projectId,period.from,period.to]);
-  const result = summariseEvidence(rows, { maxTokens: Number(process.env.MAX_OUTPUT_TOKENS || 2000) });
+  const result = summariseEvidence(rows, { maxTokens: Number(process.env.MAX_OUTPUT_TOKENS || 2000), coverage: coverageFor(rows,batches[0]) });
   return { ...result, measurement: batches[0] || null, cycle: rows[0]?.cycle_date || null };
 }
