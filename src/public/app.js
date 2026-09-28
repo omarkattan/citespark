@@ -272,7 +272,7 @@ function rateClass(rate) {
 }
 
 const VIEW_SECTION = {overview:'overview', questions:'questions', actions:'opportunities', assigned:'opportunities',
-  answers:'evidence', connections:'settings', trends:'evidence', rivals:'evidence', sources:'evidence', pages:'evidence', landscape:'evidence', traffic:'evidence', setup:'settings', billing:'settings'};
+  competitorReview:'evidence', answers:'evidence', connections:'settings', trends:'evidence', rivals:'evidence', sources:'evidence', pages:'evidence', landscape:'evidence', traffic:'evidence', setup:'settings', billing:'settings'};
 const SECTION_DEFAULT = {overview:'overview',questions:'questions',opportunities:'actions',evidence:'answers',settings:'setup'};
 
 function syncNavigation() {
@@ -347,6 +347,7 @@ async function viewOverview() {
         <p class="hint">${measured ? `Named in ${pct(o.visibility)} of ${o.runs} successfully measured answers in the latest cycle. This is your tracked question set, not the whole market.` : 'No measured visibility is available yet.'}</p>
         <button class="ghost" data-open-view="answers">Inspect measured answers</button></section>
     </div>
+    ${measured ? '<section class="panel"><h3>Who else appeared?</h3><p>Review potential competitors from stored answers. Track relevant businesses, ignore other sources, or add your own.</p><button class="btn" data-open-view="competitorReview">Review competitors</button></section>' : ''}
     <section aria-label="Next actions" id="overviewNext">
     <div class="panel-head"><div><h2>What to do next</h2><p class="hint">${openCount != null ? `${openCount} open task${openCount === 1 ? '' : 's'}. ` : ''}Review one task at a time. Due or overdue work comes first, then work in progress, then a mix of question, competitor and source reviews. This order does not predict improvement.</p></div>
       <button class="ghost" data-open-view="actions">All opportunities${openCount != null ? ` (${openCount})` : ''}</button></div>
@@ -2000,7 +2001,7 @@ async function render() {
   syncNavigation();
   $('view').innerHTML = '<div class="empty">Loading</div>';
   const fn = {
-    overview: viewOverview, connections: viewConnections, answers: viewAnswerEvidence, actions: viewActions, assigned: viewAssigned, pages: viewPages, questions: viewQuestions, rivals: viewRivals,
+    competitorReview: viewCompetitorReview, overview: viewOverview, connections: viewConnections, answers: viewAnswerEvidence, actions: viewActions, assigned: viewAssigned, pages: viewPages, questions: viewQuestions, rivals: viewRivals,
     sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling,
     trends: viewTrends, landscape: viewLandscape
   }[view];
@@ -4307,6 +4308,58 @@ async function refreshTaskCounts() {
 
 /* ---------- setup ---------- */
 
+async function viewCompetitorReview() {
+  const d=await api(`/api/projects/${state.projectId}/competitor-review`);
+  if(!d || d.error) return '<div class="panel"><h2>Competitor review could not load</h2><p>Check that the latest database migration has run, then try again.</p><button data-retry-view>Try again</button></div>';
+  state.competitorReview=d;
+  const row=(c,i)=>`<article class="panel" data-candidate="${i}">
+    <label><input type="checkbox" data-candidate-select="${i}" ${c.ignored?'disabled':''}> Select ${esc(c.name)}</label>
+    <p class="hint">${c.bank?'Possible bank, confirm before tracking.':'Cited source or possible business, confirm relevance.'} Seen in ${c.evidence.length} / ${d.answers} reviewed answers.</p>
+    <div class="inline-form"><label>Name <input data-candidate-name="${i}" value="${esc(c.name===c.domain?'':c.name)}" placeholder="Confirm brand name"></label><label>Domain <input data-candidate-domain="${i}" value="${esc(c.domain)}" placeholder="Optional domain"></label></div>
+    <label>English / Arabic aliases, one per line<textarea data-candidate-aliases="${i}" rows="2"></textarea></label>
+    <label><input type="checkbox" data-candidate-ambiguous="${i}"> Name is also an ordinary word or phrase</label>
+    <details><summary>Supporting answers</summary>${c.evidence.slice(0,5).map(e=>`<p>${esc(e.engine)} · ${esc(e.question)} <a href="/api/projects/${state.projectId}/measurements/${d.measurement.id}#run-${e.id}" target="_blank" rel="noopener">Read answer</a></p>`).join('')}</details>
+    <button class="ghost" data-candidate-decision="${i}" data-decision="${c.ignored?'restore':'ignore'}">${c.ignored?'Restore suggestion':'Ignore'}</button></article>`;
+  return `<div class="panel"><h2>Who else appeared?</h2><p>Select businesses you want to compare over time. Confirm their names, domains and aliases before tracking.</p>
+    <p class="hint">${d.measurement?`Measurement ${d.measurement.id}: ${d.answers} eligible stored answers reviewed${d.limited?' (first 250 only)':''}.`:'Run your first measurement to discover suggestions.'} Suggestions use cited domains and bank-shaped names in answer text. They can miss businesses or include unrelated sources. Domain-only suggestions need a real brand name. Different names for the same business may need combining as aliases.</p>
+    <button class="ghost" id="selectSuggestedBanks">Select all suggested banks</button> <button class="ghost" id="clearSuggestedBanks">Clear selection</button>
+    <p><button id="trackSelectedCompetitors" class="btn">Track selected competitors</button></p><p id="competitorReviewStatus" role="status"></p></div>
+    ${d.candidates.map((c,i)=>c.ignored?'':row(c,i)).join('')||'<p>No new suggestions. You can add a competitor below.</p>'}
+    <details class="panel"><summary>Ignored suggestions (${d.candidates.filter(c=>c.ignored).length})</summary>${d.candidates.map((c,i)=>c.ignored?row(c,i):'').join('')}</details>
+    <section class="panel"><h3>Add your own</h3><label>Name <input id="customCompetitorName"></label><label>Domain <input id="customCompetitorDomain" placeholder="Optional domain"></label><label>English / Arabic aliases, one per line<textarea id="customCompetitorAliases" rows="2"></textarea></label><label><input type="checkbox" id="customCompetitorAmbiguous"> Name is also an ordinary word or phrase</label><p><button id="trackCustomCompetitor">Track this competitor</button></p></section>
+    <section class="panel"><h3>Retrospective starting comparisons</h3><p>Calculated when each competitor was added, using the confirmed name and aliases against stored answers. These do not change the original measurement or establish a trend. Future scans track confirmed competitors automatically.</p>
+    ${d.baselines.map(b=>`<article><h4>${esc(b.name)}</h4><p>Measurement ${b.measurement_id||'not available'} · ${b.analysis.measured?`${b.analysis.named} / ${b.analysis.measured} answers named the brand. ${b.analysis.cited==null?'Citations not assessed, no domain.':`${b.analysis.cited} / ${b.analysis.measured} cited its domain.`}`:'No eligible stored answers.'} ${b.analysis.limited?'Limited to 250 answers.':''}</p><p class="hint">Analysed ${esc(shortDate(b.analysis.reviewedAt))}. Name: ${esc(b.analysis.entity.name)}. Aliases: ${esc((b.analysis.entity.aliases||[]).join(', ')||'none')}.</p></article>`).join('')||'<p>No competitors added through this review yet.</p>'}</section>`;
+}
+
+async function saveCompetitorReview(payload,button) {
+  const projectId=state.projectId;
+  button.disabled=true;
+  try {
+    const response=await fetch(`/api/projects/${projectId}/competitor-review`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const data=await response.json();
+    if(!response.ok) throw new Error(data.error||'Could not save competitor review');
+    if(state.projectId===projectId) {await render();toast(payload.action==='track'?`${data.added.length} tracked. ${data.skipped.length} already tracked. No new engine calls.`:'Review decision saved.');}
+  } catch(error) {toast(error.message,'bad');} finally {button.disabled=false;}
+}
+document.addEventListener('click',async event=>{
+  const t=event.target.closest('button');if(!t) return;
+  const d=state.competitorReview;
+  if(t.id==='selectSuggestedBanks'||t.id==='clearSuggestedBanks') {
+    document.querySelectorAll('[data-candidate-select]').forEach(el=>{el.checked=t.id==='selectSuggestedBanks'&&!el.disabled&&d.candidates[Number(el.dataset.candidateSelect)].bank;});return;
+  }
+  if(t.dataset.candidateDecision!==undefined) return saveCompetitorReview({action:t.dataset.decision,key:d.candidates[Number(t.dataset.candidateDecision)].key},t);
+  const aliases=value=>value.split(/\n/).map(s=>s.trim()).filter(Boolean);
+  if(t.id==='trackSelectedCompetitors') {
+    const items=[...document.querySelectorAll('[data-candidate-select]:checked')].map(el=>{
+      const i=el.dataset.candidateSelect,get=name=>document.querySelector(`[data-candidate-${name}="${i}"]`);
+      return {name:get('name').value,domain:get('domain').value,aliases:aliases(get('aliases').value),ambiguous:get('ambiguous').checked};
+    });
+    if(!items.length) return toast('Select at least one competitor.','warn');
+    return saveCompetitorReview({action:'track',items,measurementId:d.measurement?.id},t);
+  }
+  if(t.id==='trackCustomCompetitor') return saveCompetitorReview({action:'track',measurementId:d.measurement?.id,items:[{name:$('customCompetitorName').value,domain:$('customCompetitorDomain').value,aliases:aliases($('customCompetitorAliases').value),ambiguous:$('customCompetitorAmbiguous').checked}]},t);
+});
+
 async function viewSetup() {
   const [data, engines, billing] = await Promise.all([
     api(`/api/projects/${state.projectId}/setup`),
@@ -4440,7 +4493,7 @@ async function viewSetup() {
       </details>
 
       <div class="panel">
-        <div class="panel-head"><h2>Competitors</h2></div>
+        <div class="panel-head"><h2>Competitors</h2></div><p><button class="ghost" data-open-view="competitorReview">Discover competitors and compare stored answers</button></p>
         ${rivalRows}
         <div class="inline-form">
           <input id="r_name" placeholder="Name" />

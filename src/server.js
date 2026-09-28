@@ -1,3 +1,4 @@
+import { competitorCandidates, domainKey, retrospective, reviewSample } from './lib/competitor-review.js';
 import { comparableHistorySql } from './lib/history-query.js';
 import { comparableSettings } from './lib/measurement-batches.js';
 import { hasAnswerText, measuredQuestionRates, unmeasuredReason, possibleTruncation } from './lib/answer-quality.js';
@@ -7,7 +8,7 @@ import cookieSession from 'cookie-session';
 import bcrypt from 'bcryptjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { many, one, query } from './db/index.js';
+import { many, one, query, pool } from './db/index.js';
 import { runCycleForProject } from './jobs/runCycle.js';
 import { buildRecommendations, persistRecommendations } from './lib/recommend.js';
 import {
@@ -1276,6 +1277,51 @@ app.get('/api/projects/:id/setup', requireAuth, wrap(async (req, res) => {
   const owned = entities.find((e) => e.kind === 'owned') || null;
   const notes = await many('SELECT at, note FROM method_notes WHERE project_id = $1 ORDER BY at DESC LIMIT 5', [project.id]);
   res.json({ project, entities, owned, notes, prompts, ...pricing });
+}));
+
+app.get('/api/projects/:id/competitor-review', requireAuth, wrap(async (req,res) => {
+  const project=await assertProject(req,res); if(!project) return;
+  const sample=await reviewSample(pool,project.id);
+  const entities=await many('SELECT * FROM entities WHERE project_id=$1',[project.id]);
+  const ignored=await many('SELECT candidate_key FROM competitor_review_decisions WHERE project_id=$1 AND ignored',[project.id]);
+  const baselines=await many(`SELECT e.id,e.name,b.measurement_id,b.analysis FROM entities e JOIN competitor_baselines b ON b.entity_id=e.id WHERE e.project_id=$1 ORDER BY e.name`,[project.id]);
+  res.json({measurement:sample.measurement,answers:sample.rows.length,limited:sample.limited,
+    candidates:competitorCandidates(sample.rows,entities,ignored.map(x=>x.candidate_key)),baselines});
+}));
+app.post('/api/projects/:id/competitor-review', requireAuth, wrap(async (req,res) => {
+  const project=await assertProject(req,res); if(!project) return;
+  const {action,key}=req.body || {};
+  if(['ignore','restore'].includes(action)) {
+    if(typeof key!=='string'||key.length>260||! /^(domain|name):/.test(key)) return res.status(400).json({error:'Invalid candidate'});
+    await query(`INSERT INTO competitor_review_decisions(project_id,candidate_key,ignored) VALUES($1,$2,$3)
+      ON CONFLICT(project_id,candidate_key) DO UPDATE SET ignored=EXCLUDED.ignored`,[project.id,key,action==='ignore']);
+    return res.json({ok:true});
+  }
+  if(action!=='track'||!Array.isArray(req.body.items)||!req.body.items.length||req.body.items.length>30||req.body.items.some(x=>!x||typeof x!=='object'||Array.isArray(x))) return res.status(400).json({error:'Select between 1 and 30 competitors.'});
+  const items=req.body.items.map(x=>({name:String(x.name||'').trim(),domain:domainKey(String(x.domain||'').trim()),
+    aliases:Array.isArray(x.aliases)?[...new Set(x.aliases.map(a=>String(a).trim()).filter(Boolean))]:[],ambiguous_name:x.ambiguous===true}));
+  if(items.some((x,i)=>!x.name||x.name.length>120||x.aliases.length>20||x.aliases.some(a=>a.length>120)||(req.body.items[i].domain&&!x.domain))) return res.status(400).json({error:'Check names, domains and aliases. Use a valid domain or leave it blank.'});
+  const client=await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Serialise additions for this project, including case/domain duplicate checks.
+    await client.query('SELECT id FROM projects WHERE id=$1 FOR UPDATE',[project.id]);
+    const existing=(await client.query('SELECT * FROM entities WHERE project_id=$1',[project.id])).rows;
+    const sample=await reviewSample(client,project.id);
+    if(req.body.measurementId != null && Number(req.body.measurementId)!==sample.measurement?.id) {
+      await client.query('ROLLBACK'); return res.status(409).json({error:'A newer measurement is available. Reload the review before tracking.'});
+    }
+    const added=[],skipped=[];
+    for(const item of items) {
+      if(existing.some(e=>e.name.toLowerCase()===item.name.toLowerCase()||(item.domain&&domainKey(e.domain)===item.domain))) {skipped.push(item.name);continue;}
+      const entity=(await client.query(`INSERT INTO entities(project_id,name,domain,kind,aliases,ambiguous_name) VALUES($1,$2,$3,'competitor',$4,$5) RETURNING *`,[project.id,item.name,item.domain||null,item.aliases,item.ambiguous_name])).rows[0];
+      const analysis=await retrospective(sample.rows,entity);
+      analysis.limited=sample.limited;
+      await client.query('INSERT INTO competitor_baselines(entity_id,measurement_id,analysis) VALUES($1,$2,$3)',[entity.id,sample.measurement?.id||null,JSON.stringify(analysis)]);
+      existing.push(entity);added.push(entity.name);
+    }
+    await client.query('COMMIT');res.json({added,skipped});
+  } catch(error) {await client.query('ROLLBACK');throw error;} finally {client.release();}
 }));
 
 app.post('/api/projects/:id/entities', requireAuth, wrap(async (req, res) => {
@@ -3582,7 +3628,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260928-history-query-37',
+    release: '20260928-competitor-review-38',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

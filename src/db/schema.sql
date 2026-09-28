@@ -676,3 +676,15 @@ ALTER TABLE measurement_batches ADD COLUMN IF NOT EXISTS collection_plan JSONB;
 CREATE OR REPLACE VIEW published_measurements AS
  SELECT DISTINCT ON (project_id,cycle_date) * FROM measurement_batches
  WHERE status='completed' ORDER BY project_id,cycle_date,completed_at DESC,id DESC;
+
+-- Batch 38: review decisions and retrospective comparisons stay outside historical measurements.
+CREATE TABLE IF NOT EXISTS competitor_review_decisions (
+ project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ candidate_key TEXT NOT NULL, ignored BOOLEAN NOT NULL DEFAULT true,
+ PRIMARY KEY(project_id,candidate_key)
+);
+CREATE TABLE IF NOT EXISTS competitor_baselines (
+ entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+ measurement_id INTEGER REFERENCES measurement_batches(id) ON DELETE SET NULL,
+ analysis JSONB NOT NULL
+);
