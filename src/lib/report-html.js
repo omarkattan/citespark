@@ -1,3 +1,4 @@
+import { executiveReportHtml } from './report-executive-html.js';
 /**
  * The report as a printable document.
  *
@@ -58,7 +59,8 @@ function ring(pct, label, tone = 'good') {
 
 const escapeHtmlAttr = (s) => String(s == null ? '' : s).replace(/"/g, '&quot;');
 
-export function reportHtml(r, { print = false } = {}) {
+export function reportHtml(r, { print = false, detailed = false } = {}) {
+  if (r.executive && !detailed) return executiveReportHtml(r, { print });
   const recurring = r.persistence.items.filter((i) => i.standing === 'recurring');
   const persistentSources = r.sources.sources.filter((s) => s.persistent).slice(0, 12);
   const changeWord = !r.trend.comparable || r.trend.cycles < 2 || r.trend.change == null ? null : r.trend.change > 0.02 ? 'up' : r.trend.change < -0.02 ? 'down' : 'flat';
@@ -749,6 +751,10 @@ export function reportCsv(r) {
     ['title', 'completed_on'],
     (r.completed || []).map((c) => [c.title, day(c.completed_at)])
   );
+
+  if (r.executive) {
+    section('Latest-cycle question evidence', ['question','origin','measured_answers','named_answers','cited_answers','possibly_truncated','failed','unmeasured'], r.executive.questions.map(q => [q.text,q.source,q.measured,q.named,q.cited,q.possiblyTruncated,q.failed,q.unmeasured]));
+  }
 
   section('How to read this', ['note'], (r.caveats || []).map((c) => [c]));
 

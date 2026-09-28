@@ -1,3 +1,4 @@
+import { reportEvidence } from './report-evidence.js';
 import { many, one } from '../db/index.js';
 
 /**
@@ -568,7 +569,7 @@ export async function buildReport(projectId, range = {}) {
 
   const personas = await many('SELECT name, descriptor FROM personas WHERE project_id = $1', [projectId]);
 
-  const [p, s, patterns, points, done, traffic, competitors, personaRows] = await Promise.all([
+  const [p, s, patterns, points, done, traffic, competitors, personaRows, executive, methodNotes] = await Promise.all([
     persistence(projectId),
     sourceGaps(projectId),
     citedPagePatterns(projectId),
@@ -576,7 +577,9 @@ export async function buildReport(projectId, range = {}) {
     completed(projectId),
     aiTraffic(projectId),
     rivals(projectId, period),
-    byPersona(projectId, period)
+    byPersona(projectId, period),
+    reportEvidence(projectId, period, many),
+    many('SELECT at, note, detail FROM method_notes WHERE project_id=$1 ORDER BY at DESC, id DESC LIMIT 20', [projectId])
   ]);
 
   // The comparable set where there is one, the whole set otherwise.
@@ -636,7 +639,9 @@ export async function buildReport(projectId, range = {}) {
   }
 
   return {
-    priorities: priorities.slice(0, 3),
+    executive,
+    methodNotes,
+    priorities: executive?.priorities || priorities.slice(0, 3),
     project: { name: project.name, domain: project.domain, brand: project.brand_name },
     generatedAt: new Date().toISOString(),
     // Stated on the page, so two reports can be told apart at a glance.

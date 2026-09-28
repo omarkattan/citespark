@@ -30,7 +30,7 @@ test('competitor report respects the selected dates rather than using the latest
  assert.equal(result.find(x=>x.kind==='owned').rate,1);
 });
 async function fixture(points={all:[{cycle_date:'2026-09-26',rate:0,questions:1,answers:1,named_count:0}],stable:[]},overrides={}){
- const h=vm.createContext({Date,one:async()=>({name:'Test',domain:'example.com',brand_name:'Brand'}),many:async()=>[],windowFor:()=>({from:null,to:null}),readable:x=>x,groupActions:()=>[],persistence:async()=>({items:[],totalCycles:1}),sourceGaps:async()=>({sources:[],ownCited:0,totalCycles:1}),citedPagePatterns:async()=>({pages:0}),trend:async()=>points,completed:async()=>[],aiTraffic:async()=>null,rivals:async()=>[],byPersona:async()=>[],...overrides});
+ const h=vm.createContext({Date,one:async()=>({name:'Test',domain:'example.com',brand_name:'Brand'}),many:async()=>[],windowFor:()=>({from:null,to:null}),readable:x=>x,groupActions:()=>[],persistence:async()=>({items:[],totalCycles:1}),sourceGaps:async()=>({sources:[],ownCited:0,totalCycles:1}),citedPagePatterns:async()=>({pages:0}),trend:async()=>points,completed:async()=>[],aiTraffic:async()=>null,rivals:async()=>[],byPersona:async()=>[],reportEvidence:async()=>null,...overrides});
  vm.runInContext(src.slice(src.indexOf('export async function buildReport(')).replace('export ',''),h);return h.buildReport(1);
 }
 test('a single cycle keeps measured zero but has no movement claim in HTML or data',async()=>{
