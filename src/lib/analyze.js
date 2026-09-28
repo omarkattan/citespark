@@ -1,3 +1,4 @@
+import { mentionText } from './mention-text.js';
 import { complete } from './anthropic.js';
 
 /**
@@ -38,7 +39,8 @@ function variants(entity) {
  * Where an entity is flagged ambiguous, its NAME must appear in title case to
  * count. Aliases and the domain stay case-insensitive: TFO and tfoco.com are
  * not words, so they need no such protection, and they remain the surest
- * evidence the firm itself was meant.
+ * evidence the firm itself was meant when written in readable answer text.
+ * Link destinations and URL-only citations are excluded before matching.
  *
  * This can miss a genuine mention written in lower case. That direction is
  * the right one to err in: a brand claiming visibility it does not have is a
@@ -116,6 +118,7 @@ export function looksTruncated(text, maxTokens = 2000) {
 }
 
 export async function analyseRun({ text, entities, useModel = false }) {
+  text = mentionText(text);
   const found = entities.map((entity) => ({
     entity,
     index: findFirstIndex(text || '', entity)
