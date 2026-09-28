@@ -1,3 +1,4 @@
+import { hasAnswerText, measuredQuestionRates, unmeasuredReason, possibleTruncation } from './lib/answer-quality.js';
 import 'dotenv/config';
 import express from 'express';
 import cookieSession from 'cookie-session';
@@ -502,12 +503,7 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
     ...p,
     // Never asked is not the same as asked and not named, and a rate of zero
     // would say the second.
-    measured: p.runs.length > 0,
-    rate: p.runs.length ? p.runs.filter((r) => r.mentioned).length / p.runs.length : null,
-    // Kept separate rather than folded into one number: an answer can name you
-    // without linking, or link without naming, and the fixes differ.
-    citedRate: p.runs.length ? p.runs.filter((r) => r.cited).length / p.runs.length : null,
-    seenRate: p.runs.length ? p.runs.filter((r) => r.mentioned || r.cited).length / p.runs.length : null
+    ...measuredQuestionRates(p.runs)
   }));
 
   res.json(out);
@@ -1888,6 +1884,8 @@ app.get('/api/prompts/:promptId/answers', requireAuth, wrap(async (req, res) => 
    */
   const runs = await many(
     `SELECT r.id, r.engine, r.model, r.run_index, r.response_text, r.ok, r.error,
+            (to_jsonb(r)->>'max_output_tokens')::int AS max_output_tokens,
+            (to_jsonb(r)->>'no_overview')::boolean AS no_overview, to_jsonb(r)->'quality_review' AS quality_review,
             m.mentioned, m.ordinal, e.name AS brand,
             ROW_NUMBER() OVER (PARTITION BY r.engine ORDER BY r.run_index, r.id)::int AS sample,
             COUNT(*) OVER (PARTITION BY r.engine)::int AS samples
@@ -1902,7 +1900,6 @@ app.get('/api/prompts/:promptId/answers', requireAuth, wrap(async (req, res) => 
     [prompt.id, cycle, prompt.project_id]
   );
 
-  const { looksTruncated } = await import('./lib/analyze.js');
   const ceiling = Number(process.env.MAX_OUTPUT_TOKENS || 2000);
 
   /**
@@ -1934,10 +1931,11 @@ app.get('/api/prompts/:promptId/answers', requireAuth, wrap(async (req, res) => 
       // A failed call, or an answer stored before the brand was tracked, has
       // no mention row at all. That is not the same as looking and finding
       // nothing, and must not be shown as "not named".
-      measured: r.mentioned !== null && r.mentioned !== undefined,
+      measured: r.ok && hasAnswerText(r.response_text) && r.mentioned != null,
+      unmeasuredReason: unmeasuredReason(r),
       // If the answer stopped at the ceiling, "not named" may only mean the
       // brand was in the part that never arrived.
-      truncated: looksTruncated(r.response_text, ceiling)
+      truncated: possibleTruncation(r, ceiling)
     }))
   });
 }));
@@ -3557,7 +3555,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260928-executive-evidence-26',
+    release: '20260928-answer-completeness-27',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

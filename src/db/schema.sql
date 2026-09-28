@@ -627,3 +627,9 @@ ALTER TABLE prompts ADD COLUMN IF NOT EXISTS origin_details JSONB NOT NULL DEFAU
 CREATE INDEX IF NOT EXISTS prompts_revision_lookup ON prompts (revises_prompt_id);
 -- Revised wording has no demand estimate. Unknown must not be stored as zero.
 ALTER TABLE prompts ALTER COLUMN ai_search_volume DROP NOT NULL;
+
+-- Collection settings and review provenance keep completeness flags stable
+-- when an operator later changes the output budget. NULL means not recorded.
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS max_output_tokens INTEGER;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS no_overview BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS quality_review JSONB;

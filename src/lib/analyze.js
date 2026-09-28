@@ -108,16 +108,17 @@ export function looksTruncated(text, maxTokens = 2000) {
   const t = String(text || '').trimEnd();
   if (!t) return false;
 
-  // Roughly four characters to a token. Well short of the ceiling means it
-  // ended because the model finished, not because it ran out of room.
+  // A rough character-based signal, not a provider finish reason. The
+  // estimate varies by language, formatting and tokenisation.
   const approxTokens = t.length / 4;
   if (approxTokens < maxTokens * 0.9) return false;
 
   // Ending on a sentence, a list item or a closed table reads as finished.
-  return !/[.!?)\]"'\u201d]$/.test(t) || /\|\s*$/.test(t);
+  return !/[.!?)\]"'\u201d|]$/.test(t);
 }
 
 export async function analyseRun({ text, entities, useModel = false }) {
+  if (typeof text !== 'string' || !text.trim()) return [];
   text = mentionText(text);
   const found = entities.map((entity) => ({
     entity,

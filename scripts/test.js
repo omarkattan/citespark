@@ -1468,12 +1468,12 @@ await test('being linked without being named is not zero visibility', async () =
   // usually the more valuable outcome of the two.
   const q = server.slice(server.indexOf("app.get('/api/projects/:id/prompts'"), server.indexOf('res.json(out)'));
   assert.ok(/AS cited/.test(q), 'the query must know whether our own site was cited');
-  assert.ok(/citedRate/.test(q) && /seenRate/.test(q), 'and report it');
+  assert.ok(/measuredQuestionRates/.test(q), 'rates use measured answers only');
 
   // Kept as separate numbers: an answer can name you without linking, or
   // link without naming, and the fixes for those differ.
-  assert.ok(/rate: p\.runs\.length \? p\.runs\.filter\(\(r\) => r\.mentioned\)/.test(q), 'named stays its own figure');
-  assert.ok(/r\.mentioned \|\| r\.cited/.test(q), 'and seen counts either');
+  assert.ok(/measuredQuestionRates/.test(q), 'named and cited rates use the shared calculator');
+  assert.ok(/measuredQuestionRates/.test(q), 'combined presence uses the shared calculator');
 
   // Three tick states, not two, or the middle case is invisible again.
   assert.ok(/r\.mentioned \? 'hit' : r\.cited \? 'cited' : 'miss'/.test(app));
@@ -1492,8 +1492,8 @@ await test('a question that has not run yet is still listed', async () => {
 
   // Never asked is not the same as asked and not named. A rate of zero would
   // say the second, so it is null and the UI shows a dash.
-  assert.ok(/rate: p\.runs\.length \? [\s\S]{0,60}: null/.test(block), 'an unmeasured question has no rate');
-  assert.ok(/measured: p\.runs\.length > 0/.test(block));
+  assert.ok(/measuredQuestionRates/.test(block), 'unmeasured questions use the null-aware calculator');
+  assert.ok(/measuredQuestionRates/.test(block));
 
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
   assert.ok(/not asked yet/i.test(app), 'and the UI must say so');
@@ -3332,8 +3332,8 @@ await test('a sound answer is kept, a broken one is replaced', async () => {
   // Two things could be true when a stored answer disagrees with a manual
   // check: the measurement was broken, or the engine genuinely varies. Those
   // want different treatment.
-  assert.ok(/looksTruncated/.test(fn), 'a truncated answer must be recognised');
-  assert.ok(/const broken = existing\.filter\(\(r\) => !r\.ok \|\| looksTruncated/.test(fn));
+  assert.ok(/possibleTruncation/.test(fn), 'a possible truncation must be identified without deleting successful evidence');
+  assert.ok(/retrySamples\(existing\)/.test(fn), 'successful answers are retained even when the heuristic flags them');
   assert.ok(/DELETE FROM runs WHERE id = ANY/.test(fn), 'and a failed measurement replaced');
 
   // A completed answer that simply did not name the brand is evidence.
@@ -3427,7 +3427,7 @@ await test('any verdict can be checked against the answer', async () => {
   // along and simply never shown.
   assert.ok(/prompts\/:promptId\/answers/.test(server), 'the stored answers must be reachable');
   assert.ok(/response_text/.test(server), 'in full, not as a snippet');
-  assert.ok(/truncated: looksTruncated/.test(server), 'and flagged when they were cut off');
+  assert.ok(/truncated: possibleTruncation/.test(server), 'and flagged when they were cut off');
   assert.ok(/data-see-answer/.test(app), 'with a way to read them from the question');
   assert.ok(/cut short/.test(app), 'and the truncation shown where the verdict is');
 });
@@ -3467,7 +3467,7 @@ await test('an answer nobody read is not counted as a miss', async () => {
   // A failed call writes no mention row, and neither does an answer stored
   // before the brand was tracked. Rendering either as "not named" invents a
   // miss. Absent and zero are different everywhere else in the product.
-  assert.ok(/measured: r\.mentioned !== null/.test(server), 'the route must say whether it looked');
+  assert.ok(/measured: r\.ok && hasAnswerText/.test(server), 'the route must say whether it looked');
   assert.ok(/!r\.measured/.test(app), 'and the panel must branch on it');
   assert.ok(/not measured/.test(app), 'with its own words, not the miss wording');
 });

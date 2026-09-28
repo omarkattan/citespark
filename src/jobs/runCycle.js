@@ -1,3 +1,4 @@
+import { retrySamples, collectionLimit, possibleTruncation } from '../lib/answer-quality.js';
 import 'dotenv/config';
 import { many, one, query, pool } from '../db/index.js';
 import { askEngine, domainOf, MOCK } from '../lib/dataforseo.js';
@@ -340,8 +341,8 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
     }
 
     const run = await one(
-      `INSERT INTO runs (prompt_id, project_id, engine, model, cycle_date, run_index, response_text, ok, error, cost_usd, fan_out_queries)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+      `INSERT INTO runs (prompt_id, project_id, engine, model, cycle_date, run_index, response_text, ok, error, cost_usd, fan_out_queries, max_output_tokens, no_overview)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
       [
         prompt.id,
         projectId,
@@ -353,7 +354,9 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
         answer.ok,
         answer.error,
         answer.costUsd || 0,
-        answer.fanOut || []
+        answer.fanOut || [],
+        collectionLimit(engine, Number(process.env.MAX_OUTPUT_TOKENS || 2000)),
+        Boolean(answer.noOverview)
       ]
     );
 
@@ -649,7 +652,6 @@ export async function reaskPrompt(promptId, { engine = null } = {}) {
     new Date().toISOString().slice(0, 10);
   const cycleDay = new Date(cycle).toISOString().slice(0, 10);
 
-  const { looksTruncated } = await import('../lib/analyze.js');
   const ceiling = Number(process.env.MAX_OUTPUT_TOKENS || 2000);
   const results = [];
   let spend = 0;
@@ -661,8 +663,7 @@ export async function reaskPrompt(promptId, { engine = null } = {}) {
     );
 
     // A broken measurement is replaced; a completed one is kept as evidence.
-    const broken = existing.filter((r) => !r.ok || looksTruncated(r.response_text, ceiling));
-    const sound = existing.filter((r) => r.ok && !looksTruncated(r.response_text, ceiling));
+    const { broken, sound } = retrySamples(existing);
 
     const answer = await askEngine({
       engine: eng,
@@ -685,9 +686,9 @@ export async function reaskPrompt(promptId, { engine = null } = {}) {
     const runIndex = sound.length ? Math.max(...sound.map((r) => r.run_index)) + 1 : 0;
 
     const run = await one(
-      `INSERT INTO runs (prompt_id, project_id, engine, model, cycle_date, run_index, response_text, ok, cost_usd)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8) RETURNING id`,
-      [promptId, project.id, eng, answer.model || null, cycleDay, runIndex, answer.text, answer.costUsd || 0]
+      `INSERT INTO runs (prompt_id, project_id, engine, model, cycle_date, run_index, response_text, ok, cost_usd, error, max_output_tokens, no_overview)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8,$9,$10,$11) RETURNING id`,
+      [promptId, project.id, eng, answer.model || null, cycleDay, runIndex, answer.text, answer.costUsd || 0, answer.error || null, collectionLimit(eng, ceiling), Boolean(answer.noOverview)]
     );
 
     const analysed = await analyseRun({ text: answer.text, entities, useModel: hasAnthropic });
@@ -719,10 +720,10 @@ export async function reaskPrompt(promptId, { engine = null } = {}) {
     results.push({
       engine: eng,
       ok: true,
-      named: analysed.some((r) => r.mentioned && ownedIds.has(r.entity_id)),
+      named: analysed.length ? analysed.some((r) => r.mentioned && ownedIds.has(r.entity_id)) : null,
       replaced: broken.length,
       keptAlongside: sound.length,
-      truncated: looksTruncated(answer.text, ceiling)
+      truncated: possibleTruncation({engine: eng, response_text: answer.text, max_output_tokens: collectionLimit(eng, ceiling)}, ceiling)
     });
   }
 

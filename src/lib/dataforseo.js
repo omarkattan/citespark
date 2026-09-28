@@ -679,13 +679,13 @@ export async function askEngine({ engine, prompt, market = 'AE', locationName = 
     }
 
     return {
-      ok: text.length > 0,
+      ok: text.trim().length > 0,
       text,
       citations: dedupeCitations(citationSource),
       fanOut,
       costUsd: Number(json?.cost ?? taskData?.cost ?? 0),
       model: taskData?.result?.[0]?.model_name || modelName,
-      error: text.length ? null : 'Empty response'
+      error: text.trim().length ? null : 'Empty response'
     };
   } catch (err) {
     const failure = { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, model: cfg.label, error: String(err.message || err) };
@@ -779,7 +779,7 @@ async function askGoogle({ cfg, prompt, market, locationName = null }) {
     const urls = [...collectUrls(block), ...urlsFromText(text)];
 
     return {
-      ok: text.length > 0,
+      ok: text.trim().length > 0,
       absent: text.length === 0,
       text,
       citations: dedupeCitations(urls),

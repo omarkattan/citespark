@@ -184,8 +184,8 @@ function runStrip(runs) {
       const ticks = list
         .map((r) => {
           // Three states, not two: named, linked but not named, neither.
-          const state = r.mentioned ? 'hit' : r.cited ? 'cited' : 'miss';
-          const label = r.mentioned
+          const state = r.mentioned == null ? 'unrun' : r.mentioned ? 'hit' : r.cited ? 'cited' : 'miss';
+          const label = r.mentioned == null ? 'not measured: no brand verdict available' : r.mentioned
             ? `named at position ${r.ordinal}`
             : r.cited
               ? 'linked as a source, but not named in the answer'
@@ -3336,13 +3336,13 @@ document.addEventListener('click', async (e) => {
     const rows = (d.results || []).map((r) =>
       `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)">
         <span>${esc(ENGINE_LABEL[r.engine] || r.engine)}</span>
-        <span style="font-family:var(--mono);font-size:11px;color:${r.named ? 'var(--you)' : 'var(--ink-3)'}">${r.named ? 'named you' : 'did not name you'}</span>
+        <span style="font-family:var(--mono);font-size:11px;color:${r.named ? 'var(--you)' : 'var(--ink-3)'}">${r.named == null ? 'not measured' : r.named ? 'named you' : 'did not name you'}</span>
       </div>`).join('');
     finish(
       `<div style="margin-bottom:8px">Done. Every engine answered fresh:</div>${rows}
        <div style="margin-top:10px;font-size:12px;color:var(--ink-3)">${
          replaced
-           ? `${replaced} incomplete earlier answer${replaced === 1 ? ' was' : 's were'} replaced. Sound ones were kept as extra samples.`
+           ? `${replaced} failed earlier answer${replaced === 1 ? ' was' : 's were'} replaced. Sound ones were kept as extra samples.`
            : 'Stored alongside the earlier answers as extra samples.'
        }</div>`,
       true
@@ -3398,7 +3398,7 @@ document.addEventListener('click', async (e) => {
          * showing that as "not named" invents a miss that never happened.
          */
         const verdict = !r.measured
-          ? `<span class="tag" title="This answer was not read for your brand: the call failed, or it was stored before the brand was tracked. It counts towards nothing either way.">not measured</span>`
+          ? `<span class="tag" title="${esc(r.unmeasuredReason || 'No brand measurement is available for this answer.')}">not measured</span>`
           : r.mentioned
             ? `<span class="tag ok">named${r.ordinal ? `, ${r.ordinal}${r.ordinal === 1 ? 'st' : r.ordinal === 2 ? 'nd' : r.ordinal === 3 ? 'rd' : 'th'}` : ''}</span>`
             : '<span class="tag">not named</span>';
@@ -3417,13 +3417,13 @@ document.addEventListener('click', async (e) => {
             ${r.model ? `<span class="ans-model">${esc(r.model)}</span>` : ''}
             ${sample}
             ${verdict}
-            ${r.truncated ? '<span class="tag warn" title="The answer stopped at our length limit, so anything after that was not measured">cut short</span>' : ''}
+            ${r.truncated ? '<span class="tag warn" title="Possible truncation based on text length and ending. The provider has not confirmed this. The stored answer is retained.">possibly cut short</span>' : ''}
             <span class="ans-sample">${(r.citations || []).length} source${(r.citations || []).length === 1 ? '' : 's'} recorded</span>
           </summary><div class="answer-content">
           ${
             r.response_text
               ? `<div class="ans-body formatted-answer" style="overflow-wrap:anywhere;min-width:0">${formatAnswer(r.response_text)}</div><details class="answer-original"><summary>Original stored text</summary><pre>${esc(r.response_text)}</pre></details>`
-              : `<p class="hint" style="margin:0">${esc(r.error || 'No answer was returned.')}</p>`
+              : `<p class="hint" style="margin:0">${esc(r.error || r.unmeasuredReason || 'No answer was returned.')}</p>`
           }
           ${(() => {
             /**

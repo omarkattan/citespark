@@ -6,7 +6,7 @@ import {writeFileSync} from 'node:fs';
 const base={prompt_id:1,text:'Which provider?',source:'gsc',engine:'chatgpt',ok:true,mentioned:false,cited:false,response_text:'A finished answer.'};
 test('failed and absent measurements do not become zero; citations can exist without naming',()=>{
  const e=summariseEvidence([base,{...base,engine:'claude',mentioned:true},{...base,engine:'gemini',cited:true},{...base,ok:false},{...base,mentioned:null}]);
- assert.deepEqual(e.totals,{attempted:5,measured:3,named:1,cited:1,failed:1,unmeasured:1,possiblyTruncated:0});
+ assert.deepEqual(e.totals,{attempted:5,measured:3,named:1,cited:1,failed:1,unmeasured:1,possiblyTruncated:0,noOverview:0,missingText:0});
  assert.equal(e.coveredQuestions,1);assert.equal(e.priorities[0].owner,'Measurement owner');
 });
 test('incomplete answers are visible and cannot generate the gap action',()=>{
@@ -31,9 +31,9 @@ test('empty evidence remains unmeasured and requests a baseline',()=>{
 const {PGlite}=await import(process.env.PGLITE_MODULE || '@electric-sql/pglite');
 test('SQL isolates selected dates and project, de-duplicates citations, includes failures and missing mentions',async()=>{
  const db=new PGlite();try{
- await db.exec(`CREATE TABLE projects(id int,domain text);CREATE TABLE prompts(id int,text text,source text);CREATE TABLE entities(id int,project_id int,kind text);CREATE TABLE runs(id int,project_id int,prompt_id int,engine text,ok boolean,cycle_date date,response_text text,run_index int);CREATE TABLE mentions(run_id int,entity_id int,mentioned boolean);CREATE TABLE citations(run_id int,domain text);
+ await db.exec(`CREATE TABLE projects(id int,domain text);CREATE TABLE prompts(id int,text text,source text);CREATE TABLE entities(id int,project_id int,kind text);CREATE TABLE runs(id int,project_id int,prompt_id int,engine text,ok boolean,cycle_date date,response_text text,run_index int,error text);CREATE TABLE mentions(run_id int,entity_id int,mentioned boolean);CREATE TABLE citations(run_id int,domain text);
  INSERT INTO projects VALUES(1,'example.com'),(2,'other.com');INSERT INTO prompts VALUES(1,'Question','gsc'),(2,'Other','generated');INSERT INTO entities VALUES(1,1,'owned'),(2,2,'owned');
- INSERT INTO runs VALUES(1,1,1,'chatgpt',true,'2026-09-27','Finished.',0),(2,1,1,'claude',true,'2026-09-27','Finished.',0),(3,1,1,'gemini',false,'2026-09-27','',0),(4,1,1,'perplexity',true,'2026-09-27','Finished.',0),(5,1,1,'chatgpt',true,'2026-09-28','Finished.',0),(6,2,2,'chatgpt',true,'2026-09-27','Finished.',0);
+ INSERT INTO runs VALUES(1,1,1,'chatgpt',true,'2026-09-27','Finished.',0,NULL),(2,1,1,'claude',true,'2026-09-27','Finished.',0,NULL),(3,1,1,'gemini',false,'2026-09-27','',0,NULL),(4,1,1,'perplexity',true,'2026-09-27','Finished.',0,NULL),(5,1,1,'chatgpt',true,'2026-09-28','Finished.',0,NULL),(6,2,2,'chatgpt',true,'2026-09-27','Finished.',0,NULL);
  INSERT INTO mentions VALUES(1,1,true),(2,1,false),(5,1,true),(6,2,true);INSERT INTO citations VALUES(2,'example.com'),(2,'www.example.com');`);
  const e=await reportEvidence(1,{from:'2026-09-27',to:'2026-09-27'},async(s,p)=>(await db.query(s,p)).rows);
  assert.equal(e.totals.measured,2);assert.equal(e.totals.named,1);assert.equal(e.totals.cited,1);assert.equal(e.totals.failed,1);assert.equal(e.totals.unmeasured,1);assert.equal(e.questions.length,1);
