@@ -24,12 +24,32 @@ export function matchSearchSnapshot(origin, { rows, evidence }) {
     avgPosition: impressions > 0 ? matched.reduce((n,r) => n + r.position * r.impressions, 0) / impressions : null };
 }
 
-/** Wording-based editorial triage, never a claim about intent, demand or revenue. */
+/** Editorial triage only. These rules never change stored intent or measurements. */
 export function questionRole(text) {
-  if (/\b(best|top|choose|choosing|compare|comparison|versus|vs\.?|fees?|costs?|minimum|eligible|eligibility|providers?|firms?|companies)\b|أفضل|اختيار|رسوم|تكلفة|شركات|مقارنة/i.test(text || '')) return 'Buyer decision';
-  return 'Topic to qualify';
+  const wording = String(text || '').normalize('NFKC').toLowerCase()
+    .replace(/[\u064b-\u065f\u0670\u0640]/g, '').replace(/[أإآ]/g, 'ا');
+  const provider = /\b(providers?|firms?|companies|banks?|lenders?|brokers?|advis[oe]rs?|wealth managers?|asset managers?|family offices?)\b|بنك|بنوك|مصارف|شركات|مزودي|مدير(?:ي|و)? الثروات|ادارة الثروات/.test(wording);
+  const offering = provider || /\b(accounts?|cards?|mortgages?|loans?|insurance|wealth management|banking|financial services|investment services)\b|حساب|بطاق|قرض|قروض|تمويل|تامين/.test(wording);
+  const selection = /\b(which|who|where|best|top|choose|choosing|compare|comparison|versus|vs)\b|افضل|اختار|اختيار|مقارنة|اي بنك|اي البنوك|اي شركات|من يقدم|اين/.test(wording);
+  const terms = /\b(fees?|costs?|minimum|eligible|eligibility|requirements?|interest rates?)\b|رسوم|تكلف|الحد الادنى|شروط|متطلبات|الفائدة/.test(wording);
+  const action = /\b(open|apply|switch|transfer|hire)\b|افتح|فتح|اتقدم|التقدم|احول|تحويل/.test(wording);
+  return offering && (selection || terms || action) ? 'Buyer decision' : 'Topic to qualify';
 }
 export function reviewShortlist(questions) {
-  return questions.filter(q => questionRole(q.text) === 'Buyer decision').sort((a,b) =>
-    Number(Boolean(b.cited || b.named)) - Number(Boolean(a.cited || a.named)) || b.measured - a.measured || a.id - b.id).slice(0,3);
+  const candidates = questions.filter(q => questionRole(q.text) === 'Buyer decision');
+  const present = q => q.measured > 0 && Boolean(q.cited || q.named);
+  const rate = (q, key) => q.measured > 0 ? q[key] / q.measured : 0;
+  // Prefer more than one measured engine, then citation rate, naming rate and sample size.
+  const strengths = candidates.filter(present).sort((a,b) =>
+    Number((b.engines?.length || 0) >= 2) - Number((a.engines?.length || 0) >= 2)
+    || rate(b,'cited') - rate(a,'cited') || rate(b,'named') - rate(a,'named')
+    || b.measured - a.measured || a.id - b.id);
+  const issues = q => (q.failed || 0) + (q.missing || 0) + (q.unmeasured || 0) + (q.possiblyTruncated || 0);
+  const investigate = candidates.filter(q=>!present(q)).sort((a,b) =>
+    Number(b.measured > 0) - Number(a.measured > 0) || issues(a) - issues(b)
+    || b.measured - a.measured || a.id - b.id);
+  // Reserve space for both an observed strength and a question needing investigation.
+  // Missing evidence is a review task, never an asserted content gap.
+  const selected = [strengths.shift(), investigate.shift()].filter(Boolean);
+  return [...selected, ...strengths, ...investigate].slice(0,3);
 }
