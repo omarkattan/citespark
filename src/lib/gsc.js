@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { one, many, query } from '../db/index.js';
 import { decrypt } from './tokens.js';
+import { matchSearchSnapshot, sealCandidate, openCandidate } from './search-evidence.js';
 import { complete, parseJsonArray } from './anthropic.js';
 
 /**
@@ -129,7 +130,9 @@ export async function listSites(project) {
 }
 
 /** Raw query rows for the period. */
-export async function fetchQueries(project, { days = 90, limit = 2000 } = {}) {
+export async function fetchQuerySnapshot(project, { days = 90, limit = 2000 } = {}) {
+  days = Math.max(1, Math.min(180, Number(days) || 90));
+  limit = Math.max(1, Math.min(2000, Number(limit) || 2000));
   const site = project.gsc_site_url;
   if (!site) throw new Error('No Search Console property chosen for this site');
 
@@ -145,6 +148,7 @@ export async function fetchQueries(project, { days = 90, limit = 2000 } = {}) {
       startDate: iso(start),
       endDate: iso(end),
       dimensions: ['query'],
+      type: 'web',
       rowLimit: limit,
       dataState: 'final'
     })
@@ -152,13 +156,18 @@ export async function fetchQueries(project, { days = 90, limit = 2000 } = {}) {
   if (!res.ok) throw new Error(`Search Console query failed: ${res.status}`);
 
   const json = await res.json();
-  return (json.rows || []).map((r) => ({
+  const rows = (json.rows || []).map((r) => ({
     query: r.keys[0],
     impressions: r.impressions,
     clicks: r.clicks,
     ctr: r.ctr,
     position: r.position
   }));
+  return { rows, evidence: { property: site, startDate: iso(start), endDate: iso(end), fetchedAt: new Date().toISOString(), searchType: 'web', dataState: 'final', country: 'all', device: 'all', rowLimit: limit, returnedRows: rows.length } };
+}
+
+export async function fetchQueries(project, options) {
+  return (await fetchQuerySnapshot(project, options)).rows;
 }
 
 /**
@@ -287,6 +296,7 @@ export async function proposeFromClusters(clusters, { brand, market } = {}) {
       clicks: c.clicks,
       avgPosition: c.avgPosition,
       variants: c.variants,
+      querySet: c.queries.map(q => q.query),
       examples: c.queries.slice(0, 5).map((q) => q.query),
       source: written ? 'gsc+model' : 'gsc'
     });
@@ -303,7 +313,7 @@ function sentenceCase(s) {
 /** Everything the import screen needs, in one call. */
 export async function candidates(projectId, { days = 90 } = {}) {
   const project = await one('SELECT * FROM projects WHERE id = $1', [projectId]);
-  const rows = await fetchQueries(project, { days });
+  const { rows, evidence } = await fetchQuerySnapshot(project, { days });
   if (!rows.length) return { rows: 0, candidates: [] };
 
   const clusters = cluster(rows, { brand: project.brand_name });
@@ -320,7 +330,7 @@ export async function candidates(projectId, { days = 90 } = {}) {
     rows: rows.length,
     totalImpressions: rows.reduce((n, r) => n + r.impressions, 0),
     clusters: clusters.length,
-    candidates: proposed.map((p) => ({ ...p, alreadyTracked: seen.has(p.text.toLowerCase()) }))
+    candidates: proposed.map((p) => ({ ...p, evidenceToken: sealCandidate(projectId, p, evidence), alreadyTracked: seen.has(p.text.toLowerCase()) }))
   };
 }
 
@@ -328,7 +338,9 @@ export async function candidates(projectId, { days = 90 } = {}) {
 export async function importQuestions(projectId, chosen) {
   const project = await one('SELECT gsc_site_url FROM projects WHERE id = $1', [projectId]);
   let added = 0;
-  for (const c of chosen) {
+  // Validate every selection before writing any of them. Client metrics are never authoritative.
+  const verified = chosen.map(c => openCandidate(c.evidenceToken, projectId, project?.gsc_site_url));
+  for (const c of verified) {
     const row = await one(
       `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume, source, origin_details)
        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
@@ -337,10 +349,10 @@ export async function importQuestions(projectId, chosen) {
         projectId,
         String(c.text).slice(0, 300),
         String(c.cluster || 'search console').slice(0, 80),
-        'commercial',
+        'unclassified',
         Math.max(0, Math.round(Number(c.impressions) || 0)),
         c.source === 'gsc+model' ? 'gsc+model' : c.source === 'gsc' ? 'gsc-query' : 'gsc',
-        JSON.stringify({ property: project?.gsc_site_url || null,
+        JSON.stringify({ property: project?.gsc_site_url || null, querySet: c.querySet, gscSnapshot: { ...c.evidence, scope: 'imported query cluster', matchedQueries: c.querySet.length, storedQueries: c.querySet.length, impressions: c.impressions, clicks: c.clicks, avgPosition: c.avgPosition },
           queryExamples: (Array.isArray(c.examples) ? c.examples : []).slice(0, 5).map(x => String(x).slice(0, 300)),
           impressions: Math.max(0, Math.round(Number(c.impressions) || 0)), importedAt: new Date().toISOString() })
       ]
@@ -348,4 +360,18 @@ export async function importQuestions(projectId, chosen) {
     if (row) added++;
   }
   return added;
+}
+
+/** Refresh search evidence only. No model calls and no visibility measurements. */
+export async function refreshSearchEvidence(project) {
+  const prompts = await many("SELECT id, origin_details FROM prompts WHERE project_id=$1 AND active AND source LIKE 'gsc%'", [project.id]);
+  const eligible = prompts.filter(p => p.origin_details?.property === project.gsc_site_url && (p.origin_details?.querySet?.length || p.origin_details?.queryExamples?.length));
+  if (!eligible.length) return { updated: 0, message: 'No active questions have stored queries for the connected property.' };
+  const snapshot = await fetchQuerySnapshot(project, { days: 90 });
+  for (const p of eligible) {
+    const result = matchSearchSnapshot(p.origin_details, snapshot);
+    await query(`UPDATE prompts SET origin_details = COALESCE(origin_details,'{}'::jsonb) || jsonb_build_object('gscSnapshot',$3::jsonb)
+      WHERE id=$1 AND project_id=$2`, [p.id, project.id, JSON.stringify(result)]);
+  }
+  return { updated: eligible.length, message: `Search evidence refreshed for ${eligible.length} questions. AI measurements are unchanged.` };
 }

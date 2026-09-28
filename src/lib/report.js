@@ -643,7 +643,7 @@ export async function buildReport(projectId, range = {}) {
     executive,
     methodNotes,
     priorities: executive?.priorities || priorities.slice(0, 3),
-    project: { name: project.name, domain: project.domain, brand: project.brand_name },
+    project: { id: project.id, name: project.name, domain: project.domain, brand: project.brand_name },
     generatedAt: new Date().toISOString(),
     // Stated on the page, so two reports can be told apart at a glance.
     period: {

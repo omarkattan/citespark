@@ -21,7 +21,7 @@ import { PLANS, PLAN_ORDER, planFor } from './lib/plans.js';
 import { proposeQuestions, runDemo, checkLimits, hashIp, DEMO_CONFIG } from './lib/demo.js';
 import { teardown, attachSourceReviews } from './lib/teardown.js';
 import { notifyTrial, notifySignup, notifyPaid, notifyFeedback, notifyAssignment, looksLikeEmail, emailConfigured } from './lib/notify.js';
-import { listSites as listGscSites, candidates as gscCandidates, importQuestions } from './lib/gsc.js';
+import { listSites as listGscSites, candidates as gscCandidates, importQuestions, refreshSearchEvidence } from './lib/gsc.js';
 import { landscape, PLATFORMS, mentionsConfigured } from './lib/mentions.js';
 import {
   stripeEnabled, getStripe, getEntitlements, checkCanAddSite, checkCanAddQuestions,
@@ -3247,8 +3247,17 @@ app.post('/api/projects/:id/gsc/import', requireAuth, wrap(async (req, res) => {
     });
   }
 
-  const added = await importQuestions(project.id, chosen.slice(0, room));
+  let added;
+  try { added = await importQuestions(project.id, chosen.slice(0, room)); }
+  catch (err) { if (err.code === 'GSC_SELECTION_EXPIRED') return res.status(400).json({error:err.message}); throw err; }
   res.json({ ok: true, added, skipped: Math.max(0, chosen.length - room), room });
+}));
+
+app.post('/api/projects/:id/gsc/refresh-evidence', requireAuth, wrap(async (req, res) => {
+  const project = await assertProject(req, res);
+  if (!project) return;
+  try { res.json(await refreshSearchEvidence(project)); }
+  catch (err) { res.status(400).json({error: err.message}); }
 }));
 
 /* ---------------- Google Analytics ---------------- */
@@ -3577,7 +3586,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260928-retry-outcome-31',
+    release: '20260928-executive-search-evidence-32',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
