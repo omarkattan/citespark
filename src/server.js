@@ -1,3 +1,4 @@
+import { comparableHistorySql } from './lib/history-query.js';
 import { comparableSettings } from './lib/measurement-batches.js';
 import { hasAnswerText, measuredQuestionRates, unmeasuredReason, possibleTruncation } from './lib/answer-quality.js';
 import 'dotenv/config';
@@ -518,8 +519,16 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
 
-  const settingsComparable = await comparableSettings(project.id);
-  const cycles = await many(
+  const historyMany = async (stage, sql, params) => {
+    const began = Date.now();
+    try { return await many(sql, params); }
+    finally {
+      const elapsedMs = Date.now() - began;
+      if (elapsedMs >= 1000) console.warn('[history-slow]', JSON.stringify({projectId: project.id, stage, elapsedMs}));
+    }
+  };
+
+  const cycles = await historyMany('cycles',
     `SELECT r.cycle_date AS date,
             COUNT(*)::int AS runs,
             SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate,
@@ -532,6 +541,11 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
      ORDER BY r.cycle_date`,
     [project.id]
   );
+
+  // Overview only displays the number of measured days. Do not load every
+  // trend breakdown and comparison before it can show the next action.
+  if (req.query.summary === '1') return res.json({ cycles });
+  const settingsComparable = await comparableSettings(project.id);
 
   /**
    * The same line, over only the questions asked in every cycle.
@@ -547,33 +561,15 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
    * under the same name. Cycles where nothing survives are returned as null
    * rather than zero: no comparable questions is not a visibility of nought.
    */
-  const comparable = await many(
-    `WITH pairs AS (
-       SELECT r.prompt_id, r.engine, COUNT(DISTINCT r.cycle_date)::int AS seen
-       FROM reporting_runs r WHERE r.project_id = $1 AND r.ok
-       GROUP BY r.prompt_id, r.engine
-     ),
-     total AS (SELECT COUNT(DISTINCT cycle_date)::int AS n FROM reporting_runs WHERE project_id = $1 AND ok)
-     SELECT r.cycle_date AS date,
-            COUNT(*)::int AS runs,
-            SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
-     FROM reporting_runs r
-     JOIN mentions m ON m.run_id = r.id
-     JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
-     JOIN pairs p ON p.prompt_id = r.prompt_id AND p.engine = r.engine
-     CROSS JOIN total t
-     WHERE r.project_id = $1 AND r.ok AND p.seen = t.n
-     GROUP BY r.cycle_date
-     ORDER BY r.cycle_date`,
-    [project.id]
-  );
+  const comparable = settingsComparable
+    ? await historyMany('comparable', comparableHistorySql, [project.id]) : [];
 
-  const notes = await many(
+  const notes = await historyMany('notes',
     'SELECT at AS date, note, detail FROM method_notes WHERE project_id = $1 ORDER BY at',
     [project.id]
   );
 
-  const byEngine = await many(
+  const byEngine = await historyMany('byEngine',
     `SELECT r.cycle_date AS date, r.engine,
             SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
      FROM reporting_runs r
@@ -585,7 +581,7 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
     [project.id]
   );
 
-  const byEntity = await many(
+  const byEntity = await historyMany('byEntity',
     `SELECT r.cycle_date AS date, e.name, e.kind,
             SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
      FROM reporting_runs r
@@ -597,7 +593,7 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
     [project.id]
   );
 
-  const spend = await many(
+  const spend = await historyMany('spend',
     `SELECT cycle_date AS date, COALESCE(SUM(cost_usd),0)::float AS cost, COUNT(*)::int AS calls
      FROM runs WHERE project_id = $1 GROUP BY cycle_date ORDER BY cycle_date`,
     [project.id]
@@ -615,7 +611,7 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
   if (cycles.length >= 2 && settingsComparable) {
     const latest = cycles[cycles.length - 1].date;
     const prior = cycles[cycles.length - 2].date;
-    movers = await many(
+    movers = await historyMany('movers',
       /**
        * Sorting by the size of the change puts the least reliable rows first.
        *
@@ -3586,7 +3582,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260928-evidence-actions-36',
+    release: '20260928-history-query-37',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

@@ -9,7 +9,7 @@ function harness({measured=true,history={cycles:[{}]},tasks=null,counts={open:15
  const document=new JSDOM('<main id="view"></main>').window.document;
  const state={projectId:26,view:'overview',overview:measured?{cycle:'2026-09-26',runs:119,visibility:0}:{}};
  const data=tasks || Array.from({length:4},(_,i)=>({id:i+1,status:'open',type:'content_gap',title:'old',action:'old',priority:25-i,effort:4,evidence:{prompt_id:i+1,prompt:`Buyer question ${i+1}`,runs:6,own_rate:0}}));
- const h=vm.createContext({document,state,esc,$:id=>document.getElementById(id),pct:n=>`${n*100}%`,shortDate:x=>x,dueLabel:()=>'',highlight:esc,evidenceDetails:()=>'',api:async url=>url.includes('recommendations')?{tasks:data,counts,people:[]}:url.endsWith('history')?history:{all:20,checksAll:120,costAll:1.67}});
+ const h=vm.createContext({document,state,esc,$:id=>document.getElementById(id),pct:n=>`${n*100}%`,shortDate:x=>x,dueLabel:()=>'',highlight:esc,evidenceDetails:()=>'',api:async url=>url.includes('recommendations')?{tasks:data,counts,people:[]}:url.includes('/history')?history:{all:20,checksAll:120,costAll:1.67}});
  vm.runInContext(app.slice(app.indexOf('async function viewOverview()'),app.indexOf('async function viewConnections()')),h);
  vm.runInContext(app.slice(app.indexOf('const TYPE_LABEL'),app.indexOf('/**\n * Who is doing')),h);
  vm.runInContext("const STATUS_LABEL={open:'To do',doing:'In progress',done:'Done',dismissed:'Dismissed'}",h);

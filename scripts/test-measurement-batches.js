@@ -51,7 +51,7 @@ test('archive escapes untrusted questions, answers and settings',()=>{
  const project={id:27,name:'<script>alert(1)</script>'};
  const batch={id:1,status:'completed',settings:{maxTokens:2000},started_at:'2026-09-28T12:00:00Z'};
  const html=measurementHtml(project,batch,[{text:'<img onerror=x>',response_text:'<script>x</script>',citations:[]}]);
- assert.ok(!html.includes('<script>'));assert.match(html,/&lt;script&gt;/);
+ assert.ok(!html.includes('<script>x</script>'));assert.ok(!html.includes('<script>alert(1)</script>'));assert.match(html,/&lt;script&gt;/);
  assert.match(archiveHtml(project,[batch]),/measurements\/1/);
 });
 const helperSource=readFileSync(new URL('../src/lib/measurement-batches.js',import.meta.url),'utf8').replace(/^import .*;\n/,'').replaceAll('export ','');

@@ -3697,13 +3697,15 @@ await test('rivals are not ranked by how long they have been tracked', async () 
 await test('the trend headline is read off a fixed question set', async () => {
   const { readFileSync } = await import('node:fs');
   const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const cohort = readFileSync(new URL('../src/lib/history-query.js', import.meta.url), 'utf8');
+  assert.ok(server.includes("historyMany('comparable', comparableHistorySql"), 'the endpoint uses the cohort query');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
 
   // Adding questions moves the full-set rate on its own. One project went
   // from 209 measured answers to 1,324; the headline fell five points while
   // the questions present throughout did not move at all.
-  assert.ok(/p\.seen = t\.n/.test(server), 'the cohort is the pairs seen in every cycle');
-  assert.ok(/p\.prompt_id = r\.prompt_id AND p\.engine = r\.engine/.test(server),
+  assert.ok(/p\.seen\s*=\s*t\.n/.test(cohort), 'the cohort is the pairs seen in every cycle');
+  assert.ok(/p\.prompt_id\s*=\s*r\.prompt_id AND p\.engine\s*=\s*r\.engine/.test(cohort),
     'and a question counts only on the same engine');
   assert.ok(/comparable \? cohortLast\.rate - cohortFirst\.rate/.test(app), 'the headline uses it');
   assert.ok(/like for like/.test(app), 'and says so on the card');

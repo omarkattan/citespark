@@ -22,7 +22,7 @@ test('source cards retain their relevance warning and evidence controls',()=>{
  assert.match(html,/Source appears unrelated/);assert.match(html,/Page changes and outreach are withheld/);assert.match(html,/View relevance details/);
 });
 async function overview(tasks){
- const seen=[];const h=vm.createContext({state:{projectId:1,overview:{cycle:'2026-09-26',runs:10,visibility:0}},esc,pct:n=>`${n*100}%`,shortDate:x=>x,taskCard:t=>{seen.push(t.id);return '<article>task</article>';},api:async p=>p.includes('recommendations')?{tasks,people:[]}:p.endsWith('history')?{cycles:[{}]}:{all:10,checksAll:10,costAll:0.11}});
+ const seen=[];const h=vm.createContext({state:{projectId:1,overview:{cycle:'2026-09-26',runs:10,visibility:0}},esc,pct:n=>`${n*100}%`,shortDate:x=>x,taskCard:t=>{seen.push(t.id);return '<article>task</article>';},api:async p=>p.includes('recommendations')?{tasks,people:[]}:p.includes('/history')?{cycles:[{}]}:{all:10,checksAll:10,costAll:0.11}});
  vm.runInContext(app.slice(app.indexOf('async function viewOverview()'),app.indexOf('async function viewConnections()')),h);
  return {html:await h.viewOverview(),seen};
 }

@@ -296,7 +296,7 @@ async function viewOverview() {
   const [data, scope, history] = await Promise.all([
     api(`/api/projects/${state.projectId}/recommendations?status=active`, {readTimeoutMs:12000}).catch(() => null),
     api(`/api/projects/${state.projectId}/run-scope`, {readTimeoutMs:12000}).catch(() => null),
-    api(`/api/projects/${state.projectId}/history`, {readTimeoutMs:12000}).catch(() => null)
+    api(`/api/projects/${state.projectId}/history?summary=1`, {readTimeoutMs:12000}).catch(() => null)
   ]);
   state.people = data?.people || [];
   const tasks = Array.isArray(data?.tasks) ? data.tasks : null;
