@@ -14,6 +14,9 @@ const SYSTEM = `You write the question sets used to measure whether a brand appe
 Rules:
 - Write questions exactly as a real buyer would type them into ChatGPT, in full sentences, 8 to 25 words.
 - Never include the brand's own name. We are measuring unprompted recall.
+- Use the stated business activity and customer as the scope, not the literal meaning of its brand name. A wealth manager called The Family Office is not automatically a service for establishing or operating a family office.
+- Do not invent services, eligibility requirements or customer segments beyond the supplied context.
+- Prefer evergreen wording without a year. If a current-year qualifier is essential, use the supplied current year, never a past or future year.
 - Cover a spread of intent: category discovery, comparison, "best X for Y" with a qualifier, problem-led, and pricing or process questions.
 - Include location or sector qualifiers where the business is local or vertical.
 - Return ONLY a JSON array. Each item: {"text": string, "cluster": string, "intent": "discovery"|"comparison"|"commercial"|"problem", "ai_search_volume": integer estimate 0-5000}
@@ -23,7 +26,7 @@ const TEMPLATES = [
   { t: 'What is the best {category} for {qualifier}?', cluster: 'best-of', intent: 'commercial' },
   { t: 'Which {category} companies are worth considering in {market}?', cluster: 'discovery', intent: 'discovery' },
   { t: 'How do I choose a {category} provider without getting burned?', cluster: 'selection', intent: 'problem' },
-  { t: 'What should a {category} cost per month for a small business?', cluster: 'pricing', intent: 'commercial' },
+  { t: 'What fees should I compare when choosing a {category} provider?', cluster: 'pricing', intent: 'commercial' },
   { t: 'Who are the top rated {category} specialists in {market}?', cluster: 'best-of', intent: 'discovery' },
   { t: 'What questions should I ask before hiring a {category}?', cluster: 'selection', intent: 'problem' },
   { t: 'Which {category} businesses have the strongest track record?', cluster: 'proof', intent: 'comparison' },
@@ -85,7 +88,9 @@ Write ${count} questions this buyer would ask an AI assistant about "${topic}".`
 }
 
 export async function generatePrompts({ brand, domain, category, market = 'the UK', qualifier = 'small business', count = 20 }) {
-  const ask = `Business: ${brand} (${domain})
+  const ask = `Current date: ${new Date().toISOString().slice(0, 10)}
+Current year: ${new Date().getUTCFullYear()}
+Business: ${brand} (${domain})
 Category: ${category}
 Market: ${market}
 Typical customer: ${qualifier}
@@ -96,8 +101,9 @@ Write ${count} questions.`;
   const parsed = parseJsonArray(raw);
 
   if (parsed && parsed.length) {
-    return parsed
+    const suggestions = parsed
       .filter((p) => p && typeof p.text === 'string' && p.text.length > 10)
+      .filter((p) => !hasUnrequestedYear(p.text))
       .map((p) => ({
         text: p.text.trim(),
         cluster: String(p.cluster || 'general').toLowerCase(),
@@ -105,7 +111,17 @@ Write ${count} questions.`;
         ai_search_volume: Number.isFinite(p.ai_search_volume) ? Math.max(0, Math.round(p.ai_search_volume)) : 100
       }))
       .slice(0, count);
+    if (suggestions.length) return suggestions;
   }
 
   return templateSet({ category, market, qualifier }).slice(0, count);
+}
+
+/** New site suggestions are current discovery questions, not historical studies.
+ * Reject date-qualified drift without rewriting the question or touching stored data.
+ * Numeric budgets (including four-digit amounts) are not dates.
+ */
+export function hasUnrequestedYear(text, currentYear = new Date().getUTCFullYear()) {
+  return [...String(text).matchAll(/\b(?:in|for|during|of|year)\s+(?:the year\s+)?(20\d{2})\b(?!\s*(?:dollars|USD|SAR|AED|riyals|dirhams)\b)/gi)]
+    .some(m => Number(m[1]) !== currentYear);
 }

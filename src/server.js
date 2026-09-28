@@ -1099,7 +1099,7 @@ app.post('/api/discover', requireAuth, wrap(async (req, res) => {
 }));
 
 app.post('/api/projects', requireAuth, wrap(async (req, res) => {
-  const { name, domain, brandName, aliases, category, market, locationName, qualifier, competitors, generate } = req.body || {};
+  const { name, domain, brandName, aliases, ambiguousName, category, market, locationName, qualifier, competitors, generate } = req.body || {};
 
   const cleanDomain = String(domain || '')
     .trim()
@@ -1141,9 +1141,9 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
   );
 
   await query(
-    `INSERT INTO entities (project_id, name, domain, kind, aliases) VALUES ($1,$2,$3,'owned',$4)
+    `INSERT INTO entities (project_id, name, domain, kind, aliases, ambiguous_name) VALUES ($1,$2,$3,'owned',$4,$5)
      ON CONFLICT (project_id, name) DO NOTHING`,
-    [project.id, project.brand_name, project.domain, project.aliases]
+    [project.id, project.brand_name, project.domain, project.aliases, ambiguousName === true]
   );
 
   for (const c of Array.isArray(competitors) ? competitors.slice(0, 20) : []) {
@@ -3557,7 +3557,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260926-questions-focus-23',
+    release: '20260928-audit-setup-24',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

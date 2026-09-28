@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/styles.css?v=20260926-questions-focus-23" />
+<link rel="stylesheet" href="/styles.css?v=20260928-audit-setup-24" />
 </head>
 <body>
 
@@ -149,6 +149,11 @@
     </div>
     <div class="field"><label for="f_brand">Brand name as customers say it</label><input id="f_brand" placeholder="No legal suffix unless you always use it" /></div>
 
+    <div class="field">
+      <label for="f_ambiguous"><input type="checkbox" id="f_ambiguous" /> My brand name is also an ordinary phrase</label>
+      <p class="hint">For names such as The Family Office, only count the name when its main words start with capitals. Aliases and domain matches remain case-insensitive. This reduces false matches but still needs evidence review.</p>
+    </div>
+
     <div class="field"><label for="f_category">What the business does</label><input id="f_category" placeholder="What the business does, in a few words" /></div>
     <div class="field">
       <label for="f_qualifier">Who the customer is</label>
@@ -181,6 +186,6 @@
 </dialog>
 
 <script src="/countries.js"></script>
-<script src="/app.js?v=20260926-questions-focus-23"></script>
+<script src="/app.js?v=20260928-audit-setup-24"></script>
 </body>
 </html>

@@ -5231,6 +5231,7 @@ document.addEventListener('click', (e) => {
 });
 
 $('addSiteBtn').addEventListener('click', () => {
+  $('f_ambiguous').checked = false;
   $('f_market').innerHTML = window.countryOptions(window.DEFAULT_COUNTRY);
   $('siteDialog').showModal();
   $('f_domain').focus();
@@ -5306,6 +5307,7 @@ $('siteSave').addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         brandName: $('f_brand').value,
+        ambiguousName: $('f_ambiguous').checked,
         aliases: $('f_aliases').value.split(',').map((x) => x.trim()).filter(Boolean),
         domain: $('f_domain').value,
         category: $('f_category').value,
