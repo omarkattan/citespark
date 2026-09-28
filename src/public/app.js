@@ -4500,7 +4500,7 @@ function gscCandidateRow(c, i) {
   const haystack = `${c.text} ${c.examples.join(' ')} ${c.cluster || ''}`.toLowerCase();
   return `<div class="row ${c.alreadyTracked ? 'off' : ''}" data-filter-text="${esc(haystack)}">
     <label class="grow eng">
-      <input type="checkbox" data-gsc="${i}" ${c.alreadyTracked ? 'disabled' : 'checked'} />
+      <input type="checkbox" data-gsc="${i}" ${c.alreadyTracked ? 'disabled' : ''} />
       <span>
         <span class="name">${esc(c.text)}</span>
         <span class="sub">
@@ -4565,7 +4565,7 @@ async function loadGscCandidates() {
     return;
   }
   if (!d.candidates.length) {
-    body.innerHTML = `<p class="hint">Search Console returned ${d.rows} queries but none made a sensible buyer question. That usually means the site is new or the traffic is mostly branded.</p>`;
+    body.innerHTML = `<p class="hint">Search Console returned ${d.rows} queries but none made a sensible buyer question. This preview considers up to 30 leading query groups. Queries may be branded, outside your scope, or omitted by the suggestion checks. It does not mean there is no demand.</p>`;
     return;
   }
 
@@ -4576,9 +4576,10 @@ async function loadGscCandidates() {
     <div class="gsc-summary">
       <span class="tag">${d.rows.toLocaleString()} queries read</span>
       <span class="tag">${d.totalImpressions.toLocaleString()} impressions</span>
-      <span class="tag">${d.clusters} intent clusters</span>
-      <span class="tag ok">${available} worth tracking</span>
+      <span class="tag">${d.clusters} query groups</span>
+      <span class="tag ok">${available} suggestions to review</span>
     </div>
+    <p class="hint">Select only relevant questions after checking their original queries. Search figures belong to those queries, not the rephrased question. Suggestions preserve English or Arabic and group only matching wording, not shared keywords.</p>
     ${searchBox('gscFilter', 'Filter these questions', 'gscFilterCount')}
     <div id="gscList">
       ${d.candidates.map(gscCandidateRow).join('')}

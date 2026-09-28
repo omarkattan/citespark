@@ -949,24 +949,20 @@ await test('branded and negligible queries are excluded', () => {
   assert.ok(!heads.includes('x'), 'a two-impression query is noise');
 });
 
-await test('variants of one intent become one cluster', () => {
+await test('distinct query wording retains its own search figures', () => {
   const clusters = gsc.cluster(GSC_ROWS, { brand: 'Marina Smile Studio' });
-  const aligners = clusters.find((c) => /aligner/i.test(c.head));
-  assert.ok(aligners.variants >= 3, 'the aligner queries belong together');
-  assert.equal(aligners.impressions, 5600, 'cluster impressions sum the variants');
+  assert.equal(clusters.length, 7);
+  assert.equal(clusters.find(c => c.head === 'clear aligners dubai').impressions, 2400);
+  assert.equal(clusters.find(c => c.head === 'clear aligners dubai cost').impressions, 1800);
+  assert.equal(clusters.reduce((n,c) => n + c.impressions, 0), 8600);
 });
 
-await test('the most conversational variant becomes the question', () => {
+await test('question wording stays attached to its own query group', () => {
   const clusters = gsc.cluster(GSC_ROWS, { brand: 'Marina Smile Studio' });
-
-  // "clear aligners dubai" has the most impressions, but it is a keyword.
-  // The phrased question is what an assistant actually receives.
-  assert.equal(clusters[0].head, 'how much do clear aligners cost in dubai');
-  assert.equal(clusters[0].conversational, 2);
-
-  const ortho = clusters.find((c) => /orthodontist/i.test(c.head));
-  assert.equal(ortho.head, 'which orthodontist is best in dubai marina',
-    'a 300-impression phrased question beats an 1,100-impression keyword');
+  const phrased = clusters.find(c => c.head === 'how much do clear aligners cost in dubai');
+  assert.equal(phrased.conversational, 2);
+  assert.equal(phrased.impressions, 1400);
+  assert.equal(clusters.find(c => c.head === 'which orthodontist is best in dubai marina').impressions, 300);
 });
 
 await test('impressions carry through as the volume figure', async () => {
@@ -979,7 +975,7 @@ await test('impressions carry through as the volume figure', async () => {
     assert.ok(p.examples.length, 'the original queries must be shown');
     assert.ok(!/marina smile/i.test(p.text), 'never put the brand in the question');
   }
-  assert.equal(proposed[0].impressions, 5600);
+  assert.equal(proposed[0].impressions, 1800);
 });
 
 console.log('\nsource classification and teardown');

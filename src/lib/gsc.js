@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { one, many, query } from '../db/index.js';
 import { decrypt } from './tokens.js';
 import { matchSearchSnapshot, sealCandidate, openCandidate } from './search-evidence.js';
+import { queryKey, containsSearchBrand, queryLanguage, preservesQueryBasics } from './gsc-query-integrity.js';
 import { complete, parseJsonArray } from './anthropic.js';
 
 /**
@@ -23,7 +24,7 @@ import { complete, parseJsonArray } from './anthropic.js';
 const API = 'https://www.googleapis.com/webmasters/v3';
 
 /** Actually phrased as a question, which is what an assistant receives. */
-const ASKED = /^(who|what|which|when|where|why|how|is|are|can|should|does|do)\b/i;
+const ASKED = /^(?:(?:who|what|which|when|where|why|how|is|are|can|should|does|do)\b|(?:كيف|هل|ما|ماذا|أين|اين|متى|لماذا|كم|أي|اي|من)\s)/i;
 /** Carries buying intent but written as a keyword. */
 const INTENT = /\b(vs|versus|compared to|alternative|best|top|cheapest|near me|cost|price|worth it|reviews?)\b/i;
 
@@ -174,41 +175,19 @@ export async function fetchQueries(project, options) {
  * Group queries that are really the same intent, so twenty variations of one
  * question do not become twenty tracked questions.
  */
-const STOP = new Set(['the','a','an','in','for','to','of','and','or','with','my','your','is','are','do','does','best','top','near','me','uae','dubai']);
-
-function fingerprint(q) {
-  return [...new Set(
-    q.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w.length > 2 && !STOP.has(w))
-  )].sort().join(' ');
-}
-
-export function cluster(rows, { minImpressions = 5, brand = '' } = {}) {
+export function cluster(rows, { minImpressions = 5, brand = '', aliases = [], domain = '' } = {}) {
   const groups = new Map();
-  // Branded searches are people who already know you. Tracking them measures
-  // nothing, since the questions deliberately exclude the brand name.
-  const brandWords = String(brand).toLowerCase().split(/\s+/).filter((w) => w.length > 3);
-  const isBranded = (q) => brandWords.length > 0 && brandWords.every((w) => q.toLowerCase().includes(w));
-
+  const names = [brand, ...aliases, domain, domain.replace(/^www\./i,'')];
   for (const row of rows) {
-    if (row.impressions < minImpressions) continue;
-    if (isBranded(row.query)) continue;
-    const words = fingerprint(row.query).split(' ').filter(Boolean);
-    if (!words.length) continue;
-
-    // Match against an existing cluster on shared distinctive terms.
-    let target = null;
-    for (const [key, g] of groups) {
-      const keyWords = key.split(' ');
-      const shared = words.filter((w) => keyWords.includes(w)).length;
-      if (shared >= Math.min(2, Math.min(words.length, keyWords.length))) {
-        target = g;
-        break;
-      }
-    }
-
+    if (row.impressions < minImpressions || containsSearchBrand(row.query, names)) continue;
+    const key = queryKey(row.query);
+    if (!key) continue;
+    // Shared words do not prove shared intent. Preserve qualifiers, numbers,
+    // word order and scripts. Only case, whitespace and trailing question marks merge.
+    let target = groups.get(key);
     if (!target) {
-      target = { key: words.join(' '), queries: [], impressions: 0, clicks: 0, positionSum: 0 };
-      groups.set(words.join(' '), target);
+      target = { key, queries: [], impressions: 0, clicks: 0, positionSum: 0 };
+      groups.set(key, target);
     }
     target.queries.push(row);
     target.impressions += row.impressions;
@@ -250,6 +229,9 @@ For each cluster you are given the highest-impression query, some variants, and 
 
 Rules:
 - Write the question exactly as a person would type it into ChatGPT: a full sentence, 8 to 20 words.
+- Preserve the source language. Arabic queries must stay Arabic, English queries must stay English.
+- Preserve all amounts, product types, eligibility restrictions and location qualifiers. Do not add a best/lowest claim, location or application intent that the source does not express.
+- Only suggest questions relevant to the supplied business scope and customer brief.
 - Never include the brand's own name. We are measuring unprompted recall.
 - Keep the intent of the original query. A query about price becomes a price question, not a generic "best" question.
 - Keep location and sector qualifiers that appear in the queries.
@@ -262,7 +244,7 @@ The index refers to the cluster number you were given. Omit clusters you are ski
  * Turn clusters into tracked questions. Real impressions become the volume
  * figure, which is what the priority scoring keys off.
  */
-export async function proposeFromClusters(clusters, { brand, market } = {}) {
+export async function proposeFromClusters(clusters, { brand, aliases = [], domain = '', market, category = '', qualifier = '' } = {}) {
   const top = clusters.slice(0, 30);
 
   const listing = top
@@ -274,7 +256,7 @@ export async function proposeFromClusters(clusters, { brand, market } = {}) {
     .join('\n');
 
   const raw = await complete(
-    `Brand: ${brand}\nMarket: ${market}\n\nClusters:\n${listing}`,
+    `Brand: ${brand}\nOther brand names: ${aliases.join(', ')}\nMarket: ${market}\nBusiness scope: ${category}\nCustomer brief: ${qualifier}\n\nClusters:\n${listing}`,
     { system: SYSTEM, maxTokens: 2000 }
   );
   const parsed = parseJsonArray(raw);
@@ -282,16 +264,20 @@ export async function proposeFromClusters(clusters, { brand, market } = {}) {
   const out = [];
   for (let i = 0; i < top.length; i++) {
     const c = top[i];
-    const written = parsed?.find((p) => Number(p.index) === i)?.text;
+    const draft = parsed?.find((p) => Number(p.index) === i)?.text;
+    const names = [brand, ...aliases, domain];
+    const written = preservesQueryBasics(c.head, draft) && !containsSearchBrand(draft, names) ? draft : null;
 
     // Without a model, keep queries that already read as questions and skip
     // the head terms, rather than tracking a keyword as though it were one.
-    const text = written || (c.isQuestion ? sentenceCase(c.head) : null);
+    const text = written || (!parsed && c.isQuestion ? sentenceCase(c.head) : null);
     if (!text || text.length < 12) continue;
 
     out.push({
       text: String(text).trim().slice(0, 300),
       cluster: c.head,
+      language: queryLanguage(c.head),
+      groupingMethod: 'exact-normalized-v1',
       impressions: c.impressions,
       clicks: c.clicks,
       avgPosition: c.avgPosition,
@@ -307,7 +293,7 @@ export async function proposeFromClusters(clusters, { brand, market } = {}) {
 function sentenceCase(s) {
   const t = String(s).trim();
   const q = t.charAt(0).toUpperCase() + t.slice(1);
-  return /[?]$/.test(q) ? q : `${q}?`;
+  return /[?؟]$/.test(q) ? q : `${q}${queryLanguage(q) === 'ar' ? '؟' : '?'}`;
 }
 
 /** Everything the import screen needs, in one call. */
@@ -316,9 +302,10 @@ export async function candidates(projectId, { days = 90 } = {}) {
   const { rows, evidence } = await fetchQuerySnapshot(project, { days });
   if (!rows.length) return { rows: 0, candidates: [] };
 
-  const clusters = cluster(rows, { brand: project.brand_name });
+  const clusters = cluster(rows, { brand: project.brand_name, aliases: project.aliases || [], domain: project.domain });
   const proposed = await proposeFromClusters(clusters, {
-    brand: project.brand_name,
+    brand: project.brand_name, aliases: project.aliases || [], domain: project.domain,
+    category: project.category, qualifier: project.qualifier,
     market: project.market
   });
 
@@ -339,7 +326,15 @@ export async function importQuestions(projectId, chosen) {
   const project = await one('SELECT gsc_site_url FROM projects WHERE id = $1', [projectId]);
   let added = 0;
   // Validate every selection before writing any of them. Client metrics are never authoritative.
-  const verified = chosen.map(c => openCandidate(c.evidenceToken, projectId, project?.gsc_site_url));
+  const verified = chosen.map(c => {
+    const candidate = openCandidate(c.evidenceToken, projectId, project?.gsc_site_url);
+    if (candidate.groupingMethod !== 'exact-normalized-v1') {
+      const err = new Error('Search grouping has changed. Load Search Console suggestions again before importing.');
+      err.code = 'GSC_SELECTION_EXPIRED';
+      throw err;
+    }
+    return candidate;
+  });
   for (const c of verified) {
     const row = await one(
       `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume, source, origin_details)
@@ -352,7 +347,7 @@ export async function importQuestions(projectId, chosen) {
         'unclassified',
         Math.max(0, Math.round(Number(c.impressions) || 0)),
         c.source === 'gsc+model' ? 'gsc+model' : c.source === 'gsc' ? 'gsc-query' : 'gsc',
-        JSON.stringify({ property: project?.gsc_site_url || null, querySet: c.querySet, gscSnapshot: { ...c.evidence, scope: 'imported query cluster', matchedQueries: c.querySet.length, storedQueries: c.querySet.length, impressions: c.impressions, clicks: c.clicks, avgPosition: c.avgPosition },
+        JSON.stringify({ property: project?.gsc_site_url || null, groupingMethod: c.groupingMethod, language: c.language, querySet: c.querySet, gscSnapshot: { ...c.evidence, scope: 'imported query group', matchedQueries: c.querySet.length, storedQueries: c.querySet.length, impressions: c.impressions, clicks: c.clicks, avgPosition: c.avgPosition },
           queryExamples: (Array.isArray(c.examples) ? c.examples : []).slice(0, 5).map(x => String(x).slice(0, 300)),
           impressions: Math.max(0, Math.round(Number(c.impressions) || 0)), importedAt: new Date().toISOString() })
       ]
