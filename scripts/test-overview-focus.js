@@ -20,7 +20,7 @@ test('complete Overview renders three compact tasks, two summary panels and sepa
  assert.equal(document.querySelectorAll('.overview-focus > section').length,2);assert.equal(document.querySelectorAll('#overviewNext .queue-task').length,3);
  assert.equal(document.querySelectorAll('#overviewNext .queue-task[open]').length,0);
  assert.match(document.body.textContent,/Named in 0% of 119 successfully measured answers/);assert.match(document.body.textContent,/All opportunities \(152\)/);
- assert.match(document.body.textContent,/One measurement so far/);assert.ok(document.querySelector('.overview-measurement [data-start-first-cycle]'));assert.equal(document.querySelector('.overview-measurement').open,false);
+ assert.match(document.body.textContent,/One day of results is available/);assert.ok(document.querySelector('.overview-measurement [data-start-first-cycle]'));assert.equal(document.querySelector('.overview-measurement').open,false);
  assert.match(document.body.textContent,/20 active questions · 120 answer checks · estimated \$1.67/);
 });
 test('primary action opens and focuses the first task without a paid run',async()=>{
@@ -38,7 +38,7 @@ test('multiple measurements link to comparable cohorts without inventing a direc
  const {h}=harness({history:{cycles:[{},{}]}});const html=await h.viewOverview();assert.match(html,/comparable question-and-engine cohort/);assert.doesNotMatch(html,/visibility (rose|fell|increased|decreased)/);
 });
 test('failed history remains unavailable instead of claiming no change',async()=>{
- const {h}=harness({history:{error:'Unavailable'}});assert.match(await h.viewOverview(),/Trend history could not be loaded/);
+ const {h}=harness({history:{error:'Unavailable'}});const html=await h.viewOverview();assert.match(html,/Trend history could not be loaded/);assert.match(html,/data-retry-view/);assert.match(html,/Named in 0% of 119/);
 });
 
 const task=(id,type='content_gap',extra={})=>({id,type,status:'open',priority:50,effort:2,evidence:{prompt_id:id,prompt:`Question ${id}`,runs:6,own_rate:0},...extra});

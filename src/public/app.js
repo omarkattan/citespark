@@ -48,15 +48,26 @@ function toast(message, kind = 'ok') {
 }
 
 async function api(path, options = {}) {
-  const opts = { ...options };
+  const { readTimeoutMs = 0, ...opts } = options;
   if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
     opts.body = JSON.stringify(opts.body);
     opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
   }
-  const res = await fetch(path, opts);
-  if (res.status === 401) { window.location.href = '/login'; return null; }
-
-  return res.json();
+  // Opt-in read deadline only. Never time out or automatically retry a mutation.
+  const bounded = readTimeoutMs > 0 && (opts.method || 'GET').toUpperCase() === 'GET';
+  const controller = bounded ? new AbortController() : null;
+  if (controller) opts.signal = controller.signal;
+  let timer;
+  const request = async () => {
+    const res = await fetch(path, opts);
+    if (res.status === 401) { window.location.href = '/login'; return null; }
+    return res.json();
+  };
+  try {
+    return bounded ? await Promise.race([request(), new Promise((_, reject) => {
+      timer = setTimeout(() => { controller.abort(); reject(new Error('This section took too long to load. Try again.')); }, readTimeoutMs);
+    })]) : await request();
+  } finally { clearTimeout(timer); }
 }
 
 /**
@@ -283,9 +294,9 @@ function syncNavigation() {
 async function viewOverview() {
   const o = state.overview || {};
   const [data, scope, history] = await Promise.all([
-    api(`/api/projects/${state.projectId}/recommendations?status=active`).catch(() => null),
-    api(`/api/projects/${state.projectId}/run-scope`).catch(() => null),
-    api(`/api/projects/${state.projectId}/history`).catch(() => null)
+    api(`/api/projects/${state.projectId}/recommendations?status=active`, {readTimeoutMs:12000}).catch(() => null),
+    api(`/api/projects/${state.projectId}/run-scope`, {readTimeoutMs:12000}).catch(() => null),
+    api(`/api/projects/${state.projectId}/history`, {readTimeoutMs:12000}).catch(() => null)
   ]);
   state.people = data?.people || [];
   const tasks = Array.isArray(data?.tasks) ? data.tasks : null;
@@ -327,7 +338,7 @@ async function viewOverview() {
   const changes = !history || history.error ? 'Trend history could not be loaded.' : cycles.length < 2
     ? (cycles.length ? 'One day of results is available. Daily charts use its latest completed measurement. Earlier same-day runs remain in Measurement archive.' : 'No completed measurements yet.')
     : `${cycles.length} days of results available. Open the trend view for the comparable question-and-engine cohort and any measurement-method changes.`;
-  return `<div class="overview-intro"><div><p class="eyebrow">Your next move</p><h2>${measured ? 'What needs your attention' : 'Start with the questions your buyers ask'}</h2>
+  return `${!data || data.error || !scope || scope.error || !history || history.error ? '<div class="notice" role="status">Some sections could not be loaded. Available results are shown below. <button class="ghost" data-retry-view>Try again</button></div>' : ''}<div class="overview-intro"><div><p class="eyebrow">Your next move</p><h2>${measured ? 'What needs your attention' : 'Start with the questions your buyers ask'}</h2>
     <p>${measured ? `Latest measurement: ${esc(shortDate(o.cycle))}. Start with one evidence review below.` : 'Review your questions and their origins, then measure how AI engines answer them.'}</p></div>
     ${measured && suggested.length ? '<button class="btn" data-overview-next>Review next task</button>' : '<button class="btn" data-open-view="questions">Review questions</button>'}</div>
     <div class="overview-summary overview-focus">
@@ -1979,6 +1990,10 @@ async function renderFigures() {
     <button type="button" style="position:absolute;transform:translate(-22px,6px);width:16px;height:16px;border-radius:50%;border:1px solid var(--line);background:var(--paper);color:var(--ink-3);font-size:10px;line-height:1;cursor:help;padding:0" data-help="What the last completed cycle actually cost. This figure is history and never changes. Tap the card to open the breakdown, where engines, question intents and models can be switched for the NEXT cycle, with the saving shown before anything runs.">?</button>`;
 }
 
+document.addEventListener('click', event => {
+  if (event.target.closest('[data-retry-view]')) render();
+});
+
 async function render() {
   const view = state.view;
   const renderId = state.renderId = (state.renderId || 0) + 1;
@@ -1989,7 +2004,13 @@ async function render() {
     sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling,
     trends: viewTrends, landscape: viewLandscape
   }[view];
-  const html = await fn();
+  let html;
+  try { html = await fn(); }
+  catch (error) {
+    if (renderId !== state.renderId) return;
+    $('view').innerHTML = '<div class="notice" role="status"><h2>This view could not be loaded</h2><p>Your stored results are unchanged.</p><button class="ghost" data-retry-view>Try again</button></div>';
+    return;
+  }
   if (renderId !== state.renderId) return;
   $('view').innerHTML = html;
   if (view === 'setup') {

@@ -1,3 +1,4 @@
+import { reportActions } from './report-actions.js';
 import { historicalGoogleWarnings } from './google-locale.js';
 import { coverageFor } from './measurement-coverage.js';
 import { hasAnswerText, NO_OVERVIEW, possibleTruncation } from './answer-quality.js';
@@ -59,6 +60,9 @@ export async function reportEvidence(projectId, period, many) {
          (to_jsonb(r)->>'max_output_tokens')::int AS max_output_tokens,
          (to_jsonb(r)->>'no_overview')::boolean AS no_overview,
          to_jsonb(r)->'quality_review' AS quality_review,
+         (SELECT COALESCE(jsonb_agg(jsonb_build_object('url',to_jsonb(c)->>'url','owned',
+           lower(regexp_replace(c.domain, '^www\\.', '')) = lower(regexp_replace(pr.domain, '^www\\.', '')))), '[]'::jsonb)
+           FROM citations c WHERE c.run_id=r.id) AS source_links,
          p.text, p.source, to_jsonb(p)->'origin_details' AS origin_details, m.mentioned,
          EXISTS (SELECT 1 FROM citations c WHERE c.run_id=r.id
            AND lower(regexp_replace(c.domain, '^www\\.', '')) = lower(regexp_replace(pr.domain, '^www\\.', ''))) AS cited
@@ -76,5 +80,5 @@ export async function reportEvidence(projectId, period, many) {
     const facts = summariseEvidence(subset).totals;
     return {engine, measured:facts.measured, failed:facts.failed, unmeasured:facts.unmeasured};
   });
-  return { ...result, engineCoverage, localeWarnings: historicalGoogleWarnings(batches[0], result.questions), measurement: batches[0] || null, cycle: rows[0]?.cycle_date || null };
+  return { ...result, priorities: reportActions(result, rows), engineCoverage, localeWarnings: historicalGoogleWarnings(batches[0], result.questions), measurement: batches[0] || null, cycle: rows[0]?.cycle_date || null };
 }
