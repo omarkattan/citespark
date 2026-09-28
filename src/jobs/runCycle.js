@@ -8,7 +8,7 @@ import { buildRecommendations, persistRecommendations } from '../lib/recommend.j
 import { hasAnthropic } from '../lib/anthropic.js';
 import { budgetForCycle, recordUsage } from '../lib/billing.js';
 
-import { ENGINE_IDS } from '../lib/dataforseo.js';
+import { resolveModel, ENGINES as ENGINE_CFG, ENGINE_IDS } from '../lib/dataforseo.js';
 
 /** Engines are chosen per project. The env var is only a fallback for old rows. */
 function enginesFor(project) {
@@ -644,7 +644,9 @@ export async function reaskPrompt(promptId, { engine = null } = {}) {
   const entities = await many('SELECT id, name, aliases, domain, kind, ambiguous_name FROM entities WHERE project_id = $1', [project.id]);
   const ownedIds = new Set(entities.filter((e) => e.kind === 'owned').map((e) => e.id));
 
-  const engines = engine ? [engine] : project.engines || [];
+  const configured = enginesFor(project);
+  if (engine && !configured.includes(engine)) throw new Error('Engine is not enabled for this site');
+  const engines = engine ? [engine] : configured;
   if (!engines.length) throw new Error('No engines configured for this site');
 
   const cycle =
@@ -657,6 +659,10 @@ export async function reaskPrompt(promptId, { engine = null } = {}) {
   let spend = 0;
 
   for (const eng of engines) {
+    const budget = await budgetForCycle(project.org_id, { questions: 1, engines: [eng], runs: 1 });
+    if (!budget.ok || budget.maxCalls < 1) throw new Error(budget.reason || 'No answer checks available');
+    const model = ENGINE_CFG[eng]?.kind === 'llm'
+      ? await resolveModel(eng, ENGINE_CFG[eng], project.models?.[eng] || null) : null;
     const existing = await many(
       'SELECT id, ok, response_text, run_index FROM runs WHERE prompt_id = $1 AND engine = $2 AND cycle_date = $3 ORDER BY run_index',
       [promptId, eng, cycleDay]
@@ -670,9 +676,12 @@ export async function reaskPrompt(promptId, { engine = null } = {}) {
       prompt: prompt.text,
       market: project.market,
       locationName: project.location_name,
+      model,
       maxTokens: ceiling
     });
     spend += answer.costUsd || 0;
+    // Account for the provider call even if later persistence or analysis fails.
+    await recordUsage(project.org_id, 1, answer.costUsd || 0);
 
     if (!answer.ok) {
       results.push({ engine: eng, ok: false, error: answer.error });
@@ -727,6 +736,5 @@ export async function reaskPrompt(promptId, { engine = null } = {}) {
     });
   }
 
-  await recordUsage(project.org_id, results.length, spend);
   return { prompt: prompt.text, cycle: cycleDay, spend: Math.round(spend * 10000) / 10000, results };
 }
