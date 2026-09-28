@@ -208,7 +208,7 @@ export async function personaLift(projectId, cycle) {
             COUNT(*) FILTER (WHERE m.mentioned)::int AS hits,
             COUNT(*)::int AS runs
      FROM prompts p
-     JOIN runs r ON r.prompt_id = p.id AND r.cycle_date = $2 AND r.ok
+     JOIN reporting_runs r ON r.prompt_id = p.id AND r.cycle_date = $2 AND r.ok
      JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id
      LEFT JOIN personas pe ON pe.id = p.persona_id
@@ -294,7 +294,7 @@ export async function personaGap(projectId, personaId) {
   const { many, one } = await import('../db/index.js');
 
   const project = await one('SELECT domain, brand_name FROM projects WHERE id = $1', [projectId]);
-  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [projectId]))?.d;
+  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [projectId]))?.d;
   if (!cycle) return null;
 
   const own = String(project.domain).replace(/^www\./, '').toLowerCase();
@@ -311,7 +311,7 @@ export async function personaGap(projectId, personaId) {
             COUNT(DISTINCT r.prompt_id)::int AS questions,
             (ARRAY_AGG(c.url ORDER BY c.position))[1] AS example_url
      FROM citations c
-     JOIN runs r ON r.id = c.run_id
+     JOIN reporting_runs r ON r.id = c.run_id
      JOIN prompts p ON p.id = r.prompt_id
      WHERE r.project_id = $1 AND r.ok AND r.cycle_date = $2 AND ${where}
        AND lower(regexp_replace(c.domain, '^www\\.', '')) <> '${own}'
@@ -323,7 +323,7 @@ export async function personaGap(projectId, personaId) {
     `SELECT e.name, e.kind,
             COUNT(*) FILTER (WHERE m.mentioned)::float / NULLIF(COUNT(*), 0) AS rate
      FROM mentions m
-     JOIN runs r ON r.id = m.run_id
+     JOIN reporting_runs r ON r.id = m.run_id
      JOIN prompts p ON p.id = r.prompt_id
      JOIN entities e ON e.id = m.entity_id
      WHERE r.project_id = $1 AND r.ok AND r.cycle_date = $2 AND ${where}
@@ -338,7 +338,7 @@ export async function personaGap(projectId, personaId) {
   const lost = await many(
     `SELECT p.id, p.text, p.ai_search_volume AS volume, pe.descriptor,
             COUNT(*) FILTER (WHERE m.mentioned)::int AS named
-     FROM runs r
+     FROM reporting_runs r
      JOIN prompts p ON p.id = r.prompt_id
      LEFT JOIN personas pe ON pe.id = p.persona_id
      JOIN mentions m ON m.run_id = r.id

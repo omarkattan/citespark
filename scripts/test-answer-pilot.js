@@ -26,12 +26,12 @@ test('failed answers are retained and charged, and a budget stop prevents the ne
 });
 // Exercise the actual retry function with controlled DB/provider dependencies.
 const source=readFileSync(new URL('../src/jobs/runCycle.js',import.meta.url),'utf8');
-const body=source.slice(source.indexOf('export async function reaskPrompt')).replace('export async function','async function');
+const body=source.slice(source.indexOf('async function collectRetry'),source.indexOf('export async function reaskPrompt'));
 const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
 async function retryFixture({engine='gemini',ok=false,budget=true,failAnalysis=false}={}){
  const asks=[],usage=[];
  const project={id:27,org_id:1,engines:['gemini'],models:{gemini:'project-pin'}};
- const deps={one:async sql=>sql.includes('FROM prompts')?{id:1,project_id:27,text:'Q'}:sql.includes('FROM projects')?project:sql.includes('MAX(cycle_date)')?{d:'2026-09-28'}:{id:99},
+ const deps={measurementSettings:()=>({}),startMeasurement:async()=>({id:1,settings:{}}),inheritMeasurement:async()=>{},finishMeasurement:async()=>{},one:async sql=>sql.includes('FROM prompts')?{id:1,project_id:27,text:'Q'}:sql.includes('FROM projects')?project:sql.includes('MAX(cycle_date)')?{d:'2026-09-28'}:{id:99},
  many:async sql=>sql.includes('FROM entities')?[{id:1,kind:'owned'}]:[],
  enginesFor:p=>p.engines,budgetForCycle:async()=>({ok:budget,maxCalls:budget?1:0,reason:'budget denied'}),
  resolveModel:async(e,c,override)=>override,ENGINE_CFG:{gemini:{kind:'llm'}},
@@ -40,7 +40,7 @@ async function retryFixture({engine='gemini',ok=false,budget=true,failAnalysis=f
  recordUsage:async(...a)=>usage.push(a),query:async()=>{},
  analyseRun:async()=>{if(failAnalysis)throw Error('analysis failed');return [];},hasAnthropic:false,
  isWrapper:()=>false,resolveAll:async()=>new Map(),domainOf:()=>null};
- const execute=new AsyncFunction(...Object.keys(deps),`${body}\nreturn reaskPrompt(1,{engine:${JSON.stringify(engine)}});`);
+ const execute=new AsyncFunction(...Object.keys(deps),`${body}\nreturn collectRetry(1,{engine:${JSON.stringify(engine)}},()=>{});`);
  let error;try{await execute(...Object.values(deps));}catch(e){error=e;}
  return {asks,usage,error};
 }

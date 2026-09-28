@@ -1,3 +1,4 @@
+import { comparableSettings } from './measurement-batches.js';
 import { reportEvidence } from './report-evidence.js';
 import { many, one } from '../db/index.js';
 
@@ -87,7 +88,7 @@ async function sourceGaps(projectId) {
             COUNT(*)::int AS citations,
             (ARRAY_AGG(c.url ORDER BY c.position))[1] AS example_url
      FROM citations c
-     JOIN runs r ON r.id = c.run_id
+     JOIN reporting_runs r ON r.id = c.run_id
      WHERE r.project_id = $1 AND r.ok
      GROUP BY 1
      ORDER BY COUNT(DISTINCT r.cycle_date) DESC, COUNT(*) DESC
@@ -95,7 +96,7 @@ async function sourceGaps(projectId) {
     [projectId]
   );
 
-  const totalCycles = (await one('SELECT COUNT(DISTINCT cycle_date)::int AS n FROM runs WHERE project_id = $1 AND ok', [projectId]))?.n || 0;
+  const totalCycles = (await one('SELECT COUNT(DISTINCT cycle_date)::int AS n FROM reporting_runs WHERE project_id = $1 AND ok', [projectId]))?.n || 0;
   const ownCycles = rows.find((r) => r.domain === own)?.cycles || 0;
 
   return {
@@ -123,7 +124,7 @@ async function citedPagePatterns(projectId) {
     `SELECT DISTINCT ON (t.url) t.url, t.result
      FROM page_teardowns t
      JOIN citations c ON lower(c.url) = lower(t.url)
-     JOIN runs r ON r.id = c.run_id AND r.project_id = $1
+     JOIN reporting_runs r ON r.id = c.run_id AND r.project_id = $1
      WHERE t.result IS NOT NULL
      ORDER BY t.url, t.created_at DESC`,
     [projectId]
@@ -135,7 +136,7 @@ async function citedPagePatterns(projectId) {
   const universe = (
     await one(
       `SELECT COUNT(DISTINCT c.url)::int AS n
-       FROM citations c JOIN runs r ON r.id = c.run_id
+       FROM citations c JOIN reporting_runs r ON r.id = c.run_id
        WHERE r.project_id = $1 AND c.url IS NOT NULL`,
       [projectId]
     )
@@ -293,7 +294,7 @@ async function trend(projectId, period = {}) {
             COUNT(*) FILTER (WHERE m.mentioned)::int AS named_count,
             COUNT(DISTINCT r.prompt_id)::int AS questions,
             COUNT(*)::int AS answers
-     FROM runs r
+     FROM reporting_runs r
      JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
      WHERE r.project_id = $1 AND r.ok
@@ -307,13 +308,13 @@ async function trend(projectId, period = {}) {
   // in rate means something changed in the world rather than in our setup.
   const stable = await many(
     `WITH cycles AS (
-           SELECT DISTINCT cycle_date FROM runs
+           SELECT DISTINCT cycle_date FROM reporting_runs
            WHERE project_id = $1 AND ok
              AND ($2::date IS NULL OR cycle_date >= $2)
              AND ($3::date IS NULL OR cycle_date <= $3)
          ),
          everywhere AS (
-           SELECT r.prompt_id, r.engine FROM runs r
+           SELECT r.prompt_id, r.engine FROM reporting_runs r
            WHERE r.project_id = $1 AND r.ok
              AND ($2::date IS NULL OR r.cycle_date >= $2)
              AND ($3::date IS NULL OR r.cycle_date <= $3)
@@ -324,7 +325,7 @@ async function trend(projectId, period = {}) {
             COUNT(*) FILTER (WHERE m.mentioned)::float / NULLIF(COUNT(*), 0) AS rate,
             COUNT(DISTINCT r.prompt_id)::int AS questions,
             COUNT(*)::int AS answers
-     FROM runs r
+     FROM reporting_runs r
      JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
      WHERE r.project_id = $1 AND r.ok AND (r.prompt_id, r.engine) IN (SELECT prompt_id, engine FROM everywhere)
@@ -334,7 +335,7 @@ async function trend(projectId, period = {}) {
     [projectId, period.from, period.to]
   );
 
-  return { all, stable };
+  return { all, stable: await comparableSettings(projectId, period) ? stable : [] };
 }
 
 /**
@@ -348,8 +349,8 @@ async function trend(projectId, period = {}) {
 async function byPersona(projectId, period = {}) {
   const cycle = (
     await one(
-      `SELECT MAX(cycle_date) AS d FROM runs
-       WHERE project_id = $1 AND ok
+      `SELECT MAX(cycle_date) AS d FROM reporting_runs
+       WHERE project_id = $1
          AND ($2::date IS NULL OR cycle_date >= $2)
          AND ($3::date IS NULL OR cycle_date <= $3)`,
       [projectId, period?.from ?? null, period?.to ?? null]
@@ -365,7 +366,7 @@ async function byPersona(projectId, period = {}) {
             COUNT(*) FILTER (WHERE m.mentioned)::int AS named,
             COUNT(*)::int AS answers,
             AVG(m.ordinal) FILTER (WHERE m.mentioned)::float AS avg_position
-     FROM runs r
+     FROM reporting_runs r
      JOIN prompts p ON p.id = r.prompt_id
      LEFT JOIN personas pe ON pe.id = p.persona_id
      JOIN mentions m ON m.run_id = r.id
@@ -500,7 +501,7 @@ async function aiTraffic(projectId) {
  * the first question anyone asks, which is whether this is bad or normal.
  */
 async function rivals(projectId, period = {}) {
-  const day = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok AND ($2::date IS NULL OR cycle_date >= $2) AND ($3::date IS NULL OR cycle_date <= $3)', [projectId, period.from ?? null, period.to ?? null]))?.d;
+  const day = (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1 AND ($2::date IS NULL OR cycle_date >= $2) AND ($3::date IS NULL OR cycle_date <= $3)', [projectId, period.from ?? null, period.to ?? null]))?.d;
   if (!day) return [];
 
   return many(
@@ -508,7 +509,7 @@ async function rivals(projectId, period = {}) {
             COUNT(*) FILTER (WHERE m.mentioned)::float / NULLIF(COUNT(*), 0) AS rate,
             COUNT(*) FILTER (WHERE m.mentioned)::int AS named, COUNT(*)::int AS answers
      FROM mentions m
-     JOIN runs r ON r.id = m.run_id
+     JOIN reporting_runs r ON r.id = m.run_id
      JOIN entities e ON e.id = m.entity_id
      WHERE r.project_id = $1 AND r.cycle_date = $2 AND r.ok
      GROUP BY e.id, e.name, e.kind

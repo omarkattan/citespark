@@ -390,7 +390,7 @@ export async function teardownTopCited(projectId, { limit = 5, cycle = null } = 
   if (!project) throw new Error('Project not found');
 
   const day =
-    cycle || (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [projectId]))?.d;
+    cycle || (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [projectId]))?.d;
   if (!day) return { torn: 0, pages: [], reason: 'Nothing measured yet.' };
 
   const own = String(project.domain || '').replace(/^www\./, '').toLowerCase();
@@ -404,7 +404,7 @@ export async function teardownTopCited(projectId, { limit = 5, cycle = null } = 
             COUNT(*)::int AS citations,
             (ARRAY_AGG(p.text ORDER BY c.position))[1] AS question
      FROM citations c
-     JOIN runs r ON r.id = c.run_id
+     JOIN reporting_runs r ON r.id = c.run_id
      JOIN prompts p ON p.id = r.prompt_id
      WHERE r.project_id = $1 AND r.cycle_date = $2 AND c.url IS NOT NULL
        AND lower(regexp_replace(c.domain, '^www\\.', '')) <> $3

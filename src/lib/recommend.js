@@ -1,3 +1,4 @@
+import { comparableSettings } from './measurement-batches.js';
 import { many, query } from '../db/index.js';
 import { classifySource } from './teardown.js';
 
@@ -87,17 +88,17 @@ export async function buildRecommendations(projectId) {
   if (!project) return [];
 
   const latest = await many(
-    'SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok',
+    'SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1',
     [projectId]
   );
   const cycle = latest[0]?.d;
   if (!cycle) return [];
 
   const prior = await many(
-    'SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok AND cycle_date < $2',
+    'SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1 AND cycle_date < $2',
     [projectId, cycle]
   );
-  const priorCycle = prior[0]?.d || null;
+  const priorCycle = await comparableSettings(projectId) ? prior[0]?.d || null : null;
 
   const stats = await many(
     `SELECT p.id AS prompt_id, p.text, p.cluster, p.ai_search_volume,
@@ -108,7 +109,7 @@ export async function buildRecommendations(projectId) {
             SUM(CASE WHEN m.sentiment = 'negative' THEN 1 ELSE 0 END)::int AS negatives,
             (ARRAY_AGG(m.snippet) FILTER (WHERE m.snippet IS NOT NULL))[1] AS snippet,
             (ARRAY_AGG(r.id))[1]::int AS sample_run
-     FROM runs r
+     FROM reporting_runs r
      JOIN prompts p ON p.id = r.prompt_id
      JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id
@@ -121,7 +122,7 @@ export async function buildRecommendations(projectId) {
   const perPrompt = await many(
     `SELECT r.prompt_id, c.domain, MIN(c.url) AS url, COUNT(*)::int AS n
      FROM citations c
-     JOIN runs r ON r.id = c.run_id
+     JOIN reporting_runs r ON r.id = c.run_id
      WHERE r.project_id = $1 AND r.cycle_date = $2
      GROUP BY r.prompt_id, c.domain
      ORDER BY n DESC`,
@@ -150,7 +151,7 @@ export async function buildRecommendations(projectId) {
               MIN(c.position)::int AS best_position,
               (ARRAY_AGG(c.url ORDER BY c.position))[1] AS url
        FROM citations c
-       JOIN runs r ON r.id = c.run_id
+       JOIN reporting_runs r ON r.id = c.run_id
        JOIN prompts p ON p.id = r.prompt_id
        WHERE r.project_id = $1 AND r.cycle_date = $2
        GROUP BY c.domain, r.prompt_id, p.text
@@ -173,7 +174,7 @@ export async function buildRecommendations(projectId) {
   const ownCited = await many(
     `SELECT r.prompt_id, COUNT(*)::int AS n
      FROM citations c
-     JOIN runs r ON r.id = c.run_id
+     JOIN reporting_runs r ON r.id = c.run_id
      WHERE r.project_id = $1 AND r.cycle_date = $2 AND c.domain = $3
      GROUP BY r.prompt_id`,
     [projectId, cycle, project.domain.replace(/^www\./, '')]
@@ -185,7 +186,7 @@ export async function buildRecommendations(projectId) {
     const rows = await many(
       `SELECT r.prompt_id,
               SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
-       FROM runs r
+       FROM reporting_runs r
        JOIN mentions m ON m.run_id = r.id
        JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
        WHERE r.project_id = $1 AND r.cycle_date = $2 AND r.ok
@@ -197,7 +198,7 @@ export async function buildRecommendations(projectId) {
 
   const fanOutRows = await many(
     `SELECT r.prompt_id, q AS query, COUNT(*)::int AS n
-     FROM runs r, UNNEST(r.fan_out_queries) AS q
+     FROM reporting_runs r, UNNEST(r.fan_out_queries) AS q
      WHERE r.project_id = $1 AND r.cycle_date = $2 AND r.ok
      GROUP BY r.prompt_id, q
      ORDER BY n DESC`,
@@ -215,7 +216,7 @@ export async function buildRecommendations(projectId) {
   const citationRows = await many(
     `SELECT r.prompt_id, c.domain, MIN(c.url) AS url, MIN(c.position)::int AS position, COUNT(*)::int AS n
      FROM citations c
-     JOIN runs r ON r.id = c.run_id
+     JOIN reporting_runs r ON r.id = c.run_id
      WHERE r.project_id = $1 AND r.cycle_date = $2 AND r.ok
      GROUP BY r.prompt_id, c.domain
      ORDER BY MIN(c.position)`,

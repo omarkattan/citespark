@@ -1487,7 +1487,7 @@ await test('a question that has not run yet is still listed', async () => {
 
   // This joined on runs, so a question added since the last cycle was simply
   // absent: someone adds five for a buyer type, opens the tab, finds nothing.
-  assert.ok(/LEFT JOIN runs/.test(block), 'questions must not be dropped for having no runs');
+  assert.ok(/LEFT JOIN reporting_runs/.test(block), 'questions must not be dropped for having no runs');
   assert.ok(/if \(row\.run_id\)/.test(block), 'and an empty run row must not be counted as a run');
 
   // Never asked is not the same as asked and not named. A rate of zero would
@@ -3218,7 +3218,7 @@ await test('a partial run joins the last cycle rather than starting one', async 
   // where the one before covered sixty, which reads as a collapse or a spike
   // that never happened.
   assert.ok(/only === 'unrun' && latest/.test(fn), 'a partial run must reuse the latest cycle date');
-  assert.ok(/NOT EXISTS \(SELECT 1 FROM runs/.test(fn), 'and select only questions with no answers');
+  assert.ok(/NOT EXISTS \(SELECT 1 FROM reporting_runs/.test(fn), 'and select only questions with no answers');
 });
 
 await test('a partial run with nothing to do says so', async () => {
@@ -3327,14 +3327,14 @@ await test('an action says what it is, in words, and does not look pressable', a
 await test('a sound answer is kept, a broken one is replaced', async () => {
   const { readFileSync } = await import('node:fs');
   const job = readFileSync(new URL('../src/jobs/runCycle.js', import.meta.url), 'utf8');
-  const fn = job.slice(job.indexOf('export async function reaskPrompt'));
+  const fn = job.slice(job.indexOf('async function collectRetry'));
 
   // Two things could be true when a stored answer disagrees with a manual
   // check: the measurement was broken, or the engine genuinely varies. Those
   // want different treatment.
   assert.ok(/possibleTruncation/.test(fn), 'a possible truncation must be identified without deleting successful evidence');
   assert.ok(/retrySamples\(existing\)/.test(fn), 'successful answers are retained even when the heuristic flags them');
-  assert.ok(/DELETE FROM runs WHERE id = ANY/.test(fn), 'and a failed measurement replaced');
+  assert.ok(/DELETE FROM measurement_members WHERE measurement_id/.test(fn), 'a failed sample is excluded only from the new snapshot');
 
   // A completed answer that simply did not name the brand is evidence.
   // Deleting it because someone dislikes the result would be dishonest.
@@ -3714,7 +3714,7 @@ await test('the trend headline is read off a fixed question set', async () => {
 
   // A move inside sampling noise is not a finding.
   assert.ok(/no measurable change/.test(app), 'a move inside the margin must be named as such');
-  assert.ok(/some of this movement is the measurement/.test(app),
+  assert.ok(/No comparable movement claim/.test(app),
     'and when no cohort survives, that has to be admitted rather than hidden');
 });
 

@@ -1,3 +1,4 @@
+import { lockMeasurements, measurementSettings, startMeasurement, finishMeasurement, comparableSettings, inheritMeasurement } from '../lib/measurement-batches.js';
 import { retrySamples, collectionLimit, possibleTruncation } from '../lib/answer-quality.js';
 import 'dotenv/config';
 import { many, one, query, pool } from '../db/index.js';
@@ -19,7 +20,7 @@ function enginesFor(project) {
 }
 const CONCURRENCY = Number(process.env.CONCURRENCY || 4);
 
-async function pooled(items, worker, limit = CONCURRENCY) {
+async function pooled(items, worker, limit = CONCURRENCY, onError = () => {}) {
   const queue = [...items];
   const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
     while (queue.length) {
@@ -27,6 +28,7 @@ async function pooled(items, worker, limit = CONCURRENCY) {
       try {
         await worker(item);
       } catch (err) {
+        onError(err);
         console.error('task failed:', err.message);
       }
     }
@@ -45,11 +47,21 @@ async function pooled(items, worker, limit = CONCURRENCY) {
  * where the one before it covered sixty, and that shows up as a collapse or
  * a spike that never happened.
  */
-export async function runCycleForProject(projectId, { cycleDate, onProgress, only = null, force = false } = {}) {
+export async function runCycleForProject(projectId, options = {}) {
+  const release = await lockMeasurements(projectId);
+  let batch;
+  try {
+    return await collectProject(projectId, options, value => { batch = value; });
+  } catch (err) {
+    if (batch) await finishMeasurement(batch.id, 'failed');
+    throw err;
+  } finally { await release(); }
+}
+async function collectProject(projectId, { cycleDate, onProgress, only = null, force = false } = {}, registerBatch) {
   const project = await one('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!project) throw new Error(`No project ${projectId}`);
 
-  const latest = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [projectId]))?.d;
+  const latest = (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [projectId]))?.d;
 
   const cycle =
     cycleDate ||
@@ -62,7 +74,7 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
       ? await many(
           `SELECT p.* FROM prompts p
            WHERE p.project_id = $1 AND p.active
-             AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.prompt_id = p.id AND r.ok)
+             AND NOT EXISTS (SELECT 1 FROM reporting_runs r WHERE r.prompt_id = p.id AND r.ok)
            ORDER BY p.id`,
           [projectId]
         )
@@ -92,9 +104,9 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
    */
   const priorCycle = await one(
     `SELECT COUNT(DISTINCT r.prompt_id)::int AS questions, MAX(r.run_index) + 1 AS runs
-     FROM runs r
+     FROM reporting_runs r
      WHERE r.project_id = $1 AND r.ok
-       AND r.cycle_date = (SELECT MAX(cycle_date) FROM runs WHERE project_id = $1 AND ok)`,
+       AND r.cycle_date = (SELECT MAX(cycle_date) FROM reporting_runs WHERE project_id = $1)`,
     [projectId]
   );
 
@@ -150,9 +162,9 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
   const CAP = Number(process.env.MAX_CYCLE_COST_USD || 15);
   const priced = await many(
     `SELECT engine, AVG(cost_usd)::float AS per
-     FROM runs
+     FROM reporting_runs
      WHERE project_id = $1 AND cost_usd > 0
-       AND cycle_date = (SELECT MAX(cycle_date) FROM runs WHERE project_id = $1 AND cost_usd > 0)
+       AND cycle_date = (SELECT MAX(cycle_date) FROM reporting_runs WHERE project_id = $1 AND cost_usd > 0)
      GROUP BY engine`,
     [projectId]
   );
@@ -274,10 +286,17 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
     }
   }
 
+  const ceiling = Number(process.env.MAX_OUTPUT_TOKENS || 2000);
+  const batch = await startMeasurement(projectId, cycle,
+    measurementSettings(project, chosenModel, budget.engines, budget.runs, ceiling, entities));
+  registerBatch(batch);
+  if (only) await inheritMeasurement(batch, batch.settings);
+  let persistenceErrors = 0;
+
   const priorModels = await many(
-    `SELECT engine, MAX(model) AS model FROM runs
+    `SELECT engine, MAX(model) AS model FROM reporting_runs
      WHERE project_id = $1 AND ok
-       AND cycle_date = (SELECT MAX(cycle_date) FROM runs WHERE project_id = $1 AND ok)
+       AND cycle_date = (SELECT MAX(cycle_date) FROM reporting_runs WHERE project_id = $1)
      GROUP BY engine`,
     [projectId]
   );
@@ -341,8 +360,8 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
     }
 
     const run = await one(
-      `INSERT INTO runs (prompt_id, project_id, engine, model, cycle_date, run_index, response_text, ok, error, cost_usd, fan_out_queries, max_output_tokens, no_overview)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+      `INSERT INTO runs (prompt_id, project_id, engine, model, cycle_date, run_index, response_text, ok, error, cost_usd, fan_out_queries, max_output_tokens, no_overview, measurement_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
       [
         prompt.id,
         projectId,
@@ -356,7 +375,8 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
         answer.costUsd || 0,
         answer.fanOut || [],
         collectionLimit(engine, Number(process.env.MAX_OUTPUT_TOKENS || 2000)),
-        Boolean(answer.noOverview)
+        Boolean(answer.noOverview),
+        batch.id
       ]
     );
 
@@ -420,9 +440,13 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
     asking.named = results.some((r) => r.mentioned && ownedIds.has(r.entity_id));
     report({ phase: 'asking' });
     if (done % 20 === 0) console.log(`  ${done}/${jobs.length} runs complete`);
-  });
+  }, CONCURRENCY, () => { persistenceErrors++; });
 
   await recordUsage(project.org_id, billable, spend);
+  if (persistenceErrors) throw new Error('Some answers could not be saved. The prior completed measurement remains visible.');
+  if (!done) throw new Error('No answer records completed. The prior measurement remains visible.');
+  await finishMeasurement(batch.id, 'completed');
+  registerBatch(null);
   report({ phase: 'thinking' });
 
   /**
@@ -512,6 +536,8 @@ export async function runCycleForProject(projectId, { cycleDate, onProgress, onl
     runs: done, spend, recs, trimmed: budget.trimmed, estimated: budget.estimateUsd,
     attempted: jobs.length, billable, failed
   });
+  summary.measurementId = batch.id;
+  if (!(await comparableSettings(projectId))) { summary.change = null; summary.delta = null; }
   console.log(
     `Done. ${done}/${jobs.length} usable runs (${billable} billed), $${spend.toFixed(4)} spent, ${recs.length} recommendations.`
   );
@@ -528,7 +554,7 @@ async function summarise(projectId, cycle, { runs, spend, recs, trimmed, estimat
     if (!cycleDate) return { rate: null, answers: 0 };
     const row = await one(
       `SELECT COUNT(*)::int AS answers, SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS r
-       FROM runs cr
+       FROM reporting_runs cr
        JOIN mentions m ON m.run_id = cr.id
        JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
        WHERE cr.project_id = $1 AND cr.cycle_date = $2 AND cr.ok`,
@@ -538,7 +564,7 @@ async function summarise(projectId, cycle, { runs, spend, recs, trimmed, estimat
   };
 
   const prev = await one(
-    'SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok AND cycle_date < $2',
+    'SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1 AND cycle_date < $2',
     [projectId, cycle]
   );
 
@@ -548,7 +574,7 @@ async function summarise(projectId, cycle, { runs, spend, recs, trimmed, estimat
 
   const topSources = await many(
     `SELECT c.domain, COUNT(*)::int AS n
-     FROM citations c JOIN runs r ON r.id = c.run_id
+     FROM citations c JOIN reporting_runs r ON r.id = c.run_id
      WHERE r.project_id = $1 AND r.cycle_date = $2
      GROUP BY c.domain ORDER BY n DESC LIMIT 3`,
     [projectId, cycle]
@@ -556,7 +582,7 @@ async function summarise(projectId, cycle, { runs, spend, recs, trimmed, estimat
 
   const rivals = await many(
     `SELECT e.name, SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
-     FROM runs r JOIN mentions m ON m.run_id = r.id
+     FROM reporting_runs r JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id AND e.kind = 'competitor'
      WHERE r.project_id = $1 AND r.cycle_date = $2 AND r.ok
      GROUP BY e.id ORDER BY rate DESC LIMIT 1`,
@@ -625,13 +651,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
  * was broken, or the engine genuinely varies. Those want different treatment,
  * so this distinguishes them rather than quietly overwriting.
  *
- *   A run that was truncated or errored is a failed measurement, not a data
- *   point, and is replaced.
+ *   Failed samples are excluded only from the new snapshot. Successful
+ *   samples remain evidence even when possibly truncated.
  *
  *   A run that completed and simply did not name the brand is evidence. It is
  *   kept, and the new answer is stored alongside it as another sample.
  */
-export async function reaskPrompt(promptId, { engine = null } = {}) {
+async function collectRetry(promptId, { engine = null } = {}, registerBatch) {
   const prompt = await one(
     `SELECT p.*, pr.id AS project_id FROM prompts p JOIN projects pr ON pr.id = p.project_id WHERE p.id = $1`,
     [promptId]
@@ -650,11 +676,18 @@ export async function reaskPrompt(promptId, { engine = null } = {}) {
   if (!engines.length) throw new Error('No engines configured for this site');
 
   const cycle =
-    (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [project.id]))?.d ||
+    (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [project.id]))?.d ||
     new Date().toISOString().slice(0, 10);
   const cycleDay = new Date(cycle).toISOString().slice(0, 10);
 
   const ceiling = Number(process.env.MAX_OUTPUT_TOKENS || 2000);
+  const models = {};
+  for (const eng of configured) if (ENGINE_CFG[eng]?.kind === 'llm') models[eng] = await resolveModel(eng, ENGINE_CFG[eng], project.models?.[eng] || null);
+  const batch = await startMeasurement(project.id, cycleDay,
+    measurementSettings(project, models, configured, project.runs_per_cycle, ceiling, entities));
+  registerBatch(batch);
+  await inheritMeasurement(batch, batch.settings);
+
   const results = [];
   let spend = 0;
 
@@ -662,9 +695,9 @@ export async function reaskPrompt(promptId, { engine = null } = {}) {
     const budget = await budgetForCycle(project.org_id, { questions: 1, engines: [eng], runs: 1 });
     if (!budget.ok || budget.maxCalls < 1) throw new Error(budget.reason || 'No answer checks available');
     const model = ENGINE_CFG[eng]?.kind === 'llm'
-      ? await resolveModel(eng, ENGINE_CFG[eng], project.models?.[eng] || null) : null;
+      ? models[eng] : null;
     const existing = await many(
-      'SELECT id, ok, response_text, run_index FROM runs WHERE prompt_id = $1 AND engine = $2 AND cycle_date = $3 ORDER BY run_index',
+      'SELECT id, ok, response_text, run_index FROM reporting_runs WHERE prompt_id = $1 AND engine = $2 AND cycle_date = $3 ORDER BY run_index',
       [promptId, eng, cycleDay]
     );
 
@@ -689,15 +722,15 @@ export async function reaskPrompt(promptId, { engine = null } = {}) {
     }
 
     if (broken.length) {
-      await query('DELETE FROM runs WHERE id = ANY($1::int[])', [broken.map((r) => r.id)]);
+      await query('DELETE FROM measurement_members WHERE measurement_id=$1 AND run_id=ANY($2::int[])', [batch.id, broken.map((r) => r.id)]);
     }
 
     const runIndex = sound.length ? Math.max(...sound.map((r) => r.run_index)) + 1 : 0;
 
     const run = await one(
-      `INSERT INTO runs (prompt_id, project_id, engine, model, cycle_date, run_index, response_text, ok, cost_usd, error, max_output_tokens, no_overview)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8,$9,$10,$11) RETURNING id`,
-      [promptId, project.id, eng, answer.model || null, cycleDay, runIndex, answer.text, answer.costUsd || 0, answer.error || null, collectionLimit(eng, ceiling), Boolean(answer.noOverview)]
+      `INSERT INTO runs (prompt_id, project_id, engine, model, cycle_date, run_index, response_text, ok, cost_usd, error, max_output_tokens, no_overview, measurement_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8,$9,$10,$11,$12) RETURNING id`,
+      [promptId, project.id, eng, answer.model || null, cycleDay, runIndex, answer.text, answer.costUsd || 0, answer.error || null, collectionLimit(eng, ceiling), Boolean(answer.noOverview), batch.id]
     );
 
     const analysed = await analyseRun({ text: answer.text, entities, useModel: hasAnthropic });
@@ -736,5 +769,16 @@ export async function reaskPrompt(promptId, { engine = null } = {}) {
     });
   }
 
-  return { prompt: prompt.text, cycle: cycleDay, spend: Math.round(spend * 10000) / 10000, results };
+  await finishMeasurement(batch.id, results.some(r => r.ok) ? 'completed' : 'failed');
+  registerBatch(null);
+  return { measurementId: batch.id, prompt: prompt.text, cycle: cycleDay, spend: Math.round(spend * 10000) / 10000, results };
+}
+
+export async function reaskPrompt(promptId, options = {}) {
+ const prompt=await one('SELECT project_id FROM prompts WHERE id=$1',[promptId]);
+ if (!prompt) throw new Error('Question not found');
+ const release=await lockMeasurements(prompt.project_id); let batch;
+ try { return await collectRetry(promptId,options,value=>{batch=value;}); }
+ catch(err) { if(batch) await finishMeasurement(batch.id,'failed'); throw err; }
+ finally { await release(); }
 }

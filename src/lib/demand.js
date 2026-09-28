@@ -79,10 +79,10 @@ export async function demandByCluster(projectId, queries) {
     many(
       `SELECT p.cluster,
               COUNT(DISTINCT p.id)::int AS questions,
-              COUNT(m.run_id) FILTER (WHERE r.cycle_date = (SELECT MAX(cycle_date) FROM runs WHERE project_id = $1 AND ok))::int AS measured,
-              COUNT(*) FILTER (WHERE m.mentioned AND r.cycle_date = (SELECT MAX(cycle_date) FROM runs WHERE project_id = $1 AND ok))::int AS named
+              COUNT(m.run_id) FILTER (WHERE r.cycle_date = (SELECT MAX(cycle_date) FROM reporting_runs WHERE project_id = $1))::int AS measured,
+              COUNT(*) FILTER (WHERE m.mentioned AND r.cycle_date = (SELECT MAX(cycle_date) FROM reporting_runs WHERE project_id = $1))::int AS named
        FROM prompts p
-       LEFT JOIN runs r ON r.prompt_id = p.id AND r.ok
+       LEFT JOIN reporting_runs r ON r.prompt_id = p.id AND r.ok
        LEFT JOIN mentions m ON m.run_id = r.id AND m.entity_id =
          (SELECT id FROM entities WHERE project_id = $1 AND kind = 'owned' ORDER BY id LIMIT 1)
        WHERE p.project_id = $1 AND p.active

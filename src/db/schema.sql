@@ -633,3 +633,39 @@ ALTER TABLE prompts ALTER COLUMN ai_search_volume DROP NOT NULL;
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS max_output_tokens INTEGER;
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS no_overview BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS quality_review JSONB;
+
+-- Batch 29: preserve collection identity separately from the calendar day.
+CREATE TABLE IF NOT EXISTS measurement_batches (
+ id BIGSERIAL PRIMARY KEY,
+ project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ cycle_date DATE NOT NULL,
+ status TEXT NOT NULL CHECK (status IN ('running','completed','failed')),
+ legacy BOOLEAN NOT NULL DEFAULT false,
+ started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ completed_at TIMESTAMPTZ,
+ settings JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE UNIQUE INDEX IF NOT EXISTS measurement_legacy_day ON measurement_batches(project_id,cycle_date) WHERE legacy;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS measurement_id BIGINT REFERENCES measurement_batches(id);
+CREATE INDEX IF NOT EXISTS runs_measurement ON runs(measurement_id);
+INSERT INTO measurement_batches(project_id,cycle_date,status,legacy,started_at,completed_at,settings)
+ SELECT project_id,cycle_date,'completed',true,MIN(created_at),MAX(created_at),
+ '{"provenance":"Legacy daily group. Separate collection boundaries and historical settings are unknown."}'::jsonb
+ FROM runs WHERE measurement_id IS NULL GROUP BY project_id,cycle_date
+ ON CONFLICT (project_id,cycle_date) WHERE legacy DO NOTHING;
+UPDATE runs r SET measurement_id=b.id FROM measurement_batches b
+ WHERE r.measurement_id IS NULL AND b.legacy AND b.project_id=r.project_id AND b.cycle_date=r.cycle_date;
+CREATE OR REPLACE VIEW published_measurements AS
+ SELECT DISTINCT ON (project_id,cycle_date) * FROM measurement_batches
+ WHERE status='completed' ORDER BY project_id,cycle_date,completed_at DESC,id DESC;
+CREATE TABLE IF NOT EXISTS measurement_members (
+ measurement_id BIGINT NOT NULL REFERENCES measurement_batches(id) ON DELETE CASCADE,
+ run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+ PRIMARY KEY (measurement_id,run_id)
+);
+CREATE OR REPLACE VIEW measurement_answers AS
+ SELECT measurement_id,id AS run_id FROM runs WHERE measurement_id IS NOT NULL
+ UNION SELECT measurement_id,run_id FROM measurement_members;
+CREATE OR REPLACE VIEW reporting_runs AS
+ SELECT r.* FROM runs r JOIN measurement_answers a ON a.run_id=r.id
+ JOIN published_measurements b ON b.id=a.measurement_id;

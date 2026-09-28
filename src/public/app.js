@@ -346,7 +346,7 @@ async function viewOverview() {
     </section>
     <details class="panel fold overview-measurement"><summary>Plan the next measurement</summary><p>${esc(next)}</p><p class="hint">Paused questions are excluded. Running again uses answer checks.</p><button class="ghost" data-open-view="questions">Review questions</button> <button class="ghost" data-start-first-cycle>Review cost and run</button></details>
     <div class="overview-footer"><button class="ghost" data-open-view="assigned">See assigned work</button>
-      <a class="ghost" href="/api/projects/${state.projectId}/report?print=1" target="_blank" rel="noopener">Open client report</a>
+      <a class="ghost" href="/api/projects/${state.projectId}/report?print=1" target="_blank" rel="noopener">Open client report</a> <a class="ghost" href="/api/projects/${state.projectId}/measurements" target="_blank" rel="noopener">Measurement archive</a>
       <span class="hint">Choose report dates in Opportunities.</span></div>`;
 }
 
@@ -5671,8 +5671,8 @@ async function viewTrends() {
   const cohort = (h.comparable || []).filter((c) => c.rate !== null);
   const cohortFirst = cohort[0];
   const cohortLast = cohort[cohort.length - 1];
-  const comparable = cohort.length >= 2 && cohortLast.runs >= 30;
-  const change = comparable ? cohortLast.rate - cohortFirst.rate : last.rate - first.rate;
+  const comparable = h.settingsComparable !== false && cohort.length >= 2 && cohortLast.runs >= 30;
+  const change = comparable ? cohortLast.rate - cohortFirst.rate : null;
 
   /**
    * Two standard errors on the later cycle. A move inside that is sampling
@@ -5681,14 +5681,14 @@ async function viewTrends() {
   const noise = comparable
     ? 2 * Math.sqrt((cohortLast.rate * (1 - cohortLast.rate)) / cohortLast.runs)
     : null;
-  const settled = noise === null || Math.abs(change) > noise;
+  const settled = change !== null && (noise === null || Math.abs(change) > noise);
 
   const basis = comparable
     ? `Measured on the ${cohortLast.runs} answers to questions asked in all ${h.cycles.length} cycles.` +
       (settled
         ? ''
         : ` That is inside the ${Math.round(noise * 100)} point margin at this sample size, so treat it as no measurable change.`)
-    : `Measured on every question in each cycle. The question set changed between cycles, so some of this movement is the measurement rather than your visibility.`;
+    : `No comparable movement claim. Settings are changed or unknown, or a sufficiently measured common cohort is unavailable. Daily charts use the latest completed measurement per day.`;
 
   /* headline: you against your competitors */
   const byName = new Map();
@@ -5733,7 +5733,7 @@ async function viewTrends() {
          fewer than ${h.moversMinRuns} times in one of the two cycles. Asked once, a question is either named or not,
          so a single answer flipping looks like a total collapse. Raise runs per question in Settings to tell a real
          change from ordinary variation.</p>`
-      : '<p class="hint">No question changed between the last two cycles.</p>';
+      : '<p class="hint">No supported question-level movement to report.</p>';
 
   const totalSpend = h.spend.reduce((n, s) => n + Number(s.cost), 0);
 
@@ -5741,7 +5741,7 @@ async function viewTrends() {
   <div class="figures">
     <div class="figure">
       <div class="label">Since ${esc(shortDate(first.date))}${comparable ? ', like for like' : ''}</div>
-      <div class="value ${!settled ? 'dim' : change > 0 ? 'up' : change < 0 ? 'down' : 'dim'}">${change > 0 ? '+' : ''}${Math.round(change * 100)}<span style="font-size:16px"> pts</span></div>
+      <div class="value ${!settled ? 'dim' : change > 0 ? 'up' : change < 0 ? 'down' : 'dim'}">${change === null ? 'Not comparable' : `${change > 0 ? '+' : ''}${Math.round(change * 100)}<span style="font-size:16px"> pts</span>`}</div>
       <div class="sub">was ${Math.round((comparable ? cohortFirst.rate : first.rate) * 100)}%</div>
     </div>
     <div class="figure">

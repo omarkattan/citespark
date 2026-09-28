@@ -35,6 +35,7 @@ test('SQL isolates selected dates and project, de-duplicates citations, includes
  INSERT INTO projects VALUES(1,'example.com'),(2,'other.com');INSERT INTO prompts VALUES(1,'Question','gsc'),(2,'Other','generated');INSERT INTO entities VALUES(1,1,'owned'),(2,2,'owned');
  INSERT INTO runs VALUES(1,1,1,'chatgpt',true,'2026-09-27','Finished.',0,NULL),(2,1,1,'claude',true,'2026-09-27','Finished.',0,NULL),(3,1,1,'gemini',false,'2026-09-27','',0,NULL),(4,1,1,'perplexity',true,'2026-09-27','Finished.',0,NULL),(5,1,1,'chatgpt',true,'2026-09-28','Finished.',0,NULL),(6,2,2,'chatgpt',true,'2026-09-27','Finished.',0,NULL);
  INSERT INTO mentions VALUES(1,1,true),(2,1,false),(5,1,true),(6,2,true);INSERT INTO citations VALUES(2,'example.com'),(2,'www.example.com');`);
+ await db.exec(`CREATE VIEW reporting_runs AS SELECT * FROM runs; CREATE VIEW published_measurements AS SELECT DISTINCT project_id,cycle_date FROM runs;`);
  const e=await reportEvidence(1,{from:'2026-09-27',to:'2026-09-27'},async(s,p)=>(await db.query(s,p)).rows);
  assert.equal(e.totals.measured,2);assert.equal(e.totals.named,1);assert.equal(e.totals.cited,1);assert.equal(e.totals.failed,1);assert.equal(e.totals.unmeasured,1);assert.equal(e.questions.length,1);
  }finally{await db.close();}

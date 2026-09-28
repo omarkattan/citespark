@@ -48,7 +48,7 @@ export function summariseEvidence(rows, { maxTokens = 2000 } = {}) {
 
 export async function reportEvidence(projectId, period, many) {
   const rows = await many(`WITH latest AS (
-    SELECT MAX(cycle_date) AS day FROM runs WHERE project_id=$1 AND ok
+    SELECT MAX(cycle_date) AS day FROM reporting_runs WHERE project_id=$1
       AND ($2::date IS NULL OR cycle_date >= $2) AND ($3::date IS NULL OR cycle_date <= $3)
   )
   SELECT r.id, r.cycle_date, r.prompt_id, r.engine, r.ok, r.response_text, r.error,
@@ -58,10 +58,13 @@ export async function reportEvidence(projectId, period, many) {
          p.text, p.source, m.mentioned,
          EXISTS (SELECT 1 FROM citations c WHERE c.run_id=r.id
            AND lower(regexp_replace(c.domain, '^www\\.', '')) = lower(regexp_replace(pr.domain, '^www\\.', ''))) AS cited
-  FROM runs r JOIN latest l ON r.cycle_date=l.day
+  FROM reporting_runs r JOIN latest l ON r.cycle_date=l.day
   JOIN projects pr ON pr.id=r.project_id JOIN prompts p ON p.id=r.prompt_id
   LEFT JOIN mentions m ON m.run_id=r.id AND m.entity_id=(SELECT id FROM entities WHERE project_id=$1 AND kind='owned' ORDER BY id LIMIT 1)
   WHERE r.project_id=$1 ORDER BY p.id,r.engine,r.run_index`, [projectId, period.from, period.to]);
+  const batches = await many(`SELECT * FROM published_measurements WHERE project_id=$1
+    AND ($2::date IS NULL OR cycle_date >= $2) AND ($3::date IS NULL OR cycle_date <= $3)
+    ORDER BY cycle_date DESC LIMIT 1`,[projectId,period.from,period.to]);
   const result = summariseEvidence(rows, { maxTokens: Number(process.env.MAX_OUTPUT_TOKENS || 2000) });
-  return { ...result, cycle: rows[0]?.cycle_date || null };
+  return { ...result, measurement: batches[0] || null, cycle: rows[0]?.cycle_date || null };
 }

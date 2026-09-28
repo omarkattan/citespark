@@ -1,3 +1,4 @@
+import { comparableSettings } from './lib/measurement-batches.js';
 import { hasAnswerText, measuredQuestionRates, unmeasuredReason, possibleTruncation } from './lib/answer-quality.js';
 import 'dotenv/config';
 import express from 'express';
@@ -345,14 +346,14 @@ app.get('/api/projects/:id/overview', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
 
-  const cycleRow = await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [project.id]);
+  const cycleRow = await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [project.id]);
   const cycle = cycleRow?.d;
-  if (!cycle) return res.json({ project, cycle: null, engines: [], visibility: 0, competitors: [] });
+  if (!cycle) return res.json({ project, cycle: null, engines: [], visibility: null, competitors: [] });
 
   const own = await one(
     `SELECT COUNT(*)::int AS runs, SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::int AS hits,
             AVG(m.ordinal)::float AS avg_ordinal
-     FROM runs r JOIN mentions m ON m.run_id = r.id
+     FROM reporting_runs r JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
      WHERE r.project_id = $1 AND r.cycle_date = $2 AND r.ok`,
     [project.id, cycle]
@@ -360,7 +361,7 @@ app.get('/api/projects/:id/overview', requireAuth, wrap(async (req, res) => {
 
   const engines = await many(
     `SELECT r.engine, COUNT(*)::int AS runs, SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::int AS hits
-     FROM runs r JOIN mentions m ON m.run_id = r.id
+     FROM reporting_runs r JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
      WHERE r.project_id = $1 AND r.cycle_date = $2 AND r.ok
      GROUP BY r.engine ORDER BY r.engine`,
@@ -369,7 +370,7 @@ app.get('/api/projects/:id/overview', requireAuth, wrap(async (req, res) => {
 
   const competitors = await many(
     `SELECT e.name, e.kind, COUNT(*)::int AS runs, SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::int AS hits
-     FROM runs r JOIN mentions m ON m.run_id = r.id JOIN entities e ON e.id = m.entity_id
+     FROM reporting_runs r JOIN mentions m ON m.run_id = r.id JOIN entities e ON e.id = m.entity_id
      WHERE r.project_id = $1 AND r.cycle_date = $2 AND r.ok
      GROUP BY e.id ORDER BY hits DESC`,
     [project.id, cycle]
@@ -377,7 +378,7 @@ app.get('/api/projects/:id/overview', requireAuth, wrap(async (req, res) => {
 
   const history = await many(
     `SELECT r.cycle_date, SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
-     FROM runs r JOIN mentions m ON m.run_id = r.id
+     FROM reporting_runs r JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
      WHERE r.project_id = $1 AND r.ok
      GROUP BY r.cycle_date ORDER BY r.cycle_date`,
@@ -385,19 +386,19 @@ app.get('/api/projects/:id/overview', requireAuth, wrap(async (req, res) => {
   );
 
   const spend = await one(
-    'SELECT COALESCE(SUM(cost_usd),0)::float AS total FROM runs WHERE project_id = $1 AND cycle_date = $2',
+    'SELECT COALESCE(SUM(cost_usd),0)::float AS total FROM reporting_runs WHERE project_id = $1 AND cycle_date = $2',
     [project.id, cycle]
   );
 
   res.json({
     project,
     cycle,
-    visibility: own.runs ? own.hits / own.runs : 0,
+    visibility: own.runs ? own.hits / own.runs : null,
     avgOrdinal: own.avg_ordinal,
     runs: own.runs,
     engines: engines.map((e) => ({ engine: e.engine, rate: e.runs ? e.hits / e.runs : 0, runs: e.runs })),
     competitors: competitors.map((c) => ({ name: c.name, kind: c.kind, rate: c.runs ? c.hits / c.runs : 0 })),
-    history: history.map((h) => ({ date: h.cycle_date, rate: Number(h.rate) })),
+    history: (await comparableSettings(project.id) ? history : []).map((h) => ({ date: h.cycle_date, rate: Number(h.rate) })),
     spend: spend.total
   });
 }));
@@ -406,7 +407,7 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
 
-  const cycleRow = await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [project.id]);
+  const cycleRow = await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [project.id]);
   const cycle = cycleRow?.d;
 
   /**
@@ -419,7 +420,7 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
    */
   const rows = await many(
     `SELECT p.id, p.text, p.cluster, p.intent, p.ai_search_volume, p.active, p.source, p.revises_prompt_id, p.origin_details,
-            EXISTS (SELECT 1 FROM runs history WHERE history.prompt_id = p.id) AS has_history,
+            EXISTS (SELECT 1 FROM reporting_runs history WHERE history.prompt_id = p.id) AS has_history,
             (SELECT id FROM prompts newer WHERE newer.revises_prompt_id = p.id ORDER BY id DESC LIMIT 1) AS replaced_by,
             p.persona_id, pe.name AS persona, pe.descriptor AS persona_descriptor,
             r.id AS run_id, r.engine, r.run_index, m.mentioned, m.ordinal, m.snippet,
@@ -433,7 +434,7 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
             ) AS cited
      FROM prompts p
      LEFT JOIN personas pe ON pe.id = p.persona_id
-     LEFT JOIN runs r ON r.prompt_id = p.id AND r.cycle_date = $2 AND r.ok
+     LEFT JOIN reporting_runs r ON r.prompt_id = p.id AND r.cycle_date = $2 AND r.ok
      LEFT JOIN mentions m ON m.run_id = r.id
        AND m.entity_id = (SELECT id FROM entities
                           WHERE project_id = $1 AND kind = 'owned'
@@ -445,7 +446,7 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
 
   const citations = await many(
     `SELECT r.prompt_id, c.domain, COUNT(*)::int AS n
-     FROM citations c JOIN runs r ON r.id = c.run_id
+     FROM citations c JOIN reporting_runs r ON r.id = c.run_id
      WHERE r.project_id = $1 AND r.cycle_date = $2
      GROUP BY r.prompt_id, c.domain ORDER BY n DESC`,
     [project.id, cycle]
@@ -453,7 +454,7 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
 
   const fanOut = await many(
     `SELECT r.prompt_id, q AS query, COUNT(*)::int AS n
-     FROM runs r, UNNEST(r.fan_out_queries) AS q
+     FROM reporting_runs r, UNNEST(r.fan_out_queries) AS q
      WHERE r.project_id = $1 AND r.cycle_date = $2 AND r.ok
      GROUP BY r.prompt_id, q ORDER BY n DESC`,
     [project.id, cycle]
@@ -517,12 +518,13 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
 
+  const settingsComparable = await comparableSettings(project.id);
   const cycles = await many(
     `SELECT r.cycle_date AS date,
             COUNT(*)::int AS runs,
             SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate,
             AVG(m.ordinal)::float AS avg_ordinal
-     FROM runs r
+     FROM reporting_runs r
      JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
      WHERE r.project_id = $1 AND r.ok
@@ -548,14 +550,14 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
   const comparable = await many(
     `WITH pairs AS (
        SELECT r.prompt_id, r.engine, COUNT(DISTINCT r.cycle_date)::int AS seen
-       FROM runs r WHERE r.project_id = $1 AND r.ok
+       FROM reporting_runs r WHERE r.project_id = $1 AND r.ok
        GROUP BY r.prompt_id, r.engine
      ),
-     total AS (SELECT COUNT(DISTINCT cycle_date)::int AS n FROM runs WHERE project_id = $1 AND ok)
+     total AS (SELECT COUNT(DISTINCT cycle_date)::int AS n FROM reporting_runs WHERE project_id = $1 AND ok)
      SELECT r.cycle_date AS date,
             COUNT(*)::int AS runs,
             SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
-     FROM runs r
+     FROM reporting_runs r
      JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
      JOIN pairs p ON p.prompt_id = r.prompt_id AND p.engine = r.engine
@@ -574,7 +576,7 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
   const byEngine = await many(
     `SELECT r.cycle_date AS date, r.engine,
             SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
-     FROM runs r
+     FROM reporting_runs r
      JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
      WHERE r.project_id = $1 AND r.ok
@@ -586,7 +588,7 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
   const byEntity = await many(
     `SELECT r.cycle_date AS date, e.name, e.kind,
             SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
-     FROM runs r
+     FROM reporting_runs r
      JOIN mentions m ON m.run_id = r.id
      JOIN entities e ON e.id = m.entity_id
      WHERE r.project_id = $1 AND r.ok
@@ -610,7 +612,7 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
   const MIN_MOVER_RUNS = 3;
   let movers = [];
   let moversHeldBack = 0;
-  if (cycles.length >= 2) {
+  if (cycles.length >= 2 && settingsComparable) {
     const latest = cycles[cycles.length - 1].date;
     const prior = cycles[cycles.length - 2].date;
     movers = await many(
@@ -630,7 +632,7 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
          SELECT p.id, p.text, r.cycle_date,
                 COUNT(*)::int AS runs,
                 SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
-         FROM runs r
+         FROM reporting_runs r
          JOIN prompts p ON p.id = r.prompt_id
          JOIN mentions m ON m.run_id = r.id
          JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
@@ -655,7 +657,7 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
       `WITH per AS (
          SELECT p.id, r.cycle_date, COUNT(*)::int AS runs,
                 SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS rate
-         FROM runs r
+         FROM reporting_runs r
          JOIN prompts p ON p.id = r.prompt_id
          JOIN mentions m ON m.run_id = r.id
          JOIN entities e ON e.id = m.entity_id AND e.kind = 'owned'
@@ -674,7 +676,9 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
   res.json({
     project: { name: project.name, brand_name: project.brand_name },
     cycles: cycles.map((c) => ({ ...c, rate: Number(c.rate), avg_ordinal: c.avg_ordinal })),
-    comparable: comparable.map((c) => ({ ...c, rate: Number(c.rate) })),
+    settingsComparable,
+    measurementBasis: 'Daily charts use the latest completed measurement per day. Changed or unknown settings prevent a like-for-like comparison.',
+    comparable: (settingsComparable ? comparable : []).map((c) => ({ ...c, rate: Number(c.rate) })),
     notes,
     byEngine: byEngine.map((r) => ({ ...r, rate: Number(r.rate) })),
     byEntity: byEntity.map((r) => ({ ...r, rate: Number(r.rate) })),
@@ -918,11 +922,11 @@ app.patch('/api/recommendations/:recId', requireAuth, wrap(async (req, res) => {
 app.get('/api/projects/:id/sources', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
-  const cycleRow = await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [project.id]);
+  const cycleRow = await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [project.id]);
   if (!cycleRow?.d) return res.json([]);
   const rows = await many(
     `SELECT c.domain, COUNT(*)::int AS citations, COUNT(DISTINCT r.prompt_id)::int AS prompts
-     FROM citations c JOIN runs r ON r.id = c.run_id
+     FROM citations c JOIN reporting_runs r ON r.id = c.run_id
      WHERE r.project_id = $1 AND r.cycle_date = $2
      GROUP BY c.domain ORDER BY citations DESC LIMIT 20`,
     [project.id, cycleRow.d]
@@ -1692,7 +1696,7 @@ app.get('/api/projects/:id/run-scope', requireAuth, wrap(async (req, res) => {
     await one(
       `SELECT COUNT(*)::int AS n FROM prompts p
        WHERE p.project_id = $1 AND p.active
-         AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.prompt_id = p.id AND r.ok)`,
+         AND NOT EXISTS (SELECT 1 FROM reporting_runs r WHERE r.prompt_id = p.id AND r.ok)`,
       [project.id]
     )
   ).n;
@@ -1700,7 +1704,7 @@ app.get('/api/projects/:id/run-scope', requireAuth, wrap(async (req, res) => {
   const engineList = project.engines || [];
   const engines = engineList.length || 1;
   const runs = project.runs_per_cycle || 1;
-  const latest = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [project.id]))?.d;
+  const latest = (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [project.id]))?.d;
 
   /**
    * Price both options with the same arithmetic the cycle's cost cap will
@@ -1710,15 +1714,15 @@ app.get('/api/projects/:id/run-scope', requireAuth, wrap(async (req, res) => {
    * would make the refusal look like a malfunction.
    */
   const priced = await many(
-    `SELECT engine, AVG(cost_usd)::float AS per FROM runs
+    `SELECT engine, AVG(cost_usd)::float AS per FROM reporting_runs
      WHERE project_id = $1 AND cost_usd > 0
-       AND cycle_date = (SELECT MAX(cycle_date) FROM runs WHERE project_id = $1 AND cost_usd > 0)
+       AND cycle_date = (SELECT MAX(cycle_date) FROM reporting_runs WHERE project_id = $1 AND cost_usd > 0)
      GROUP BY engine`, [project.id]);
   const perCall = new Map(priced.map((r) => [r.engine, r.per]));
   const chosen = project.models || {};
   if (Object.keys(chosen).length) {
     const mp = await many(
-      `SELECT engine, model, AVG(cost_usd)::float AS per FROM runs
+      `SELECT engine, model, AVG(cost_usd)::float AS per FROM reporting_runs
        WHERE cost_usd > 0 AND model IS NOT NULL
        GROUP BY engine, model HAVING COUNT(*) >= 5`, []);
     for (const [eng, want] of Object.entries(chosen)) {
@@ -1750,7 +1754,7 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
   const active = await one(
     only === 'unrun'
       ? `SELECT COUNT(*)::int AS n FROM prompts p WHERE p.project_id = $1 AND p.active
-         AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.prompt_id = p.id AND r.ok)`
+         AND NOT EXISTS (SELECT 1 FROM reporting_runs r WHERE r.prompt_id = p.id AND r.ok)`
       : 'SELECT COUNT(*)::int AS n FROM prompts WHERE project_id = $1 AND active',
     [project.id]
   );
@@ -1867,7 +1871,7 @@ app.get('/api/prompts/:promptId/answers', requireAuth, wrap(async (req, res) => 
   );
   if (!prompt) return res.status(404).json({ error: 'Not found' });
 
-  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE prompt_id = $1 AND ok', [prompt.id]))?.d;
+  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE prompt_id = $1', [prompt.id]))?.d;
   if (!cycle) return res.json({ prompt: prompt.text, runs: [] });
 
   /**
@@ -1889,7 +1893,7 @@ app.get('/api/prompts/:promptId/answers', requireAuth, wrap(async (req, res) => 
             m.mentioned, m.ordinal, e.name AS brand,
             ROW_NUMBER() OVER (PARTITION BY r.engine ORDER BY r.run_index, r.id)::int AS sample,
             COUNT(*) OVER (PARTITION BY r.engine)::int AS samples
-     FROM runs r
+     FROM reporting_runs r
      LEFT JOIN mentions m ON m.run_id = r.id
        AND m.entity_id = (SELECT id FROM entities
                           WHERE project_id = $3 AND kind = 'owned'
@@ -1971,7 +1975,7 @@ app.get('/api/projects/:id/spend', requireAuth, wrap(async (req, res) => {
   if (!project) return res.status(404).json({ error: 'Not found' });
 
   const owned = await one("SELECT id FROM entities WHERE project_id = $1 AND kind = 'owned' ORDER BY id LIMIT 1", [project.id]);
-  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1', [project.id]))?.d;
+  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [project.id]))?.d;
 
   const byEngine = cycle ? await many(
     `SELECT r.engine,
@@ -1979,7 +1983,7 @@ app.get('/api/projects/:id/spend', requireAuth, wrap(async (req, res) => {
             COALESCE(SUM(r.cost_usd),0)::float AS spend,
             COUNT(*) FILTER (WHERE m.mentioned)::int AS named,
             COUNT(m.run_id)::int AS measured
-     FROM runs r
+     FROM reporting_runs r
      LEFT JOIN mentions m ON m.run_id = r.id AND m.entity_id = $2
      WHERE r.project_id = $1 AND r.cycle_date = $3
      GROUP BY r.engine ORDER BY spend DESC`,
@@ -1995,7 +1999,7 @@ app.get('/api/projects/:id/spend', requireAuth, wrap(async (req, res) => {
             COUNT(*) FILTER (WHERE m.mentioned)::int AS named,
             COUNT(m.run_id)::int AS measured
      FROM prompts p
-     LEFT JOIN runs r ON r.prompt_id = p.id AND r.cycle_date = $3
+     LEFT JOIN reporting_runs r ON r.prompt_id = p.id AND r.cycle_date = $3
      LEFT JOIN mentions m ON m.run_id = r.id AND m.entity_id = $2
      WHERE p.project_id = $1
      GROUP BY p.intent ORDER BY spend DESC`,
@@ -2122,7 +2126,7 @@ app.get('/api/prompts/:promptId/brief', requireAuth, wrap(async (req, res) => {
     [project.id]
   );
 
-  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE prompt_id = $1 AND ok', [prompt.id]))?.d;
+  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE prompt_id = $1', [prompt.id]))?.d;
 
   const { ENGINES: DF_ENGINES } = await import('./lib/dataforseo.js');
 
@@ -2130,7 +2134,7 @@ app.get('/api/prompts/:promptId/brief', requireAuth, wrap(async (req, res) => {
   if (cycle && owned) {
     const rows = await many(
       `SELECT r.id, r.engine, m.mentioned, r.response_text
-       FROM runs r
+       FROM reporting_runs r
        LEFT JOIN mentions m ON m.run_id = r.id AND m.entity_id = $3
        WHERE r.prompt_id = $1 AND r.cycle_date = $2 AND r.ok
        ORDER BY r.engine, r.run_index`,
@@ -2283,7 +2287,7 @@ app.get('/api/projects/:id/by-persona', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
 
-  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1 AND ok', [project.id]))?.d;
+  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [project.id]))?.d;
   if (!cycle) return res.json({ rows: [] });
 
   const rows = await many(
@@ -2291,7 +2295,7 @@ app.get('/api/projects/:id/by-persona', requireAuth, wrap(async (req, res) => {
             COUNT(DISTINCT p.id)::int AS questions,
             COUNT(*) FILTER (WHERE m.mentioned)::float / NULLIF(COUNT(*), 0) AS rate,
             AVG(m.ordinal) FILTER (WHERE m.mentioned)::float AS avg_position
-     FROM runs r
+     FROM reporting_runs r
      JOIN prompts p ON p.id = r.prompt_id
      LEFT JOIN personas pe ON pe.id = p.persona_id
      JOIN mentions m ON m.run_id = r.id
@@ -2412,6 +2416,24 @@ app.post('/api/projects/:id/page-checks/run', requireAuth, wrap(async (req, res)
 }));
 
 /* ---------------- aggregated report ---------------- */
+
+app.get('/api/projects/:id/measurements', requireAuth, wrap(async (req,res) => {
+ const project=await assertProject(req,res); if(!project) return;
+ const batches=await many('SELECT * FROM measurement_batches WHERE project_id=$1 ORDER BY started_at DESC,id DESC',[project.id]);
+ const {archiveHtml}=await import('./lib/measurement-archive.js');
+ res.type('html').send(archiveHtml(project,batches));
+}));
+app.get('/api/projects/:id/measurements/:measurementId', requireAuth, wrap(async (req,res) => {
+ const project=await assertProject(req,res); if(!project) return;
+ if(!/^\d+$/.test(req.params.measurementId)) return res.status(400).send('Invalid measurement');
+ const batch=await one('SELECT * FROM measurement_batches WHERE id=$1 AND project_id=$2',[req.params.measurementId,project.id]);
+ if(!batch) return res.status(404).send('Measurement not found');
+ const rows=await many(`SELECT r.*,p.text,COALESCE((SELECT jsonb_agg(jsonb_build_object('url',c.url)) FROM citations c WHERE c.run_id=r.id),'[]'::jsonb) AS citations
+ FROM measurement_answers a JOIN runs r ON r.id=a.run_id JOIN prompts p ON p.id=r.prompt_id
+ WHERE a.measurement_id=$1 AND r.project_id=$2 ORDER BY r.prompt_id,r.engine,r.run_index,r.id`,[batch.id,project.id]);
+ const {measurementHtml}=await import('./lib/measurement-archive.js');
+ res.type('html').send(measurementHtml(project,batch,rows));
+}));
 
 app.get('/api/projects/:id/report', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
@@ -2748,7 +2770,7 @@ app.get('/api/projects/:id/personas/lift', requireAuth, wrap(async (req, res) =>
   const project = await assertProject(req, res);
   if (!project) return;
   const { personaLift } = await import('./lib/personas.js');
-  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM runs WHERE project_id = $1', [project.id]))?.d;
+  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [project.id]))?.d;
   if (!cycle) return res.json({ lift: [], note: 'Nothing measured yet.' });
   res.json({ lift: await personaLift(project.id, cycle), cycle });
 }));
@@ -3555,7 +3577,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260928-retry-model-pilot-28',
+    release: '20260928-measurement-batches-29',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
