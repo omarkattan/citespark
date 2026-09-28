@@ -1308,12 +1308,12 @@ app.post('/api/projects/:id/competitor-review', requireAuth, wrap(async (req,res
     await client.query('SELECT id FROM projects WHERE id=$1 FOR UPDATE',[project.id]);
     const existing=(await client.query('SELECT * FROM entities WHERE project_id=$1',[project.id])).rows;
     const sample=await reviewSample(client,project.id);
-    if(req.body.measurementId != null && Number(req.body.measurementId)!==sample.measurement?.id) {
+    if(req.body.measurementId != null && String(req.body.measurementId)!==String(sample.measurement?.id)) {
       await client.query('ROLLBACK'); return res.status(409).json({error:'A newer measurement is available. Reload the review before tracking.'});
     }
     const added=[],skipped=[];
     for(const item of items) {
-      if(existing.some(e=>e.name.toLowerCase()===item.name.toLowerCase()||(item.domain&&domainKey(e.domain)===item.domain))) {skipped.push(item.name);continue;}
+      if(existing.some(e=>[e.name,...(e.aliases||[])].some(n=>n.toLowerCase()===item.name.toLowerCase())||(item.domain&&domainKey(e.domain)===item.domain))) {skipped.push(item.name);continue;}
       const entity=(await client.query(`INSERT INTO entities(project_id,name,domain,kind,aliases,ambiguous_name) VALUES($1,$2,$3,'competitor',$4,$5) RETURNING *`,[project.id,item.name,item.domain||null,item.aliases,item.ambiguous_name])).rows[0];
       const analysis=await retrospective(sample.rows,entity);
       analysis.limited=sample.limited;
@@ -3628,7 +3628,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260928-competitor-review-38',
+    release: '20260928-competitor-cleanup-39',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

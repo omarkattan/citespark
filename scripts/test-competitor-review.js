@@ -66,9 +66,9 @@ test('tracking route persists aliases, skips duplicates, isolates sites and roll
  await db.exec(readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8'));
  await db.exec("INSERT INTO orgs(id,name) VALUES(1,'Test'); INSERT INTO projects(id,org_id,name,domain,brand_name) VALUES(28,1,'Bank','bank.test','Bank'),(99,1,'Other','other.test','Other');");
  const client={query:(...a)=>db.query(...a),release:()=>{}};const pool={connect:async()=>client};
- const invoke=async(body,auth=async()=>({id:28}),analyse=retrospective)=>{
+ const invoke=async(body,auth=async()=>({id:28}),analyse=retrospective,sample=reviewSample)=>{
  let response,status=200;const res={status:n=>{status=n;return res;},json:x=>response=x};
- await route({body},res,auth,client.query,pool,domainKey,reviewSample,analyse);return {response,status};};
+ await route({body},res,auth,client.query,pool,domainKey,sample,analyse);return {response,status};};
  const payload={action:'track',items:[{name:'Arab Bank',domain:'arabbank.jo',aliases:['البنك العربي'],ambiguous:false}]};
  assert.deepEqual((await invoke(payload)).response.added,['Arab Bank']);
  assert.deepEqual((await invoke(payload)).response.skipped,['Arab Bank']);
@@ -81,5 +81,33 @@ test('tracking route persists aliases, skips duplicates, isolates sites and roll
  await invoke({action:'ignore',key:'domain:example.com'});await invoke({action:'restore',key:'domain:example.com'});
  assert.equal((await db.query('SELECT ignored FROM competitor_review_decisions')).rows[0].ignored,false);
  assert.equal((await invoke({action:'track',items:[null]})).status,400);
+ await db.exec("INSERT INTO measurement_batches(id,project_id,cycle_date,status) VALUES(41,28,'2026-09-28','completed')");
+ const pgSample=async()=>({measurement:{id:'41'},rows:[],limited:false});
+ const request={action:'track',measurementId:41,items:[{name:'String ID Bank'}]};
+ assert.equal((await invoke(request,undefined,undefined,pgSample)).status,200);
+ assert.equal((await invoke({...request,measurementId:'40'},undefined,undefined,pgSample)).status,409);
+ assert.deepEqual((await invoke({action:'track',items:[{name:'البنك العربي'}]})).response.skipped,['البنك العربي']);
  }finally{await db.close();}
+});
+test('real scan generic phrases are not promoted to competitor names',()=>{
+ const phrases=['bank','Jordanian bank','Jordanian banks','البنك المناسب','اختيار البنك','اسم البنك','Basic Bank','Central Bank','All Operating Banks','Primary Bank','Many banks pay very low base savings rates','البطاقة الفضية من البنك العربي','تطبيق بنك الاتحاد','بنكًا تقليديًا واسع الانتشار','By bank, from the results'];
+ const c=competitorCandidates([{...row,response_text:phrases.map(p=>`**${p}**`).join('\n'),citations:[]}],[]);
+ assert.deepEqual(c,[]);
+});
+test('same bank name across domains and direction marks becomes one review card',()=>{
+ const c=competitorCandidates([{...row,response_text:'**Arab Bank** **\u200fArab Bank\u200f**',citations:[{domain:'arabbank.jo'},{domain:'arabbank.com'},{domain:'arabbank.com.jo'}]}],[]);
+ assert.equal(c.length,1);assert.equal(c[0].evidence.length,1);assert.equal(c[0].domains.length,3);assert.equal(c[0].bulkEligible,true);
+ const unknown=competitorCandidates([{...row,response_text:'A bank',citations:[{domain:'unknownbank.jo'}]}],[]);
+ assert.equal(unknown[0].bulkEligible,false);
+});
+test('bulk-selection UI excludes unnamed domains and sends edited bilingual aliases',async()=>{
+ const {JSDOM}=await import(process.env.JSDOM_MODULE);
+ const dom=new JSDOM(`<button id="selectSuggestedBanks">Select</button><button id="clearSuggestedBanks">Clear</button><button id="trackSelectedCompetitors">Track</button>
+ ${[0,1].map(i=>`<input type="checkbox" data-candidate-select="${i}"><details data-candidate-edit="${i}"></details><input data-candidate-name="${i}" value="Arab Bank"><input data-candidate-domain="${i}" value="arabbank.jo"><textarea data-candidate-aliases="${i}">البنك العربي</textarea><input type="checkbox" data-candidate-ambiguous="${i}">`).join('')}`);
+ const source=readFileSync(new URL('../src/public/app.js',import.meta.url),'utf8');const start=source.indexOf("document.addEventListener('click',async event=>{",source.indexOf('async function saveCompetitorReview'));
+ const listener=source.slice(start,source.indexOf('\nasync function viewSetup()',start));
+ let saved;new Function('document','state','saveCompetitorReview','toast','$',listener)(dom.window.document,{competitorReview:{measurement:{id:'41'},candidates:[{bulkEligible:true},{bulkEligible:false}]}},x=>saved=x,()=>{},id=>dom.window.document.getElementById(id));
+ const doc=dom.window.document;doc.getElementById('selectSuggestedBanks').click();assert.equal(doc.querySelectorAll(':checked').length,1);assert.equal(doc.querySelector('details').open,true);
+ doc.getElementById('trackSelectedCompetitors').click();assert.equal(saved.items.length,1);assert.deepEqual(saved.items[0].aliases,['البنك العربي']);assert.equal(saved.measurementId,'41');
+ doc.getElementById('clearSuggestedBanks').click();assert.equal(doc.querySelectorAll(':checked').length,0);
 });

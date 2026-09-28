@@ -8,13 +8,23 @@ export function domainKey(value) {
   } catch { return ''; }
 }
 const bankLike = s => /bank|بنك|مصرف/i.test(s);
+function cleanName(s) { return s.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,'').replace(/[*#\[\]]/g,'').trim(); }
+function plausibleBankName(value) {
+ const s=cleanName(value);
+ if(!bankLike(s)||s.split(/\s+/).length>8) return false;
+ if(/^(?:banks?|البنك|بنك|مصرف|المصرف)$/i.test(s)) return false;
+ if(/app|mobile|checklist|comparison|annually|primary|operating|other|many|best|banking|transfer|account|basic|central bank|jordanian banks?|choos|select|local banks?|your bank|any bank|each bank|تطبيق|بطاق|اسم |إذا |عبر |تقليدي|اختر|أفضل|حساب|اختيار|المناسب|البنوك|بنك مركزي|البنك المركزي|البنك الخاص|البنك الذي|بنكك/i.test(s)) return false;
+ // Lower-case generic English wording is not an entity name.
+ if(/[a-z]/i.test(s) && !/Bank|[A-Z][a-z]+bank/.test(s)) return false;
+ return true;
+}
 const compact=s=>s.toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
 export function competitorCandidates(rows, entities, ignored = []) {
   const found = new Map(), hidden = new Set(ignored);
-  const names = new Set(entities.flatMap(e => [e.name, ...(e.aliases || [])]).map(s => s.toLowerCase()));
+  const names = new Set(entities.flatMap(e => [e.name, ...(e.aliases || [])]).map(s => cleanName(s).toLowerCase()));
   const domains = entities.map(e => domainKey(e.domain)).filter(Boolean);
   function add(name, domain, row, url) {
-    name = name.replace(/[*#\[\]]/g, '').trim().slice(0,120);
+    name = cleanName(name).slice(0,120);
     domain = domainKey(domain);
     if (!name || names.has(name.toLowerCase()) || (domain && domains.some(d => domain === d || domain.endsWith('.'+d)))) return;
     const key = domain ? `domain:${domain}` : `name:${name.toLowerCase()}`;
@@ -26,7 +36,7 @@ export function competitorCandidates(rows, entities, ignored = []) {
     const text=row.response_text;
     const bold=[...text.matchAll(/\*\*([^*\n]{3,100})\*\*/g)].map(m=>m[1].replace(/^\d+[.)]\s*/, '').split(/[:(]/)[0].trim());
     const plain=[...text.matchAll(/\b(?:Bank of [A-Z][a-z]+(?: [A-Z][a-z]+)?|[A-Z][a-z]+(?: [A-Z][a-z]+){0,2} Bank)\b/g)].map(m=>m[0]);
-    return [...bold,...plain].filter(name=>bankLike(name)&&name.split(/\s+/).length<=8&&!/best|banking|transfer|account|أفضل|حساب/i.test(name));
+    return [...bold,...plain].map(cleanName).filter(plausibleBankName);
   }))];
   const paired=new Map();
   for (const row of rows) for (const c of row.citations || []) {
@@ -39,7 +49,21 @@ export function competitorCandidates(rows, entities, ignored = []) {
   for(const row of rows) for(const name of bankNames) {
     if(row.response_text.includes(name)) add(name,paired.get(name)||'',row);
   }
-  return [...found.values()].sort((a,b)=>Number(b.bank)-Number(a.bank)||b.evidence.length-a.evidence.length||a.name.localeCompare(b.name));
+  // One review card per exact normalised name. Multiple cited domains remain visible for confirmation.
+  const groups=new Map();
+  const sorted=[...found.values()].sort((a,b)=>b.evidence.length-a.evidence.length||a.key.localeCompare(b.key));
+  for(const c of sorted) {
+    const key=c.name===c.domain ? c.key : `name:${compact(c.name)}`;
+    if(!groups.has(key)) groups.set(key,{...c,domains:c.domain?[c.domain]:[],evidence:[...c.evidence]});
+    else {
+      const g=groups.get(key);
+      if(c.domain&&!g.domains.includes(c.domain))g.domains.push(c.domain);
+      for(const e of c.evidence)if(!g.evidence.some(x=>x.id===e.id))g.evidence.push(e);
+      g.ignored ||= c.ignored;
+    }
+  }
+  return [...groups.values()].map(c=>({...c,bulkEligible:c.bank&&!!c.domain&&c.name!==c.domain&&plausibleBankName(c.name)}))
+    .sort((a,b)=>Number(b.bulkEligible)-Number(a.bulkEligible)||Number(b.bank)-Number(a.bank)||b.evidence.length-a.evidence.length||a.name.localeCompare(b.name));
 }
 export async function retrospective(rows, entity) {
   const results=[];
