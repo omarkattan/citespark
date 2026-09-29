@@ -25,7 +25,7 @@ test('comparisons isolate project and measurement, preserve zero and missing, an
 });
 test('report notes require ownership, snapshot saved text, update explicitly and remove without deleting task',async()=>{
  const source=readFileSync(new URL('../src/server.js',import.meta.url),'utf8');const prefix="app.post('/api/recommendations/:recId/report-note', requireAuth, wrap(async(req,res)=>{";
- const body=source.slice(source.indexOf(prefix)+prefix.length,source.indexOf("app.delete('/api/recommendations/:recId'",source.indexOf(prefix))).trim().replace(/\}\)\);$/,'');
+ const body=source.slice(source.indexOf(prefix)+prefix.length,source.indexOf("\n}));",source.indexOf(prefix))).trim();
  const route=new (Object.getPrototypeOf(async function(){}).constructor)('req','res','one','query',body);
  let rec={id:1,project_id:28,title:'Invisible for: Mobile banking',notes:'Reviewed text'},saved,sql;
  const one=async(q,args)=>{assert.match(q,/p.org_id=\$2/);assert.deepEqual(args,[1,7]);return rec;};

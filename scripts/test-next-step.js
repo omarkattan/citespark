@@ -83,3 +83,10 @@ test('a failed save does not change the badge or assignment label',async()=>{
  assert.equal(document.querySelector('[data-task-notes-badge]').hidden,false);
  assert.equal(document.querySelector('[data-task-edit]').textContent,'Edit');
 });
+
+test('report inclusion controls appear after saving a first note without a reload',async()=>{
+ const {document,act}=harness();
+ const controls=document.getElementById('report-controls-42');controls.hidden=true;
+ await act('[data-next-open]');await act('[data-next-save]');
+ assert.equal(controls.hidden,false);assert.ok(controls.querySelector('[data-report-note]'));
+});

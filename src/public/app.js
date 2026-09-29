@@ -794,7 +794,7 @@ function taskCard(t, compact = false, selectionReason = '') {
         <button class="ghost" data-next-cancel="${t.id}">Cancel</button>
       </div>
       <p class="hint" id="next-feedback-${t.id}" role="status" aria-live="polite"></p>
-      ${t.notes||t.reportIncluded?`<p><button class="ghost" data-report-note="${t.id}" data-include="true">${t.reportIncluded?'Update note in client report':'Include saved note in client report'}</button> ${t.reportIncluded?`<button class="ghost" data-report-note="${t.id}" data-include="false">Remove from client report</button>`:''}</p><p class="hint">${t.reportIncluded?'A saved copy is included. Later edits stay internal until you update the report note.':'Only include client-ready text. This copies the saved note into the report without marking the task complete.'}</p>`:''}
+      <div id="report-controls-${t.id}" ${t.notes||t.reportIncluded?'':'hidden'}><p><button class="ghost" data-report-note="${t.id}" data-include="true">${t.reportIncluded?'Update note in client report':'Include saved note in client report'}</button> ${t.reportIncluded?`<button class="ghost" data-report-note="${t.id}" data-include="false">Remove from client report</button>`:''}</p><p class="hint">${t.reportIncluded?'A saved copy is included. Later edits stay internal until you update the report note.':'Only include client-ready text. This copies the saved note into the report without marking the task complete.'}</p></div>
     </section>
     <div class="task-edit" id="edit-${t.id}" hidden>
       <div class="task-edit-row">
@@ -2690,24 +2690,25 @@ $('runUnrunBtn').addEventListener('click', async (e) => {
 });
 
 /** Say how many are waiting, so the menu item is a decision rather than a guess. */
+let runScopeRequest=0;
 async function refreshRunScope() {
   if (!state.projectId) return;
-  const d = await api(`/api/projects/${state.projectId}/run-scope`);
-  if (!d) return;
-
-  // Both options carry their size, so neither is chosen blind.
-  // Each option carries its size AND its price, from the same arithmetic
-  // the cost cap applies, so nothing here is chosen blind and a refusal
-  // never contradicts the menu. "~" is honest: measured history where it
-  // exists, a deliberately pessimistic default where it does not.
-  const money = (n) => `~$${n < 10 ? n.toFixed(2) : n.toFixed(0)}`;
-  const full = $('runFullCount');
-  if (full) full.textContent = d.all ? ` (${d.all}, ${d.checksAll} checks, ${money(d.costAll)})` : ' (no questions yet)';
-  if ($('runFullBtn')) $('runFullBtn').disabled = d.all === 0;
-
-  const el = $('runUnrunCount');
-  if (el) el.textContent = d.unrun ? ` (${d.unrun}, ${d.checksUnrun} checks, ${money(d.costUnrun)})` : ' (none waiting)';
-  if ($('runUnrunBtn')) $('runUnrunBtn').disabled = d.unrun === 0;
+  const projectId=state.projectId, request=++runScopeRequest;
+  for(const id of ['runFullBtn','runUnrunBtn']) if($(id)) $(id).disabled=true;
+  for(const id of ['runFullCount','runUnrunCount']) if($(id)) $(id).textContent=' (checking current questions…)';
+  try {
+    const d=await api(`/api/projects/${projectId}/run-scope`,{readTimeoutMs:15000});
+    if(request!==runScopeRequest || state.projectId!==projectId) return;
+    if(!d || d.error || !['all','unrun','checksAll','checksUnrun','costAll','costUnrun'].every(k=>Number.isFinite(d[k])&&d[k]>=0)) throw Error('Estimate unavailable');
+    const money=n=>`~$${n<10?n.toFixed(2):n.toFixed(0)}`;
+    $('runFullCount').textContent=d.all?` (${d.all}, ${d.checksAll} checks, ${money(d.costAll)})`:' (no questions yet)';
+    $('runUnrunCount').textContent=d.unrun?` (${d.unrun}, ${d.checksUnrun} checks, ${money(d.costUnrun)})`:' (none waiting)';
+    $('runFullBtn').disabled=d.all===0;
+    $('runUnrunBtn').disabled=d.unrun===0;
+  } catch(error) {
+    if(request!==runScopeRequest || state.projectId!==projectId) return;
+    for(const id of ['runFullCount','runUnrunCount']) if($(id)) $(id).textContent=' (estimate unavailable, reopen to retry)';
+  }
 }
 
 document.addEventListener('click', () => {
@@ -4260,6 +4261,8 @@ async function handleNextStep(event) {
     const assignment = card?.querySelector('[data-task-edit]');
     if (assignment) assignment.textContent = result.assignee || result.due_date || notes ? 'Edit' : 'Assign';
     editor.hidden = true;
+    const reportControls=$(`report-controls-${id}`);
+    if(reportControls) reportControls.hidden=!notes && !reportControls.querySelector('[data-include="false"]');
     feedback.textContent = 'Next step saved.';
     opener?.focus();
   } catch (error) {

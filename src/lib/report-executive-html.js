@@ -1,10 +1,11 @@
+import { reportReadout } from './report-readout.js';
 import { evidenceUrl } from './report-actions.js';
 import { questionRole, reviewShortlist } from './search-evidence.js';
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date = value => value ? new Date(value).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}) : 'No measurement';
 const share = (n,d) => d ? `${Math.round(n/d*100)}%` : 'Not measured';
 const engineLabel = value => ({ai_mode:'Google AI Mode',ai_overview:'Google AI Overview',chatgpt:'ChatGPT',claude:'Claude',perplexity:'Perplexity',gemini:'Gemini'}[value] || value);
-const source = value => /gsc/i.test(value || '') ? 'Search Console-derived' : value === 'generated' ? 'Site suggestion' : value || 'Not recorded';
+const source = value => /gsc/i.test(value || '') ? 'Search Console-derived' : value === 'generated' ? 'Site suggestion' : ['manual','custom'].includes(value) ? 'Manually selected' : value || 'Not recorded';
 function actionEvidence(p, r) {
  const e=p.evidence;
  if(!e) return '';
@@ -16,6 +17,7 @@ function actionEvidence(p, r) {
 }
 export function executiveReportHtml(r,{print=false}={}) {
  const e=r.executive, t=e.totals;
+ const readout=reportReadout(e,r.review);
  const priorities=e.localeWarnings?.length ? [{do:'Repeat the measurement with corrected Google settings.',because:e.localeWarnings.join(' '),owner:'Measurement owner',done:'A new completed measurement records the corrected country and language policy. Do not interpret differences from this diagnostic run as marketing impact.'}] : e.priorities;
  const detailParams = new URLSearchParams({detail:'1'});
  if(r.period?.chosen) for(const key of ['from','to']) if(r.period[key]) detailParams.set(key,r.period[key]);
@@ -43,6 +45,15 @@ export function executiveReportHtml(r,{print=false}={}) {
  <p class="note">Naming and citation are separate, overlapping outcomes. These figures describe the collected samples, not market share or every buyer's experience. Question coverage does not measure the importance of those questions.</p>
  ${issue ? `<div class="callout warn"><b>Evidence needs review</b><br>${t.possiblyTruncated} measured answers may be cut short, based on the same length heuristic used by the answer reader. ${t.missingChecks == null ? 'The number of checks without a stored result is unknown.' : `${t.missingChecks} expected checks have no stored result and are excluded. ${t.coverageBasis === 'recorded-questions-and-settings' ? 'Expected coverage is inferred from recorded questions and saved settings, not a retained request plan.' : 'Expected coverage comes from the recorded request plan.'}`} ${t.failed} failed calls and ${t.unmeasured} successful but unmeasured answers are excluded from the naming and citation denominator. ${t.noOverview || 0} records explicitly report no Google AI Overview. ${t.missingText || 0} have missing answer text with no recorded cause. Neither is a measured brand absence. Suspected short answers remain included, so a zero is not conclusive.</div>` : ''}
  ${(e.engineCoverage||[]).length ? `<p class="note"><b>Engine coverage:</b> ${e.engineCoverage.map(x=>`${esc(x.engine)}: ${x.measured} measured${x.failed ? `, ${x.failed} failed` : ''}${x.unmeasured ? `, ${x.unmeasured} unmeasured` : ''}`).join(' · ')}. An engine with no measured answers contributes nothing to the visibility denominator.</p>` : ''}
+ <section class="page"><p class="kicker">Executive readout</p><h2>What this means for your next decision</h2>
+ ${readout.strength?`<article class="action"><h3>Protect an existing strength</h3><p dir="auto">${esc(readout.strength.text)}</p><p>${readout.strength.named} / ${readout.strength.measured} answers named you and ${readout.strength.cited} / ${readout.strength.measured} cited your website. Check the cited pages for accurate product information and a clear customer next step.</p></article>`:''}
+ ${readout.gap?`<article class="action"><h3>Investigate inconsistent presence</h3><p dir="auto">${esc(readout.gap.text)}</p><p>${readout.gap.named} / ${readout.gap.measured} answers named you and ${readout.gap.cited} / ${readout.gap.measured} cited your website. Review the answers and existing pages before deciding whether a content change is justified.</p></article>`:''}
+ ${readout.leader?`<article class="action"><h3>Compare with a tracked competitor</h3><p>${esc(readout.leader.name)} was named in ${readout.leader.named} / ${readout.leader.measured} answers. Your brand was named in ${readout.own.named} / ${readout.own.measured}. This is the highest naming count among tracked competitors with full coverage in this cycle, not a market ranking or an explanation of why sources were selected.</p></article>`:''}
+ ${issue||e.localeWarnings?.length?'<p class="callout warn">Resolve the collection issues shown above before drawing conclusions. Any question highlighted here passed the available checks for its own sample.</p>':''}
+ <h3>Question coverage</h3><table><thead><tr><th>Question text</th><th>Questions</th><th>Named / measured answers</th><th>Cited / measured answers</th></tr></thead><tbody>${readout.languages.map(x=>`<tr><td>${esc(x.label)}</td><td>${x.questions} / ${e.questions.length}</td><td>${x.measured?`${x.named} / ${x.measured}`:'Not measured'}</td><td>${x.measured?`${x.cited} / ${x.measured}`:'Not measured'}</td></tr>`).join('')}</tbody></table>
+ <p class="note">Script is inferred from question text. Latin-script includes English and may include other languages. These groups can contain different questions, so differences do not isolate a language effect.</p>
+ <p><b>Where the questions came from:</b> ${readout.origins.map(x=>`${esc(x.label)}: ${x.questions} / ${e.questions.length}`).join(' · ')}.</p><p class="note">Search Console supports demand for the original Google queries, not AI search volume for a rephrased question. Manually selected and site-suggested questions are research hypotheses. Adding questions changes the sample. Use the same question-and-engine cohort for any comparison over time.</p>
+ </section>
  <section class="page"><p class="kicker">The action plan</p><h2>What to do next</h2><p>These priorities are evidence-led review steps. They do not establish why an engine selected a source or promise an improvement.</p>
  ${priorities.map((p,i)=>`<article class="action priority-action"><h3><span class="n">0${i+1}</span>${esc(p.do)}</h3><p>${esc(p.because)}</p>${p.steps?.length ? `<ol>${p.steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ol>` : ''}<small><b>Suggested owner:</b> ${esc(p.owner)}</small><small><b>Done when:</b> ${esc(p.done)}</small>${actionEvidence(p,r)}</article>`).join('')}
  <div class="callout"><b>Review sequence</b><br>Validate the evidence and business relevance. Assign the agreed changes. Record what was changed, then repeat the same questions and engine settings before assessing movement.</div></section>
