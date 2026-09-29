@@ -4619,7 +4619,7 @@ function gscCandidateRow(c, i) {
     <div class="gsc-review-columns"><div><b>Original Google queries</b><ul>${c.examples.map(q=>`<li dir="auto">${esc(q)}</li>`).join('')}</ul>
     <p class="hint">${c.impressions.toLocaleString()} Google search impressions · ${c.clicks} clicks · position ${pos}${c.variants>1?` · ${c.variants} variations`:''}. These figures belong to the source queries.</p></div>
     <div class="field"><label for="gsc-wording-${i}">Question to measure</label><textarea id="gsc-wording-${i}" data-gsc-wording="${i}" dir="auto" rows="3" minlength="12" maxlength="300" ${c.alreadyTracked?'disabled':''}>${esc(c.text)}</textarea>
-    <p class="hint">${c.source==='gsc+model'?'AI rewrite. Check that it preserves the meaning, language, amounts and product restrictions.':'Original query. Check that it reads naturally and fits your customers.'} Do not add “best”, a new product or a location the query does not specify.</p>
+    <p class="hint">${c.source==='gsc+model'?'Suggested question. Check that it preserves the meaning, language, amounts and product restrictions.':'Original query. Check that it reads naturally and fits your customers.'} Use a complete question, not a keyword with a question mark. Do not add “best”, a new product or a location the query does not specify.</p>
     <details><summary>Initial suggestion</summary><p dir="auto">${esc(c.text)}</p></details></div></div>
   </div>`;
 }
@@ -4687,7 +4687,7 @@ async function loadGscCandidates() {
       <span class="tag">${d.rows.toLocaleString()} queries read</span>
       <span class="tag">${d.totalImpressions.toLocaleString()} impressions</span>
       <span class="tag">${d.clusters} query groups</span>
-      <span class="tag ok">${available} suggestions to review</span>
+      <span class="tag ok">${available} ${available===1?'suggestion':'suggestions'} to review</span>
     </div>
     <p class="hint">Select only relevant questions after checking their original queries. Search figures belong to those queries, not the rephrased question. Edit awkward wording before selecting. Automatic checks cannot confirm product relevance or equivalent intent. Your edited wording is saved as a new question, with the initial suggestion and source queries retained.</p>
     ${searchBox('gscFilter', 'Filter original queries and suggestions', 'gscFilterCount')}

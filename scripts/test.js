@@ -965,17 +965,19 @@ await test('question wording stays attached to its own query group', () => {
   assert.equal(clusters.find(c => c.head === 'which orthodontist is best in dubai marina').impressions, 300);
 });
 
-await test('impressions carry through as the volume figure', async () => {
+await test('question-only fallback preserves original search impressions', async () => {
   const clusters = gsc.cluster(GSC_ROWS, { brand: 'Marina Smile Studio' });
   const proposed = await gsc.proposeFromClusters(clusters, { brand: 'Marina Smile Studio', market: 'AE' });
 
-  assert.ok(proposed.length >= 3, 'should propose something without a model');
+  assert.equal(proposed.length, 2, 'without a model, retain only the two genuine questions');
+  assert.deepEqual(proposed.map(p => p.cluster), ['how much do clear aligners cost in dubai', 'which orthodontist is best in dubai marina']);
   for (const p of proposed) {
     assert.ok(p.impressions > 0, 'real demand, not an estimate');
     assert.ok(p.examples.length, 'the original queries must be shown');
     assert.ok(!/marina smile/i.test(p.text), 'never put the brand in the question');
   }
-  assert.equal(proposed[0].impressions, 1800);
+  assert.equal(proposed[0].impressions, 1400);
+  assert.equal(proposed[1].impressions, 300);
 });
 
 console.log('\nsource classification and teardown');

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {preservesQueryBasics,containsSearchBrand,existingGscQuestion} from '../src/lib/gsc-query-integrity.js';
+import {isBuyerQuestion,preservesQueryBasics,containsSearchBrand,existingGscQuestion} from '../src/lib/gsc-query-integrity.js';
 const {JSDOM}=await import(process.env.JSDOM_MODULE);
 const src=readFileSync(new URL('../src/lib/gsc.js',import.meta.url),'utf8');
 const app=readFileSync(new URL('../src/public/app.js',import.meta.url),'utf8');
@@ -14,7 +14,7 @@ function harness(){
   if (!sql.trim().startsWith('INSERT')) return {rows:[]};
   inserts.push(args); return {rows:[{id:1}]};
  }};
- const h=vm.createContext({pool:{connect:async()=>client},preservesQueryBasics,containsSearchBrand,existingGscQuestion,openCandidate:()=>({...candidate})});
+ const h=vm.createContext({isBuyerQuestion,pool:{connect:async()=>client},preservesQueryBasics,containsSearchBrand,existingGscQuestion,openCandidate:()=>({...candidate})});
  vm.runInContext(src.slice(src.indexOf('export async function importQuestions'),src.indexOf('/** Refresh search evidence only.')).replace('export ',''),h);
  return {h,inserts};
 }
@@ -23,7 +23,7 @@ test('reviewed Arabic wording is stored with original proposal and trusted sourc
  assert.equal(inserts[0][1],edited);assert.equal(inserts[0][4],100);const origin=JSON.parse(inserts[0][6]);assert.equal(origin.proposedText,candidate.text);assert.equal(origin.importedText,edited);assert.equal(origin.wordingEdited,true);assert.deepEqual(origin.querySet,candidate.querySet);assert.equal(origin.gscSnapshot.clicks,0);
 });
 test('invalid edits reject the entire selection before any insert',async()=>{
- for(const text of ['','short','س'.repeat(301),'How do I repay a 1000 dinar loan?','كيف أحسب أقساط قرض بقيمة 2000 دينار؟','كيف أحصل على قرض 1000 دينار من بنك المثال؟']){
+ for(const text of ['','short',candidate.cluster,candidate.cluster+'؟','س'.repeat(301),'How do I repay a 1000 dinar loan?','كيف أحسب أقساط قرض بقيمة 2000 دينار؟','كيف أحصل على قرض 1000 دينار من بنك المثال؟']){
  const {h,inserts}=harness();await assert.rejects(h.importQuestions(28,[{evidenceToken:'ok'},{evidenceToken:'ok',reviewedText:text}]));assert.equal(inserts.length,0);
  }
 });

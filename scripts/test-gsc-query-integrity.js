@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import {cluster} from '../src/lib/gsc.js';
-import {queryKey,containsSearchBrand,queryLanguage,preservesQueryBasics} from '../src/lib/gsc-query-integrity.js';
+import {isBuyerQuestion,queryKey,containsSearchBrand,queryLanguage,preservesQueryBasics} from '../src/lib/gsc-query-integrity.js';
 const row=(query,impressions=100,clicks=2)=>({query,impressions,clicks,position:4});
 test('observed bank query collisions stay separate, including qualifiers and Arabic amounts',()=>{
  const queries=['western union jordan','best bank in jordan','union bank','bank account','open bank account online','bank account number','personal loan','home loan interest rates','قرض 1000 دينار بدون كفيل','قرض حسن 1000 دينار','قرض 3000 دينار بدون كفيل','قرض بدون كفيل','قرض بكفيل'];
@@ -34,7 +34,7 @@ test('actual proposal path enforces language, amounts, own-brand exclusion and e
  const src=file.slice(file.indexOf('export async function proposeFromClusters'),file.indexOf('/** Everything the import screen')).replace('export ','');
  const outputs=[{index:0,text:'How can I get a 1000 dinar loan?'},{index:1,text:'Which card offers Bank al Etihad rewards?'},{index:2,text:'كيف أفتح حساب توفير؟'}];
  let request='';
- const h=vm.createContext({SYSTEM:'system',queryKey,queryLanguage,preservesQueryBasics,containsSearchBrand,complete:async ask=>{request=ask;return outputs;},parseJsonArray:x=>x});vm.runInContext(src,h);
+ const h=vm.createContext({isBuyerQuestion,SYSTEM:'system',queryKey,queryLanguage,preservesQueryBasics,containsSearchBrand,complete:async ask=>{request=ask;return outputs;},parseJsonArray:x=>x});vm.runInContext(src,h);
  const groups=cluster([row('قرض 1000 دينار',300),row('credit card',200),row('كيف أفتح حساب توفير',100),row('Which banks offer accounts?',50)]);
  const proposed=await h.proposeFromClusters(groups,{brand:'Bank al Etihad',category:'Personal banking',qualifier:'Individuals in Jordan',market:'JO'});
  assert.equal(proposed.length,1);assert.equal(proposed[0].language,'ar');assert.equal(proposed[0].impressions,100);assert.match(request,/Business scope: Personal banking/);assert.match(request,/Customer brief: Individuals in Jordan/);

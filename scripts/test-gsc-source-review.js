@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {preservesQueryBasics, existingGscQuestion, queryKey, queryLanguage, containsSearchBrand} from '../src/lib/gsc-query-integrity.js';
+import {isBuyerQuestion,preservesQueryBasics, existingGscQuestion, queryKey, queryLanguage, containsSearchBrand} from '../src/lib/gsc-query-integrity.js';
 import {importQuestions} from '../src/lib/gsc.js';
 import {sealCandidate} from '../src/lib/search-evidence.js';
 const property='sc-domain:bank.example';
@@ -37,7 +37,7 @@ test('proposal filters vague head terms before calling the model and enforces so
  const file=readFileSync(new URL('../src/lib/gsc.js',import.meta.url),'utf8');
  const source=file.slice(file.indexOf('export async function proposeFromClusters'),file.indexOf('/** Everything the import screen')).replace('export ','');
  let calls=0,request='';
- const h=vm.createContext({SYSTEM:'test',queryKey,queryLanguage,preservesQueryBasics,containsSearchBrand,complete:async ask=>{calls++;request=ask;return [{index:0,text:'How can I calculate my personal loan repayments?'}];},parseJsonArray:x=>x});
+ const h=vm.createContext({isBuyerQuestion,SYSTEM:'test',queryKey,queryLanguage,preservesQueryBasics,containsSearchBrand,complete:async ask=>{calls++;request=ask;return [{index:0,text:'How can I calculate my personal loan repayments?'}];},parseJsonArray:x=>x});
  vm.runInContext(source,h);
  const group=head=>({head,impressions:10,clicks:0,queries:[{query:head}],variants:1});
  assert.equal((await h.proposeFromClusters([group('راتب'),group('قرض')])).length,0);assert.equal(calls,0);

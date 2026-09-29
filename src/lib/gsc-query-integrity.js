@@ -60,3 +60,20 @@ export function existingGscQuestion(candidate, prompts, property) {
     return queries.some(q => keys.has(queryKey(q)));
   });
 }
+
+/** Question form only, not a grammar or source-intent verdict.
+ * A question mark cannot turn a keyword fragment into a buyer question.
+ */
+export function isBuyerQuestion(text) {
+  if (typeof text !== 'string') return false;
+  const value = text.trim();
+  if (value.length < 12 || value.length > 300 || /[\r\n]/u.test(value)) return false;
+  const words = value.match(/[\p{L}\p{N}]+/gu) || [];
+  if (words.length < 2) return false;
+  if (queryLanguage(value) === 'ar') {
+    // Ignore vowel marks for this form check only. Stored text stays literal.
+    const plain = value.replace(/[\u064b-\u065f\u0670]/gu, '');
+    return /^(?:كيف|هل|ما|ماذا|أين|اين|متى|لماذا|كم|أي|اي|من|بأي|باي|لأي|لاي|بكم|لمن)\s+\S/u.test(plain);
+  }
+  return /^(?:who|what|which|when|where|why|how|is|are|am|can|could|should|would|will|does|do|did|has|have)\s+\S/iu.test(value);
+}

@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { one, many, query, pool } from '../db/index.js';
 import { decrypt } from './tokens.js';
 import { matchSearchSnapshot, sealCandidate, openCandidate } from './search-evidence.js';
-import { queryKey, containsSearchBrand, queryLanguage, preservesQueryBasics, existingGscQuestion } from './gsc-query-integrity.js';
+import { queryKey, containsSearchBrand, queryLanguage, preservesQueryBasics, existingGscQuestion, isBuyerQuestion } from './gsc-query-integrity.js';
 import { complete, parseJsonArray } from './anthropic.js';
 
 /**
@@ -229,6 +229,9 @@ For each cluster you are given the highest-impression query, some variants, and 
 
 Rules:
 - Write the question exactly as a person would type it into ChatGPT: a concise, natural question. Do not pad Arabic to meet an English word count.
+- Return an actual question, not a copied keyword or a keyword with a question mark. Use a natural question opening such as how/which/what or كيف/هل/ما/أي.
+- Examples: "loan calculator" → "How do I calculate my loan repayments?"; "حاسبة القروض" → "كيف أحسب أقساط القرض؟". Do not add "personal" or a country to either example.
+- "بطاقة ائتمان" or "credit card" alone does not tell you whether the user wants a definition, eligibility, fees or a comparison. Omit such unclear product-only queries instead of choosing an intent for them.
 - Write Arabic directly in clear, natural Arabic appropriate to the market. Avoid literal English sentence structures, awkward phrasing and unnecessary qualifiers. Preserve dialect if present in the source rather than inventing it.
 - Never reinterpret a named app or service as a banking product because the client is a bank. For example, "تفعيل تطبيق سند" does not establish a banking-app intent. Omit unclear or unrelated named-service queries.
 - Preserve the source language. Arabic queries must stay Arabic, English queries must stay English.
@@ -270,15 +273,15 @@ export async function proposeFromClusters(clusters, { brand, aliases = [], domai
     const c = top[i];
     const draft = parsed?.find((p) => Number(p.index) === i)?.text;
     const names = [brand, ...aliases, domain];
-    const written = preservesQueryBasics(c.head, draft) && !containsSearchBrand(draft, names) ? draft : null;
+    const written = isBuyerQuestion(draft) && preservesQueryBasics(c.head, draft) && !containsSearchBrand(draft, names) ? draft : null;
 
     // Without a model, keep queries that already read as questions and skip
     // the head terms, rather than tracking a keyword as though it were one.
-    const text = written || (!parsed && c.isQuestion ? sentenceCase(c.head) : null);
-    if (!text || text.length < 12) continue;
+    const text = written || (!parsed && isBuyerQuestion(c.head) ? sentenceCase(c.head) : null);
+    if (!isBuyerQuestion(text) || containsSearchBrand(text, names)) continue;
 
     out.push({
-      text: String(text).trim().slice(0, 300),
+      text: text.trim(),
       cluster: c.head,
       language: queryLanguage(c.head),
       groupingMethod: 'exact-normalized-v1',
@@ -346,8 +349,8 @@ export async function importQuestions(projectId, chosen, database = pool) {
         throw err;
       }
       const text = typeof c.reviewedText === 'string' ? c.reviewedText.trim() : candidate.text;
-      if (!text || text.length < 12 || text.length > 300 || !preservesQueryBasics(candidate.cluster, text) || containsSearchBrand(text, [project?.brand_name, ...(project?.aliases || []), project?.domain])) {
-        const err = new Error('Review the selected wording: use 12–300 characters, preserve the source language, amounts, product restrictions and locations. Do not add your brand or infer a new product from your business scope.');
+      if (!isBuyerQuestion(text) || !preservesQueryBasics(candidate.cluster, text) || containsSearchBrand(text, [project?.brand_name, ...(project?.aliases || []), project?.domain])) {
+        const err = new Error('Write a complete question using 12–300 characters, starting with a question word such as how, which, كيف or هل. Preserve the source language, amounts, product restrictions and locations. Do not add your brand or infer a new product from your business scope.');
         err.code = 'GSC_SELECTION_EXPIRED';
         throw err;
       }
