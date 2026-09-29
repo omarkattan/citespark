@@ -11,6 +11,7 @@ CREATE TABLE report_review_notes(project_id int,recommendation_id int); CREATE T
 INSERT INTO projects VALUES (1,1),(2,2);
 INSERT INTO recommendations SELECT n,1,'content_gap',CASE WHEN n<=105 THEN 'open' ELSE 'done' END,'{"prompt_id":7}',1000-n,NULL,NULL FROM generate_series(1,110) n;
 INSERT INTO recommendations VALUES (200,1,'source_gap','open','{}',1,NULL,NULL),(201,1,'source_gap','doing','{}',1,NULL,NULL),(202,1,'competitor_comparison','dismissed','{"prompt_id":9}',1,NULL,NULL),(203,1,'entity_authority','open','{}',1,NULL,NULL),(204,1,'engine_gap','doing','{"prompt_id":12}',1,NULL,NULL),(300,2,'content_gap','open','{}',1,NULL,NULL);`);
+await db.exec(`ALTER TABLE recommendations ADD COLUMN review_decision jsonb NOT NULL DEFAULT '{}';`);
 let handler;
 const h=vm.createContext({app:{get:(_path,_auth,fn)=>handler=fn},requireAuth:()=>{},wrap:f=>f,assertProject:async()=>({id:1}),attachSourceReviews:async(_p,rows)=>rows,many:async(sql,args)=>(await db.query(sql,args)).rows,one:async(sql,args)=>(await db.query(sql,args)).rows[0]});
 const start=server.indexOf("app.get('/api/projects/:id/recommendations'");vm.runInContext(server.slice(start,server.indexOf('\n/**',start)),h);
@@ -42,3 +43,12 @@ test('full queue uses server focus counts, scoped tabs and a limit notice',async
  assert.match(document.getElementById('opportunityKind').textContent,/Question reviews \(106 checks\)/);
 });
 test.after(()=>db.close());
+test('ready filter reaches beyond the preview cap with accurate scoped counts',async()=>{
+ await db.exec(`UPDATE recommendations SET review_decision='{"stage":"ready"}' WHERE id IN (105,110,300);`);
+ try {
+  const {result:r}=await request({status:'active',decision:'ready'});
+  assert.deepEqual(r.tasks.map(t=>t.id),[105]);assert.equal(r.counts.open,1);assert.equal(r.counts.done,1);assert.equal(r.focusCounts.all,1);
+  const {result:all}=await request({status:'active'});assert.equal(all.tasks[2].id,105);
+  assert.equal((await request({status:'active',decision:"ready' OR true"})).code,400);
+ } finally {await db.exec(`UPDATE recommendations SET review_decision='{}';`);}
+});

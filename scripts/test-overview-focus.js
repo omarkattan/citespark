@@ -73,3 +73,14 @@ test('a capped candidate list discloses its scope without claiming all tasks wer
  const r=await shortlist([task(1),task(2)],{open:140,doing:0});
  assert.deepEqual(r.ids,[1,2]);assert.match(r.text,/considers the first 2 tasks returned/);assert.match(r.text,/All opportunities \(140\)/);
 });
+test('overview selects ready work ahead of investigation, but retains due and in-progress precedence',async()=>{
+ const base={status:'open',type:'content_gap',title:'Review',evidence:{},action:'Inspect'};
+ const tasks=[{...base,id:1},{...base,id:2,review_decision:{stage:'no_change'}},{...base,id:3,review_decision:{stage:'ready'}},{...base,id:4,status:'doing'},{...base,id:5,due_date:'2000-01-01'}];
+ const {h,document}=harness({tasks});document.getElementById('view').innerHTML=await h.viewOverview();
+ assert.deepEqual([...document.querySelectorAll('[data-task]')].map(e=>e.dataset.task),['5','4','3']);
+});
+test('no-change decisions alone do not appear as fresh investigation or imply no open work',async()=>{
+ const {h,document}=harness({tasks:[{id:1,status:'open',type:'content_gap',evidence:{},review_decision:{stage:'no_change'}}],counts:{open:1,doing:0}});
+ document.getElementById('view').innerHTML=await h.viewOverview();
+ assert.equal(document.querySelectorAll('[data-task]').length,0);assert.match(document.body.textContent,/No further investigation selected/);
+});

@@ -318,7 +318,8 @@ async function viewOverview() {
   const group = t => ['source_gap','competitor_page'].includes(t.type) ? 'sources'
     : t.type === 'competitor_comparison' ? 'competitors'
     : t.type === 'content_gap' || t.evidence?.prompt_id ? 'questions' : 'other';
-  const groups = ['questions','competitors','sources','other'].map(kind => eligible.filter(t => group(t) === kind));
+  eligible.filter(t=>t.review_decision?.stage==='ready').forEach(t=>add(t,'Ready to implement. A reviewed page, evidence and specific change are recorded.'));
+  const groups = ['questions','competitors','sources','other'].map(kind => eligible.filter(t => group(t) === kind && t.review_decision?.stage!=='no_change'));
   const sourceOrder = t => ({relevant:0,uncertain:2}[t.sourceReview?.status] ?? 1);
   groups[0].sort((a,b)=>(a.type==='content_gap'?0:1)-(b.type==='content_gap'?0:1) || Number(a.id)-Number(b.id));
   groups[2].sort((a,b) => sourceOrder(a)-sourceOrder(b));
@@ -350,11 +351,11 @@ async function viewOverview() {
     </div>
     ${measured ? '<section class="panel"><h3>Who else appeared?</h3><p>Review potential competitors from stored answers. Track relevant businesses, ignore other sources, or add your own.</p><button class="btn" data-open-view="competitorReview">Review competitors</button></section>' : ''}
     <section aria-label="Next actions" id="overviewNext">
-    <div class="panel-head"><div><h2>What to do next</h2><p class="hint">${openCount != null ? `${openCount} open task${openCount === 1 ? '' : 's'}. ` : ''}Review one task at a time. Due or overdue work comes first, then work in progress, then a mix of question, competitor and source reviews. This order does not predict improvement.</p></div>
+    <div class="panel-head"><div><h2>What to do next</h2><p class="hint">${openCount != null ? `${openCount} open task${openCount === 1 ? '' : 's'}. ` : ''}Review one task at a time. Due or overdue work comes first, then work in progress, then ready actions before further investigation. This order does not predict improvement.</p></div>
       <button class="ghost" data-open-view="actions">All opportunities${openCount != null ? ` (${openCount})` : ''}</button></div>
     ${openCount > (tasks?.length || 0) && tasks ? `<p class="hint">This shortlist considers the first ${tasks.length} tasks returned by the work queue. Open Opportunities to review the full list by category.</p>` : ''}
     <p class="hint">A completed task records work done. A later measurement is needed to assess visibility changes.</p>
-    ${tasks === null ? '<div class="notice">The task list could not be loaded. Open Opportunities to try again.</div>' : suggested.length ? suggested.map(({task, reason}) => reviewGroupCard(reviewGroups(eligible).find(g=>g.tasks.some(t=>t.id===task.id)), task.evidence?.prompt_id?`${reason} ${reviewReason(task)}`:reason)).join('') : `<div class="panel"><h3>${unrelated.length ? 'No other tasks to prioritise' : measured ? 'No open tasks' : 'Review questions before your first run'}</h3><p>${unrelated.length ? 'The remaining source reviews were judged unrelated to their checked questions. They remain available in Opportunities.' : measured ? 'Check completed work in Opportunities, or review your questions before the next measurement.' : 'Add questions manually, use suggestions or connect Google Search Console.'}</p><button class="ghost" data-open-view="${measured ? 'actions' : 'questions'}">${measured ? 'Open opportunities' : 'Open questions'}</button></div>`}
+    ${tasks === null ? '<div class="notice">The task list could not be loaded. Open Opportunities to try again.</div>' : suggested.length ? suggested.map(({task, reason}) => reviewGroupCard(reviewGroups(eligible).find(g=>g.tasks.some(t=>t.id===task.id)), task.evidence?.prompt_id?`${reason} ${reviewReason(task)}`:reason)).join('') : `<div class="panel"><h3>${unrelated.length ? 'No other tasks to prioritise' : eligible.length ? 'No further investigation selected' : measured ? 'No open tasks' : 'Review questions before your first run'}</h3><p>${unrelated.length ? 'The remaining source reviews were judged unrelated to their checked questions. They remain available in Opportunities.' : eligible.length ? 'The remaining reviewed checks have no change needed. They remain in Opportunities with their notes and status.' : measured ? 'Check completed work in Opportunities, or review your questions before the next measurement.' : 'Add questions manually, use suggestions or connect Google Search Console.'}</p><button class="ghost" data-open-view="${measured ? 'actions' : 'questions'}">${measured ? 'Open opportunities' : 'Open questions'}</button></div>`}
     ${unrelated.length ? `<p class="hint">${unrelated.length} source review${unrelated.length === 1 ? ' was' : 's were'} left out of this shortlist because the checked page and question appeared unrelated. Nothing was dismissed or deleted. <button class="ghost" data-open-view="actions">View all opportunities</button></p>` : ''}
     </section>
     <details class="panel fold overview-measurement"><summary>Plan the next measurement</summary><p>${esc(next)}</p><p class="hint">Paused questions are excluded. Running again uses answer checks.</p><button class="ghost" data-open-view="questions">Review questions</button> <button class="ghost" data-start-first-cycle>Review cost and run</button></details>
@@ -380,8 +381,9 @@ async function viewAnswerEvidence() {
 }
 
 document.addEventListener('change', async event => {
-  if (event.target.id !== 'opportunityKind') return;
-  state.opportunityKind = event.target.value;
+  if (!['opportunityKind','opportunityDecision'].includes(event.target.id)) return;
+  if(event.target.id==='opportunityDecision') state.opportunityDecision=event.target.value;
+  else state.opportunityKind = event.target.value;
   await render();
 });
 
@@ -432,7 +434,7 @@ function reviewGroups(tasks) {
   const today=new Date();today.setHours(0,0,0,0);
   const date=t=>/^\d{4}-\d{2}-\d{2}/.test(t.due_date||'')?t.due_date.slice(0,10):null;
   const due=t=>['open','doing'].includes(t.status) && date(t) && new Date(date(t)+'T00:00:00')<=today;
-  const rank=t=>due(t)?0:t.status==='doing'?1:opportunityKind(t)==='questions'?(t.type==='content_gap'?2:3):opportunityKind(t)==='competitors'?4:opportunityKind(t)==='sources'?6:5;
+  const rank=t=>due(t)?0:t.status==='doing'?1:t.review_decision?.stage==='ready'?2:t.review_decision?.stage==='no_change'?9:opportunityKind(t)==='questions'?(t.type==='content_gap'?3:4):opportunityKind(t)==='competitors'?5:opportunityKind(t)==='sources'?7:6;
   const compare=(a,b)=>rank(a)-rank(b) || (rank(a)===0?date(a).localeCompare(date(b)):0) || Number(a.id)-Number(b.id);
   for(const group of map.values()) group.tasks.sort(compare);
   return [...map.values()].sort((a,b)=>compare(a.tasks[0],b.tasks[0]));
@@ -461,9 +463,9 @@ function opportunityFilters(tasks, selected = 'all', counts = null) {
 
 async function viewActions() {
   const filter = state.taskFilter || 'active';
-  if (state.opportunityProject !== state.projectId) { state.opportunityKind = 'all'; state.opportunityProject = state.projectId; }
+  if (state.opportunityProject !== state.projectId) { state.opportunityKind = 'all'; state.opportunityDecision = 'all'; state.opportunityProject = state.projectId; }
   const kind = state.opportunityKind || 'all';
-  const data = await api(`/api/projects/${state.projectId}/recommendations?status=${filter}&kind=${kind}`);
+  const data = await api(`/api/projects/${state.projectId}/recommendations?status=${filter}&kind=${kind}&decision=${state.opportunityDecision || 'all'}`);
   if (!data) return '';
   state.people = data.people || [];
 
@@ -513,10 +515,10 @@ async function viewActions() {
       : '';
 
   const tasks = data.tasks.filter(task => kind === 'all' || opportunityKind(task) === kind);
-  const intro = `<div class="panel queue-intro"><h2>Your work queue</h2><p>Start with one buyer question. Related checks are grouped so you can review its answers once. Due work and work in progress come first, followed by question reviews, competitor reviews and source research.</p><p class="hint">The status tabs and Focus counts refer to saved checks. Each keeps its notes and owner. Completion records work done, not a visibility improvement.</p>${opportunityFilters(data.tasks, kind, data.focusCounts)}</div>`;
+  const intro = `<div class="panel queue-intro"><h2>Your work queue</h2><p>Start with one buyer question. Related checks are grouped so you can review its answers once. Due work and work in progress come first, then ready actions, further investigation and no-change decisions.</p><p class="hint">The status tabs and Focus counts refer to saved checks. Each keeps its notes and owner. Completion records work done, not a visibility improvement.</p>${opportunityFilters(data.tasks, kind, data.focusCounts)}<label class="queue-filter">Review decision <select id="opportunityDecision">${[['all','All decisions'],['ready','Ready to implement'],['investigate','Needs investigation'],['no_change','No change needed']].map(([value,label])=>`<option value="${value}"${value===(state.opportunityDecision || 'all')?' selected':''}>${label}</option>`).join('')}</select></label><p class="hint">Decision and completion are separate. Ready means reviewed, not implemented. Counts follow the selected decision filter.</p></div>`;
   const total = filter === 'active' ? c.open + c.doing : filter === 'all' ? c.total : c[filter];
   const resultCount = `<p class="hint" id="queueCount">${queueCountText(tasks,total)}</p>`;
-  return intro + bar + resultCount + `<div id="opportunityQueue">${tasks.length ? reviewGroups(tasks).map(group=>reviewGroupCard(group)).join('') : '<div class="empty"><h2>No tasks match this focus</h2><p>Choose another focus or status above.</p></div>'}</div>` + reportBar + suppressedPanel;
+  return intro + bar + resultCount + `<div id="opportunityQueue">${tasks.length ? reviewGroups(tasks).map(group=>reviewGroupCard(group)).join('') : '<div class="empty"><h2>No tasks match this focus</h2><p>Choose another review decision, focus or status above.</p></div>'}</div>` + reportBar + suppressedPanel;
 }
 
 const STATUS_LABEL = { open: 'To do', doing: 'In progress', done: 'Done', dismissed: 'Dismissed' };
@@ -4382,7 +4384,10 @@ document.addEventListener('click', async event=>{
   const badge=panel.closest('[data-task]').querySelector('[data-decision-badge]'); if(badge) badge.textContent=decisionLabel(result.stage);
   $(`report-controls-${id}`).hidden=false;
   feedback.textContent='Decision saved. Any existing client-report copy stays unchanged until you explicitly update it.';
+  const moved=state.view==='actions' && state.opportunityDecision && state.opportunityDecision!=='all' && state.opportunityDecision!==result.stage;
+  if(moved) panel.closest('[data-task]').remove();
   await refreshTaskCounts();
+  if(moved && $('queueCount')) $('queueCount').textContent += ` Decision saved as ${decisionLabel(result.stage)}. Switch the decision filter to see it.`;
  } catch(error) {feedback.textContent=error.message || 'Could not save. Your draft is still here.';}
  finally {button.disabled=false; inputs.forEach(i=>i.disabled=false);}
 });
@@ -4401,7 +4406,8 @@ function replaceCard(id, task) {
 }
 
 async function refreshTaskCounts() {
-  const data = await api(`/api/projects/${state.projectId}/recommendations?status=${state.taskFilter || 'active'}&kind=${state.opportunityKind || 'all'}`);
+  const onOverview=state.view==='overview';
+  const data = await api(`/api/projects/${state.projectId}/recommendations?status=${onOverview?'active':state.taskFilter || 'active'}&kind=${onOverview?'all':state.opportunityKind || 'all'}&decision=${onOverview?'all':state.opportunityDecision || 'all'}`);
   if (!data) return;
   const focus = $('opportunityKind');
   if (focus) {

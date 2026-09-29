@@ -698,6 +698,10 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
   const valid = ['open', 'doing', 'done', 'dismissed', 'all', 'active'];
   if (!valid.includes(status)) return res.status(400).json({ error: 'Unknown status filter' });
 
+  const decision = String(req.query.decision || 'all');
+  if (!['all','ready','investigate','no_change'].includes(decision)) return res.status(400).json({error:'Unknown decision filter'});
+  const decisionWhere = decision === 'all' ? '' : ` AND COALESCE(review_decision->>'stage','investigate') = '${decision}'`;
+
   const kind = String(req.query.kind || 'all');
   if (!['all', 'sources', 'questions', 'competitors', 'other'].includes(kind)) return res.status(400).json({error: 'Unknown focus filter'});
   const kindSql = `CASE
@@ -717,11 +721,12 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
 
   const rows = await many(
     `SELECT * FROM recommendations
-     WHERE project_id = $1 ${where} ${kindWhere}
+     WHERE project_id = $1 ${where} ${kindWhere} ${decisionWhere}
      ORDER BY
        CASE WHEN due_date IS NOT NULL AND due_date <= CURRENT_DATE AND status IN ('open','doing') THEN 0 ELSE 1 END,
        CASE WHEN due_date <= CURRENT_DATE AND status IN ('open','doing') THEN due_date END NULLS LAST,
        CASE WHEN status='doing' THEN 0 ELSE 1 END,
+       CASE WHEN review_decision->>'stage'='ready' THEN 0 WHEN review_decision->>'stage'='no_change' THEN 2 ELSE 1 END,
        CASE WHEN (${kindSql})='questions' THEN 0 WHEN (${kindSql})='competitors' THEN 1 WHEN (${kindSql})='sources' THEN 3 ELSE 2 END,
        CASE WHEN type='content_gap' THEN 0 ELSE 1 END,
        id ASC
@@ -737,13 +742,13 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
        COUNT(*) FILTER (WHERE status = 'dismissed')::int AS dismissed,
        COUNT(*) FILTER (WHERE due_date <= CURRENT_DATE AND status IN ('open','doing'))::int AS overdue,
        COUNT(*)::int AS total
-     FROM recommendations WHERE project_id = $1 ${kindWhere}`,
+     FROM recommendations WHERE project_id = $1 ${kindWhere} ${decisionWhere}`,
     [project.id]
   );
 
   // Focus counts cover the selected status across all rows, not only the 100 returned cards.
   const groups = await many(`SELECT (${kindSql}) AS kind, COUNT(*)::int AS count
-    FROM recommendations WHERE project_id = $1 ${where} GROUP BY 1`, params);
+    FROM recommendations WHERE project_id = $1 ${where} ${decisionWhere} GROUP BY 1`, params);
   const focusCounts = {all: 0, questions: 0, sources: 0, competitors: 0, other: 0};
   for (const group of groups) { focusCounts[group.kind] = group.count; focusCounts.all += group.count; }
 
@@ -3662,7 +3667,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260929-review-decisions-50',
+    release: '20260929-ready-actions-51',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

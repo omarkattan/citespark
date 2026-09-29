@@ -93,3 +93,12 @@ test('explicit decisions appear in groups while legacy notes never imply readine
  assert.equal(document.getElementById('decision-evidence-22').value,'<unsafe>');assert.equal(document.querySelector('unsafe'),null);
  assert.equal(document.getElementById('next-note-2').value,'Existing review');
 });
+test('queue sorts ready decisions above investigation and no-change below, retaining due work',()=>{
+ const {h}=harness();const base={...tasks[1],evidence:{prompt_id:0}};
+ const list=[{...base,id:1},{...base,id:2,review_decision:{stage:'no_change'}},{...base,id:3,review_decision:{stage:'ready'}},{...base,id:4,due_date:'2000-01-01'}];
+ assert.deepEqual(Array.from(h.reviewGroups(list),g=>g.tasks[0].id),[4,3,1,2]);
+});
+test('decision filter resets on changing projects',async()=>{
+ const {h,state,document}=harness();state.opportunityDecision='ready';state.projectId=99;
+ document.body.innerHTML=await h.viewActions();assert.equal(state.opportunityDecision,'all');assert.equal(document.getElementById('opportunityDecision').value,'all');
+});
