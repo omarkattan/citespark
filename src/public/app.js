@@ -794,6 +794,7 @@ function taskCard(t, compact = false, selectionReason = '') {
         <button class="ghost" data-next-cancel="${t.id}">Cancel</button>
       </div>
       <p class="hint" id="next-feedback-${t.id}" role="status" aria-live="polite"></p>
+      ${t.notes||t.reportIncluded?`<p><button class="ghost" data-report-note="${t.id}" data-include="true">${t.reportIncluded?'Update note in client report':'Include saved note in client report'}</button> ${t.reportIncluded?`<button class="ghost" data-report-note="${t.id}" data-include="false">Remove from client report</button>`:''}</p><p class="hint">${t.reportIncluded?'A saved copy is included. Later edits stay internal until you update the report note.':'Only include client-ready text. This copies the saved note into the report without marking the task complete.'}</p>`:''}
     </section>
     <div class="task-edit" id="edit-${t.id}" hidden>
       <div class="task-edit-row">
@@ -5987,4 +5988,14 @@ document.addEventListener('click', async e => {
     if (target) target.textContent = error.message;
     else toast(error.message, 'bad');
   } finally { button.disabled = false; }
+});
+
+document.addEventListener('click',async event=>{
+ const button=event.target.closest('[data-report-note]');if(!button)return;
+ const projectId=state.projectId;button.disabled=true;
+ try {
+ const response=await fetch(`/api/recommendations/${button.dataset.reportNote}/report-note`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({include:button.dataset.include==='true'})});
+ const data=await response.json();if(!response.ok)throw Error(data.error||'Could not update report note');
+ if(state.projectId===projectId){await render();toast(data.included?'Saved note included in client report.':'Note removed from client report.');}
+ }catch(error){toast(error.message,'bad');}finally{button.disabled=false;}
 });

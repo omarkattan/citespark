@@ -1,3 +1,4 @@
+import { reportReview } from './report-review.js';
 import { comparableSettings } from './measurement-batches.js';
 import { reportEvidence } from './report-evidence.js';
 import { many, one } from '../db/index.js';
@@ -390,9 +391,9 @@ function groupActions(items) {
   const themes = new Map();
 
   const themeOf = (i) => {
-    if (/^Invisible for/i.test(i.title)) return { key: 'invisible', label: 'Questions where you never appear' };
+    if (/^Invisible for/i.test(i.title)) return { key: 'invisible', label: 'Historical tasks about missing brand naming' };
     if (/shapes \d+ of your questions/i.test(i.title)) return { key: 'sources', label: 'Sources shaping answers without you' };
-    if (/Cited as a source but rarely named/i.test(i.title)) return { key: 'cited_not_named', label: 'Linked, but not named in the answer' };
+    if (/Cited as a source but rarely named/i.test(i.title)) return { key: 'cited_not_named', label: 'Historical tasks about citations and brand naming' };
     if (/^Named but never cited/i.test(i.title)) return { key: 'named_not_cited', label: 'Named in the answer, but the link went elsewhere' };
     if (/^Visibility fell/i.test(i.title)) return { key: 'declines', label: 'Questions where visibility dropped' };
     if (/^Strong on .*absent on/i.test(i.title)) return { key: 'engines', label: 'Present on one engine, missing on another' };
@@ -639,7 +640,9 @@ export async function buildReport(projectId, range = {}) {
     });
   }
 
+  const review = await reportReview(projectId, executive.measurement, many);
   return {
+    review,
     executive,
     methodNotes,
     priorities: executive?.priorities || priorities.slice(0, 3),

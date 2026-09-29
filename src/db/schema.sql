@@ -688,3 +688,10 @@ CREATE TABLE IF NOT EXISTS competitor_baselines (
  measurement_id INTEGER REFERENCES measurement_batches(id) ON DELETE SET NULL,
  analysis JSONB NOT NULL
 );
+
+-- Batch 40: client report notes are explicit snapshots, never all internal task notes.
+CREATE TABLE IF NOT EXISTS report_review_notes (
+ recommendation_id INTEGER PRIMARY KEY REFERENCES recommendations(id) ON DELETE CASCADE,
+ project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ title TEXT NOT NULL, notes TEXT NOT NULL, selected_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
