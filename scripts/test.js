@@ -2157,7 +2157,7 @@ await test('the report downloads as a PDF, not as a file to open later', async (
   // Two buttons for one artefact, and the download saved HTML someone then
   // had to open and print themselves.
   const bar = app.slice(app.indexOf('const reportBar'), app.indexOf('const bar = '));
-  assert.ok(/Download report/.test(bar), 'one button for the report');
+  assert.ok(/Open client report/.test(bar), 'one button for the report');
   assert.ok(!/Open the report/.test(bar), 'not two buttons for the same thing');
   assert.ok(!/download=1/.test(bar), 'and no HTML download');
 
@@ -2202,7 +2202,7 @@ await test('the report remains available in populated and empty task views', asy
   // It was a ghost link at the end of a right-aligned row, which reads as a
   // minor control next to the real ones.
   assert.ok(/class="reportbar"/.test(app), 'the report needs its own bar');
-  assert.ok(/<a class="btn"[^>]*href="\/api\/projects\/\$\{state\.projectId\}\/report\?print=1"/.test(app), 'and a primary button, not a ghost link');
+  assert.ok(/<a class="btn"[^>]*href="\/api\/projects\/\$\{state\.projectId\}\/report"/.test(app), 'and a primary button, not a ghost link');
   assert.ok(/\.reportbar \{[\s\S]{0,400}border: 1px solid var\(--you\)/.test(css), 'visibly separated from the list below it');
 
   // It sat below an early return, so filtering to a view with no tasks
@@ -4825,7 +4825,7 @@ await test('the report is readable without the app', async () => {
   assert.ok(/@page/.test(html), 'it must be printable');
   assert.ok(/page-break/.test(html), 'without splitting tables across pages');
   assert.ok(/How to read this/.test(html), 'and carry its own caveats');
-  assert.ok(/print\n\s*\? `<script>/.test(html) && /window\.print\(\)/.test(html), 'only the optional print-dialog helper needs JavaScript');
+  assert.ok(/onclick="window\.print\(\)"/.test(html) && !/window\.addEventListener\('load'/.test(html), 'printing requires a deliberate click');
 });
 
 console.log('\ncontrast');
