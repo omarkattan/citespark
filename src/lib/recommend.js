@@ -648,6 +648,8 @@ export async function persistRecommendations(projectId, recs) {
    * from a redirect wrapper left "vertexaisearch.cloud.google.com shapes 53
    * of your questions" sitting in the list with nothing underneath it.
    *
+   * Saved notes, assignments, deadlines and selected report notes are kept.
+   * These are human work, even while a task is still open.
    * Work in progress is kept: someone who has started or finished a task
    * should not find it vanished because this cycle read the world slightly
    * differently.
@@ -661,14 +663,18 @@ export async function persistRecommendations(projectId, recs) {
 
   const stale = await many(
     `SELECT id, title FROM recommendations
-     WHERE project_id = $1 AND status = 'open' AND NOT (fingerprint = ANY($2::text[]))`,
+     WHERE project_id = $1 AND status = 'open' AND NOT (fingerprint = ANY($2::text[]))
+       AND NULLIF(trim(notes),'') IS NULL AND NULLIF(trim(assignee),'') IS NULL AND due_date IS NULL
+       AND NOT EXISTS (SELECT 1 FROM report_review_notes n WHERE n.recommendation_id=recommendations.id AND n.project_id=recommendations.project_id)`,
     [projectId, written]
   );
 
   if (stale.length) {
     await query(
       `DELETE FROM recommendations
-       WHERE project_id = $1 AND status = 'open' AND NOT (fingerprint = ANY($2::text[]))`,
+       WHERE project_id = $1 AND status = 'open' AND NOT (fingerprint = ANY($2::text[]))
+       AND NULLIF(trim(notes),'') IS NULL AND NULLIF(trim(assignee),'') IS NULL AND due_date IS NULL
+       AND NOT EXISTS (SELECT 1 FROM report_review_notes n WHERE n.recommendation_id=recommendations.id AND n.project_id=recommendations.project_id)`,
       [projectId, written]
     );
   }
