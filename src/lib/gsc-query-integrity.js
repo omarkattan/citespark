@@ -16,9 +16,47 @@ export function queryLanguage(text) {
 }
 const numbers=text=>(String(text).replace(/[٠-٩]/g,c=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(c))).replace(/[۰-۹]/g,c=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(c))).match(/\d+(?:[.,]\d+)*/g)||[]).sort().join('|');
 export function preservesQueryBasics(original, rewritten) {
+  if (typeof rewritten !== 'string') return false;
+  // Narrow, deterministic guards. These do not certify semantic equivalence.
+  if (queryKey(original).split(' ').length < 2) return false;
+  for (const pattern of SOURCE_QUALIFIERS) {
+    if (pattern.test(original) !== pattern.test(rewritten)) return false;
+  }
   // Do not infer that a named app is a banking app from the customer's sector.
   const app=/تطبيق|\bapp(?:lication)?\b/i;
   const banking=/بنك|بنوك|بنكي|مصرف|\bbank(?:ing)?\b/i;
   if(app.test(original) && !banking.test(original) && banking.test(rewritten)) return false;
   return typeof rewritten==='string' && queryLanguage(original)===queryLanguage(rewritten) && numbers(original)===numbers(rewritten);
+}
+
+// Keep named restrictions and common product/location qualifiers on both sides.
+// Deliberately separate from brand detection and historical answer matching.
+const SOURCE_QUALIFIERS = [
+  /\bpersonal\b|شخصي/i,
+  /\bsavings?\b|توفير|ادخار/i,
+  /\bcurrent account\b|حساب(?:ات)? جار/i,
+  /\b(?:salary|payroll)\b|راتب|رواتب/i,
+  /\b(?:best|top|lowest|cheapest)\b|أفضل|افضل|أرخص|ارخص|الأقل|الاقل/i,
+  /\b(?:Jordan|Jordanian)\b|الأردن|الاردن|أردني|اردني/i,
+  /\b(?:Dubai)\b|دبي/i,
+  /\b(?:Saudi|KSA)\b|السعودي/i,
+  /\b(?:UAE|Emirates|Emirati)\b|الإمارات|الامارات|إماراتي|اماراتي/i,
+  /\b(?:without|no) (?:a )?guarantor\b|بدون كفيل|دون كفيل/i,
+  /\b(?:without|no) salary transfer\b|بدون تحويل راتب|دون تحويل راتب/i,
+  /\bsame[ -]day\b|نفس اليوم/i,
+];
+
+/** Find previous imports by evidence, even if their question wording changed.
+ * Includes paused/history rows so users manage those instead of reimporting.
+ * Legacy examples are positive evidence only, never proof of complete coverage.
+ */
+export function existingGscQuestion(candidate, prompts, property) {
+  const keys = new Set((candidate.querySet || candidate.examples || []).map(queryKey));
+  return prompts.find(p => {
+    if (queryKey(p.text) === queryKey(candidate.text)) return true;
+    const origin = p.origin_details || {};
+    if (!String(p.source || '').startsWith('gsc') || origin.property !== property) return false;
+    const queries = [...(origin.querySet || []), ...(origin.queryExamples || [])];
+    return queries.some(q => keys.has(queryKey(q)));
+  });
 }

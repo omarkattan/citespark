@@ -4614,7 +4614,8 @@ function gscCandidateRow(c, i) {
   const pos = c.avgPosition ? c.avgPosition.toFixed(1) : '-';
   const haystack = `${c.text} ${c.examples.join(' ')} ${c.cluster || ''}`.toLowerCase();
   return `<div class="gsc-review-row ${c.alreadyTracked ? 'off' : ''}" data-filter-text="${esc(haystack)}">
-    <label class="eng"><input type="checkbox" data-gsc="${i}" ${c.alreadyTracked ? 'disabled' : ''} /><span>${c.alreadyTracked?'Already tracked':'Add this question after reviewing wording and relevance'}</span></label>
+    <label class="eng"><input type="checkbox" data-gsc="${i}" ${c.alreadyTracked ? 'disabled' : ''} /><span>${c.alreadyTracked?'Already imported. Manage the existing question in Questions':'Add this question after reviewing wording and relevance'}</span></label>
+    ${c.existingQuestion?`<p class="hint">Existing question${c.existingQuestion.active===false?' (paused or superseded)':''}: <span dir="auto">${esc(c.existingQuestion.text)}</span></p>`:''}
     <div class="gsc-review-columns"><div><b>Original Google queries</b><ul>${c.examples.map(q=>`<li dir="auto">${esc(q)}</li>`).join('')}</ul>
     <p class="hint">${c.impressions.toLocaleString()} Google search impressions · ${c.clicks} clicks · position ${pos}${c.variants>1?` · ${c.variants} variations`:''}. These figures belong to the source queries.</p></div>
     <div class="field"><label for="gsc-wording-${i}">Question to measure</label><textarea id="gsc-wording-${i}" data-gsc-wording="${i}" dir="auto" rows="3" minlength="12" maxlength="300" ${c.alreadyTracked?'disabled':''}>${esc(c.text)}</textarea>

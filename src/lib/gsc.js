@@ -1,8 +1,8 @@
 import 'dotenv/config';
-import { one, many, query } from '../db/index.js';
+import { one, many, query, pool } from '../db/index.js';
 import { decrypt } from './tokens.js';
 import { matchSearchSnapshot, sealCandidate, openCandidate } from './search-evidence.js';
-import { queryKey, containsSearchBrand, queryLanguage, preservesQueryBasics } from './gsc-query-integrity.js';
+import { queryKey, containsSearchBrand, queryLanguage, preservesQueryBasics, existingGscQuestion } from './gsc-query-integrity.js';
 import { complete, parseJsonArray } from './anthropic.js';
 
 /**
@@ -237,17 +237,19 @@ Rules:
 - Never include the brand's own name. We are measuring unprompted recall.
 - Keep the intent of the original query. A query about price becomes a price question, not a generic "best" question.
 - Keep location and sector qualifiers that appear in the queries.
+- Business scope and market are relevance filters, never permission to add product types or locations. "loan calculator" must not become "personal loan calculator". "راتب" is too vague and must be omitted.
 - If a cluster is navigational, branded, or too vague to make a sensible buyer question, omit it entirely.
 
 Return ONLY a JSON array: [{"index": number, "text": string}]
 The index refers to the cluster number you were given. Omit clusters you are skipping.`;
 
 /**
- * Turn clusters into tracked questions. Real impressions become the volume
- * figure, which is what the priority scoring keys off.
+ * Suggest questions from source queries. Search figures remain source evidence,
+ * never an estimate of how often the question is asked in AI engines.
  */
 export async function proposeFromClusters(clusters, { brand, aliases = [], domain = '', market, category = '', qualifier = '' } = {}) {
-  const top = clusters.slice(0, 30);
+  const top = clusters.filter(c => queryKey(c.head).split(' ').length >= 2).slice(0, 30);
+  if (!top.length) return [];
 
   const listing = top
     .map(
@@ -312,57 +314,75 @@ export async function candidates(projectId, { days = 90 } = {}) {
   });
 
   // Flag anything already tracked so the screen does not offer duplicates.
-  const existing = await many('SELECT lower(text) AS text FROM prompts WHERE project_id = $1', [projectId]);
-  const seen = new Set(existing.map((e) => e.text));
+  const existing = await many('SELECT id, text, source, active, origin_details FROM prompts WHERE project_id = $1 ORDER BY active DESC, id DESC', [projectId]);
 
   return {
     rows: rows.length,
     totalImpressions: rows.reduce((n, r) => n + r.impressions, 0),
     clusters: clusters.length,
-    candidates: proposed.map((p) => ({ ...p, evidenceToken: sealCandidate(projectId, p, evidence), alreadyTracked: seen.has(p.text.toLowerCase()) }))
+    candidates: proposed.map(p => {
+      const previous = existingGscQuestion(p, existing, project.gsc_site_url);
+      return {...p, evidenceToken: sealCandidate(projectId, p, evidence), alreadyTracked: Boolean(previous), existingQuestion: previous ? {id:previous.id, text:previous.text, active:previous.active} : null};
+    })
   };
 }
 
-/** Add chosen questions, with impressions as the volume figure. */
-export async function importQuestions(projectId, chosen) {
-  const project = await one('SELECT gsc_site_url, brand_name, aliases, domain FROM projects WHERE id = $1', [projectId]);
-  let added = 0;
-  // Validate every selection before writing any of them. Client metrics are never authoritative.
-  const verified = chosen.map(c => {
-    const candidate = openCandidate(c.evidenceToken, projectId, project?.gsc_site_url);
-    if (candidate.groupingMethod !== 'exact-normalized-v1') {
-      const err = new Error('Search grouping has changed. Load Search Console suggestions again before importing.');
-      err.code = 'GSC_SELECTION_EXPIRED';
-      throw err;
+/** Import reviewed questions with signed search evidence. No AI measurements are changed. */
+export async function importQuestions(projectId, chosen, database = pool) {
+  const client = await database.connect();
+  const one = async (sql, args) => (await client.query(sql, args)).rows[0] || null;
+  try {
+    await client.query('BEGIN');
+    // Serialize imports for this project, including simultaneous browser tabs.
+    await client.query('SELECT pg_advisory_xact_lock(46046, $1::integer)', [projectId]);
+    const project = await one('SELECT gsc_site_url, brand_name, aliases, domain FROM projects WHERE id = $1', [projectId]);
+    let added = 0;
+    // Validate every selection before writing any of them. Client metrics are never authoritative.
+    const verified = chosen.map(c => {
+      const candidate = openCandidate(c.evidenceToken, projectId, project?.gsc_site_url);
+      if (candidate.groupingMethod !== 'exact-normalized-v1') {
+        const err = new Error('Search grouping has changed. Load Search Console suggestions again before importing.');
+        err.code = 'GSC_SELECTION_EXPIRED';
+        throw err;
+      }
+      const text = typeof c.reviewedText === 'string' ? c.reviewedText.trim() : candidate.text;
+      if (!text || text.length < 12 || text.length > 300 || !preservesQueryBasics(candidate.cluster, text) || containsSearchBrand(text, [project?.brand_name, ...(project?.aliases || []), project?.domain])) {
+        const err = new Error('Review the selected wording: use 12–300 characters, preserve the source language, amounts, product restrictions and locations. Do not add your brand or infer a new product from your business scope.');
+        err.code = 'GSC_SELECTION_EXPIRED';
+        throw err;
+      }
+      return {...candidate, proposedText:candidate.text, text, wordingEdited:text!==candidate.text};
+    });
+    const existing = (await client.query('SELECT id, text, source, active, origin_details FROM prompts WHERE project_id = $1', [projectId])).rows;
+    for (const c of verified) {
+      if (existingGscQuestion(c, existing, project?.gsc_site_url)) continue;
+      const row = await one(
+        `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume, source, origin_details)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
+         ON CONFLICT (project_id, text) DO NOTHING RETURNING id`,
+        [
+          projectId,
+          String(c.text).slice(0, 300),
+          String(c.cluster || 'search console').slice(0, 80),
+          'unclassified',
+          Math.max(0, Math.round(Number(c.impressions) || 0)),
+          c.source === 'gsc+model' ? 'gsc+model' : c.source === 'gsc' ? 'gsc-query' : 'gsc',
+          JSON.stringify({ proposedText:c.proposedText, importedText:c.text, wordingEdited:c.wordingEdited, wordingReviewVersion:'gsc-review-v1', property: project?.gsc_site_url || null, groupingMethod: c.groupingMethod, language: c.language, querySet: c.querySet, gscSnapshot: { ...c.evidence, scope: 'imported query group', matchedQueries: c.querySet.length, storedQueries: c.querySet.length, impressions: c.impressions, clicks: c.clicks, avgPosition: c.avgPosition },
+            queryExamples: (Array.isArray(c.examples) ? c.examples : []).slice(0, 5).map(x => String(x).slice(0, 300)),
+            impressions: Math.max(0, Math.round(Number(c.impressions) || 0)), importedAt: new Date().toISOString() })
+        ]
+      );
+      if (row) {
+        added++;
+        existing.push({text:c.text, source:'gsc', origin_details:{property:project?.gsc_site_url, querySet:c.querySet}});
+      }
     }
-    const text = typeof c.reviewedText === 'string' ? c.reviewedText.trim() : candidate.text;
-    if (!text || text.length < 12 || text.length > 300 || !preservesQueryBasics(candidate.cluster, text) || containsSearchBrand(text, [project?.brand_name, ...(project?.aliases || []), project?.domain])) {
-      const err = new Error('Review the selected wording: use 12–300 characters, preserve the source language and amounts, avoid your own brand name, and do not invent a banking-app context.');
-      err.code = 'GSC_SELECTION_EXPIRED';
-      throw err;
-    }
-    return {...candidate, proposedText:candidate.text, text, wordingEdited:text!==candidate.text};
-  });
-  for (const c of verified) {
-    const row = await one(
-      `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume, source, origin_details)
-       VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
-       ON CONFLICT (project_id, text) DO NOTHING RETURNING id`,
-      [
-        projectId,
-        String(c.text).slice(0, 300),
-        String(c.cluster || 'search console').slice(0, 80),
-        'unclassified',
-        Math.max(0, Math.round(Number(c.impressions) || 0)),
-        c.source === 'gsc+model' ? 'gsc+model' : c.source === 'gsc' ? 'gsc-query' : 'gsc',
-        JSON.stringify({ proposedText:c.proposedText, importedText:c.text, wordingEdited:c.wordingEdited, wordingReviewVersion:'gsc-review-v1', property: project?.gsc_site_url || null, groupingMethod: c.groupingMethod, language: c.language, querySet: c.querySet, gscSnapshot: { ...c.evidence, scope: 'imported query group', matchedQueries: c.querySet.length, storedQueries: c.querySet.length, impressions: c.impressions, clicks: c.clicks, avgPosition: c.avgPosition },
-          queryExamples: (Array.isArray(c.examples) ? c.examples : []).slice(0, 5).map(x => String(x).slice(0, 300)),
-          impressions: Math.max(0, Math.round(Number(c.impressions) || 0)), importedAt: new Date().toISOString() })
-      ]
-    );
-    if (row) added++;
-  }
-  return added;
+    await client.query('COMMIT');
+    return added;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally { client.release(); }
 }
 
 /** Refresh search evidence only. No model calls and no visibility measurements. */

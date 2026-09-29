@@ -2,12 +2,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {preservesQueryBasics,containsSearchBrand} from '../src/lib/gsc-query-integrity.js';
+import {preservesQueryBasics,containsSearchBrand,existingGscQuestion} from '../src/lib/gsc-query-integrity.js';
 const {JSDOM}=await import(process.env.JSDOM_MODULE);
 const src=readFileSync(new URL('../src/lib/gsc.js',import.meta.url),'utf8');
 const app=readFileSync(new URL('../src/public/app.js',import.meta.url),'utf8');
 const candidate={text:'كيف أحسب القسط الشهري لقرض 1000 دينار؟',cluster:'قرض 1000 دينار',groupingMethod:'exact-normalized-v1',querySet:['قرض 1000 دينار'],examples:['قرض 1000 دينار'],impressions:100,clicks:0,source:'gsc+model',language:'ar',evidence:{property:'sc-domain:bank.example'}};
-function harness(){const inserts=[];const h=vm.createContext({preservesQueryBasics,containsSearchBrand,openCandidate:()=>({...candidate}),one:async(sql,args)=>{if(sql.startsWith('SELECT'))return {gsc_site_url:'sc-domain:bank.example',brand_name:'Bank',aliases:['بنك المثال'],domain:'bank.example'};inserts.push(args);return {id:1};}});vm.runInContext(src.slice(src.indexOf('export async function importQuestions'),src.indexOf('/** Refresh search evidence only.')).replace('export ',''),h);return {h,inserts};}
+function harness(){
+ const inserts=[];
+ const client={release(){},async query(sql,args){
+  if (/^SELECT gsc_site_url/.test(sql)) return {rows:[{gsc_site_url:'sc-domain:bank.example',brand_name:'Bank',aliases:['بنك المثال'],domain:'bank.example'}]};
+  if (!sql.trim().startsWith('INSERT')) return {rows:[]};
+  inserts.push(args); return {rows:[{id:1}]};
+ }};
+ const h=vm.createContext({pool:{connect:async()=>client},preservesQueryBasics,containsSearchBrand,existingGscQuestion,openCandidate:()=>({...candidate})});
+ vm.runInContext(src.slice(src.indexOf('export async function importQuestions'),src.indexOf('/** Refresh search evidence only.')).replace('export ',''),h);
+ return {h,inserts};
+}
 test('reviewed Arabic wording is stored with original proposal and trusted source data',async()=>{
  const {h,inserts}=harness();const edited='كيف أحسب أقساط قرض بقيمة 1000 دينار؟';await h.importQuestions(28,[{evidenceToken:'sealed',reviewedText:edited,impressions:9999,querySet:['fake']}]);
  assert.equal(inserts[0][1],edited);assert.equal(inserts[0][4],100);const origin=JSON.parse(inserts[0][6]);assert.equal(origin.proposedText,candidate.text);assert.equal(origin.importedText,edited);assert.equal(origin.wordingEdited,true);assert.deepEqual(origin.querySet,candidate.querySet);assert.equal(origin.gscSnapshot.clicks,0);
