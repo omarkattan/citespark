@@ -4,11 +4,13 @@ import {readFileSync} from 'node:fs';
 import {requestCounts} from '../src/lib/measurement-coverage.js';
 import {archiveHtml,measurementHtml} from '../src/lib/measurement-archive.js';
 const {PGlite}=await import(process.env.PGLITE_MODULE || '@electric-sql/pglite');
-const migration=readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8').split('-- Batch 29:')[1];
+const migration=readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8').split('-- Batch 29:')[1].split('-- Batch 38:')[0];
 async function fixture(){
  const db=new PGlite();
  await db.exec(`CREATE TABLE projects(id integer primary key);
- CREATE TABLE runs(id serial primary key,project_id integer,cycle_date date,created_at timestamptz default now(),ok boolean,response_text text,cost_usd numeric);
+ CREATE TABLE prompts(id integer primary key,project_id integer,active boolean);
+ INSERT INTO prompts VALUES(1,27,true),(2,28,true);
+ CREATE TABLE runs(id serial primary key,project_id integer,prompt_id integer DEFAULT 1,cycle_date date,created_at timestamptz default now(),ok boolean,response_text text,cost_usd numeric);
  INSERT INTO projects VALUES(27),(28);
  INSERT INTO runs(project_id,cycle_date,ok,response_text,cost_usd) VALUES(27,'2026-09-28',true,'Old answer',.03),(28,'2026-09-28',true,'Other site',.02);`);
  await db.exec('-- Batch 29:'+migration);return db;
