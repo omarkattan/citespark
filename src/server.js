@@ -1920,7 +1920,7 @@ app.post('/api/projects/:id/rebuild', requireAuth, wrap(async (req, res) => {
  */
 app.get('/api/prompts/:promptId/answers', requireAuth, wrap(async (req, res) => {
   const prompt = await one(
-    `SELECT p.id, p.text, p.project_id FROM prompts p JOIN projects pr ON pr.id = p.project_id
+    `SELECT p.id, p.text, p.project_id, pr.domain FROM prompts p JOIN projects pr ON pr.id = p.project_id
      WHERE p.id = $1 AND pr.org_id = $2`,
     [Number(req.params.promptId), req.session.orgId]
   );
@@ -1945,7 +1945,7 @@ app.get('/api/prompts/:promptId/answers', requireAuth, wrap(async (req, res) => 
     `SELECT r.id, r.engine, r.model, r.run_index, r.response_text, r.ok, r.error,
             (to_jsonb(r)->>'max_output_tokens')::int AS max_output_tokens,
             (to_jsonb(r)->>'no_overview')::boolean AS no_overview, to_jsonb(r)->'quality_review' AS quality_review,
-            m.mentioned, m.ordinal, e.name AS brand,
+            m.mentioned, m.ordinal, m.snippet, e.name AS brand,
             ROW_NUMBER() OVER (PARTITION BY r.engine ORDER BY r.run_index, r.id)::int AS sample,
             COUNT(*) OVER (PARTITION BY r.engine)::int AS samples
      FROM reporting_runs r
@@ -1960,6 +1960,8 @@ app.get('/api/prompts/:promptId/answers', requireAuth, wrap(async (req, res) => 
   );
 
   const ceiling = Number(process.env.MAX_OUTPUT_TOKENS || 2000);
+  const measurement = await one('SELECT id, started_at FROM published_measurements WHERE project_id=$1 AND cycle_date=$2', [prompt.project_id, cycle]);
+  const domainKey = value => String(value || '').replace(/^www\./, '').toLowerCase();
 
   /**
    * The full address of every source, per answer.
@@ -1978,15 +1980,19 @@ app.get('/api/prompts/:promptId/answers', requireAuth, wrap(async (req, res) => 
   const citesByRun = new Map();
   for (const c of cites) {
     if (!citesByRun.has(c.run_id)) citesByRun.set(c.run_id, []);
-    citesByRun.get(c.run_id).push({ domain: c.domain, url: c.url });
+    citesByRun.get(c.run_id).push({ domain: c.domain, url: c.url, owned: domainKey(c.domain) === domainKey(prompt.domain) });
   }
 
   res.json({
     prompt: prompt.text,
     cycle,
+    projectId: prompt.project_id,
+    measurement,
     runs: runs.map((r) => ({
       citations: citesByRun.get(r.id) || [],
       ...r,
+      cited: r.ok && hasAnswerText(r.response_text) && r.mentioned != null
+        ? (citesByRun.get(r.id) || []).some(c => c.owned) : null,
       // A failed call, or an answer stored before the brand was tracked, has
       // no mention row at all. That is not the same as looking and finding
       // nothing, and must not be shown as "not named".
@@ -3641,7 +3647,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260929-report-flow-43',
+    release: '20260929-evidence-review-44',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

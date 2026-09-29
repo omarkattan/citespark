@@ -2267,3 +2267,12 @@ a.ans-source:hover { color: var(--accent); text-decoration: underline; }
 .question-more > .q-actions { padding: 10px 0; }
 .question-list-panel .panel-head { flex-wrap: wrap; }
 .question-list-panel .qbulk { flex-wrap: wrap; }
+
+/* Stored-answer review: keep verdicts, context and sources together. */
+.answer-review-summary { padding:16px; margin-bottom:12px; border:1px solid var(--line, #d7dfdc); background:var(--panel, #fff); border-radius:8px; }
+.answer-review-summary h3 { margin:0 0 10px; font-size:16px; }
+.answer-review-counts { display:flex; flex-wrap:wrap; gap:12px 24px; margin:14px 0; }
+.answer-review-counts span { font-size:12px; }
+.answer-review-counts b { display:block; font-size:20px; }
+.stored-match { border-left:3px solid var(--you); padding:10px 14px; margin:12px 0; background:var(--panel, #fff); }
+.stored-match blockquote { white-space:pre-wrap; overflow-wrap:anywhere; margin:10px 0; }

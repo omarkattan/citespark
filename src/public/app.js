@@ -529,6 +529,26 @@ function dueLabel(t) {
  * reader cannot check is a claim, not evidence, and the whole product rests
  * on the difference.
  */
+/** Summaries use the stored verdicts only. No detection is repeated in the browser. */
+function answerReviewSummary(d) {
+  const runs=d.runs || [], measured=runs.filter(r=>r.measured);
+  const named=measured.filter(r=>r.mentioned).length;
+  const citationKnown=measured.every(r=>typeof r.cited==='boolean');
+  const cited=measured.filter(r=>r.cited===true).length;
+  const both=measured.filter(r=>r.mentioned && r.cited===true).length;
+  const count=n=>measured.length?`${n} / ${measured.length}`:'Not measured';
+  return `<section class="answer-review-summary"><h3 dir="auto">${esc(d.prompt || 'Stored question')}</h3>
+    <p class="hint">Latest stored cycle for this question: ${esc(d.cycle?shortDate(d.cycle):'No stored cycle')}${d.measurement?.id?` · Measurement ${esc(d.measurement.id)}`:''}. These answers may be newer than the recommendation. They do not recreate its original sample.</p>
+    <div class="answer-review-counts"><span><b>${count(named)}</b> named your brand</span><span><b>${citationKnown?count(cited):'Unavailable'}</b> cited your website</span><span><b>${runs.length-measured.length}</b> stored answers unmeasured</span></div>
+    <p class="hint">Named means a saved brand-name match. Cited means a recorded link to your tracked domain. The outcomes can overlap.</p>
+    ${measured.length&&citationKnown?`<p class="hint">Of ${measured.length} measured answers: ${both} both · ${named-both} named only · ${cited-both} cited only · ${measured.length-named-cited+both} neither.</p>`:''}
+    <p class="hint">Unmeasured answers are excluded, not scored zero. Planned checks without stored answers are not counted here. Possible length issues are shown per answer.</p></section>`;
+}
+function storedMatchEvidence(r) {
+  if(!r.measured) return '<p class="hint">No measured brand verdict. Do not interpret this as a brand absence.</p>';
+  if(!r.mentioned) return '<p class="hint">No brand-name match was recorded. Review the full answer and the citation verdict separately.</p>';
+  return `<div class="stored-match"><b>Saved brand-match excerpt</b>${r.snippet?`<blockquote dir="auto">${esc(r.snippet)}</blockquote>`:'<p class="hint">No excerpt was retained for this answer.</p>'}<p class="hint">Stored alongside the naming verdict. No detection has been rerun with today’s aliases. Check the full answer before relying on the result.</p></div>`;
+}
 function detailPanel(id, label, rows) {
   if (!rows?.length) return '';
   return `<details class="qlist" id="d-${id}">
@@ -3392,8 +3412,13 @@ document.addEventListener('click', async (e) => {
     if (!box) return;
     if (!box.hidden) { box.hidden = true; see.textContent = 'Read what each engine said'; return; }
 
+    if (see.disabled) return;
+    see.disabled = true;
     see.textContent = 'Loading';
-    const d = await api(`/api/prompts/${id}/answers`);
+    let d;
+    try { d = await api(`/api/prompts/${id}/answers`, {}, {readTimeoutMs:15000}); }
+    catch (error) { d = {error:'Answers could not be loaded. Close and reopen to try again.'}; }
+    finally { see.disabled = false; }
     see.textContent = 'Hide the answers';
     box.hidden = false;
     if (!d || d.error) { box.innerHTML = `<p class="notice">${esc(d?.error || 'Answers could not be loaded. Close and reopen to try again.')}</p>`; return; }
@@ -3420,7 +3445,7 @@ document.addEventListener('click', async (e) => {
       collection time, history, saved memories and location. Treat this as a defined sample, not every buyer's experience.
     </p></details>`;
 
-    box.innerHTML = preamble + (d?.runs || [])
+    box.innerHTML = answerReviewSummary(d) + preamble + (d?.runs || [])
       .map((r) => {
         /**
          * Three outcomes, not two. A call that failed, or an answer stored
@@ -3447,9 +3472,12 @@ document.addEventListener('click', async (e) => {
             ${r.model ? `<span class="ans-model">${esc(r.model)}</span>` : ''}
             ${sample}
             ${verdict}
+            <span class="tag ${r.measured && r.cited===true?'ok':''}">${!r.measured?'citation not measured':r.cited===true?'website cited':r.cited===false?'website not cited':'citation verdict unavailable'}</span>
             ${r.truncated ? '<span class="tag warn" title="Possible truncation based on text length and ending. The provider has not confirmed this. The stored answer is retained.">possibly cut short</span>' : ''}
             <span class="ans-sample">${(r.citations || []).length} source${(r.citations || []).length === 1 ? '' : 's'} recorded</span>
-          </summary><div class="answer-content"><p><button class="ghost" data-reask="${esc(id)}" data-reask-engine="${esc(r.engine)}">Ask ${esc(ENGINE_LABEL[r.engine] || r.engine)} only</button> <span class="hint">Starts immediately and uses one answer check. Provider retries may add requests.</span></p>
+          </summary><div class="answer-content">
+          ${storedMatchEvidence(r)}
+          ${d.projectId && d.measurement?.id ? `<p><a href="/api/projects/${encodeURIComponent(d.projectId)}/measurements/${encodeURIComponent(d.measurement.id)}#run-${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Open this stored answer in the measurement archive</a></p>`:''}
           ${
             r.response_text
               ? `<div class="ans-body formatted-answer" style="overflow-wrap:anywhere;min-width:0">${formatAnswer(r.response_text)}</div><details class="answer-original"><summary>Original stored text</summary><pre>${esc(r.response_text)}</pre></details>`
@@ -3469,17 +3497,20 @@ document.addEventListener('click', async (e) => {
                 ? '<p class="hint" style="margin:8px 0 0">No sources came back with this answer.</p>'
                 : '';
             }
-            return `<details class="ans-sources"><summary>Sources cited (${cs.length})</summary>
+            return `<details class="ans-sources" open><summary>Sources cited (${cs.length})</summary>
               ${cs.map((c) => answerUrl(c.url)
-                ? `<a href="${esc(c.url)}" target="_blank" rel="noopener" class="ans-source" style="display:block;word-break:break-all;font-size:11px;line-height:1.7">${esc(c.url)}</a>`
-                : `<span class="ans-source dim" style="display:block;word-break:break-all;font-size:11px;line-height:1.7">${esc(c.url || c.domain)} (${c.url ? 'link unavailable' : 'address not recorded'})</span>`
+                ? `<a href="${esc(c.url)}" target="_blank" rel="noopener" class="ans-source" style="display:block;word-break:break-all;font-size:11px;line-height:1.7">${esc(c.url)}${c.owned?' <strong>(your website)</strong>':''}</a>`
+                : `<span class="ans-source dim" style="display:block;word-break:break-all;font-size:11px;line-height:1.7">${esc(c.url || c.domain)} (${c.url ? 'link unavailable' : 'address not recorded'})${c.owned?' <strong>(your website)</strong>':''}</span>`
               ).join('')}
             </details>`;
           })()}
+          <details class="answer-method"><summary>Collect a new answer (uses allowance)</summary><p><button class="ghost" data-reask="${esc(id)}" data-reask-engine="${esc(r.engine)}">Ask ${esc(ENGINE_LABEL[r.engine] || r.engine)} only</button> <span class="hint">Starts immediately and uses one answer check. Provider retries may add requests. A new answer does not validate or replace this stored answer.</span></p></details>
         </div></details>`;
       })
       .join('');
     if (!d.runs?.length) box.innerHTML += '<p class="hint">Nothing stored for this question yet.</p>';
+    const taskId=see.closest('.rec')?.dataset.task;
+    if (taskId) box.innerHTML += `<p><button class="btn" data-next-open="${esc(taskId)}">Record your review conclusion</button></p>`;
     return;
   }
 
