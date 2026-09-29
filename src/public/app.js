@@ -395,6 +395,12 @@ function opportunityKind(task) {
 }
 
 // Presentation grouping only. Persisted task IDs and their work history stay separate.
+function savedDecisionPreview(task) {
+  const d=task.review_decision;
+  if(!['ready','investigate','no_change'].includes(d?.stage) || !d.change?.trim()) return null;
+  const text=d.change.trim().replace(/\s+/g,' ');
+  return {text:text.length>240?text.slice(0,237)+'…':text,label:decisionLabel(d.stage)};
+}
 function decisionLabel(stage) {
   return ({ready:'Ready to implement',no_change:'No change needed',investigate:'Needs investigation'})[stage] || 'Needs investigation';
 }
@@ -441,23 +447,25 @@ function reviewGroups(tasks) {
 }
 function questionGroupSummary(group, reason='') {
   const first=group.tasks[0];
+  const saved=savedDecisionPreview(first);
   const statuses=Object.entries(STATUS_LABEL).map(([key,label])=>{const n=group.tasks.filter(t=>t.status===key).length;return n?`${n} ${label.toLowerCase()}`:null;}).filter(Boolean).join(' · ');
   const owners=[...new Set(group.tasks.map(t=>t.assignee).filter(Boolean))];
-  return `<span class="rec-title">${esc(first.evidence?.prompt || first.title)}</span><span class="queue-summary">${esc(reason || reviewReason(first))}</span><span class="queue-summary">${group.tasks.length} saved check${group.tasks.length===1?'':'s'} · ${esc(statuses)}</span>${owners.length?`<span class="queue-summary">Assigned to: ${esc(owners.join(', '))}</span>`:''}${['ready','no_change'].map(stage=>{const n=group.tasks.filter(t=>t.review_decision?.stage===stage).length;return n?`<span class="tag">${n} ${esc(decisionLabel(stage).toLowerCase())}</span>`:''}).join('')}${group.tasks.some(t=>t.notes)?'<span class="tag">Saved review notes</span>':''}${group.tasks.map(dueLabel).filter(Boolean).join('')}<span class="queue-open">Open question review</span><span class="queue-close">Close question review</span>`;
+  return `<span class="rec-title">${esc(saved?.text || first.evidence?.prompt || first.title)}</span><span class="queue-summary">${esc(saved ? `${saved.label} · Question: ${first.evidence?.prompt || first.title}` : reason || reviewReason(first))}</span><span class="queue-summary">${group.tasks.length} saved check${group.tasks.length===1?'':'s'} · ${esc(statuses)}</span>${owners.length?`<span class="queue-summary">Assigned to: ${esc(owners.join(', '))}</span>`:''}${['ready','no_change'].map(stage=>{const n=group.tasks.filter(t=>t.review_decision?.stage===stage).length;return n?`<span class="tag">${n} ${esc(decisionLabel(stage).toLowerCase())}</span>`:''}).join(' ')} ${group.tasks.some(t=>t.notes)?'<span class="tag">Saved review notes</span>':''}${group.tasks.map(dueLabel).filter(Boolean).join('')}<span class="queue-open">Open question review</span><span class="queue-close">Close question review</span>`;
 }
 function reviewGroupCard(group,reason='') {
   if(!group.questionId) return taskCard(group.tasks[0],true,reason || reviewReason(group.tasks[0]));
   return `<section class="panel question-review-group" data-question-group="${esc(group.key)}"><details class="queue-task question-review"><summary>${questionGroupSummary(group,reason)}</summary><div class="queue-body"><p><b>Decision to make:</b> Does the evidence support a specific change to your existing page, or is no change needed?</p><p class="hint">Read the answers once, then use the checks below to record findings. Each check keeps its own notes, owner and status. Completing one does not complete the others.</p>${group.tasks.map(t=>taskCard(t,true,'',true)).join('')}<p class="hint"><b>Done when:</b> the reviewed answer or source, relevant page, finding and next step (or no-change decision) are recorded, with an owner for any follow-up.</p></div></details></section>`;
 }
 function queueCountText(tasks,total) {
-  return `${reviewGroups(tasks).length} reviews shown, containing ${tasks.length} of ${total} matching saved checks.${total>tasks.length?' This is a limited preview. Use Focus to see more of each category.':''}`;
+  const reviews=reviewGroups(tasks).length;
+  return `${reviews} review${reviews===1?'':'s'} shown, containing ${tasks.length} of ${total} matching saved check${total===1?'':'s'}.${total>tasks.length?' This is a limited preview. Use Focus to see more of each category.':''}`;
 }
 
 function opportunityFilters(tasks, selected = 'all', counts = null) {
   const labels = {all: 'All opportunities', questions: 'Question reviews', sources: 'Source reviews', competitors: 'Competitor reviews', other: 'Other actions'};
   return `<label class="queue-filter">Focus <select id="opportunityKind">${Object.entries(labels).map(([key, label]) => {
     const count = counts?.[key] ?? (key === 'all' ? tasks.length : tasks.filter(task => opportunityKind(task) === key).length);
-    return `<option value="${key}"${selected === key ? ' selected' : ''}>${label} (${count} checks)</option>`;
+    return `<option value="${key}"${selected === key ? ' selected' : ''}>${label} (${count} check${count===1?'':'s'})</option>`;
   }).join('')}</select></label>`;
 }
 
@@ -804,13 +812,13 @@ function taskCard(t, compact = false, selectionReason = '', grouped = false) {
 
   return `
   <article class="rec ${t.status}" data-type="${esc(t.type)}" data-task="${t.id}">
-    ${compact ? `<details class="queue-task"><summary><span class="queue-heading"><span class="rec-title">${esc(title)}</span><span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span></span><span class="queue-summary">${esc(summary)}</span><span class="tag" data-decision-badge>${esc(decisionLabel(t.review_decision?.stage))}</span>${selectionReason ? `<span class="queue-summary"><b>Why this task:</b> ${esc(selectionReason)}</span>` : ''}${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}${dueLabel(t)}<span class="queue-open">Review task</span><span class="queue-close">Close task</span></summary><div class="queue-body">` : ''}
+    ${compact ? `<details class="queue-task"><summary><span class="queue-heading"><span class="rec-title" data-review-title data-original-title="${esc(title)}">${esc(savedDecisionPreview(t)?.text || title)}</span><span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span></span><span class="queue-summary" data-review-context data-original-context="${esc(summary)}">${esc(savedDecisionPreview(t) ? `Original check: ${title}` : summary)}</span><span class="tag" data-decision-badge>${esc(decisionLabel(t.review_decision?.stage))}</span>${selectionReason && !savedDecisionPreview(t) ? `<span class="queue-summary" data-selection-reason><b>Why this task:</b> ${esc(selectionReason)}</span>` : ''}${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}${dueLabel(t)}<span class="queue-open">Review task</span><span class="queue-close">Close task</span></summary><div class="queue-body">` : ''}
     <div class="rec-top"${compact ? ' hidden' : ''}>
-      <div class="rec-title">${esc(title)}</div>
-      <div class="rec-pri">${esc(reviewReason(t))}</div>
+      <div class="rec-title" data-review-title data-original-title="${esc(title)}">${esc(savedDecisionPreview(t)?.text || title)}</div>
+      <div class="rec-pri" data-review-context data-original-context="${esc(reviewReason(t))}">${esc(savedDecisionPreview(t) ? `Original check: ${title}` : reviewReason(t))}</div>
     </div>
 
-    ${compact ? `<p class="hint"><b>Why review this:</b> ${esc(reviewReason(t))}</p>` : ''}
+    ${compact ? `<p class="hint"><b>Original review trigger:</b> ${esc(reviewReason(t))}</p>` : ''}
     <div class="task-meta">
       <span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span>
       ${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}
@@ -4381,6 +4389,11 @@ document.addEventListener('click', async event=>{
   const response=await fetch(`/api/recommendations/${id}/review-decision`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
   const result=await response.json(); if(!response.ok) throw new Error(result.error || 'Could not save decision.');
   panel.querySelector('[data-decision-summary]').textContent=`${decisionLabel(result.stage)} · Recorded ${result.reviewed_at.slice(0,10)}`;
+  const card=panel.closest('[data-task]');
+  const preview=savedDecisionPreview({review_decision:result});
+  card.querySelectorAll('[data-review-title]').forEach(el=>el.textContent=preview?.text || el.dataset.originalTitle);
+  card.querySelectorAll('[data-review-context]').forEach(el=>el.textContent=preview ? `Original check: ${card.querySelector('[data-review-title]').dataset.originalTitle}` : el.dataset.originalContext);
+  if(preview) card.querySelector('[data-selection-reason]')?.remove();
   const badge=panel.closest('[data-task]').querySelector('[data-decision-badge]'); if(badge) badge.textContent=decisionLabel(result.stage);
   $(`report-controls-${id}`).hidden=false;
   feedback.textContent='Decision saved. Any existing client-report copy stays unchanged until you explicitly update it.';
