@@ -16,5 +16,9 @@ export function queryLanguage(text) {
 }
 const numbers=text=>(String(text).replace(/[٠-٩]/g,c=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(c))).replace(/[۰-۹]/g,c=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(c))).match(/\d+(?:[.,]\d+)*/g)||[]).sort().join('|');
 export function preservesQueryBasics(original, rewritten) {
+  // Do not infer that a named app is a banking app from the customer's sector.
+  const app=/تطبيق|\bapp(?:lication)?\b/i;
+  const banking=/بنك|بنوك|بنكي|مصرف|\bbank(?:ing)?\b/i;
+  if(app.test(original) && !banking.test(original) && banking.test(rewritten)) return false;
   return typeof rewritten==='string' && queryLanguage(original)===queryLanguage(rewritten) && numbers(original)===numbers(rewritten);
 }

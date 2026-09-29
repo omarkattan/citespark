@@ -12,7 +12,8 @@ import { complete, parseJsonArray } from './anthropic.js';
 const SYSTEM = `You write the question sets used to measure whether a brand appears in AI assistant answers.
 
 Rules:
-- Write questions exactly as a real buyer would type them into ChatGPT, in full sentences, 8 to 25 words.
+- Write Arabic directly in clear, natural Arabic appropriate to the market, not as a literal translation of English. Use correct grammar and concise customer phrasing. Do not invent dialect or force extra qualifiers. Preserve the intended question: a comparison is not automatically a request for the best product.
+- Write questions exactly as a real buyer would type them into ChatGPT, as concise, natural questions. Do not pad Arabic to meet an English word count.
 - Never include the brand's own name. We are measuring unprompted recall.
 - Use the stated business activity and customer as the scope, not the literal meaning of its brand name. A wealth manager called The Family Office is not automatically a service for establishing or operating a family office.
 - Do not invent services, eligibility requirements or customer segments beyond the supplied context.
@@ -60,6 +61,7 @@ export async function questionsForTopic({ topic, brand, domain, category, market
   const system = `You write the questions a real buyer types into an AI assistant.
 
 Rules:
+- Write Arabic directly in clear, natural Arabic appropriate to the market, not as a literal translation of English. Use correct grammar and concise customer phrasing. Do not invent dialect or force extra qualifiers. Preserve the intended question: a comparison is not automatically a request for the best product.
 - Never include the brand name. We are measuring whether the assistant volunteers it.
 - Write what a person would actually say, not a search keyword. "retirement planning" becomes "how much do I need saved before I can retire in the UAE".
 - Stay on the topic given. Do not drift into the wider category.

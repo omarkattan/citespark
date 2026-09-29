@@ -1,3 +1,4 @@
+import {preservesQueryBasics,containsSearchBrand} from '../src/lib/gsc-query-integrity.js';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {sealCandidate,openCandidate,matchSearchSnapshot,questionRole,reviewShortlist} from '../src/lib/search-evidence.js';
@@ -41,13 +42,13 @@ test('actual import persists signed provenance and ignores altered browser figur
  const imported=[];
  const one=async(sql,args)=>{if(sql.startsWith('SELECT'))return {gsc_site_url:evidence.property};imported.push(args);return {id:1};};
  const source=gscSource.slice(gscSource.indexOf('export async function importQuestions'),gscSource.indexOf('/** Refresh search evidence only.')).replace('export ','');
- const run=new AsyncFunction('one','openCandidate','projectId','chosen',source+';return importQuestions(projectId,chosen);');
+ const run=new AsyncFunction('one','openCandidate','preservesQueryBasics','containsSearchBrand','projectId','chosen',source+';return importQuestions(projectId,chosen);');
  const candidate={groupingMethod:'exact-normalized-v1',text:'Which provider?',cluster:'providers',querySet:['fees'],examples:['fees'],impressions:10,clicks:0,avgPosition:3,source:'gsc'};
  const chosen={...candidate,impressions:99999,evidenceToken:sealCandidate(27,candidate,evidence)};
- assert.equal(await run(one,openCandidate,27,[chosen]),1);
+ assert.equal(await run(one,openCandidate,preservesQueryBasics,containsSearchBrand,27,[chosen]),1);
  assert.equal(imported[0][4],10);assert.equal(imported[0][3],'unclassified');assert.equal(JSON.parse(imported[0][6]).gscSnapshot.clicks,0);
- imported.length=0;await assert.rejects(run(one,openCandidate,27,[{evidenceToken:sealCandidate(27,{...candidate,groupingMethod:undefined},evidence)}]));assert.equal(imported.length,0);
- imported.length=0;await assert.rejects(run(one,openCandidate,27,[chosen,{evidenceToken:'invalid'}]));assert.equal(imported.length,0);
+ imported.length=0;await assert.rejects(run(one,openCandidate,preservesQueryBasics,containsSearchBrand,27,[{evidenceToken:sealCandidate(27,{...candidate,groupingMethod:undefined},evidence)}]));assert.equal(imported.length,0);
+ imported.length=0;await assert.rejects(run(one,openCandidate,preservesQueryBasics,containsSearchBrand,27,[chosen,{evidenceToken:'invalid'}]));assert.equal(imported.length,0);
 });
 test('actual refresh is property-scoped and writes search JSON without changing AI results',async()=>{
  const {PGlite}=await import(process.env.PGLITE_MODULE || '@electric-sql/pglite');const db=new PGlite();

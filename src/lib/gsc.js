@@ -228,7 +228,9 @@ const SYSTEM = `You turn Google Search Console queries into the questions a buye
 For each cluster you are given the highest-impression query, some variants, and how many impressions it gets.
 
 Rules:
-- Write the question exactly as a person would type it into ChatGPT: a full sentence, 8 to 20 words.
+- Write the question exactly as a person would type it into ChatGPT: a concise, natural question. Do not pad Arabic to meet an English word count.
+- Write Arabic directly in clear, natural Arabic appropriate to the market. Avoid literal English sentence structures, awkward phrasing and unnecessary qualifiers. Preserve dialect if present in the source rather than inventing it.
+- Never reinterpret a named app or service as a banking product because the client is a bank. For example, "تفعيل تطبيق سند" does not establish a banking-app intent. Omit unclear or unrelated named-service queries.
 - Preserve the source language. Arabic queries must stay Arabic, English queries must stay English.
 - Preserve all amounts, product types, eligibility restrictions and location qualifiers. Do not add a best/lowest claim, location or application intent that the source does not express.
 - Only suggest questions relevant to the supplied business scope and customer brief.
@@ -323,7 +325,7 @@ export async function candidates(projectId, { days = 90 } = {}) {
 
 /** Add chosen questions, with impressions as the volume figure. */
 export async function importQuestions(projectId, chosen) {
-  const project = await one('SELECT gsc_site_url FROM projects WHERE id = $1', [projectId]);
+  const project = await one('SELECT gsc_site_url, brand_name, aliases, domain FROM projects WHERE id = $1', [projectId]);
   let added = 0;
   // Validate every selection before writing any of them. Client metrics are never authoritative.
   const verified = chosen.map(c => {
@@ -333,7 +335,13 @@ export async function importQuestions(projectId, chosen) {
       err.code = 'GSC_SELECTION_EXPIRED';
       throw err;
     }
-    return candidate;
+    const text = typeof c.reviewedText === 'string' ? c.reviewedText.trim() : candidate.text;
+    if (!text || text.length < 12 || text.length > 300 || !preservesQueryBasics(candidate.cluster, text) || containsSearchBrand(text, [project?.brand_name, ...(project?.aliases || []), project?.domain])) {
+      const err = new Error('Review the selected wording: use 12–300 characters, preserve the source language and amounts, avoid your own brand name, and do not invent a banking-app context.');
+      err.code = 'GSC_SELECTION_EXPIRED';
+      throw err;
+    }
+    return {...candidate, proposedText:candidate.text, text, wordingEdited:text!==candidate.text};
   });
   for (const c of verified) {
     const row = await one(
@@ -347,7 +355,7 @@ export async function importQuestions(projectId, chosen) {
         'unclassified',
         Math.max(0, Math.round(Number(c.impressions) || 0)),
         c.source === 'gsc+model' ? 'gsc+model' : c.source === 'gsc' ? 'gsc-query' : 'gsc',
-        JSON.stringify({ property: project?.gsc_site_url || null, groupingMethod: c.groupingMethod, language: c.language, querySet: c.querySet, gscSnapshot: { ...c.evidence, scope: 'imported query group', matchedQueries: c.querySet.length, storedQueries: c.querySet.length, impressions: c.impressions, clicks: c.clicks, avgPosition: c.avgPosition },
+        JSON.stringify({ proposedText:c.proposedText, importedText:c.text, wordingEdited:c.wordingEdited, wordingReviewVersion:'gsc-review-v1', property: project?.gsc_site_url || null, groupingMethod: c.groupingMethod, language: c.language, querySet: c.querySet, gscSnapshot: { ...c.evidence, scope: 'imported query group', matchedQueries: c.querySet.length, storedQueries: c.querySet.length, impressions: c.impressions, clicks: c.clicks, avgPosition: c.avgPosition },
           queryExamples: (Array.isArray(c.examples) ? c.examples : []).slice(0, 5).map(x => String(x).slice(0, 300)),
           impressions: Math.max(0, Math.round(Number(c.impressions) || 0)), importedAt: new Date().toISOString() })
       ]

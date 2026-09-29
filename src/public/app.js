@@ -1274,6 +1274,7 @@ async function viewQuestions() {
           <p class="prompt-q">${esc(asked)}</p>
           ${p.persona ? `<div class="asked-as" title="${esc(p.personaDescriptor || '')}"><span>asked as</span> ${esc(p.persona)}</div>` : ''}
           <div class="prompt-tags">Origin: ${esc(questionSourceLabel(p.source))}${p.revisesPromptId ? ' &middot; revised wording' : ''}${p.originDetails?.baseSource ? ` &middot; based on ${esc(questionSourceLabel(p.originDetails.baseSource))}` : ''}</div>
+          ${p.originDetails?.wordingEdited ? `<details><summary>Wording reviewed before import</summary><p class="hint">Initial suggestion:</p><p dir="auto">${esc(p.originDetails.proposedText)}</p><p class="hint">The current question uses your edited wording. Search evidence belongs to the original queries, not a validated equivalent AI question.</p></details>` : ''}
           ${p.originDetails?.queryExamples?.length ? `<details><summary>Original GSC query examples</summary><p class="hint">${esc(p.originDetails.queryExamples.join(' · '))}</p><p class="hint">${esc(p.originDetails.property || 'Property not recorded')} &middot; original search evidence, not measured AI demand</p></details>` : ''}
           <div class="prompt-tags">
             ${esc(p.cluster?.replace(/[_-]/g, ' '))} &middot; ${esc(p.intent)} &middot; <span title="Stored demand estimates do not have a verified source attached. They are not measured monthly question counts.">demand unverified</span>
@@ -4612,19 +4613,13 @@ function importRoom(d) {
 function gscCandidateRow(c, i) {
   const pos = c.avgPosition ? c.avgPosition.toFixed(1) : '-';
   const haystack = `${c.text} ${c.examples.join(' ')} ${c.cluster || ''}`.toLowerCase();
-  return `<div class="row ${c.alreadyTracked ? 'off' : ''}" data-filter-text="${esc(haystack)}">
-    <label class="grow eng">
-      <input type="checkbox" data-gsc="${i}" ${c.alreadyTracked ? 'disabled' : ''} />
-      <span>
-        <span class="name">${esc(c.text)}</span>
-        <span class="sub">
-          ${c.source === 'gsc+model' ? 'AI-rephrased from GSC' : 'Original GSC query'} &middot; ${c.impressions.toLocaleString()} Google search impressions &middot; ${c.clicks} clicks &middot; position ${pos}
-          ${c.variants > 1 ? ` &middot; ${c.variants} variations` : ''}
-          ${c.alreadyTracked ? ' &middot; already tracked' : ''}
-        </span>
-        <span class="sub gsc-examples">from: ${esc(c.examples.slice(0, 3).join(', '))}</span>
-      </span>
-    </label>
+  return `<div class="gsc-review-row ${c.alreadyTracked ? 'off' : ''}" data-filter-text="${esc(haystack)}">
+    <label class="eng"><input type="checkbox" data-gsc="${i}" ${c.alreadyTracked ? 'disabled' : ''} /><span>${c.alreadyTracked?'Already tracked':'Add this question after reviewing wording and relevance'}</span></label>
+    <div class="gsc-review-columns"><div><b>Original Google queries</b><ul>${c.examples.map(q=>`<li dir="auto">${esc(q)}</li>`).join('')}</ul>
+    <p class="hint">${c.impressions.toLocaleString()} Google search impressions · ${c.clicks} clicks · position ${pos}${c.variants>1?` · ${c.variants} variations`:''}. These figures belong to the source queries.</p></div>
+    <div class="field"><label for="gsc-wording-${i}">Question to measure</label><textarea id="gsc-wording-${i}" data-gsc-wording="${i}" dir="auto" rows="3" minlength="12" maxlength="300" ${c.alreadyTracked?'disabled':''}>${esc(c.text)}</textarea>
+    <p class="hint">${c.source==='gsc+model'?'AI rewrite. Check that it preserves the meaning, language, amounts and product restrictions.':'Original query. Check that it reads naturally and fits your customers.'} Do not add “best”, a new product or a location the query does not specify.</p>
+    <details><summary>Initial suggestion</summary><p dir="auto">${esc(c.text)}</p></details></div></div>
   </div>`;
 }
 
@@ -4693,8 +4688,8 @@ async function loadGscCandidates() {
       <span class="tag">${d.clusters} query groups</span>
       <span class="tag ok">${available} suggestions to review</span>
     </div>
-    <p class="hint">Select only relevant questions after checking their original queries. Search figures belong to those queries, not the rephrased question. Suggestions preserve English or Arabic and group only matching wording, not shared keywords.</p>
-    ${searchBox('gscFilter', 'Filter these questions', 'gscFilterCount')}
+    <p class="hint">Select only relevant questions after checking their original queries. Search figures belong to those queries, not the rephrased question. Edit awkward wording before selecting. Automatic checks cannot confirm product relevance or equivalent intent. Your edited wording is saved as a new question, with the initial suggestion and source queries retained.</p>
+    ${searchBox('gscFilter', 'Filter original queries and suggestions', 'gscFilterCount')}
     <div id="gscList">
       ${d.candidates.map(gscCandidateRow).join('')}
       <p class="hint" data-filter-empty hidden>Nothing matches that.</p>
@@ -4763,16 +4758,17 @@ document.addEventListener('click', async (e) => {
 
   if (e.target.id === 'gscAll') {
     // Only what is currently visible, so it works with the filter.
-    document.querySelectorAll('#gscList .row:not([hidden]) input[data-gsc]').forEach((b) => {
+    document.querySelectorAll('#gscList .gsc-review-row:not([hidden]) input[data-gsc]').forEach((b) => {
       if (!b.disabled) b.checked = true;
     });
   }
 
   if (e.target.id === 'gscImport') {
     const picked = [...document.querySelectorAll('input[data-gsc]:checked')].map(
-      (b) => state.gscCandidates[Number(b.dataset.gsc)]
+      (b) => ({...state.gscCandidates[Number(b.dataset.gsc)], reviewedText: $(`gsc-wording-${b.dataset.gsc}`).value.trim()})
     );
     if (!picked.length) { $('gscNote').textContent = 'Nothing selected.'; return; }
+    if (picked.some(c=>c.reviewedText.length<12 || c.reviewedText.length>300)) { $('gscNote').textContent='Each selected question needs 12–300 characters. Review the wording before adding.'; return; }
 
     e.target.disabled = true;
     const res = await fetch(`/api/projects/${state.projectId}/gsc/import`, {
