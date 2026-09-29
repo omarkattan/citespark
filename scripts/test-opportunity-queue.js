@@ -17,10 +17,10 @@ function harness(){
 }
 test('complete queue groups tasks with accurate counts and native collapsed cards',async()=>{
  const {h,document}=harness();document.body.innerHTML=await h.viewActions();
- assert.equal(document.querySelectorAll('#opportunityQueue .queue-task').length,4);
+ assert.equal(document.querySelectorAll('#opportunityQueue > article, #opportunityQueue > section').length,4);
  assert.equal(document.querySelectorAll('#opportunityQueue details[open]').length,0);
  const labels=[...document.querySelectorAll('#opportunityKind option')].map(o=>o.textContent);
- assert.deepEqual(labels,['All opportunities (4)','Question reviews (1)','Source reviews (1)','Competitor reviews (1)','Other actions (1)']);
+ assert.deepEqual(labels,['All opportunities (4 checks)','Question reviews (1 checks)','Source reviews (1 checks)','Competitor reviews (1 checks)','Other actions (1 checks)']);
  const source=document.querySelector('[data-task="1"] summary');assert.match(source.textContent,/Source appears unrelated/);
  const question=document.querySelector('[data-task="2"]');assert.match(question.querySelector('summary').textContent,/6 measured answers/);
  assert.equal(question.querySelectorAll('supplier').length,0);
@@ -48,4 +48,38 @@ test('updating an open task retains the expanded queue card and its new status',
 test('Task cards require an explicit compact option rather than inheriting array indexes',()=>{
  const {h,document}=harness();document.body.innerHTML=tasks.map(t=>h.taskCard(t)).join('');assert.equal(document.querySelectorAll('.queue-task').length,0);
  assert.doesNotMatch(app,/\.map\(taskCard\)/);
+});
+test('overlapping question checks form one review while notes, assignments, report selections and completed states remain independent',async()=>{
+ const {h,document,state}=harness();state.taskFilter='all';
+ const list=[{...tasks[1],notes:'Approved next step',assignee:'editor@example.test',reportIncluded:true}, {...tasks[1],id:20,type:'entity_authority',status:'done',notes:'Identity checked',assignee:'reviewer@example.test'}, {...tasks[1],id:21,evidence:{...tasks[1].evidence,prompt_id:13,prompt:'أي مورد مناسب؟'}}];
+ const before=JSON.stringify(list);
+ h.api=async()=>({tasks:list,counts:{open:2,doing:0,done:1,dismissed:0,total:3}});
+ document.body.innerHTML=await h.viewActions();
+ assert.equal(document.querySelectorAll('[data-question-group]').length,2);
+ assert.equal(document.querySelectorAll('[data-task]').length,3);
+ assert.match(document.querySelector('[data-question-group="question:12"] > details > summary').textContent,/1 to do · 1 done/);
+ assert.match(document.querySelector('[data-task="2"]').textContent,/Approved next step/);
+ assert.ok(document.querySelector('[data-task="2"] [data-report-note="2"][data-include="false"]'));
+ assert.equal(document.getElementById('a-20').value,'reviewer@example.test');
+ assert.ok(document.querySelector('[data-task="20"] [data-status="open"]'));
+ assert.doesNotMatch(document.body.textContent,/Suggested priority|priority 25|effort 2\/5/);
+ assert.equal(JSON.stringify(list),before);
+});
+test('group summaries refresh after status or owner changes without replacing another check’s unsaved notes',async()=>{
+ const {h,document}=harness();let list=[tasks[1],{...tasks[1],id:20,type:'entity_authority'}];
+ h.api=async()=>({tasks:list,counts:{open:1,doing:1,done:0,dismissed:0,total:2}});
+ document.body.innerHTML=await h.viewActions();document.querySelector('.question-review').open=true;
+ document.getElementById('next-note-20').value='Unsaved draft';document.getElementById('next-editor-20').hidden=false;
+ vm.runInContext(app.slice(app.indexOf('async function refreshTaskCounts('),app.indexOf('/* ---------- setup ---------- */',app.indexOf('async function refreshTaskCounts('))),h);
+ list=[{...tasks[1],status:'doing',assignee:'owner@example.test'},list[1]];
+ await h.refreshTaskCounts();
+ assert.match(document.querySelector('.question-review > summary').textContent,/1 to do · 1 in progress/);
+ assert.match(document.querySelector('.question-review > summary').textContent,/owner@example.test/);
+ assert.equal(document.getElementById('next-note-20').value,'Unsaved draft');assert.equal(document.getElementById('next-editor-20').hidden,false);assert.equal(document.querySelector('.question-review').open,true);
+});
+test('review ordering puts scheduled and ongoing work first, then questions ahead of source popularity',()=>{
+ const {h}=harness();const source={...tasks[0],priority:999999};
+ const due={...source,id:90,due_date:'2000-01-01'};const doing={...source,id:91,status:'doing'};
+ const groups=h.reviewGroups([source,tasks[1],doing,due,tasks[2]]);
+ assert.deepEqual(Array.from(groups,g=>g.tasks[0].id),[90,91,2,3,1]);
 });

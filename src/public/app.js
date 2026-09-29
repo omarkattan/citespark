@@ -309,7 +309,7 @@ async function viewOverview() {
   const due = t => /^\d{4}-\d{2}-\d{2}/.test(t.due_date || '') ? t.due_date.slice(0,10) : null;
   const suggested = [];
   const add = (task, reason) => {
-    if (suggested.length < 3 && !suggested.some(item => item.task.id === task.id)) suggested.push({task, reason});
+    if (suggested.length < 3 && !suggested.some(item => item.task.id === task.id || (task.evidence?.prompt_id && item.task.evidence?.prompt_id===task.evidence.prompt_id))) suggested.push({task, reason});
   };
   eligible.filter(t => due(t) && due(t) <= today)
     .sort((a,b) => due(a).localeCompare(due(b)))
@@ -320,6 +320,7 @@ async function viewOverview() {
     : t.type === 'content_gap' || t.evidence?.prompt_id ? 'questions' : 'other';
   const groups = ['questions','competitors','sources','other'].map(kind => eligible.filter(t => group(t) === kind));
   const sourceOrder = t => ({relevant:0,uncertain:2}[t.sourceReview?.status] ?? 1);
+  groups[0].sort((a,b)=>(a.type==='content_gap'?0:1)-(b.type==='content_gap'?0:1) || Number(a.id)-Number(b.id));
   groups[2].sort((a,b) => sourceOrder(a)-sourceOrder(b));
   const reasons = ['Review a buyer question and its stored answer evidence.', 'Compare the evidence for a tracked competitor.', 'Check a cited source against the buyer question.', 'Review another type of opportunity.'];
   // One per available category before repeating. Preserve queue order within
@@ -353,7 +354,7 @@ async function viewOverview() {
       <button class="ghost" data-open-view="actions">All opportunities${openCount != null ? ` (${openCount})` : ''}</button></div>
     ${openCount > (tasks?.length || 0) && tasks ? `<p class="hint">This shortlist considers the first ${tasks.length} tasks returned by the work queue. Open Opportunities to review the full list by category.</p>` : ''}
     <p class="hint">A completed task records work done. A later measurement is needed to assess visibility changes.</p>
-    ${tasks === null ? '<div class="notice">The task list could not be loaded. Open Opportunities to try again.</div>' : suggested.length ? suggested.map(({task, reason}) => taskCard(task, true, reason)).join('') : `<div class="panel"><h3>${unrelated.length ? 'No other tasks to prioritise' : measured ? 'No open tasks' : 'Review questions before your first run'}</h3><p>${unrelated.length ? 'The remaining source reviews were judged unrelated to their checked questions. They remain available in Opportunities.' : measured ? 'Check completed work in Opportunities, or review your questions before the next measurement.' : 'Add questions manually, use suggestions or connect Google Search Console.'}</p><button class="ghost" data-open-view="${measured ? 'actions' : 'questions'}">${measured ? 'Open opportunities' : 'Open questions'}</button></div>`}
+    ${tasks === null ? '<div class="notice">The task list could not be loaded. Open Opportunities to try again.</div>' : suggested.length ? suggested.map(({task, reason}) => reviewGroupCard(reviewGroups(eligible).find(g=>g.tasks.some(t=>t.id===task.id)), task.evidence?.prompt_id?`${reason} ${reviewReason(task)}`:reason)).join('') : `<div class="panel"><h3>${unrelated.length ? 'No other tasks to prioritise' : measured ? 'No open tasks' : 'Review questions before your first run'}</h3><p>${unrelated.length ? 'The remaining source reviews were judged unrelated to their checked questions. They remain available in Opportunities.' : measured ? 'Check completed work in Opportunities, or review your questions before the next measurement.' : 'Add questions manually, use suggestions or connect Google Search Console.'}</p><button class="ghost" data-open-view="${measured ? 'actions' : 'questions'}">${measured ? 'Open opportunities' : 'Open questions'}</button></div>`}
     ${unrelated.length ? `<p class="hint">${unrelated.length} source review${unrelated.length === 1 ? ' was' : 's were'} left out of this shortlist because the checked page and question appeared unrelated. Nothing was dismissed or deleted. <button class="ghost" data-open-view="actions">View all opportunities</button></p>` : ''}
     </section>
     <details class="panel fold overview-measurement"><summary>Plan the next measurement</summary><p>${esc(next)}</p><p class="hint">Paused questions are excluded. Running again uses answer checks.</p><button class="ghost" data-open-view="questions">Review questions</button> <button class="ghost" data-start-first-cycle>Review cost and run</button></details>
@@ -391,11 +392,53 @@ function opportunityKind(task) {
   return 'other';
 }
 
+// Presentation grouping only. Persisted task IDs and their work history stay separate.
+function reviewReason(task) {
+  const e=task.evidence || {};
+  if(task.type==='content_gap' && Number.isInteger(e.runs) && e.runs>0 && e.own_rate===0) return `The brand was not named in ${e.runs} measured answers. Check the question and cited pages before proposing a change.`;
+  if(task.type==='entity_authority') return 'Your website was cited, but brand naming was limited. Check whether naming the brand is relevant to this answer.';
+  if(task.type==='engine_gap') return 'Engines gave different results. Compare their answers before deciding whether there is a content issue.';
+  if(task.type==='competitor_comparison') return 'A tracked competitor appeared more often on some questions. Review those specific comparisons.';
+  if(['source_gap','competitor_page'].includes(task.type)) return 'Supporting research: check this source against a buyer question before deciding on any action.';
+  if(task.type==='citable_asset' || task.type==='named_not_cited') return 'The brand was named without a recorded website citation. Check whether a source link was needed.';
+  if(task.type==='decline_alert') return 'Check that the samples are comparable before treating the difference as a decline.';
+  return 'Review the stored evidence and record a specific next step, or why no change is needed.';
+}
+function reviewGroups(tasks) {
+  const map=new Map();
+  for(const task of tasks) {
+    const id=task.evidence?.prompt_id;
+    const key=id && opportunityKind(task)==='questions' ? `question:${id}` : `task:${task.id}`;
+    if(!map.has(key)) map.set(key,{key,questionId:id && opportunityKind(task)==='questions'?id:null,tasks:[]});
+    map.get(key).tasks.push(task);
+  }
+  const today=new Date();today.setHours(0,0,0,0);
+  const date=t=>/^\d{4}-\d{2}-\d{2}/.test(t.due_date||'')?t.due_date.slice(0,10):null;
+  const due=t=>['open','doing'].includes(t.status) && date(t) && new Date(date(t)+'T00:00:00')<=today;
+  const rank=t=>due(t)?0:t.status==='doing'?1:opportunityKind(t)==='questions'?(t.type==='content_gap'?2:3):opportunityKind(t)==='competitors'?4:opportunityKind(t)==='sources'?6:5;
+  const compare=(a,b)=>rank(a)-rank(b) || (rank(a)===0?date(a).localeCompare(date(b)):0) || Number(a.id)-Number(b.id);
+  for(const group of map.values()) group.tasks.sort(compare);
+  return [...map.values()].sort((a,b)=>compare(a.tasks[0],b.tasks[0]));
+}
+function questionGroupSummary(group, reason='') {
+  const first=group.tasks[0];
+  const statuses=Object.entries(STATUS_LABEL).map(([key,label])=>{const n=group.tasks.filter(t=>t.status===key).length;return n?`${n} ${label.toLowerCase()}`:null;}).filter(Boolean).join(' · ');
+  const owners=[...new Set(group.tasks.map(t=>t.assignee).filter(Boolean))];
+  return `<span class="rec-title">${esc(first.evidence?.prompt || first.title)}</span><span class="queue-summary">${esc(reason || reviewReason(first))}</span><span class="queue-summary">${group.tasks.length} saved check${group.tasks.length===1?'':'s'} · ${esc(statuses)}</span>${owners.length?`<span class="queue-summary">Assigned to: ${esc(owners.join(', '))}</span>`:''}${group.tasks.some(t=>t.notes)?'<span class="tag">Saved review notes</span>':''}${group.tasks.map(dueLabel).filter(Boolean).join('')}<span class="queue-open">Open question review</span><span class="queue-close">Close question review</span>`;
+}
+function reviewGroupCard(group,reason='') {
+  if(!group.questionId) return taskCard(group.tasks[0],true,reason || reviewReason(group.tasks[0]));
+  return `<section class="panel question-review-group" data-question-group="${esc(group.key)}"><details class="queue-task question-review"><summary>${questionGroupSummary(group,reason)}</summary><div class="queue-body"><p><b>Decision to make:</b> Does the evidence support a specific change to your existing page, or is no change needed?</p><p class="hint">Read the answers once, then use the checks below to record findings. Each check keeps its own notes, owner and status. Completing one does not complete the others.</p>${group.tasks.map(t=>taskCard(t,true,'',true)).join('')}<p class="hint"><b>Done when:</b> the reviewed answer or source, relevant page, finding and next step (or no-change decision) are recorded, with an owner for any follow-up.</p></div></details></section>`;
+}
+function queueCountText(tasks,total) {
+  return `${reviewGroups(tasks).length} reviews shown, containing ${tasks.length} of ${total} matching saved checks.${total>tasks.length?' This is a limited preview. Use Focus to see more of each category.':''}`;
+}
+
 function opportunityFilters(tasks, selected = 'all', counts = null) {
   const labels = {all: 'All opportunities', questions: 'Question reviews', sources: 'Source reviews', competitors: 'Competitor reviews', other: 'Other actions'};
   return `<label class="queue-filter">Focus <select id="opportunityKind">${Object.entries(labels).map(([key, label]) => {
     const count = counts?.[key] ?? (key === 'all' ? tasks.length : tasks.filter(task => opportunityKind(task) === key).length);
-    return `<option value="${key}"${selected === key ? ' selected' : ''}>${label} (${count})</option>`;
+    return `<option value="${key}"${selected === key ? ' selected' : ''}>${label} (${count} checks)</option>`;
   }).join('')}</select></label>`;
 }
 
@@ -453,10 +496,10 @@ async function viewActions() {
       : '';
 
   const tasks = data.tasks.filter(task => kind === 'all' || opportunityKind(task) === kind);
-  const intro = `<div class="panel queue-intro"><h2>Your work queue</h2><p>Choose a focus, then open a task to review its evidence and next step.</p><p class="hint">Completing a task records work done. A later measurement is needed to assess any change in AI visibility.</p>${opportunityFilters(data.tasks, kind, data.focusCounts)}</div>`;
+  const intro = `<div class="panel queue-intro"><h2>Your work queue</h2><p>Start with one buyer question. Related checks are grouped so you can review its answers once. Due work and work in progress come first, followed by question reviews, competitor reviews and source research.</p><p class="hint">The status tabs and Focus counts refer to saved checks. Each keeps its notes and owner. Completion records work done, not a visibility improvement.</p>${opportunityFilters(data.tasks, kind, data.focusCounts)}</div>`;
   const total = filter === 'active' ? c.open + c.doing : filter === 'all' ? c.total : c[filter];
-  const resultCount = `<p class="hint" id="queueCount">${tasks.length} shown of ${total} matching tasks${total > tasks.length ? '. Showing the first 100 by due date and priority.' : '.'}</p>`;
-  return intro + bar + resultCount + `<div id="opportunityQueue">${tasks.length ? tasks.map(task => taskCard(task, true)).join('') : '<div class="empty"><h2>No tasks match this focus</h2><p>Choose another focus or status above.</p></div>'}</div>` + reportBar + suppressedPanel;
+  const resultCount = `<p class="hint" id="queueCount">${queueCountText(tasks,total)}</p>`;
+  return intro + bar + resultCount + `<div id="opportunityQueue">${tasks.length ? reviewGroups(tasks).map(group=>reviewGroupCard(group)).join('') : '<div class="empty"><h2>No tasks match this focus</h2><p>Choose another focus or status above.</p></div>'}</div>` + reportBar + suppressedPanel;
 }
 
 const STATUS_LABEL = { open: 'To do', doing: 'In progress', done: 'Done', dismissed: 'Dismissed' };
@@ -702,7 +745,7 @@ const REVIEW_GUIDANCE = {
   ]
 };
 
-function taskCard(t, compact = false, selectionReason = '') {
+function taskCard(t, compact = false, selectionReason = '', grouped = false) {
   const ev = t.evidence || {};
   const review = REVIEW_GUIDANCE[t.type];
   const sourceReview = ['source_gap', 'competitor_page'].includes(t.type);
@@ -715,7 +758,8 @@ function taskCard(t, compact = false, selectionReason = '') {
   const competitorReview = t.type === 'competitor_comparison';
   const competitorTitle = `Review where ${ev.competitor || 'a tracked competitor'} appears more often`;
   const reviewTitle = `Review whether ${ev.domain || 'this source'} answers your buyers' questions`;
-  const title = review ? `${review[0]}${ev.prompt ? `: ${ev.prompt}` : ''}` : sourceReview ? reviewTitle : competitorReview ? competitorTitle : questionReview ? questionTitle : t.title;
+  let title = review ? `${review[0]}${ev.prompt ? `: ${ev.prompt}` : ''}` : sourceReview ? reviewTitle : competitorReview ? competitorTitle : questionReview ? questionTitle : t.title;
+  if(grouped && ev.prompt) title=title.replace(`: ${ev.prompt}`,'');
   const summary = review ? review[1] : sourceReview
     ? ({relevant:'Source appears relevant', irrelevant:'Source appears unrelated. Review before acting.', uncertain:'Relevance uncertain. Review before acting.'}[t.sourceReview?.status] || 'Source relevance not checked')
     : questionReview ? questionObservation : TYPE_LABEL[t.type] || 'Review evidence and next step';
@@ -744,10 +788,10 @@ function taskCard(t, compact = false, selectionReason = '') {
     ${compact ? `<details class="queue-task"><summary><span class="queue-heading"><span class="rec-title">${esc(title)}</span><span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span></span><span class="queue-summary">${esc(summary)}</span>${selectionReason ? `<span class="queue-summary"><b>Why this task:</b> ${esc(selectionReason)}</span>` : ''}${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}${dueLabel(t)}<span class="queue-open">Review task</span><span class="queue-close">Close task</span></summary><div class="queue-body">` : ''}
     <div class="rec-top"${compact ? ' hidden' : ''}>
       <div class="rec-title">${esc(title)}</div>
-      <div class="rec-pri">priority ${Number(t.priority).toFixed(1)} &middot; effort ${Number(t.effort)}/5</div>
+      <div class="rec-pri">${esc(reviewReason(t))}</div>
     </div>
 
-    ${compact ? `<p class="hint">Suggested priority ${Number(t.priority).toFixed(1)} · effort ${Number(t.effort)}/5</p>` : ''}
+    ${compact ? `<p class="hint"><b>Why review this:</b> ${esc(reviewReason(t))}</p>` : ''}
     <div class="task-meta">
       <span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span>
       ${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}
@@ -4312,7 +4356,7 @@ function replaceCard(id, task) {
   if (!card) return;
   const wrapper = document.createElement('div');
   const expanded = card.querySelector('.queue-task')?.open;
-  wrapper.innerHTML = taskCard(task, ['actions', 'overview'].includes(state.view));
+  wrapper.innerHTML = taskCard(task, ['actions', 'overview'].includes(state.view),'',Boolean(card.closest('[data-question-group]')));
   if (expanded && wrapper.querySelector('.queue-task')) wrapper.querySelector('.queue-task').open = true;
   card.replaceWith(wrapper.firstElementChild);
   refreshTaskCounts();
@@ -4330,7 +4374,12 @@ async function refreshTaskCounts() {
   const c = data.counts;
   const filter = state.taskFilter || 'active';
   const total = filter === 'active' ? c.open + c.doing : filter === 'all' ? c.total : c[filter];
-  if ($('queueCount')) $('queueCount').textContent = `${data.tasks.length} shown of ${total} matching tasks${total > data.tasks.length ? '. Showing the first 100 by due date and priority.' : '.'}`;
+  if ($('queueCount')) $('queueCount').textContent = queueCountText(data.tasks,total);
+  for(const container of document.querySelectorAll('[data-question-group]')) {
+    const group=reviewGroups(data.tasks).find(g=>g.key===container.dataset.questionGroup);
+    if(!group) { container.remove(); continue; }
+    container.querySelector('.question-review > summary').innerHTML=questionGroupSummary(group);
+  }
   const set = (id, n) => {
     const el = document.querySelector(`[data-task-filter="${id}"] span`);
     if (el) el.textContent = n;

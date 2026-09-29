@@ -706,8 +706,8 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
     ELSE 'other' END`;
   const kindWhere = kind === 'all' ? '' : ` AND (${kindSql}) = '${kind}'`;
 
-  // Sort by what needs attention: anything overdue first, then by due date,
-  // then by priority. A task with a date beats an unowned one with a higher score.
+  // Review order: due work, work in progress, then buyer questions before source research.
+  // This is not a forecast of impact or a comparison of incompatible demand figures.
   const where =
     status === 'all' ? '' :
     status === 'active' ? "AND status IN ('open','doing')" :
@@ -718,9 +718,12 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
     `SELECT * FROM recommendations
      WHERE project_id = $1 ${where} ${kindWhere}
      ORDER BY
-       CASE WHEN due_date IS NOT NULL AND due_date < CURRENT_DATE AND status IN ('open','doing') THEN 0 ELSE 1 END,
-       due_date NULLS LAST,
-       priority DESC
+       CASE WHEN due_date IS NOT NULL AND due_date <= CURRENT_DATE AND status IN ('open','doing') THEN 0 ELSE 1 END,
+       CASE WHEN due_date <= CURRENT_DATE AND status IN ('open','doing') THEN due_date END NULLS LAST,
+       CASE WHEN status='doing' THEN 0 ELSE 1 END,
+       CASE WHEN (${kindSql})='questions' THEN 0 WHEN (${kindSql})='competitors' THEN 1 WHEN (${kindSql})='sources' THEN 3 ELSE 2 END,
+       CASE WHEN type='content_gap' THEN 0 ELSE 1 END,
+       id ASC
      LIMIT 100`,
     params
   );
@@ -731,7 +734,7 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
        COUNT(*) FILTER (WHERE status = 'doing')::int     AS doing,
        COUNT(*) FILTER (WHERE status = 'done')::int      AS done,
        COUNT(*) FILTER (WHERE status = 'dismissed')::int AS dismissed,
-       COUNT(*) FILTER (WHERE due_date < CURRENT_DATE AND status IN ('open','doing'))::int AS overdue,
+       COUNT(*) FILTER (WHERE due_date <= CURRENT_DATE AND status IN ('open','doing'))::int AS overdue,
        COUNT(*)::int AS total
      FROM recommendations WHERE project_id = $1 ${kindWhere}`,
     [project.id]
@@ -3647,7 +3650,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260929-question-sample-48',
+    release: '20260929-grouped-reviews-49',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

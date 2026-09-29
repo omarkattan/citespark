@@ -10,6 +10,7 @@ function harness({measured=true,history={cycles:[{}]},tasks=null,counts={open:15
  const state={projectId:26,view:'overview',overview:measured?{cycle:'2026-09-26',runs:119,visibility:0}:{}};
  const data=tasks || Array.from({length:4},(_,i)=>({id:i+1,status:'open',type:'content_gap',title:'old',action:'old',priority:25-i,effort:4,evidence:{prompt_id:i+1,prompt:`Buyer question ${i+1}`,runs:6,own_rate:0}}));
  const h=vm.createContext({document,state,esc,$:id=>document.getElementById(id),pct:n=>`${n*100}%`,shortDate:x=>x,dueLabel:()=>'',highlight:esc,evidenceDetails:()=>'',api:async url=>url.includes('recommendations')?{tasks:data,counts,people:[]}:url.includes('/history')?history:{all:20,checksAll:120,costAll:1.67}});
+ vm.runInContext(app.slice(app.indexOf('function opportunityKind('),app.indexOf('function opportunityFilters(')),h);
  vm.runInContext(app.slice(app.indexOf('async function viewOverview()'),app.indexOf('async function viewConnections()')),h);
  vm.runInContext(app.slice(app.indexOf('const TYPE_LABEL'),app.indexOf('/**\n * Who is doing')),h);
  vm.runInContext("const STATUS_LABEL={open:'To do',doing:'In progress',done:'Done',dismissed:'Dismissed'}",h);
@@ -17,7 +18,7 @@ function harness({measured=true,history={cycles:[{}]},tasks=null,counts={open:15
 }
 test('complete Overview renders three compact tasks, two summary panels and separate run controls',async()=>{
  const {h,document}=harness();document.getElementById('view').innerHTML=await h.viewOverview();
- assert.equal(document.querySelectorAll('.overview-focus > section').length,2);assert.equal(document.querySelectorAll('#overviewNext .queue-task').length,3);
+ assert.equal(document.querySelectorAll('.overview-focus > section').length,2);assert.equal(document.querySelectorAll('#overviewNext > .question-review-group').length,3);
  assert.equal(document.querySelectorAll('#overviewNext .queue-task[open]').length,0);
  assert.match(document.body.textContent,/Named in 0% of 119 successfully measured answers/);assert.match(document.body.textContent,/All opportunities \(152\)/);
  assert.match(document.body.textContent,/One day of results is available/);assert.ok(document.querySelector('.overview-measurement [data-start-first-cycle]'));assert.equal(document.querySelector('.overview-measurement').open,false);
