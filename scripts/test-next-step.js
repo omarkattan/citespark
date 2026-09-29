@@ -8,8 +8,9 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 function harness(fetcher){
  const document=new JSDOM('<main></main>').window.document;
  const calls=[];
- const h=vm.createContext({document,$:id=>document.getElementById(id),state:{overview:{}},esc,dueLabel:()=>'',evidenceDetails:()=>'',highlight:esc,fetch:async(url,opts)=>{calls.push({url,...opts});return fetcher?fetcher():{ok:true,json:async()=>({notes:'Review https://example.com\nAdd the missing delivery detail',status:'open'})};}});
+ const h=vm.createContext({URL,document,$:id=>document.getElementById(id),state:{overview:{}},esc,dueLabel:()=>'',evidenceDetails:()=>'',highlight:esc,fetch:async(url,opts)=>{calls.push({url,...opts});return fetcher?fetcher():{ok:true,json:async()=>({notes:'Review https://example.com\nAdd the missing delivery detail',status:'open'})};}});
  vm.runInContext("const STATUS_LABEL={open:'To do'};"+app.slice(app.indexOf('const TYPE_LABEL'),app.indexOf('/**\n * Who is doing')),h);
+ vm.runInContext(app.slice(app.indexOf('function savedDecisionPreview('),app.indexOf('function reviewGroups(')),h);
  // Call handler directly so each assertion waits for its asynchronous work.
  vm.runInContext(app.slice(app.indexOf('async function handleNextStep'),app.indexOf("document.addEventListener('click', handleNextStep)")),h);
  document.querySelector('main').innerHTML=h.taskCard({id:42,status:'open',type:'content_gap',priority:25,effort:4,notes:'Existing notes <safe>',evidence:{prompt_id:7,prompt:'Buyer question',runs:6,own_rate:0}},true);

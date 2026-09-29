@@ -2295,3 +2295,8 @@ a.ans-source:hover { color: var(--accent); text-decoration: underline; }
 .decision-brief dd { margin:4px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.6; }
 [data-original-guidance] { margin:14px 0; }
 [data-original-guidance] > summary { cursor:pointer; color:var(--ink-2); }
+
+/* The outer question heading already carries the reviewed action title. */
+.question-review-group [data-reviewed="true"] > .queue-task[open] > summary .rec-title { display:none; }
+[data-saved-notes] > summary { cursor:pointer; font-weight:600; }
+[data-saved-notes] { margin:16px 0; }

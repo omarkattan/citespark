@@ -108,7 +108,7 @@ test('saved decisions lead collapsed reviews safely while retaining the original
  const task={...tasks[1],review_decision:{stage:'ready',change,page:'https://example.com/',evidence:'Reviewed answer'},notes:'Keep existing notes'};
  document.body.innerHTML=h.reviewGroupCard(h.reviewGroups([task])[0]);
  const heading=document.querySelector('.question-review > summary .rec-title');
- assert.equal(heading.textContent.length,238);
+ assert.equal(heading.textContent.length,118);
  assert.match(heading.textContent,/^Add <transfer> links & clarify options/);
  assert.match(document.querySelector('.question-review > summary').textContent,/Question: Which <supplier>\?/);
  assert.equal(document.querySelectorAll('transfer').length,0);
@@ -168,4 +168,17 @@ test('saved decision brief escapes content and does not activate unsafe or crede
  assert.match(document.body.textContent,/Unassigned/);
  assert.match(document.body.textContent,/Other checks may still need review/);
  }
+});
+test('short title leads the review while full instructions and earlier notes are retained separately',()=>{
+ const {h,document}=harness();
+ const task={...tasks[1],notes:'Earlier review, retained verbatim',review_decision:{stage:'ready',title:'Link <transfer> options',change:'Full implementation instructions',page:'https://example.com',evidence:'Reviewed sources'}};
+ document.body.innerHTML=h.reviewGroupCard(h.reviewGroups([task])[0]);
+ assert.equal(document.querySelector('.question-review > summary .rec-title').textContent,task.review_decision.title);
+ assert.match(document.querySelector('.decision-brief').textContent,/Full implementation instructions/);
+ const notes=document.querySelector('[data-saved-notes]');assert.equal(notes.open,false);assert.equal(notes.hidden,false);
+ assert.match(notes.textContent,/Earlier review, retained verbatim/);
+ assert.equal(document.querySelector('#decision-title-2').value,task.review_decision.title);
+ assert.equal(document.querySelectorAll('transfer').length,0);
+ document.body.innerHTML=h.taskCard({...task,review_decision:{}});
+ assert.equal(document.querySelector('[data-saved-notes]').open,true);
 });

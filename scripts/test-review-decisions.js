@@ -42,3 +42,10 @@ test('decision route validates before writing and returns not found for another 
  await route({body:base,params:{recId:'22'},session:{orgId:7}},res,async(sql,args)=>({review_decision:JSON.parse(args[2])}),validateDecision);
  assert.equal(result.stage,'ready');assert.ok(result.reviewed_at);
 });
+test('short titles are optional and validated without changing full instructions',()=>{
+ assert.equal(validateDecision(base).title,undefined);
+ const d=validateDecision({...base,title:'  Link transfer options  '});
+ assert.equal(d.title,'Link transfer options');assert.equal(d.change,base.change);
+ assert.throws(()=>validateDecision({...base,title:'x'.repeat(121)}));
+ assert.throws(()=>validateDecision({...base,title:{text:'wrong'}}));
+});

@@ -6,6 +6,10 @@ export function validateDecision(input) {
     if (typeof input[key] !== 'string' || input[key].length > 4000) throw new Error('Use text of 4,000 characters or fewer for each field.');
     result[key]=input[key].trim();
   }
+  if(input.title !== undefined) {
+    if(typeof input.title !== 'string' || input.title.length>120) throw new Error('Use an action title of 120 characters or fewer.');
+    result.title=input.title.trim().replace(/\s+/g,' ');
+  }
   if(result.page) {
     let url; try {url=new URL(result.page);} catch {throw new Error('Use a full http or https page URL.');}
     if(!['http:','https:'].includes(url.protocol) || url.username || url.password) throw new Error('Use a full http or https page URL without credentials.');

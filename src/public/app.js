@@ -398,8 +398,8 @@ function opportunityKind(task) {
 function savedDecisionPreview(task) {
   const d=task.review_decision;
   if(!['ready','investigate','no_change'].includes(d?.stage) || !d.change?.trim()) return null;
-  const text=d.change.trim().replace(/\s+/g,' ');
-  return {text:text.length>240?text.slice(0,237)+'…':text,label:decisionLabel(d.stage)};
+  const text=(d.title?.trim() || d.change.trim()).replace(/\s+/g,' ');
+  return {text:text.length>120?text.slice(0,117)+'…':text,label:decisionLabel(d.stage)};
 }
 function savedDecisionBrief(t) {
   if(!savedDecisionPreview(t)) return '';
@@ -424,10 +424,11 @@ function decisionPanel(t) {
     <details><summary>Record or update decision</summary>
       <p class="hint">This is your editorial assessment. It does not approve product claims, mark work complete or prove a visibility improvement. Recheck it when the evidence changes.</p>
       <div class="field"><label for="decision-stage-${t.id}">Decision</label><select id="decision-stage-${t.id}">${['investigate','ready','no_change'].map(v=>`<option value="${v}" ${v===(d.stage || 'investigate')?'selected':''}>${decisionLabel(v)}</option>`).join('')}</select></div>
+      <div class="field"><label for="decision-title-${t.id}">Short action title (optional)</label><input id="decision-title-${t.id}" maxlength="120" placeholder="For example: Link the app page to transfer options" value="${esc(d.title || '')}"></div>
       <div class="field"><label for="decision-page-${t.id}">Page to change or review</label><input id="decision-page-${t.id}" type="url" maxlength="4000" placeholder="https://your-site.com/relevant-page" value="${esc(d.page || '')}"></div>
       <div class="field"><label for="decision-evidence-${t.id}">Supporting evidence</label><textarea id="decision-evidence-${t.id}" maxlength="4000" rows="3" placeholder="Answer or source link, measurement date and the specific finding">${esc(d.evidence || '')}</textarea></div>
       <div class="field"><label for="decision-change-${t.id}">Specific change, next investigation or reason for no change</label><textarea id="decision-change-${t.id}" maxlength="4000" rows="3">${esc(d.change || '')}</textarea></div>
-      <p class="hint">Ready to implement requires all three fields. No change needed requires evidence and a reason. Saving leaves your existing notes and report copy intact.</p>
+      <p class="hint">Ready to implement requires a page, evidence and a specific change. No change needed requires evidence and a reason. Saving leaves your existing notes and report copy intact.</p>
       <button class="btn" data-decision-save="${t.id}">Save decision</button><p role="status" data-decision-feedback></p>
     </details></section>`;
 }
@@ -825,7 +826,7 @@ function taskCard(t, compact = false, selectionReason = '', grouped = false) {
   const canDelete = t.status === 'dismissed';
 
   return `
-  <article class="rec ${t.status}" data-type="${esc(t.type)}" data-task="${t.id}" data-owner="${esc(t.assignee || '')}">
+  <article class="rec ${t.status}" data-type="${esc(t.type)}" data-task="${t.id}" data-owner="${esc(t.assignee || '')}" data-reviewed="${Boolean(saved)}">
     ${compact ? `<details class="queue-task"${grouped && saved ? ' open' : ''}><summary><span class="queue-heading"><span class="rec-title" data-review-title data-original-title="${esc(title)}">${esc(savedDecisionPreview(t)?.text || title)}</span><span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span></span><span class="queue-summary" data-review-context data-original-context="${esc(summary)}">${esc(savedDecisionPreview(t) ? `Original check: ${title}` : summary)}</span><span class="tag" data-decision-badge>${esc(decisionLabel(t.review_decision?.stage))}</span>${selectionReason && !savedDecisionPreview(t) ? `<span class="queue-summary" data-selection-reason><b>Why this task:</b> ${esc(selectionReason)}</span>` : ''}${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}${dueLabel(t)}<span class="queue-open">Review task</span><span class="queue-close">Close task</span></summary><div class="queue-body">` : ''}
     <div class="rec-top"${compact ? ' hidden' : ''}>
       <div class="rec-title" data-review-title data-original-title="${esc(title)}">${esc(savedDecisionPreview(t)?.text || title)}</div>
@@ -891,7 +892,7 @@ function taskCard(t, compact = false, selectionReason = '', grouped = false) {
     ${ev.prompt_id ? '<div class="answers" data-answers hidden></div>' : ''}
 
     <section class="task-next" aria-label="Next step and review notes">
-      <p id="next-summary-${t.id}" style="white-space:pre-wrap"${t.notes ? '' : ' hidden'}>${esc(t.notes || '')}</p>
+      <details data-saved-notes${saved ? '' : ' open'}${t.notes ? '' : ' hidden'}><summary${saved ? '' : ' hidden'}>Saved notes and earlier context</summary><p id="next-summary-${t.id}" style="white-space:pre-wrap"${t.notes ? '' : ' hidden'}>${esc(t.notes || '')}</p></details>
       <div id="next-editor-${t.id}" hidden>
         <div class="field"><label for="next-note-${t.id}">Next step and review notes</label>
           <p class="hint" id="next-help-${t.id}">What did you find in the answer? Which page or source supports it? What will you change or check next? If no change is justified, record that too.</p>
@@ -4376,6 +4377,8 @@ async function handleNextStep(event) {
     const opener = document.querySelector(`[data-next-open="${id}"]`);
     if (opener) opener.textContent = notes ? 'Edit next step' : 'Record next step';
     const card = editor.closest('[data-task]');
+    const notesFold=card?.querySelector('[data-saved-notes]');
+    if(notesFold) notesFold.hidden=!notes;
     const badge = card?.querySelector('[data-task-notes-badge]');
     if (badge) badge.hidden = !notes;
     const assignment = card?.querySelector('[data-task-edit]');
@@ -4397,7 +4400,7 @@ document.addEventListener('click', async event=>{
  const button=event.target.closest('[data-decision-save]'); if(!button || button.disabled) return;
  const id=button.dataset.decisionSave, panel=button.closest('.task-decision');
  const feedback=panel.querySelector('[data-decision-feedback]');
- const fields=['stage','page','evidence','change'];
+ const fields=['stage','title','page','evidence','change'];
  const inputs=fields.map(key=>$(`decision-${key}-${id}`));
  const payload=Object.fromEntries(fields.map((key,i)=>[key,inputs[i].value]));
  button.disabled=true; inputs.forEach(i=>i.disabled=true); feedback.textContent='Saving decision…';
@@ -4409,6 +4412,10 @@ document.addEventListener('click', async event=>{
   const preview=savedDecisionPreview({review_decision:result});
   card.querySelectorAll('[data-review-title]').forEach(el=>el.textContent=preview?.text || el.dataset.originalTitle);
   card.querySelectorAll('[data-review-context]').forEach(el=>el.textContent=preview ? `Original check: ${card.querySelector('[data-review-title]').dataset.originalTitle}` : el.dataset.originalContext);
+  card.dataset.reviewed=Boolean(preview);
+  const notesFold=card.querySelector('[data-saved-notes]');
+  notesFold.open=!preview;
+  notesFold.querySelector('summary').hidden=!preview;
   if(preview) card.querySelector('[data-selection-reason]')?.remove();
   card.querySelector('[data-decision-brief]').innerHTML=savedDecisionBrief({review_decision:result,assignee:card.dataset.owner});
   const originalGuidance=card.querySelector('[data-original-guidance]');
