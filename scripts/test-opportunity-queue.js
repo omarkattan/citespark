@@ -83,3 +83,13 @@ test('review ordering puts scheduled and ongoing work first, then questions ahea
  const groups=h.reviewGroups([source,tasks[1],doing,due,tasks[2]]);
  assert.deepEqual(Array.from(groups,g=>g.tasks[0].id),[90,91,2,3,1]);
 });
+
+test('explicit decisions appear in groups while legacy notes never imply readiness',async()=>{
+ const {h,document}=harness();
+ h.api=async()=>({tasks:[{...tasks[1],notes:'Existing review'},{...tasks[1],id:22,review_decision:{stage:'ready',page:'https://bank.test/app',evidence:'<unsafe>',change:'Add transfer link',reviewed_at:'2026-09-29'}}],counts:{open:2,doing:0,done:0,total:2}});
+ document.body.innerHTML=await h.viewActions();
+ assert.match(document.querySelector('[data-question-group] > details > summary').textContent,/1 ready to implement/);
+ assert.match(document.querySelector('[data-task="2"] [data-decision-summary]').textContent,/Needs investigation/);
+ assert.equal(document.getElementById('decision-evidence-22').value,'<unsafe>');assert.equal(document.querySelector('unsafe'),null);
+ assert.equal(document.getElementById('next-note-2').value,'Existing review');
+});

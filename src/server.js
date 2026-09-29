@@ -1,3 +1,4 @@
+import { validateDecision, decisionReportText } from './lib/recommendation-decision.js';
 import { competitorCandidates, domainKey, retrospective, reviewSample } from './lib/competitor-review.js';
 import { comparableHistorySql } from './lib/history-query.js';
 import { comparableSettings } from './lib/measurement-batches.js';
@@ -768,15 +769,26 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
  * Read the page that was actually cited and explain why. This is the answer
  * to "why them and not me", which no amount of generic advice can give.
  */
+app.put('/api/recommendations/:recId/review-decision', requireAuth, wrap(async(req,res)=>{
+ let decision;
+ try {decision=validateDecision(req.body);} catch(error) {return res.status(400).json({error:error.message});}
+ decision.reviewed_at=new Date().toISOString();
+ const row=await one(`UPDATE recommendations SET review_decision=$3::jsonb,updated_at=now()
+ WHERE id=$1 AND project_id IN (SELECT id FROM projects WHERE org_id=$2) RETURNING review_decision`,
+ [Number(req.params.recId),req.session.orgId,JSON.stringify(decision)]);
+ if(!row) return res.status(404).json({error:'Action not found'});
+ res.json(row.review_decision);
+}));
+
 app.post('/api/recommendations/:recId/report-note', requireAuth, wrap(async(req,res)=>{
- const rec=await one(`SELECT r.id,r.project_id,r.title,r.notes FROM recommendations r JOIN projects p ON p.id=r.project_id WHERE r.id=$1 AND p.org_id=$2`,[Number(req.params.recId),req.session.orgId]);
+ const rec=await one(`SELECT r.id,r.project_id,r.title,r.notes,r.review_decision FROM recommendations r JOIN projects p ON p.id=r.project_id WHERE r.id=$1 AND p.org_id=$2`,[Number(req.params.recId),req.session.orgId]);
  if(!rec) return res.status(404).json({error:'Action not found'});
  if(typeof req.body?.include!=='boolean') return res.status(400).json({error:'Choose include or remove.'});
  if(!req.body.include) {await query('DELETE FROM report_review_notes WHERE recommendation_id=$1 AND project_id=$2',[rec.id,rec.project_id]);return res.json({included:false});}
- if(!rec.notes?.trim()) return res.status(400).json({error:'Save the reviewed note first.'});
- if(rec.notes.length>12000) return res.status(400).json({error:'Shorten the report note to 12,000 characters or fewer.'});
+ if(!rec.notes?.trim() && !rec.review_decision?.stage) return res.status(400).json({error:'Save the reviewed note first.'});
+ if((rec.notes || '').length + decisionReportText(rec.review_decision).length>12000) return res.status(400).json({error:'Shorten the report note to 12,000 characters or fewer.'});
  await query(`INSERT INTO report_review_notes(recommendation_id,project_id,title,notes) VALUES($1,$2,$3,$4)
- ON CONFLICT(recommendation_id) DO UPDATE SET title=EXCLUDED.title,notes=EXCLUDED.notes,selected_at=now()`,[rec.id,rec.project_id,rec.title.replace(/^Invisible for:?/i,'Review visibility for:'),rec.notes.trim()]);
+ ON CONFLICT(recommendation_id) DO UPDATE SET title=EXCLUDED.title,notes=EXCLUDED.notes,selected_at=now()`,[rec.id,rec.project_id,rec.title.replace(/^Invisible for:?/i,'Review visibility for:'),decisionReportText(rec.review_decision)+(rec.notes || '').trim()]);
  res.json({included:true});
 }));
 
@@ -3650,7 +3662,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260929-grouped-reviews-49',
+    release: '20260929-review-decisions-50',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

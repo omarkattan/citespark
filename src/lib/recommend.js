@@ -664,7 +664,7 @@ export async function persistRecommendations(projectId, recs) {
   const stale = await many(
     `SELECT id, title FROM recommendations
      WHERE project_id = $1 AND status = 'open' AND NOT (fingerprint = ANY($2::text[]))
-       AND NULLIF(trim(notes),'') IS NULL AND NULLIF(trim(assignee),'') IS NULL AND due_date IS NULL
+       AND review_decision = '{}'::jsonb AND NULLIF(trim(notes),'') IS NULL AND NULLIF(trim(assignee),'') IS NULL AND due_date IS NULL
        AND NOT EXISTS (SELECT 1 FROM report_review_notes n WHERE n.recommendation_id=recommendations.id AND n.project_id=recommendations.project_id)`,
     [projectId, written]
   );
@@ -673,7 +673,7 @@ export async function persistRecommendations(projectId, recs) {
     await query(
       `DELETE FROM recommendations
        WHERE project_id = $1 AND status = 'open' AND NOT (fingerprint = ANY($2::text[]))
-       AND NULLIF(trim(notes),'') IS NULL AND NULLIF(trim(assignee),'') IS NULL AND due_date IS NULL
+       AND review_decision = '{}'::jsonb AND NULLIF(trim(notes),'') IS NULL AND NULLIF(trim(assignee),'') IS NULL AND due_date IS NULL
        AND NOT EXISTS (SELECT 1 FROM report_review_notes n WHERE n.recommendation_id=recommendations.id AND n.project_id=recommendations.project_id)`,
       [projectId, written]
     );

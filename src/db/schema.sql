@@ -695,3 +695,6 @@ CREATE TABLE IF NOT EXISTS report_review_notes (
  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
  title TEXT NOT NULL, notes TEXT NOT NULL, selected_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Batch 50: explicit human review, independent of task completion and generated evidence.
+ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS review_decision JSONB NOT NULL DEFAULT '{}';

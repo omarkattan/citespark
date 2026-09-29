@@ -393,6 +393,23 @@ function opportunityKind(task) {
 }
 
 // Presentation grouping only. Persisted task IDs and their work history stay separate.
+function decisionLabel(stage) {
+  return ({ready:'Ready to implement',no_change:'No change needed',investigate:'Needs investigation'})[stage] || 'Needs investigation';
+}
+function decisionPanel(t) {
+  const d=t.review_decision || {};
+  return `<section class="task-decision" aria-label="Review decision">
+    <p data-decision-summary><b>${esc(decisionLabel(d.stage))}</b>${d.reviewed_at ? ` · Recorded ${esc(d.reviewed_at.slice(0,10))}` : ' · No decision recorded yet'}</p>
+    <details><summary>Record or update decision</summary>
+      <p class="hint">This is your editorial assessment. It does not approve product claims, mark work complete or prove a visibility improvement. Recheck it when the evidence changes.</p>
+      <div class="field"><label for="decision-stage-${t.id}">Decision</label><select id="decision-stage-${t.id}">${['investigate','ready','no_change'].map(v=>`<option value="${v}" ${v===(d.stage || 'investigate')?'selected':''}>${decisionLabel(v)}</option>`).join('')}</select></div>
+      <div class="field"><label for="decision-page-${t.id}">Page to change or review</label><input id="decision-page-${t.id}" type="url" maxlength="4000" placeholder="https://your-site.com/relevant-page" value="${esc(d.page || '')}"></div>
+      <div class="field"><label for="decision-evidence-${t.id}">Supporting evidence</label><textarea id="decision-evidence-${t.id}" maxlength="4000" rows="3" placeholder="Answer or source link, measurement date and the specific finding">${esc(d.evidence || '')}</textarea></div>
+      <div class="field"><label for="decision-change-${t.id}">Specific change, next investigation or reason for no change</label><textarea id="decision-change-${t.id}" maxlength="4000" rows="3">${esc(d.change || '')}</textarea></div>
+      <p class="hint">Ready to implement requires all three fields. No change needed requires evidence and a reason. Saving leaves your existing notes and report copy intact.</p>
+      <button class="btn" data-decision-save="${t.id}">Save decision</button><p role="status" data-decision-feedback></p>
+    </details></section>`;
+}
 function reviewReason(task) {
   const e=task.evidence || {};
   if(task.type==='content_gap' && Number.isInteger(e.runs) && e.runs>0 && e.own_rate===0) return `The brand was not named in ${e.runs} measured answers. Check the question and cited pages before proposing a change.`;
@@ -424,7 +441,7 @@ function questionGroupSummary(group, reason='') {
   const first=group.tasks[0];
   const statuses=Object.entries(STATUS_LABEL).map(([key,label])=>{const n=group.tasks.filter(t=>t.status===key).length;return n?`${n} ${label.toLowerCase()}`:null;}).filter(Boolean).join(' · ');
   const owners=[...new Set(group.tasks.map(t=>t.assignee).filter(Boolean))];
-  return `<span class="rec-title">${esc(first.evidence?.prompt || first.title)}</span><span class="queue-summary">${esc(reason || reviewReason(first))}</span><span class="queue-summary">${group.tasks.length} saved check${group.tasks.length===1?'':'s'} · ${esc(statuses)}</span>${owners.length?`<span class="queue-summary">Assigned to: ${esc(owners.join(', '))}</span>`:''}${group.tasks.some(t=>t.notes)?'<span class="tag">Saved review notes</span>':''}${group.tasks.map(dueLabel).filter(Boolean).join('')}<span class="queue-open">Open question review</span><span class="queue-close">Close question review</span>`;
+  return `<span class="rec-title">${esc(first.evidence?.prompt || first.title)}</span><span class="queue-summary">${esc(reason || reviewReason(first))}</span><span class="queue-summary">${group.tasks.length} saved check${group.tasks.length===1?'':'s'} · ${esc(statuses)}</span>${owners.length?`<span class="queue-summary">Assigned to: ${esc(owners.join(', '))}</span>`:''}${['ready','no_change'].map(stage=>{const n=group.tasks.filter(t=>t.review_decision?.stage===stage).length;return n?`<span class="tag">${n} ${esc(decisionLabel(stage).toLowerCase())}</span>`:''}).join('')}${group.tasks.some(t=>t.notes)?'<span class="tag">Saved review notes</span>':''}${group.tasks.map(dueLabel).filter(Boolean).join('')}<span class="queue-open">Open question review</span><span class="queue-close">Close question review</span>`;
 }
 function reviewGroupCard(group,reason='') {
   if(!group.questionId) return taskCard(group.tasks[0],true,reason || reviewReason(group.tasks[0]));
@@ -785,7 +802,7 @@ function taskCard(t, compact = false, selectionReason = '', grouped = false) {
 
   return `
   <article class="rec ${t.status}" data-type="${esc(t.type)}" data-task="${t.id}">
-    ${compact ? `<details class="queue-task"><summary><span class="queue-heading"><span class="rec-title">${esc(title)}</span><span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span></span><span class="queue-summary">${esc(summary)}</span>${selectionReason ? `<span class="queue-summary"><b>Why this task:</b> ${esc(selectionReason)}</span>` : ''}${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}${dueLabel(t)}<span class="queue-open">Review task</span><span class="queue-close">Close task</span></summary><div class="queue-body">` : ''}
+    ${compact ? `<details class="queue-task"><summary><span class="queue-heading"><span class="rec-title">${esc(title)}</span><span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span></span><span class="queue-summary">${esc(summary)}</span><span class="tag" data-decision-badge>${esc(decisionLabel(t.review_decision?.stage))}</span>${selectionReason ? `<span class="queue-summary"><b>Why this task:</b> ${esc(selectionReason)}</span>` : ''}${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}${dueLabel(t)}<span class="queue-open">Review task</span><span class="queue-close">Close task</span></summary><div class="queue-body">` : ''}
     <div class="rec-top"${compact ? ' hidden' : ''}>
       <div class="rec-title">${esc(title)}</div>
       <div class="rec-pri">${esc(reviewReason(t))}</div>
@@ -841,6 +858,7 @@ function taskCard(t, compact = false, selectionReason = '', grouped = false) {
       ${canDelete ? `<button class="ghost danger" data-delete-rec="${t.id}" title="Remove it and stop it coming back">Delete</button>` : ''}
     </div>
 
+    ${decisionPanel(t)}
     ${evidenceDetails(t)}
 
     <div class="teardown" id="teardown-${t.id}" hidden></div>
@@ -858,7 +876,7 @@ function taskCard(t, compact = false, selectionReason = '', grouped = false) {
         <button class="ghost" data-next-cancel="${t.id}">Cancel</button>
       </div>
       <p class="hint" id="next-feedback-${t.id}" role="status" aria-live="polite"></p>
-      <div id="report-controls-${t.id}" ${t.notes||t.reportIncluded?'':'hidden'}><p><button class="ghost" data-report-note="${t.id}" data-include="true">${t.reportIncluded?'Update note in client report':'Include saved note in client report'}</button> ${t.reportIncluded?`<button class="ghost" data-report-note="${t.id}" data-include="false">Remove from client report</button>`:''}</p><p class="hint">${t.reportIncluded?'A saved copy is included. Later edits stay internal until you update the report note.':'Only include client-ready text. This copies the saved note into the report without marking the task complete.'}</p></div>
+      <div id="report-controls-${t.id}" ${t.notes||t.reportIncluded||t.review_decision?.stage?'':'hidden'}><p><button class="ghost" data-report-note="${t.id}" data-include="true">${t.reportIncluded?'Update note in client report':'Include saved note in client report'}</button> ${t.reportIncluded?`<button class="ghost" data-report-note="${t.id}" data-include="false">Remove from client report</button>`:''}</p><p class="hint">${t.reportIncluded?'A saved copy is included. Later edits stay internal until you update the report note.':'Only include client-ready text. This copies the saved note into the report without marking the task complete.'}</p></div>
     </section>
     <div class="task-edit" id="edit-${t.id}" hidden>
       <div class="task-edit-row">
@@ -4338,7 +4356,7 @@ async function handleNextStep(event) {
     if (assignment) assignment.textContent = result.assignee || result.due_date || notes ? 'Edit' : 'Assign';
     editor.hidden = true;
     const reportControls=$(`report-controls-${id}`);
-    if(reportControls) reportControls.hidden=!notes && !reportControls.querySelector('[data-include="false"]');
+    if(reportControls) reportControls.hidden=!notes && !result.review_decision?.stage && !reportControls.querySelector('[data-include="false"]');
     feedback.textContent = 'Next step saved.';
     opener?.focus();
   } catch (error) {
@@ -4349,6 +4367,26 @@ async function handleNextStep(event) {
   }
 }
 document.addEventListener('click', handleNextStep);
+document.addEventListener('click', async event=>{
+ const button=event.target.closest('[data-decision-save]'); if(!button || button.disabled) return;
+ const id=button.dataset.decisionSave, panel=button.closest('.task-decision');
+ const feedback=panel.querySelector('[data-decision-feedback]');
+ const fields=['stage','page','evidence','change'];
+ const inputs=fields.map(key=>$(`decision-${key}-${id}`));
+ const payload=Object.fromEntries(fields.map((key,i)=>[key,inputs[i].value]));
+ button.disabled=true; inputs.forEach(i=>i.disabled=true); feedback.textContent='Saving decision…';
+ try {
+  const response=await fetch(`/api/recommendations/${id}/review-decision`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const result=await response.json(); if(!response.ok) throw new Error(result.error || 'Could not save decision.');
+  panel.querySelector('[data-decision-summary]').textContent=`${decisionLabel(result.stage)} · Recorded ${result.reviewed_at.slice(0,10)}`;
+  const badge=panel.closest('[data-task]').querySelector('[data-decision-badge]'); if(badge) badge.textContent=decisionLabel(result.stage);
+  $(`report-controls-${id}`).hidden=false;
+  feedback.textContent='Decision saved. Any existing client-report copy stays unchanged until you explicitly update it.';
+  await refreshTaskCounts();
+ } catch(error) {feedback.textContent=error.message || 'Could not save. Your draft is still here.';}
+ finally {button.disabled=false; inputs.forEach(i=>i.disabled=false);}
+});
+
 
 /** Swap one card without re-rendering the list and losing scroll position. */
 function replaceCard(id, task) {

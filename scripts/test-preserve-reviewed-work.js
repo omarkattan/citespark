@@ -18,12 +18,13 @@ test('repeated rebuilds retain saved notes and report snapshots when a question 
  (5,28,'old-generated','visibility','Untouched','Review',NULL,NULL,NULL,'open'),
  (6,28,'old-started','visibility','Started','Review',NULL,NULL,NULL,'doing'),
  (7,99,'other-project','visibility','Other project','Review',NULL,NULL,NULL,'open');
+ INSERT INTO recommendations(id,project_id,fingerprint,type,title,action,review_decision) VALUES(8,28,'reviewed-only','visibility','Decision only','Review','{"stage":"no_change","evidence":"Reviewed","change":"Page already answers"}');
  SELECT setval('recommendations_id_seq',100);
  INSERT INTO report_review_notes(recommendation_id,project_id,title,notes) VALUES(2,28,'Client review','Snapshot must survive');`);
  const many=async(sql,args)=>(await db.query(sql,args)).rows;const query=(...args)=>db.query(...args);
  const recs=[{type:'visibility',title:'New rule',action:'Review',evidence:{prompt_id:4},impact:1,effort:1,priority:1}];
  assert.equal((await persist(28,recs,many,query)).withdrawn,1);
- assert.deepEqual((await many('SELECT id FROM recommendations WHERE id<100 ORDER BY id')).map(x=>x.id),[1,2,3,4,6,7]);
+ assert.deepEqual((await many('SELECT id FROM recommendations WHERE id<100 ORDER BY id')).map(x=>x.id),[1,2,3,4,6,7,8]);
  assert.equal((await reportReview(28,null,many)).notes[0].notes,'Snapshot must survive');
  assert.equal((await persist(28,recs,many,query)).withdrawn,0);
  assert.equal((await many('SELECT notes FROM recommendations WHERE id=1'))[0].notes,'Reviewed page details');
