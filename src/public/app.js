@@ -401,6 +401,19 @@ function savedDecisionPreview(task) {
   const text=d.change.trim().replace(/\s+/g,' ');
   return {text:text.length>240?text.slice(0,237)+'…':text,label:decisionLabel(d.stage)};
 }
+function savedDecisionBrief(t) {
+  if(!savedDecisionPreview(t)) return '';
+  const d=t.review_decision;
+  let page=esc(d.page || 'No page recorded');
+  try { const u=new URL(d.page); if(['https:','http:'].includes(u.protocol) && !u.username && !u.password) page=`<a href="${esc(u.href)}" target="_blank" rel="noopener">${esc(d.page)}</a>`; } catch {}
+  const label=d.stage==='ready'?'What to change':d.stage==='no_change'?'Decision':'What to investigate';
+  return `<section class="decision-brief" aria-label="Saved action and evidence"><h3>${esc(decisionLabel(d.stage))}</h3><dl><dt>${label}</dt><dd>${esc(d.change)}</dd><dt>Page</dt><dd>${page}</dd><dt>Supporting evidence</dt><dd>${esc(d.evidence || 'No supporting evidence recorded')}</dd><dt>Owner</dt><dd>${esc(t.assignee || 'Unassigned')}</dd></dl><p class="hint">${d.stage==='ready'?'Readiness records the review decision, not completion.':d.stage==='no_change'?'No change is justified by this finding. Other checks may still need review.':'A next step is recorded. A page change is not yet approved.'} Work status is tracked separately.</p></section>`;
+}
+function groupReviewGuidance(group) {
+  return group.tasks.some(t=>savedDecisionPreview(t))
+    ? 'Saved decisions are shown below. Each check keeps its own owner, notes and work status. Any remaining investigations stay separate.'
+    : 'Read the answers once, then use the checks below to record findings. Each check keeps its own notes, owner and status. Completing one does not complete the others.';
+}
 function decisionLabel(stage) {
   return ({ready:'Ready to implement',no_change:'No change needed',investigate:'Needs investigation'})[stage] || 'Needs investigation';
 }
@@ -454,7 +467,7 @@ function questionGroupSummary(group, reason='') {
 }
 function reviewGroupCard(group,reason='') {
   if(!group.questionId) return taskCard(group.tasks[0],true,reason || reviewReason(group.tasks[0]));
-  return `<section class="panel question-review-group" data-question-group="${esc(group.key)}"><details class="queue-task question-review"><summary>${questionGroupSummary(group,reason)}</summary><div class="queue-body"><p><b>Decision to make:</b> Does the evidence support a specific change to your existing page, or is no change needed?</p><p class="hint">Read the answers once, then use the checks below to record findings. Each check keeps its own notes, owner and status. Completing one does not complete the others.</p>${group.tasks.map(t=>taskCard(t,true,'',true)).join('')}<p class="hint"><b>Done when:</b> the reviewed answer or source, relevant page, finding and next step (or no-change decision) are recorded, with an owner for any follow-up.</p></div></details></section>`;
+  return `<section class="panel question-review-group" data-question-group="${esc(group.key)}"><details class="queue-task question-review"><summary>${questionGroupSummary(group,reason)}</summary><div class="queue-body"><p class="hint" data-group-guidance>${esc(groupReviewGuidance(group))}</p>${group.tasks.map(t=>taskCard(t,true,'',true)).join('')}</div></details></section>`;
 }
 function queueCountText(tasks,total) {
   const reviews=reviewGroups(tasks).length;
@@ -774,6 +787,7 @@ const REVIEW_GUIDANCE = {
 
 function taskCard(t, compact = false, selectionReason = '', grouped = false) {
   const ev = t.evidence || {};
+  const saved = savedDecisionPreview(t);
   const review = REVIEW_GUIDANCE[t.type];
   const sourceReview = ['source_gap', 'competitor_page'].includes(t.type);
   const questionReview = t.type === 'content_gap';
@@ -811,14 +825,14 @@ function taskCard(t, compact = false, selectionReason = '', grouped = false) {
   const canDelete = t.status === 'dismissed';
 
   return `
-  <article class="rec ${t.status}" data-type="${esc(t.type)}" data-task="${t.id}">
-    ${compact ? `<details class="queue-task"><summary><span class="queue-heading"><span class="rec-title" data-review-title data-original-title="${esc(title)}">${esc(savedDecisionPreview(t)?.text || title)}</span><span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span></span><span class="queue-summary" data-review-context data-original-context="${esc(summary)}">${esc(savedDecisionPreview(t) ? `Original check: ${title}` : summary)}</span><span class="tag" data-decision-badge>${esc(decisionLabel(t.review_decision?.stage))}</span>${selectionReason && !savedDecisionPreview(t) ? `<span class="queue-summary" data-selection-reason><b>Why this task:</b> ${esc(selectionReason)}</span>` : ''}${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}${dueLabel(t)}<span class="queue-open">Review task</span><span class="queue-close">Close task</span></summary><div class="queue-body">` : ''}
+  <article class="rec ${t.status}" data-type="${esc(t.type)}" data-task="${t.id}" data-owner="${esc(t.assignee || '')}">
+    ${compact ? `<details class="queue-task"${grouped && saved ? ' open' : ''}><summary><span class="queue-heading"><span class="rec-title" data-review-title data-original-title="${esc(title)}">${esc(savedDecisionPreview(t)?.text || title)}</span><span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span></span><span class="queue-summary" data-review-context data-original-context="${esc(summary)}">${esc(savedDecisionPreview(t) ? `Original check: ${title}` : summary)}</span><span class="tag" data-decision-badge>${esc(decisionLabel(t.review_decision?.stage))}</span>${selectionReason && !savedDecisionPreview(t) ? `<span class="queue-summary" data-selection-reason><b>Why this task:</b> ${esc(selectionReason)}</span>` : ''}${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}${dueLabel(t)}<span class="queue-open">Review task</span><span class="queue-close">Close task</span></summary><div class="queue-body">` : ''}
     <div class="rec-top"${compact ? ' hidden' : ''}>
       <div class="rec-title" data-review-title data-original-title="${esc(title)}">${esc(savedDecisionPreview(t)?.text || title)}</div>
       <div class="rec-pri" data-review-context data-original-context="${esc(reviewReason(t))}">${esc(savedDecisionPreview(t) ? `Original check: ${title}` : reviewReason(t))}</div>
     </div>
 
-    ${compact ? `<p class="hint"><b>Original review trigger:</b> ${esc(reviewReason(t))}</p>` : ''}
+    <div data-decision-brief>${savedDecisionBrief(t)}</div>
     <div class="task-meta">
       <span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span>
       ${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}
@@ -826,6 +840,7 @@ function taskCard(t, compact = false, selectionReason = '', grouped = false) {
       <span class="tag" data-task-notes-badge${t.notes ? '' : ' hidden'}>has notes</span>
     </div>
 
+    <details data-original-guidance${saved ? '' : ' open'}><summary${saved ? '' : ' hidden'}>Original investigation guidance</summary>
     ${review ? `<div class="task-guidance"><p><b>Observed</b><br>${esc(review[1])}</p><p><b>Check next</b><br>${esc(review[2])}</p><p><b>Action supported now</b><br>${esc(review[3])}</p>
       ${t.type === 'decline_alert' ? '<button class="ghost" data-open-view="trends">Check comparable measurements</button>' : t.type === 'replicate_winner' ? '<button class="ghost" data-open-view="traffic">Review referral data</button>' : !ev.prompt_id ? '<button class="ghost" data-open-view="answers">Inspect stored answers</button>' : ''}</div>` : questionReview ? `<div class="task-guidance">
       <p><b>Observed</b><br>${esc(questionObservation)} This result does not establish why you were absent.</p>
@@ -842,6 +857,7 @@ function taskCard(t, compact = false, selectionReason = '', grouped = false) {
     ${sourceReview ? `<div id="source-review-${t.id}">${renderSourceReview(t.sourceReview)}</div>` : ''}
     ${ev.snippet ? `<div class="excerpt">${highlight(ev.snippet, state.overview?.project?.brand_name)}</div>` : ''}
 
+    </details>
     <div class="rec-foot">
       <span class="tag kind">${esc(review ? review[0] : TYPE_LABEL[t.type] || t.type.replace(/_/g, ' '))}</span>
       ${bits.join('')}
@@ -4394,6 +4410,10 @@ document.addEventListener('click', async event=>{
   card.querySelectorAll('[data-review-title]').forEach(el=>el.textContent=preview?.text || el.dataset.originalTitle);
   card.querySelectorAll('[data-review-context]').forEach(el=>el.textContent=preview ? `Original check: ${card.querySelector('[data-review-title]').dataset.originalTitle}` : el.dataset.originalContext);
   if(preview) card.querySelector('[data-selection-reason]')?.remove();
+  card.querySelector('[data-decision-brief]').innerHTML=savedDecisionBrief({review_decision:result,assignee:card.dataset.owner});
+  const originalGuidance=card.querySelector('[data-original-guidance]');
+  originalGuidance.open=!preview;
+  originalGuidance.querySelector('summary').hidden=!preview;
   const badge=panel.closest('[data-task]').querySelector('[data-decision-badge]'); if(badge) badge.textContent=decisionLabel(result.stage);
   $(`report-controls-${id}`).hidden=false;
   feedback.textContent='Decision saved. Any existing client-report copy stays unchanged until you explicitly update it.';
@@ -4436,6 +4456,7 @@ async function refreshTaskCounts() {
     const group=reviewGroups(data.tasks).find(g=>g.key===container.dataset.questionGroup);
     if(!group) { container.remove(); continue; }
     container.querySelector('.question-review > summary').innerHTML=questionGroupSummary(group);
+    container.querySelector('[data-group-guidance]').textContent=groupReviewGuidance(group);
   }
   const set = (id, n) => {
     const el = document.querySelector(`[data-task-filter="${id}"] span`);

@@ -10,7 +10,7 @@ const tasks=[{...base,id:1,type:'source_gap',sourceReview:{status:'irrelevant',r
 function harness(){
  const document=new JSDOM('<div id="view"></div>').window.document;
  const state={projectId:26,opportunityProject:26,view:'actions'};
- const h=vm.createContext({document,state,esc,$:id=>document.getElementById(id),dueLabel:()=>'',highlight:esc,evidenceDetails:()=>'',api:async()=>({tasks,counts:{open:4,doing:0,done:0,dismissed:0,total:4}})});
+ const h=vm.createContext({URL,document,state,esc,$:id=>document.getElementById(id),dueLabel:()=>'',highlight:esc,evidenceDetails:()=>'',api:async()=>({tasks,counts:{open:4,doing:0,done:0,dismissed:0,total:4}})});
  vm.runInContext(app.slice(app.indexOf('function opportunityKind('),app.indexOf('function renderTeardown(')),h);
  vm.runInContext(app.slice(app.indexOf('const TYPE_LABEL'),app.indexOf('/**\n * Who is doing')),h);
  return {h,document,state};
@@ -18,7 +18,7 @@ function harness(){
 test('complete queue groups tasks with accurate counts and native collapsed cards',async()=>{
  const {h,document}=harness();document.body.innerHTML=await h.viewActions();
  assert.equal(document.querySelectorAll('#opportunityQueue > article, #opportunityQueue > section').length,4);
- assert.equal(document.querySelectorAll('#opportunityQueue details[open]').length,0);
+ assert.equal(document.querySelectorAll('#opportunityQueue .queue-task[open]').length,0);
  const labels=[...document.querySelectorAll('#opportunityKind option')].map(o=>o.textContent);
  assert.deepEqual(labels,['All opportunities (4 checks)','Question reviews (1 check)','Source reviews (1 check)','Competitor reviews (1 check)','Other actions (1 check)']);
  const source=document.querySelector('[data-task="1"] summary');assert.match(source.textContent,/Source appears unrelated/);
@@ -144,4 +144,28 @@ test('saving or clearing decision wording updates headings without replacing ope
  h.result={stage:'investigate',change:''};vm.runInContext('{'+block+'}',h);
  assert.equal(card.querySelector('[data-review-title]').textContent,original);
  assert.equal(card.querySelector('[data-review-context]').textContent,context);
+});
+test('reviewed grouped checks expose the action, page, evidence and owner in one expansion',()=>{
+ const {h,document}=harness();
+ const task={...tasks[1],assignee:'editor@example.test',review_decision:{stage:'ready',change:'Add transfer links',page:'https://example.com/transfers',evidence:'Stored answer 42 and current page checked'}};
+ document.body.innerHTML=h.reviewGroupCard(h.reviewGroups([task,{...tasks[1],id:33}])[0]);
+ const card=document.querySelector('[data-task="2"]');
+ assert.equal(card.querySelector('.queue-task').open,true);
+ assert.equal(document.querySelector('[data-task="33"] .queue-task').open,false);
+ const brief=card.querySelector('.decision-brief');
+ for(const value of ['Add transfer links','Stored answer 42','editor@example.test']) assert.ok(brief.textContent.includes(value));
+ assert.equal(brief.querySelector('a').href,'https://example.com/transfers');
+ assert.equal(card.querySelector('[data-original-guidance]').open,false);
+ assert.equal(card.querySelector('[data-original-guidance] summary').hidden,false);
+ assert.match(document.querySelector('[data-group-guidance]').textContent,/remaining investigations stay separate/);
+ assert.ok(card.querySelector('[data-task-edit="2"]'));
+});
+test('saved decision brief escapes content and does not activate unsafe or credential-bearing URLs',()=>{
+ const {h,document}=harness();
+ for(const page of ['javascript:alert(1)','https://user:secret@example.com/']) {
+ document.body.innerHTML=h.savedDecisionBrief({...tasks[1],review_decision:{stage:'no_change',change:'Keep <existing> checklist',page,evidence:'<img src=x onerror=alert(1)>'}});
+ assert.equal(document.querySelectorAll('a,img,existing').length,0);
+ assert.match(document.body.textContent,/Unassigned/);
+ assert.match(document.body.textContent,/Other checks may still need review/);
+ }
 });

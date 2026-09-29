@@ -2286,3 +2286,12 @@ a.ans-source:hover { color: var(--accent); text-decoration: underline; }
 .question-review-group > details > summary {display:block;}
 .question-review-group .rec {margin:12px 0;border:1px solid var(--line,#ddd);padding:16px;}
 .question-review-group > details > summary .rec-title {display:block;margin-bottom:8px;}
+
+/* Reviewed work: decision and ownership precede original investigation. */
+.decision-brief { margin:16px 0; padding:18px; background:var(--paper); border:1px solid var(--line); border-radius:8px; }
+.decision-brief h3 { margin:0 0 14px; }
+.decision-brief dl { margin:0; }
+.decision-brief dt { font-weight:600; margin-top:14px; }
+.decision-brief dd { margin:4px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.6; }
+[data-original-guidance] { margin:14px 0; }
+[data-original-guidance] > summary { cursor:pointer; color:var(--ink-2); }
