@@ -1,3 +1,4 @@
+import { reportNotePreview } from './lib/report-note.js';
 import { validateDecision, decisionReportText } from './lib/recommendation-decision.js';
 import { competitorCandidates, domainKey, retrospective, reviewSample } from './lib/competitor-review.js';
 import { comparableHistorySql } from './lib/history-query.js';
@@ -760,9 +761,9 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
   );
   const members = await many('SELECT email FROM users WHERE org_id = $1 ORDER BY email', [req.session.orgId]);
 
-  const reportNoteIds=new Set((await many('SELECT recommendation_id FROM report_review_notes WHERE project_id=$1',[project.id])).map(r=>r.recommendation_id));
+  const reportNotes=new Map((await many('SELECT recommendation_id,title,notes FROM report_review_notes WHERE project_id=$1',[project.id])).map(r=>[r.recommendation_id,r]));
   res.json({
-    tasks: await attachSourceReviews(project, rows.map(r=>({...r,reportIncluded:reportNoteIds.has(r.id)}))),
+    tasks: await attachSourceReviews(project, rows.map(r=>({...r,reportIncluded:reportNotes.has(r.id),reportOutdated:reportNotePreview(r,reportNotes.get(r.id)).changed}))),
     counts,
     focusCounts,
     limit: 100,
@@ -785,15 +786,25 @@ app.put('/api/recommendations/:recId/review-decision', requireAuth, wrap(async(r
  res.json(row.review_decision);
 }));
 
+app.get('/api/recommendations/:recId/report-note-preview', requireAuth, wrap(async(req,res)=>{
+ const rec=await one(`SELECT r.id,r.project_id,r.title,r.notes,r.review_decision FROM recommendations r JOIN projects p ON p.id=r.project_id WHERE r.id=$1 AND p.org_id=$2`,[Number(req.params.recId),req.session.orgId]);
+ if(!rec) return res.status(404).json({error:'Action not found'});
+ const saved=await one('SELECT title,notes FROM report_review_notes WHERE recommendation_id=$1 AND project_id=$2',[rec.id,rec.project_id]);
+ res.json(reportNotePreview(rec,saved));
+}));
+
 app.post('/api/recommendations/:recId/report-note', requireAuth, wrap(async(req,res)=>{
  const rec=await one(`SELECT r.id,r.project_id,r.title,r.notes,r.review_decision FROM recommendations r JOIN projects p ON p.id=r.project_id WHERE r.id=$1 AND p.org_id=$2`,[Number(req.params.recId),req.session.orgId]);
  if(!rec) return res.status(404).json({error:'Action not found'});
  if(typeof req.body?.include!=='boolean') return res.status(400).json({error:'Choose include or remove.'});
  if(!req.body.include) {await query('DELETE FROM report_review_notes WHERE recommendation_id=$1 AND project_id=$2',[rec.id,rec.project_id]);return res.json({included:false});}
- if(!rec.notes?.trim() && !rec.review_decision?.stage) return res.status(400).json({error:'Save the reviewed note first.'});
- if((rec.notes || '').length + decisionReportText(rec.review_decision).length>12000) return res.status(400).json({error:'Shorten the report note to 12,000 characters or fewer.'});
+ const saved=await one('SELECT title,notes FROM report_review_notes WHERE recommendation_id=$1 AND project_id=$2',[rec.id,rec.project_id]);
+ const preview=reportNotePreview(rec,saved);
+ if(req.body.version!==preview.version) return res.status(409).json({error:'The action or report copy changed. Open the preview again before updating.'});
+ if(!preview.canInclude) return res.status(400).json({error:'Save a reviewed decision or note of 12,000 characters or fewer first.'});
+ const draft=preview.proposed;
  await query(`INSERT INTO report_review_notes(recommendation_id,project_id,title,notes) VALUES($1,$2,$3,$4)
- ON CONFLICT(recommendation_id) DO UPDATE SET title=EXCLUDED.title,notes=EXCLUDED.notes,selected_at=now()`,[rec.id,rec.project_id,rec.title.replace(/^Invisible for:?/i,'Review visibility for:'),decisionReportText(rec.review_decision)+(rec.notes || '').trim()]);
+ ON CONFLICT(recommendation_id) DO UPDATE SET title=EXCLUDED.title,notes=EXCLUDED.notes,selected_at=now()`,[rec.id,rec.project_id,draft.title,draft.notes]);
  res.json({included:true});
 }));
 
@@ -3667,7 +3678,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260930-competitor-quality-57',
+    release: '20260930-report-preview-58',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

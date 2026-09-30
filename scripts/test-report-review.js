@@ -1,4 +1,4 @@
-import {decisionReportText} from '../src/lib/recommendation-decision.js';
+import {reportNotePreview} from '../src/lib/report-note.js';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync} from 'node:fs';
@@ -27,10 +27,10 @@ test('comparisons isolate project and measurement, preserve zero and missing, an
 test('report notes require ownership, snapshot saved text, update explicitly and remove without deleting task',async()=>{
  const source=readFileSync(new URL('../src/server.js',import.meta.url),'utf8');const prefix="app.post('/api/recommendations/:recId/report-note', requireAuth, wrap(async(req,res)=>{";
  const body=source.slice(source.indexOf(prefix)+prefix.length,source.indexOf("\n}));",source.indexOf(prefix))).trim();
- const route=new (Object.getPrototypeOf(async function(){}).constructor)('req','res','one','query','decisionReportText',body);
+ const route=new (Object.getPrototypeOf(async function(){}).constructor)('req','res','one','query','reportNotePreview',body);
  let rec={id:1,project_id:28,title:'Invisible for: Mobile banking',notes:'Reviewed text'},saved,sql;
- const one=async(q,args)=>{assert.match(q,/p.org_id=\$2/);assert.deepEqual(args,[1,7]);return rec;};
- const invoke=async(include)=>{let status=200,result;const res={status:n=>{status=n;return res},json:r=>result=r};await route({params:{recId:'1'},session:{orgId:7},body:{include}},res,one,async(q,a)=>{sql=q;saved=a},decisionReportText);return {status,result};};
+ const one=async(q,args)=>{if(q.includes('FROM report_review_notes'))return null;assert.match(q,/p.org_id=\$2/);assert.deepEqual(args,[1,7]);return rec;};
+ const invoke=async(include)=>{let status=200,result;const res={status:n=>{status=n;return res},json:r=>result=r};await route({params:{recId:'1'},session:{orgId:7},body:{include,version:rec?reportNotePreview(rec).version:null}},res,one,async(q,a)=>{sql=q;saved=a},reportNotePreview);return {status,result};};
  assert.equal((await invoke(true)).status,200);assert.equal(saved[2],'Review visibility for: Mobile banking');assert.equal(saved[3],'Reviewed text');
  rec.notes='Changed internally';assert.equal(saved[3],'Reviewed text');await invoke(true);assert.equal(saved[3],'Changed internally');
  await invoke(false);assert.match(sql,/DELETE FROM report_review_notes/);assert.doesNotMatch(sql,/DELETE FROM recommendations/);

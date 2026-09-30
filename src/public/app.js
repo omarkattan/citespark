@@ -913,7 +913,7 @@ function taskCard(t, compact = false, selectionReason = '', grouped = false) {
         <button class="ghost" data-next-cancel="${t.id}">Cancel</button>
       </div>
       <p class="hint" id="next-feedback-${t.id}" role="status" aria-live="polite"></p>
-      <div id="report-controls-${t.id}" ${t.notes||t.reportIncluded||t.review_decision?.stage?'':'hidden'}><p><button class="ghost" data-report-note="${t.id}" data-include="true">${t.reportIncluded?'Update note in client report':'Include saved note in client report'}</button> ${t.reportIncluded?`<button class="ghost" data-report-note="${t.id}" data-include="false">Remove from client report</button>`:''}</p><p class="hint">${t.reportIncluded?'A saved copy is included. Later edits stay internal until you update the report note.':'Only include client-ready text. This copies the saved note into the report without marking the task complete.'}</p></div>
+      <div id="report-controls-${t.id}" ${t.notes||t.reportIncluded||t.review_decision?.stage?'':'hidden'}><p><button class="ghost" data-report-preview="${t.id}">${t.reportIncluded?'Review report copy':'Preview for client report'}</button> ${t.reportIncluded?`<button class="ghost" data-report-note="${t.id}" data-include="false">Remove from client report</button>`:''}</p><p class="hint" data-report-freshness>${t.reportOutdated?'Report copy differs from the latest saved action. Review it before sharing.':t.reportIncluded?'A saved copy is included in the report.':'Preview the saved text before including it in the report.'}</p><div data-report-preview-panel hidden></div></div>
     </section>
     <div class="task-edit" id="edit-${t.id}" hidden>
       <div class="task-edit-row">
@@ -4396,7 +4396,11 @@ async function handleNextStep(event) {
     if (assignment) assignment.textContent = result.assignee || result.due_date || notes ? 'Edit' : 'Assign';
     editor.hidden = true;
     const reportControls=$(`report-controls-${id}`);
-    if(reportControls) reportControls.hidden=!notes && !result.review_decision?.stage && !reportControls.querySelector('[data-include="false"]');
+    if(reportControls) {
+      reportControls.hidden=!notes && !result.review_decision?.stage && !reportControls.querySelector('[data-include="false"]');
+      const preview=reportControls.querySelector('[data-report-preview-panel]');if(preview)preview.hidden=true;
+      const freshness=reportControls.querySelector('[data-report-freshness]');if(freshness)freshness.textContent='Saved notes changed. Preview the report copy before sharing.';
+    }
     feedback.textContent = 'Next step saved.';
     opener?.focus();
   } catch (error) {
@@ -4434,6 +4438,10 @@ document.addEventListener('click', async event=>{
   originalGuidance.querySelector('summary').hidden=!preview;
   const badge=panel.closest('[data-task]').querySelector('[data-decision-badge]'); if(badge) badge.textContent=decisionLabel(result.stage);
   $(`report-controls-${id}`).hidden=false;
+  const reportPanel=$(`report-controls-${id}`).querySelector('[data-report-preview-panel]');
+  if(reportPanel)reportPanel.hidden=true;
+  const freshness=$(`report-controls-${id}`).querySelector('[data-report-freshness]');
+  if(freshness)freshness.textContent='Saved action changed. Preview the report copy before sharing.';
   feedback.textContent='Decision saved. Any existing client-report copy stays unchanged until you explicitly update it.';
   const moved=state.view==='actions' && state.opportunityDecision && state.opportunityDecision!=='all' && state.opportunityDecision!==result.stage;
   if(moved) panel.closest('[data-task]').remove();
@@ -6170,8 +6178,26 @@ document.addEventListener('click',async event=>{
  const button=event.target.closest('[data-report-note]');if(!button)return;
  const projectId=state.projectId;button.disabled=true;
  try {
- const response=await fetch(`/api/recommendations/${button.dataset.reportNote}/report-note`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({include:button.dataset.include==='true'})});
+ const response=await fetch(`/api/recommendations/${button.dataset.reportNote}/report-note`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({include:button.dataset.include==='true',version:button.dataset.version})});
  const data=await response.json();if(!response.ok)throw Error(data.error||'Could not update report note');
  if(state.projectId===projectId){await render();toast(data.included?'Saved note included in client report.':'Note removed from client report.');}
+ }catch(error){toast(error.message,'bad');}finally{button.disabled=false;}
+});
+
+// Fetch the saved decision, never unsaved form edits, before publishing a report copy.
+document.addEventListener('click',async event=>{
+ const cancel=event.target.closest('[data-report-preview-cancel]');
+ if(cancel){cancel.closest('[data-report-preview-panel]').hidden=true;return;}
+ const button=event.target.closest('[data-report-preview]');if(!button)return;
+ const projectId=state.projectId;
+ const panel=button.closest('[id^="report-controls-"]').querySelector('[data-report-preview-panel]');
+ button.disabled=true;
+ try {
+  const response=await fetch(`/api/recommendations/${button.dataset.reportPreview}/report-note-preview`);
+  const data=await response.json();if(!response.ok)throw Error(data.error||'Could not preview report copy');
+  if(state.projectId!==projectId || !panel.isConnected)return;
+  const copy=(label,value)=>`<section><h4>${label}</h4>${value?`<strong>${esc(value.title)}</strong><p style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(value.notes)}</p>`:'<p>Not included yet.</p>'}</section>`;
+  panel.innerHTML=`<h3>Review client report copy</h3><p class="hint">Only saved content appears here. A reviewed decision replaces older working notes in the report. Your task notes are kept.</p>${copy('Currently in the report',data.current)}${copy('Proposed report copy',data.proposed)}<p class="hint">${data.current&&!data.changed?'The report copy is current.':data.canInclude?'Updating changes the report copy only. It does not mark the action complete.':'Save a decision or note of 12,000 characters or fewer before including it.'}</p>${data.canInclude&&(!data.current||data.changed)?`<button data-report-note="${button.dataset.reportPreview}" data-include="true" data-version="${esc(data.version)}">${data.current?'Update report copy':'Include in client report'}</button>`:''} <button class="ghost" data-report-preview-cancel>Close preview</button>`;
+  panel.hidden=false;
  }catch(error){toast(error.message,'bad');}finally{button.disabled=false;}
 });
