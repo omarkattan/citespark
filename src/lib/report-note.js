@@ -1,3 +1,4 @@
+import { reportTitle } from './report-brief.js';
 import { createHash } from 'node:crypto';
 import { decisionReportText } from './recommendation-decision.js';
 
@@ -5,7 +6,7 @@ import { decisionReportText } from './recommendation-decision.js';
 export function reportNoteDraft(rec) {
   const decision=rec.review_decision;
   return {
-    title: decision?.title?.trim() || (decision?.change?.trim() ? decision.change.trim().slice(0,120) : (rec.title || '').replace(/^Invisible for:?/i,'Review visibility for:')),
+    title: decision?.title?.trim() || (decision?.change?.trim() ? reportTitle(decision.change) : (rec.title || '').replace(/^Invisible for:?/i,'Review visibility for:')),
     notes: decision?.stage ? decisionReportText(decision).trim() : (rec.notes || '').trim()
   };
 }
