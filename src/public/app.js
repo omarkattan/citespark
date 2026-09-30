@@ -4495,13 +4495,13 @@ async function viewCompetitorReview() {
   state.competitorReview=d;
   const row=(c,i)=>`<article class="panel" data-candidate="${i}">
     <label><input type="checkbox" data-candidate-select="${i}" ${c.ignored?'disabled':''}> Select ${esc(c.name)}</label>
-    <p class="hint">Possible business or cited source. Confirm it competes with you before tracking. Seen in ${c.evidence.length} / ${d.answers} reviewed answers.</p>
+    <p class="hint">Possible business or cited source. Confirm it competes with you before tracking. ${c.name===c.domain ? 'Business name not confirmed. ' : `Name appears in ${c.namedAnswers ?? c.evidence.filter(e=>e.named).length} / ${d.answers} reviewed answers. `}Domain cited in ${c.citedAnswers ?? c.evidence.filter(e=>e.cited).length} / ${d.answers} reviewed answers.</p>
     <details data-candidate-edit="${i}"><summary>Confirm name, aliases and evidence</summary>
     ${c.domains?.length>1?`<p class="hint">Domains found for this name: ${c.domains.map(esc).join(', ')}. Confirm the domain to track.</p>`:''}
     <div class="inline-form"><label>Name <input data-candidate-name="${i}" value="${esc(c.name===c.domain?'':c.name)}" placeholder="Confirm brand name"></label><label>Domain <input data-candidate-domain="${i}" value="${esc(c.domain)}" placeholder="Optional domain"></label></div>
     <label>English / Arabic aliases, one per line<textarea data-candidate-aliases="${i}" rows="2"></textarea></label>
     <label><input type="checkbox" data-candidate-ambiguous="${i}"> Name is also an ordinary word or phrase</label>
-    <details><summary>Supporting answers</summary>${c.evidence.slice(0,5).map(e=>`<p>${esc(e.engine)} · ${esc(e.question)} <a href="/api/projects/${state.projectId}/measurements/${d.measurement.id}#run-${e.id}" target="_blank" rel="noopener">Read answer</a></p>`).join('')}</details>
+    <details><summary>Supporting answers</summary>${c.evidence.slice(0,5).map(e=>`<p>${esc(e.engine)} · ${esc(e.question)} · ${e.named ? 'name present' : 'name not confirmed'} · ${e.cited ? 'domain cited' : 'domain not cited'} <a href="/api/projects/${state.projectId}/measurements/${d.measurement.id}#run-${e.id}" target="_blank" rel="noopener">Read answer</a></p>`).join('')}</details>
     <button class="ghost" data-candidate-decision="${i}" data-decision="${c.ignored?'restore':'ignore'}">${c.ignored?'Restore suggestion':'Ignore'}</button></details></article>`;
   return `<div class="panel"><h2>Who else appeared?</h2><p>Select businesses you want to compare over time. Confirm their names, domains and aliases before tracking.</p>
     <p class="hint">${d.measurement?`Measurement ${d.measurement.id}: ${d.answers} eligible stored answers reviewed${d.limited?' (first 250 only)':''}.`:'Run your first measurement to discover suggestions.'} Suggestions use cited domains and names identifiable in stored answer text. A cited source is not necessarily a competitor. They can miss businesses or include unrelated sources. Domain-only suggestions need a real brand name. Different names for the same business may need combining as aliases.</p>

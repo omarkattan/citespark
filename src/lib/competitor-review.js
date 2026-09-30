@@ -20,6 +20,23 @@ function plausibleBankName(value) {
  return true;
 }
 const compact=s=>s.toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
+// Discovery labels are provisional. Generic service headings need manual naming.
+function genericCandidate(name) {
+ const n=cleanName(name).toLowerCase().replace(/[&/–—-]/g,' ').replace(/\s+/g,' ').trim();
+ return /^(?:seo|ppc|sem|aeo|geo|ai|search engine optimi[sz]ation|search engine marketing|paid search|google ads|digital marketing|performance marketing|content marketing|social media|web design|web development|marketing|advertising|seo agenc(?:y|ies)|digital marketing agenc(?:y|ies)|marketing agenc(?:y|ies)|full service digital agenc(?:y|ies)|تحسين محركات البحث|التسويق الرقمي|التسويق الإلكتروني|التسويق الالكتروني|وكالة تسويق|وكالات التسويق)$/.test(n);
+}
+function nameInAnswer(text,name) {
+ // A URL containing the domain stem is not a name mention.
+ const body=cleanName(text.replace(/https?:\/\/[^\s<>]+/gi,'')).toLowerCase();
+ const needle=cleanName(name).toLowerCase();
+ let at=body.indexOf(needle);
+ while(at!==-1) {
+  const before=at ? body[at-1] : '',after=body[at+needle.length] || '';
+  if(!/[\p{L}\p{N}]/u.test(before) && !/[\p{L}\p{N}]/u.test(after)) return true;
+  at=body.indexOf(needle,at+1);
+ }
+ return false;
+}
 export function competitorCandidates(rows, entities, ignored = []) {
   const found = new Map(), hidden = new Set(ignored);
   const names = new Set(entities.flatMap(e => [e.name, ...(e.aliases || [])]).map(s => cleanName(s).toLowerCase()));
@@ -44,20 +61,24 @@ export function competitorCandidates(rows, entities, ignored = []) {
   const namedCandidates=[...new Set([...bankNames,...rows.flatMap(row=>
     [...row.response_text.matchAll(/\*\*([^*\n]{3,100})\*\*/g)]
       .map(m=>cleanName(m[1].replace(/^\d+[.)]\s*/, '').split(/[:(]/)[0]))
-      .filter(n=>n.length>=3 && n.split(/\s+/).length<=8 && (!bankLike(n) || plausibleBankName(n)))
+      .filter(n=>!genericCandidate(n) && n.length>=3 && n.split(/\s+/).length<=8 && (!bankLike(n) || plausibleBankName(n)))
   )])];
   const paired=new Map();
+  for(const row of rows) for(const c of row.citations || []) {
+    if(collectionAsset(c.url || c.domain)) continue;
+    const domain=domainKey(c.domain||c.url),stem=domain.split('.')[0];
+    for(const name of namedCandidates) if(compact(name)===compact(stem) && nameInAnswer(row.response_text,name)) paired.set(name,domain);
+  }
   for (const row of rows) for (const c of row.citations || []) {
     if(collectionAsset(c.url || c.domain)) continue;
     const domain=domainKey(c.domain||c.url),stem=domain.split('.')[0];
-    const matches=namedCandidates.filter(n=>compact(n)===compact(stem));
+    const matches=namedCandidates.filter(n=>paired.has(n) && compact(n)===compact(stem));
     const name=matches[0]||domain;
-    if(matches.length) paired.set(name,domain);
     add(name,domain,row,c.url);
   }
   for(const row of rows) for(const name of namedCandidates) {
     if(!bankNames.includes(name) && !paired.has(name)) continue;
-    if(row.response_text.includes(name)) add(name,paired.get(name)||'',row);
+    if(nameInAnswer(row.response_text,name)) add(name,paired.get(name)||'',row);
   }
   // One review card per exact normalised name. Multiple cited domains remain visible for confirmation.
   const groups=new Map();
@@ -72,7 +93,15 @@ export function competitorCandidates(rows, entities, ignored = []) {
       g.ignored ||= c.ignored;
     }
   }
-  return [...groups.values()].map(c=>({...c,bulkEligible:!!c.domain&&c.name!==c.domain&&compact(c.name)===compact(c.domain.split('.')[0])}))
+  const byId=new Map(rows.map(r=>[r.id,r]));
+  return [...groups.values()].map(c=>{
+    const evidence=c.evidence.map(e=>{
+      const row=byId.get(e.id);
+      return {...e,named:c.name!==c.domain && nameInAnswer(row.response_text,c.name),cited:(row.citations||[]).some(x=>c.domains.includes(domainKey(x.domain||x.url)))};
+    });
+    return {...c,evidence,namedAnswers:evidence.filter(e=>e.named).length,citedAnswers:evidence.filter(e=>e.cited).length,
+      bulkEligible:!!c.domain&&c.name!==c.domain&&!genericCandidate(c.name)&&compact(c.name)===compact(c.domain.split('.')[0])};
+  })
     .sort((a,b)=>Number(b.bulkEligible)-Number(a.bulkEligible)||b.evidence.length-a.evidence.length||a.name.localeCompare(b.name));
 }
 export async function retrospective(rows, entity) {

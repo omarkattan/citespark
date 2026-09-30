@@ -126,3 +126,24 @@ test('competitor screen uses industry-neutral labels for every project',()=>{
  assert.doesNotMatch(screen,/bank-shaped|named bank|Possible bank|SuggestedBanks/i);
  assert.match(screen,/A cited source is not necessarily a competitor/);
 });
+test('generic services remain domain-only even when bold text matches a cited domain',()=>{
+ for(const [name,domain] of [['SEO','seo.com'],['SEO agency','seoagency.ae'],['Search Engine Optimization','searchengineoptimization.com'],['التسويق الرقمي','التسويقالرقمي.com']]) {
+  const c=competitorCandidates([{...row,response_text:`**${name}**`,citations:[{domain}]}],[]);
+  assert.equal(c.length,1);assert.equal(c[0].name,c[0].domain);assert.equal(c[0].bulkEligible,false);
+ }
+ const branded=competitorCandidates([{...row,response_text:'**United SEO**',citations:[{domain:'unitedseo.ae'}]}],[]);
+ assert.equal(branded[0].name,'United SEO');assert.equal(branded[0].bulkEligible,true);
+});
+test('name counts exclude citation-only answers, URL strings and substrings',()=>{
+ const rows=[{...row,id:1,response_text:'**Digital Gravity**',citations:[{domain:'digitalgravity.ae'}]},
+ {...row,id:2,response_text:'Another business',citations:[{domain:'digitalgravity.ae'}]},
+ {...row,id:3,response_text:'digital gravity is listed here',citations:[]},
+ {...row,id:4,response_text:'Digital GravityWorks https://digitalgravity.ae',citations:[]}];
+ const c=competitorCandidates(rows,[])[0];assert.equal(c.namedAnswers,2);assert.equal(c.citedAnswers,2);
+ assert.deepEqual(c.evidence.map(e=>e.id).sort(),[1,2,3]);
+ assert.equal(c.evidence.find(e=>e.id===2).named,false);
+});
+test('a name and matching domain in unrelated answers do not establish a pairing',()=>{
+ const c=competitorCandidates([{...row,id:1,response_text:'**Example Agency**',citations:[]},{...row,id:2,response_text:'Unrelated advice',citations:[{domain:'exampleagency.com'}]}],[]);
+ assert.equal(c[0].name,'exampleagency.com');assert.equal(c[0].bulkEligible,false);
+});
