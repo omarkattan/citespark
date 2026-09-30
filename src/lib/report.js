@@ -1,3 +1,4 @@
+import { reviewedReportPriorities } from './report-decisions.js';
 import { reportReview } from './report-review.js';
 import { comparableSettings } from './measurement-batches.js';
 import { reportEvidence } from './report-evidence.js';
@@ -641,6 +642,7 @@ export async function buildReport(projectId, range = {}) {
   }
 
   const review = await reportReview(projectId, executive.measurement, many);
+  executive.priorities = reviewedReportPriorities(executive.priorities, review, executive.measurement);
   return {
     review,
     executive,

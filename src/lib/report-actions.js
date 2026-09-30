@@ -40,7 +40,7 @@ export function reportActions(summary, rows) {
       engines:[...engines.values()].sort((a,b)=>a.engine.localeCompare(b.engine)),
       ownPages:ranked.filter(p=>p.owned).slice(0,3),otherPages:ranked.filter(p=>!p.owned).slice(0,3)};
   };
-  if(weak) plan.push({
+  if(weak) plan.push({reviewKind:'question_review',
     do: weak.named===0 && weak.cited>0 ? 'Review a question where your site is cited but your brand is not named.' : 'Compare the answers that omit your brand.',
     because:`For “${weak.text}”, ${weak.measured-weak.named} of ${weak.measured} measured answers did not name the brand. The website was cited in ${weak.cited} of ${weak.measured}. This is a review opportunity in the sampled answers, not proof that a page is missing.`,
     steps:['Open the stored answers below and check whether the question fits a customer and product you serve.',

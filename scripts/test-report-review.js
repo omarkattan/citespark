@@ -8,16 +8,18 @@ import {reportHtml} from '../src/lib/report-html.js';
 test('comparisons isolate project and measurement, preserve zero and missing, and label retrospective results',async()=>{
  const {PGlite}=await import(process.env.PGLITE_MODULE);const db=new PGlite();
  try{
- await db.exec(`CREATE TABLE recommendations(id int,project_id int);CREATE TABLE report_review_notes(recommendation_id int,project_id int,title text,notes text,selected_at timestamp);
+ await db.exec(`CREATE TABLE recommendations(id int,project_id int,title text,notes text,review_decision jsonb DEFAULT '{}',type text,evidence jsonb DEFAULT '{}');CREATE TABLE report_review_notes(recommendation_id int,project_id int,title text,notes text,selected_at timestamp);
  CREATE TABLE entities(id int PRIMARY KEY,project_id int,name text,domain text,kind text);CREATE TABLE mentions(run_id int,entity_id int,mentioned boolean);
  CREATE TABLE citations(run_id int,domain text);CREATE TABLE runs(id int,project_id int,ok boolean,response_text text);CREATE TABLE measurement_answers(measurement_id int,run_id int);CREATE TABLE competitor_baselines(entity_id int,measurement_id int,analysis jsonb);
  INSERT INTO entities VALUES(1,28,'Own','www.bank.test','owned'),(2,28,'Retro','retro.test','competitor'),(3,28,'New',null,'competitor'),(4,99,'Other','other.test','owned');
  INSERT INTO runs VALUES(1,28,true,'Answer'),(2,28,true,'Old'),(3,99,true,'Other'),(4,28,true,''),(5,28,false,'Failure');
  INSERT INTO measurement_answers VALUES(41,1),(40,2),(41,3),(41,4),(41,5);INSERT INTO mentions VALUES(1,1,false),(2,1,true),(3,1,true),(4,1,true),(5,1,true);INSERT INTO citations VALUES(1,'news.bank.test');
  INSERT INTO competitor_baselines VALUES(2,41,'{"entity":{"name":"Retro","domain":"retro.test"},"measured":1,"named":0,"cited":0}'),(3,40,'{"measured":99}'),(1,41,'{"measured":99}');
- INSERT INTO recommendations VALUES(1,28),(2,99);INSERT INTO report_review_notes VALUES(1,28,'Selected','Reviewed',now()),(2,99,'Private','Internal',now());`);
+ INSERT INTO recommendations(id,project_id,title,notes) VALUES(1,28,'Selected','Reviewed'),(2,99,'Private','Internal');INSERT INTO report_review_notes VALUES(1,28,'Selected','Reviewed',now()),(2,99,'Private','Internal',now());`);
  const many=async(sql,args)=>(await db.query(sql,args)).rows;
- const r=await reportReview(28,{id:41},many);assert.equal(r.notes.length,1);assert.equal(r.comparisons.length,3);
+ await db.exec(`UPDATE recommendations SET type='content_gap',evidence='{"prompt_id":7}',review_decision='{"stage":"no_change","reviewed_at":"2026-09-29"}' WHERE id=1;
+ UPDATE recommendations SET type='engine_gap',evidence='{"prompt_id":8}',review_decision='{"stage":"ready","reviewed_at":"2026-09-29"}' WHERE id=2;`);
+ const r=await reportReview(28,{id:41},many);assert.equal(r.decisions.length,1);assert.equal(r.decisions[0].prompt_id,'7');assert.equal(r.notes[0].outdated,true);assert.equal(r.notes[0].notes,'Reviewed');assert.equal(r.notes.length,1);assert.equal(r.comparisons.length,3);
  const own=r.comparisons.find(x=>x.id===1);assert.equal(own.measured,1);assert.equal(own.named,0);assert.equal(own.cited,1);assert.equal(own.method,'Measured in this cycle');
  const retro=r.comparisons.find(x=>x.id===2);assert.equal(retro.method,'Retrospective analysis');assert.equal(retro.named,0);
  const fresh=r.comparisons.find(x=>x.id===3);assert.equal(fresh.named,null);assert.equal(fresh.cited,null);
@@ -38,7 +40,7 @@ test('report notes require ownership, snapshot saved text, update explicitly and
 });
 test('executive output escapes selected notes and labels comparison methods and denominators',()=>{
  const executive={...summariseEvidence([{prompt_id:1,text:'Best mobile banking apps?',source:'generated',engine:'chatgpt',ok:true,mentioned:false,cited:false,response_text:'Complete answer.'}]),measurement:{id:41,started_at:'2026-09-28',settings:{maxTokens:2000}},cycle:'2026-09-28',priorities:[]};
- const r={project:{id:28,name:'Layout test',domain:'bank.example'},generatedAt:'2026-09-29',executive,trend:{comparable:false},review:{notes:[{title:'Review mobile transfers',notes:'<script>alert(1)</script>\n'+('Review existing payment information and links. Confirm fees with the product owner before publication.\n').repeat(20)+'مراجعة خيارات التحويل',selected_at:'2026-09-29'}],comparisons:[{name:'Example bank',kind:'owned',domain:'bank.example',measured:50,named:22,cited:22,method:'Measured in this cycle'},{name:'Example rival',kind:'competitor',domain:'rival.example',measured:50,named:27,cited:16,method:'Retrospective analysis',reviewedAt:'2026-09-28'},{name:'Unmeasured rival',kind:'competitor',measured:0,named:null,cited:null,method:'Not measured in this cycle'}]}};
- const html=reportHtml(r);assert.ok(!html.includes('<script>alert(1)'));assert.match(html,/27 \/ 50/);assert.match(html,/Retrospective analysis/);assert.match(html,/Not measured/);assert.match(html,/Explicitly selected notes/);
+ const r={project:{id:28,name:'Layout test',domain:'bank.example'},generatedAt:'2026-09-29',executive,trend:{comparable:false},review:{notes:[{outdated:true,title:'Review mobile transfers',notes:'<script>alert(1)</script>\n'+('Review existing payment information and links. Confirm fees with the product owner before publication.\n').repeat(20)+'مراجعة خيارات التحويل',selected_at:'2026-09-29'}],comparisons:[{name:'Example bank',kind:'owned',domain:'bank.example',measured:50,named:22,cited:22,method:'Measured in this cycle'},{name:'Example rival',kind:'competitor',domain:'rival.example',measured:50,named:27,cited:16,method:'Retrospective analysis',reviewedAt:'2026-09-28'},{name:'Unmeasured rival',kind:'competitor',measured:0,named:null,cited:null,method:'Not measured in this cycle'}]}};
+ const html=reportHtml(r);assert.ok(!html.includes('<script>alert(1)'));assert.match(html,/27 \/ 50/);assert.match(html,/Retrospective analysis/);assert.match(html,/Not measured/);assert.match(html,/Explicitly selected notes/);assert.match(html,/Report copy needs review/);assert.match(html,/before sharing this report/);
  if(process.env.REPORT_PREVIEW)writeFileSync(process.env.REPORT_PREVIEW,html);
 });

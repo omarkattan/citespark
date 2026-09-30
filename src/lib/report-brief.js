@@ -17,7 +17,7 @@ export function leadershipBrief(r,readout) {
   matters:setupError ? 'This measurement is diagnostic, not a validated baseline for the intended market.' : readout.gap
    ? `Review “${readout.gap.text}”. Your brand was named in ${readout.gap.named} / ${readout.gap.measured} answers and your website cited in ${readout.gap.cited} / ${readout.gap.measured}. This is a question to investigate, not proof of a content problem.`
    : 'Confirm the question sample reflects your buyers before using these results to prioritise content work.',
-  next:setupError ? 'Repeat the measurement with corrected settings.' : notes.length
+  next:notes.some(n=>n.outdated) && !setupError ? 'A selected report copy differs from its saved action. Review and update that copy in Opportunities before sharing this report.' : setupError ? 'Repeat the measurement with corrected settings.' : notes.length
    ? `Review the ${notes.length} selected recommendation${notes.length===1?'':'s'} below, confirm the scope and assign an owner. Selection for this report does not mean implementation is approved or complete.`
    : 'No team recommendations have been selected for this report yet. Review the investigations below before commissioning changes.'
  };

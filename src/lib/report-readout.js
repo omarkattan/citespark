@@ -1,3 +1,4 @@
+import { resolvedReportQuestions } from './report-decisions.js';
 /** Editorial readout from existing measured facts. No detection, trend or model calls. */
 export function reportReadout(executive, review={}) {
  const qs=executive.questions || [];
@@ -14,7 +15,8 @@ export function reportReadout(executive, review={}) {
  }
  const clean=qs.filter(q=>q.measured>0 && q.engines?.length>=2 && !q.failed && !q.unmeasured && !q.missing && !q.possiblyTruncated);
  const strength=[...clean].filter(q=>q.cited>0).sort((a,b)=>b.cited/b.measured-a.cited/a.measured||b.named/b.measured-a.named/a.measured||a.id-b.id)[0]||null;
- const gap=[...clean].filter(q=>q.named<q.measured && q.id!==strength?.id).sort((a,b)=>a.named/a.measured-b.named/b.measured||a.cited/a.measured-b.cited/b.measured||a.id-b.id)[0]||null;
+ const resolved=resolvedReportQuestions(review,executive.measurement);
+ const gap=[...clean].filter(q=>!resolved.has(String(q.id)) && q.named<q.measured && q.id!==strength?.id).sort((a,b)=>a.named/a.measured-b.named/b.measured||a.cited/a.measured-b.cited/b.measured||a.id-b.id)[0]||null;
  const own=(review.comparisons||[]).find(c=>c.kind==='owned'&&c.method==='Measured in this cycle'&&c.measured===executive.totals.measured&&c.measured>0);
  const peers=own?(review.comparisons||[]).filter(c=>c.kind==='competitor'&&c.method==='Measured in this cycle'&&c.measured===own.measured).sort((a,b)=>b.named-a.named||a.name.localeCompare(b.name)):[];
  return {languages:[...languages.values()],origins:[...origins.values()],strength,gap,own,leader:peers[0]||null};
