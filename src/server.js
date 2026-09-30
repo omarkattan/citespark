@@ -3183,7 +3183,7 @@ const landscapeCache = new Map();
 app.get('/api/projects/:id/landscape', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
-  if (!mentionsConfigured) return res.status(503).json({ error: 'DataForSEO credentials are not set on this deployment' });
+  if (!mentionsConfigured) return res.status(503).json({ error: 'Answer collection is not configured on this deployment' });
 
   const platform = PLATFORMS[req.query.platform] ? req.query.platform : 'google';
   const key = `${project.id}:${platform}`;
@@ -3667,7 +3667,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260930-competitor-review-55',
+    release: '20260930-clean-answer-assets-56',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

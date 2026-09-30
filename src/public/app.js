@@ -224,6 +224,16 @@ function answerUrl(value) {
   try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? value : null; }
   catch { return null; }
 }
+function collectionDisplayText(value) {
+  return String(value ?? '')
+    .replace(/!\[[^\]\n]*\]\(https?:\/\/(?:[a-z0-9-]+\.)*dataforseo\.com(?:[/:][^\s)]*)?\)/gi, '[Image omitted]')
+    .replace(/https?:\/\/(?:[a-z0-9-]+\.)*dataforseo\.com(?=[/:\s)"<>]|$)[^\s)"<>]*/gi, '[Collection asset omitted]')
+    .replace(/\b(?:[a-z0-9-]+\.)*dataforseo\.com\b/gi, '[Collection service]')
+    .replace(/\bDataForSEO\b/gi, 'collection provider');
+}
+function collectionAsset(value) {
+  try {const host=new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`).hostname.toLowerCase(); return host==='dataforseo.com'||host.endsWith('.dataforseo.com');} catch {return false;}
+}
 function answerInline(text) {
   const tokens = /`([^`\n]+)`|\*\*([^*\n]+)\*\*|\[([^\n]+?)\]\(([^\s)]+)\)/g;
   let out = '', end = 0;
@@ -237,7 +247,7 @@ function answerInline(text) {
   return out + esc(text.slice(end));
 }
 function formatAnswer(text) {
-  const lines = String(text || '').replace(/\r\n?/g,'\n').split('\n');
+  const lines = collectionDisplayText(text).replace(/\r\n?/g,'\n').split('\n');
   const out = []; let paragraph = [], list = null, code = null;
   const flush = () => { if (paragraph.length) {out.push(`<p>${paragraph.map(answerInline).join('<br>')}</p>`); paragraph=[];} };
   const closeList = () => {if (list) {out.push(`</${list}>`); list=null;}};
@@ -3537,6 +3547,7 @@ document.addEventListener('click', async (e) => {
 
     box.innerHTML = answerReviewSummary(d) + preamble + (d?.runs || [])
       .map((r) => {
+        r={...r,citations:(r.citations || []).filter(c=>!collectionAsset(c.url || c.domain))};
         /**
          * Three outcomes, not two. A call that failed, or an answer stored
          * before the brand was tracked, was never read for a name, and
@@ -3570,8 +3581,8 @@ document.addEventListener('click', async (e) => {
           ${d.projectId && d.measurement?.id ? `<p><a href="/api/projects/${encodeURIComponent(d.projectId)}/measurements/${encodeURIComponent(d.measurement.id)}#run-${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Open this stored answer in the measurement archive</a></p>`:''}
           ${
             r.response_text
-              ? `<div class="ans-body formatted-answer" style="overflow-wrap:anywhere;min-width:0">${formatAnswer(r.response_text)}</div><details class="answer-original"><summary>Original stored text</summary><pre>${esc(r.response_text)}</pre></details>`
-              : `<p class="hint" style="margin:0">${esc(r.error || r.unmeasuredReason || 'No answer was returned.')}</p>`
+              ? `<div class="ans-body formatted-answer" style="overflow-wrap:anywhere;min-width:0">${formatAnswer(r.response_text)}</div><details class="answer-original"><summary>Stored text (collection assets omitted)</summary><pre>${esc(collectionDisplayText(r.response_text))}</pre></details>`
+              : `<p class="hint" style="margin:0">${esc(collectionDisplayText(r.error || r.unmeasuredReason || 'No answer was returned.'))}</p>`
           }
           ${(() => {
             /**

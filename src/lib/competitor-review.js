@@ -1,3 +1,4 @@
+import {collectionAsset} from './collection-display.js';
 import { analyseRun } from './analyze.js';
 export function domainKey(value) {
   if (!value) return '';
@@ -47,6 +48,7 @@ export function competitorCandidates(rows, entities, ignored = []) {
   )])];
   const paired=new Map();
   for (const row of rows) for (const c of row.citations || []) {
+    if(collectionAsset(c.url || c.domain)) continue;
     const domain=domainKey(c.domain||c.url),stem=domain.split('.')[0];
     const matches=namedCandidates.filter(n=>compact(n)===compact(stem));
     const name=matches[0]||domain;

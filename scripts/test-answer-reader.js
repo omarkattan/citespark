@@ -7,7 +7,7 @@ const app=readFileSync(new URL('../src/public/app.js',import.meta.url),'utf8');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function harness(data={runs:[]}) {
  const document=new JSDOM('<article class="rec"><button data-see-answer="7">Read the answers</button><div data-answers hidden></div></article>').window.document;
- const calls=[];const h=vm.createContext({document,esc,URL,state:{overview:{project:{market:'AE'}}},window:{COUNTRIES:[['AE','United Arab Emirates']]},ENGINE_LABEL:{chatgpt:'ChatGPT'},api:async url=>{calls.push(url);return data;}});
+ const calls=[];const h=vm.createContext({document,esc,URL,answerReviewSummary:()=>'',storedMatchEvidence:()=>'',state:{overview:{project:{market:'AE'}}},window:{COUNTRIES:[['AE','United Arab Emirates']]},ENGINE_LABEL:{chatgpt:'ChatGPT'},api:async url=>{calls.push(url);return data;}});
  vm.runInContext(app.slice(app.indexOf('function answerUrl'),app.indexOf('/* ---------- views ---------- */')),h);
  vm.runInContext('async function openAnswers(e) {'+app.slice(app.indexOf("  const see = e.target.closest('[data-see-answer]');"),app.indexOf('  // Selecting only what is on screen'))+'}',h);
  return {h,document,calls,open:()=>h.openAnswers({target:document.querySelector('button')})};
@@ -43,4 +43,14 @@ test('Arabic, unsupported Markdown and unfinished code retain a complete origina
 });
 test('failed engine response shows its error inside an unmeasured row',async()=>{
  const {document,open}=harness({runs:[{engine:'chatgpt',measured:false,error:'Provider failed',response_text:null}]});await open();assert.match(document.querySelector('.ans-head').textContent,/not measured/);assert.match(document.querySelector('.answer-content').textContent,/Provider failed/);assert.equal(document.querySelector('.answer-original'),null);
+});
+test('reader hides provider image artifacts and excludes collection URLs from source counts',async()=>{
+ const text='Agency answer\n![](https://api.dataforseo.com/cdn/i/123:18)\nBlue Beetle';
+ const data={runs:[{engine:'chatgpt',measured:true,response_text:text,citations:[{url:'https://api.dataforseo.com/cdn/i/x'},{url:'https://agency.test/page'}]}]};
+ const before=JSON.stringify(data);const {document,open}=harness(data);await open();
+ assert.doesNotMatch(document.body.textContent,/dataforseo/i);
+ assert.match(document.body.textContent,/1 source recorded/);
+ assert.match(document.body.textContent,/Sources cited \(1\)/);
+ assert.ok(document.querySelector('a[href="https://agency.test/page"]'));
+ assert.equal(JSON.stringify(data),before);
 });

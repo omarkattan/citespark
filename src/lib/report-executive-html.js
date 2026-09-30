@@ -1,7 +1,8 @@
+import {collectionDisplayText,collectionAsset} from './collection-display.js';
 import { reportReadout } from './report-readout.js';
 import { evidenceUrl } from './report-actions.js';
 import { questionRole, reviewShortlist } from './search-evidence.js';
-const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const esc = value => collectionDisplayText(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date = value => value ? new Date(value).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}) : 'No measurement';
 const share = (n,d) => d ? `${Math.round(n/d*100)}%` : 'Not measured';
 const engineLabel = value => ({ai_mode:'Google AI Mode',ai_overview:'Google AI Overview',chatgpt:'ChatGPT',claude:'Claude',perplexity:'Perplexity',gemini:'Gemini'}[value] || value);

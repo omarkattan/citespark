@@ -1,3 +1,4 @@
+import {collectionDisplayText,collectionAsset} from './collection-display.js';
 import { executiveReportHtml } from './report-executive-html.js';
 /**
  * The report as a printable document.
@@ -8,7 +9,7 @@ import { executiveReportHtml } from './report-executive-html.js';
  */
 
 const esc = (s) =>
-  String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  collectionDisplayText(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const pct = (n) => n == null ? 'Not measured' : `${Math.round(n * 100)}%`;
 const date = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 
@@ -57,7 +58,7 @@ function ring(pct, label, tone = 'good') {
   </div>`;
 }
 
-const escapeHtmlAttr = (s) => String(s == null ? '' : s).replace(/"/g, '&quot;');
+const escapeHtmlAttr = (s) => collectionDisplayText(s).replace(/"/g, '&quot;');
 
 export function reportHtml(r, { print = false, detailed = false } = {}) {
   if (r.executive && !detailed) return executiveReportHtml(r, { print });
@@ -368,7 +369,7 @@ ${
       </p>
 
       <table><thead><tr><th>Source</th><th class="num">Cycles</th><th class="num">Questions</th><th class="num">Citations</th></tr></thead><tbody>
-      ${persistentSources
+      ${persistentSources.filter(x=>!collectionAsset(x.domain))
         .map(
           (s) => `<tr>
             <td><b>${esc(s.domain)}</b> ${s.cycles === r.sources.totalCycles ? '<span class="tag hot">every cycle</span>' : ''}
@@ -696,7 +697,7 @@ export function reportCsv(r) {
   section(
     'Sources shaping answers in this category',
     ['domain', 'cycles_seen', 'questions', 'citations', 'appears_every_cycle', 'example_url'],
-    (r.sources.sources || []).map((x) => [
+    (r.sources.sources || []).filter(x=>!collectionAsset(x.domain)).map((x) => [
       x.domain,
       x.cycles,
       x.questions,
@@ -746,6 +747,6 @@ export function reportCsv(r) {
   section('How to read this', ['note'], (r.caveats || []).map((c) => [c]));
 
   return rows
-    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+    .map((row) => row.map((cell) => `"${collectionDisplayText(cell).replace(/"/g, '""')}"`).join(','))
     .join('\r\n');
 }
