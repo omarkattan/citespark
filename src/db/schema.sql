@@ -698,3 +698,6 @@ CREATE TABLE IF NOT EXISTS report_review_notes (
 
 -- Batch 50: explicit human review, independent of task completion and generated evidence.
 ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS review_decision JSONB NOT NULL DEFAULT '{}';
+
+-- Batch 61: retain structured report copies independently of later task edits.
+ALTER TABLE report_review_notes ADD COLUMN IF NOT EXISTS decision_snapshot JSONB;

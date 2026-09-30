@@ -803,8 +803,8 @@ app.post('/api/recommendations/:recId/report-note', requireAuth, wrap(async(req,
  if(req.body.version!==preview.version) return res.status(409).json({error:'The action or report copy changed. Open the preview again before updating.'});
  if(!preview.canInclude) return res.status(400).json({error:'Save a reviewed decision or note of 12,000 characters or fewer first.'});
  const draft=preview.proposed;
- await query(`INSERT INTO report_review_notes(recommendation_id,project_id,title,notes) VALUES($1,$2,$3,$4)
- ON CONFLICT(recommendation_id) DO UPDATE SET title=EXCLUDED.title,notes=EXCLUDED.notes,selected_at=now()`,[rec.id,rec.project_id,draft.title,draft.notes]);
+ await query(`INSERT INTO report_review_notes(recommendation_id,project_id,title,notes,decision_snapshot) VALUES($1,$2,$3,$4,$5::jsonb)
+ ON CONFLICT(recommendation_id) DO UPDATE SET title=EXCLUDED.title,notes=EXCLUDED.notes,decision_snapshot=EXCLUDED.decision_snapshot,selected_at=now()`,[rec.id,rec.project_id,draft.title,draft.notes,rec.review_decision?.stage?JSON.stringify(rec.review_decision):null]);
  res.json({included:true});
 }));
 
@@ -3678,7 +3678,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260930-reviewed-report-60',
+    release: '20260930-delivery-fields-61',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

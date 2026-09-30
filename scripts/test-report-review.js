@@ -8,14 +8,14 @@ import {reportHtml} from '../src/lib/report-html.js';
 test('comparisons isolate project and measurement, preserve zero and missing, and label retrospective results',async()=>{
  const {PGlite}=await import(process.env.PGLITE_MODULE);const db=new PGlite();
  try{
- await db.exec(`CREATE TABLE recommendations(id int,project_id int,title text,notes text,review_decision jsonb DEFAULT '{}',type text,evidence jsonb DEFAULT '{}');CREATE TABLE report_review_notes(recommendation_id int,project_id int,title text,notes text,selected_at timestamp);
+ await db.exec(`CREATE TABLE recommendations(id int,project_id int,title text,notes text,review_decision jsonb DEFAULT '{}',type text,evidence jsonb DEFAULT '{}');CREATE TABLE report_review_notes(recommendation_id int,project_id int,title text,notes text,selected_at timestamp,decision_snapshot jsonb);
  CREATE TABLE entities(id int PRIMARY KEY,project_id int,name text,domain text,kind text);CREATE TABLE mentions(run_id int,entity_id int,mentioned boolean);
  CREATE TABLE citations(run_id int,domain text);CREATE TABLE runs(id int,project_id int,ok boolean,response_text text);CREATE TABLE measurement_answers(measurement_id int,run_id int);CREATE TABLE competitor_baselines(entity_id int,measurement_id int,analysis jsonb);
  INSERT INTO entities VALUES(1,28,'Own','www.bank.test','owned'),(2,28,'Retro','retro.test','competitor'),(3,28,'New',null,'competitor'),(4,99,'Other','other.test','owned');
  INSERT INTO runs VALUES(1,28,true,'Answer'),(2,28,true,'Old'),(3,99,true,'Other'),(4,28,true,''),(5,28,false,'Failure');
  INSERT INTO measurement_answers VALUES(41,1),(40,2),(41,3),(41,4),(41,5);INSERT INTO mentions VALUES(1,1,false),(2,1,true),(3,1,true),(4,1,true),(5,1,true);INSERT INTO citations VALUES(1,'news.bank.test');
  INSERT INTO competitor_baselines VALUES(2,41,'{"entity":{"name":"Retro","domain":"retro.test"},"measured":1,"named":0,"cited":0}'),(3,40,'{"measured":99}'),(1,41,'{"measured":99}');
- INSERT INTO recommendations(id,project_id,title,notes) VALUES(1,28,'Selected','Reviewed'),(2,99,'Private','Internal');INSERT INTO report_review_notes VALUES(1,28,'Selected','Reviewed',now()),(2,99,'Private','Internal',now());`);
+ INSERT INTO recommendations(id,project_id,title,notes) VALUES(1,28,'Selected','Reviewed'),(2,99,'Private','Internal');INSERT INTO report_review_notes(recommendation_id,project_id,title,notes,selected_at) VALUES(1,28,'Selected','Reviewed',now()),(2,99,'Private','Internal',now());`);
  const many=async(sql,args)=>(await db.query(sql,args)).rows;
  await db.exec(`UPDATE recommendations SET type='content_gap',evidence='{"prompt_id":7}',review_decision='{"stage":"no_change","reviewed_at":"2026-09-29"}' WHERE id=1;
  UPDATE recommendations SET type='engine_gap',evidence='{"prompt_id":8}',review_decision='{"stage":"ready","reviewed_at":"2026-09-29"}' WHERE id=2;`);

@@ -417,7 +417,7 @@ function savedDecisionBrief(t) {
   let page=esc(d.page || 'No page recorded');
   try { const u=new URL(d.page); if(['https:','http:'].includes(u.protocol) && !u.username && !u.password) page=`<a href="${esc(u.href)}" target="_blank" rel="noopener">${esc(d.page)}</a>`; } catch {}
   const label=d.stage==='ready'?'What to change':d.stage==='no_change'?'Decision':'What to investigate';
-  return `<section class="decision-brief" aria-label="Saved action and evidence"><h3>${esc(decisionLabel(d.stage))}</h3><dl><dt>${label}</dt><dd>${esc(d.change)}</dd><dt>Page</dt><dd>${page}</dd><dt>Supporting evidence</dt><dd>${esc(d.evidence || 'No supporting evidence recorded')}</dd><dt>Owner</dt><dd>${esc(t.assignee || 'Unassigned')}</dd></dl><p class="hint">${d.stage==='ready'?'Readiness records the review decision, not completion.':d.stage==='no_change'?'No change is justified by this finding. Other checks may still need review.':'A next step is recorded. A page change is not yet approved.'} Work status is tracked separately.</p></section>`;
+  return `<section class="decision-brief" aria-label="Saved action and evidence"><h3>${esc(decisionLabel(d.stage))}</h3><dl><dt>${label}</dt><dd>${esc(d.change)}</dd><dt>Page</dt><dd>${page}</dd><dt>Supporting evidence</dt><dd>${esc(d.evidence || 'No supporting evidence recorded')}</dd><dt>Owner</dt><dd>${esc(t.assignee || 'Unassigned')}</dd>${[['purpose','Purpose'],['suggested_owner','Suggested owner (not an assignment)'],['completion','Completion checks'],['follow_up','Follow-up measurement']].filter(([key])=>d[key]).map(([key,label])=>`<dt>${label}</dt><dd style="white-space:pre-wrap">${esc(d[key])}</dd>`).join('')}</dl><p class="hint">${d.stage==='ready'?'Readiness records the review decision, not completion.':d.stage==='no_change'?'No change is justified by this finding. Other checks may still need review.':'A next step is recorded. A page change is not yet approved.'} Work status is tracked separately.</p></section>`;
 }
 function groupReviewGuidance(group) {
   return group.tasks.some(t=>savedDecisionPreview(t))
@@ -438,6 +438,8 @@ function decisionPanel(t) {
       <div class="field"><label for="decision-page-${t.id}">Page to change or review</label><input id="decision-page-${t.id}" type="url" maxlength="4000" placeholder="https://your-site.com/relevant-page" value="${esc(d.page || '')}"></div>
       <div class="field"><label for="decision-evidence-${t.id}">Supporting evidence</label><textarea id="decision-evidence-${t.id}" maxlength="4000" rows="3" placeholder="Answer or source link, measurement date and the specific finding">${esc(d.evidence || '')}</textarea></div>
       <div class="field"><label for="decision-change-${t.id}">Specific change, next investigation or reason for no change</label><textarea id="decision-change-${t.id}" maxlength="4000" rows="3">${esc(d.change || '')}</textarea></div>
+      <details><summary>Delivery details (optional)</summary><p class="hint">Keep the change above focused on the edit. Record its purpose and delivery checks here. A suggested owner does not assign the task or send a notification.</p>
+      ${[['purpose','Purpose'],['suggested_owner','Suggested owner (not an assignment)'],['completion','Completion checks'],['follow_up','Follow-up measurement']].map(([key,label])=>`<div class="field"><label for="decision-${key}-${t.id}">${label}</label><textarea id="decision-${key}-${t.id}" maxlength="1500" rows="2">${esc(d[key] || '')}</textarea></div>`).join('')}</details>
       <p class="hint">Ready to implement requires a page, evidence and a specific change. No change needed requires evidence and a reason. Saving leaves your existing notes and report copy intact.</p>
       <button class="btn" data-decision-save="${t.id}">Save decision</button><p role="status" data-decision-feedback></p>
     </details></section>`;
@@ -4415,7 +4417,7 @@ document.addEventListener('click', async event=>{
  const button=event.target.closest('[data-decision-save]'); if(!button || button.disabled) return;
  const id=button.dataset.decisionSave, panel=button.closest('.task-decision');
  const feedback=panel.querySelector('[data-decision-feedback]');
- const fields=['stage','title','page','evidence','change'];
+ const fields=['stage','title','page','evidence','change','purpose','suggested_owner','completion','follow_up'];
  const inputs=fields.map(key=>$(`decision-${key}-${id}`));
  const payload=Object.fromEntries(fields.map((key,i)=>[key,inputs[i].value]));
  button.disabled=true; inputs.forEach(i=>i.disabled=true); feedback.textContent='Saving decision…';
