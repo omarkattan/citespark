@@ -38,15 +38,23 @@ export function competitorCandidates(rows, entities, ignored = []) {
     const plain=[...text.matchAll(/\b(?:Bank of [A-Z][a-z]+(?: [A-Z][a-z]+)?|[A-Z][a-z]+(?: [A-Z][a-z]+){0,2} Bank)\b/g)].map(m=>m[0]);
     return [...bold,...plain].map(cleanName).filter(plausibleBankName);
   }))];
+  // Industry-neutral names are proposed only with an exact cited-domain stem match.
+  // Formatting alone is not sufficient to classify a heading as a business.
+  const namedCandidates=[...new Set([...bankNames,...rows.flatMap(row=>
+    [...row.response_text.matchAll(/\*\*([^*\n]{3,100})\*\*/g)]
+      .map(m=>cleanName(m[1].replace(/^\d+[.)]\s*/, '').split(/[:(]/)[0]))
+      .filter(n=>n.length>=3 && n.split(/\s+/).length<=8 && (!bankLike(n) || plausibleBankName(n)))
+  )])];
   const paired=new Map();
   for (const row of rows) for (const c of row.citations || []) {
     const domain=domainKey(c.domain||c.url),stem=domain.split('.')[0];
-    const matches=bankNames.filter(n=>compact(n)===compact(stem));
+    const matches=namedCandidates.filter(n=>compact(n)===compact(stem));
     const name=matches[0]||domain;
     if(matches.length) paired.set(name,domain);
     add(name,domain,row,c.url);
   }
-  for(const row of rows) for(const name of bankNames) {
+  for(const row of rows) for(const name of namedCandidates) {
+    if(!bankNames.includes(name) && !paired.has(name)) continue;
     if(row.response_text.includes(name)) add(name,paired.get(name)||'',row);
   }
   // One review card per exact normalised name. Multiple cited domains remain visible for confirmation.
@@ -62,8 +70,8 @@ export function competitorCandidates(rows, entities, ignored = []) {
       g.ignored ||= c.ignored;
     }
   }
-  return [...groups.values()].map(c=>({...c,bulkEligible:c.bank&&!!c.domain&&c.name!==c.domain&&plausibleBankName(c.name)}))
-    .sort((a,b)=>Number(b.bulkEligible)-Number(a.bulkEligible)||Number(b.bank)-Number(a.bank)||b.evidence.length-a.evidence.length||a.name.localeCompare(b.name));
+  return [...groups.values()].map(c=>({...c,bulkEligible:!!c.domain&&c.name!==c.domain&&compact(c.name)===compact(c.domain.split('.')[0])}))
+    .sort((a,b)=>Number(b.bulkEligible)-Number(a.bulkEligible)||b.evidence.length-a.evidence.length||a.name.localeCompare(b.name));
 }
 export async function retrospective(rows, entity) {
   const results=[];

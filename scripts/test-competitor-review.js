@@ -102,12 +102,27 @@ test('same bank name across domains and direction marks becomes one review card'
 });
 test('bulk-selection UI excludes unnamed domains and sends edited bilingual aliases',async()=>{
  const {JSDOM}=await import(process.env.JSDOM_MODULE);
- const dom=new JSDOM(`<button id="selectSuggestedBanks">Select</button><button id="clearSuggestedBanks">Clear</button><button id="trackSelectedCompetitors">Track</button>
+ const dom=new JSDOM(`<button id="selectNamedCandidates">Select</button><button id="clearNamedCandidates">Clear</button><button id="trackSelectedCompetitors">Track</button>
  ${[0,1].map(i=>`<input type="checkbox" data-candidate-select="${i}"><details data-candidate-edit="${i}"></details><input data-candidate-name="${i}" value="Arab Bank"><input data-candidate-domain="${i}" value="arabbank.jo"><textarea data-candidate-aliases="${i}">البنك العربي</textarea><input type="checkbox" data-candidate-ambiguous="${i}">`).join('')}`);
  const source=readFileSync(new URL('../src/public/app.js',import.meta.url),'utf8');const start=source.indexOf("document.addEventListener('click',async event=>{",source.indexOf('async function saveCompetitorReview'));
  const listener=source.slice(start,source.indexOf('\nasync function viewSetup()',start));
  let saved;new Function('document','state','saveCompetitorReview','toast','$',listener)(dom.window.document,{competitorReview:{measurement:{id:'41'},candidates:[{bulkEligible:true},{bulkEligible:false}]}},x=>saved=x,()=>{},id=>dom.window.document.getElementById(id));
- const doc=dom.window.document;doc.getElementById('selectSuggestedBanks').click();assert.equal(doc.querySelectorAll(':checked').length,1);assert.equal(doc.querySelector('details').open,true);
+ const doc=dom.window.document;doc.getElementById('selectNamedCandidates').click();assert.equal(doc.querySelectorAll(':checked').length,1);assert.equal(doc.querySelector('details').open,true);
  doc.getElementById('trackSelectedCompetitors').click();assert.equal(saved.items.length,1);assert.deepEqual(saved.items[0].aliases,['البنك العربي']);assert.equal(saved.measurementId,'41');
- doc.getElementById('clearSuggestedBanks').click();assert.equal(doc.querySelectorAll(':checked').length,0);
+ doc.getElementById('clearNamedCandidates').click();assert.equal(doc.querySelectorAll(':checked').length,0);
+});
+test('agency names pair with cited domains without promoting generic headings or unmatched names',()=>{
+ const candidates=competitorCandidates([{...row,question:'Which marketing agencies should I compare?',response_text:'**Nexa** and **Digital Gravity**. **Best marketing agencies**. **Unverified Agency**',citations:[{domain:'nexa.com'},{domain:'digitalgravity.ae'},{domain:'directory.example'}]}],[]);
+ assert.equal(candidates.find(c=>c.domain==='nexa.com').name,'Nexa');
+ assert.equal(candidates.find(c=>c.domain==='digitalgravity.ae').bulkEligible,true);
+ assert.equal(candidates.find(c=>c.domain==='directory.example').bulkEligible,false);
+ assert.ok(!candidates.some(c=>c.name==='Unverified Agency'||c.name==='Best marketing agencies'));
+ const owned=competitorCandidates([{...row,response_text:'**Sandstorm Digital**',citations:[{domain:'sandstormdigital.com'}]}],[{name:'Sandstorm Digital',domain:'sandstormdigital.com'}]);
+ assert.deepEqual(owned,[]);
+});
+test('competitor screen uses industry-neutral labels for every project',()=>{
+ const app=readFileSync(new URL('../src/public/app.js',import.meta.url),'utf8');
+ const screen=app.slice(app.indexOf('async function viewCompetitorReview'),app.indexOf('async function viewSetup',app.indexOf('async function viewCompetitorReview')));
+ assert.doesNotMatch(screen,/bank-shaped|named bank|Possible bank|SuggestedBanks/i);
+ assert.match(screen,/A cited source is not necessarily a competitor/);
 });

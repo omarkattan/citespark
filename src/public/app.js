@@ -4484,7 +4484,7 @@ async function viewCompetitorReview() {
   state.competitorReview=d;
   const row=(c,i)=>`<article class="panel" data-candidate="${i}">
     <label><input type="checkbox" data-candidate-select="${i}" ${c.ignored?'disabled':''}> Select ${esc(c.name)}</label>
-    <p class="hint">${c.bank?'Possible bank, confirm before tracking.':'Cited source or possible business, confirm relevance.'} Seen in ${c.evidence.length} / ${d.answers} reviewed answers.</p>
+    <p class="hint">Possible business or cited source. Confirm it competes with you before tracking. Seen in ${c.evidence.length} / ${d.answers} reviewed answers.</p>
     <details data-candidate-edit="${i}"><summary>Confirm name, aliases and evidence</summary>
     ${c.domains?.length>1?`<p class="hint">Domains found for this name: ${c.domains.map(esc).join(', ')}. Confirm the domain to track.</p>`:''}
     <div class="inline-form"><label>Name <input data-candidate-name="${i}" value="${esc(c.name===c.domain?'':c.name)}" placeholder="Confirm brand name"></label><label>Domain <input data-candidate-domain="${i}" value="${esc(c.domain)}" placeholder="Optional domain"></label></div>
@@ -4493,11 +4493,11 @@ async function viewCompetitorReview() {
     <details><summary>Supporting answers</summary>${c.evidence.slice(0,5).map(e=>`<p>${esc(e.engine)} · ${esc(e.question)} <a href="/api/projects/${state.projectId}/measurements/${d.measurement.id}#run-${e.id}" target="_blank" rel="noopener">Read answer</a></p>`).join('')}</details>
     <button class="ghost" data-candidate-decision="${i}" data-decision="${c.ignored?'restore':'ignore'}">${c.ignored?'Restore suggestion':'Ignore'}</button></details></article>`;
   return `<div class="panel"><h2>Who else appeared?</h2><p>Select businesses you want to compare over time. Confirm their names, domains and aliases before tracking.</p>
-    <p class="hint">${d.measurement?`Measurement ${d.measurement.id}: ${d.answers} eligible stored answers reviewed${d.limited?' (first 250 only)':''}.`:'Run your first measurement to discover suggestions.'} Suggestions use cited domains and bank-shaped names in answer text. They can miss businesses or include unrelated sources. Domain-only suggestions need a real brand name. Different names for the same business may need combining as aliases.</p>
-    <button class="ghost" id="selectSuggestedBanks">Select named bank suggestions</button> <button class="ghost" id="clearSuggestedBanks">Clear selection</button>
+    <p class="hint">${d.measurement?`Measurement ${d.measurement.id}: ${d.answers} eligible stored answers reviewed${d.limited?' (first 250 only)':''}.`:'Run your first measurement to discover suggestions.'} Suggestions use cited domains and names identifiable in stored answer text. A cited source is not necessarily a competitor. They can miss businesses or include unrelated sources. Domain-only suggestions need a real brand name. Different names for the same business may need combining as aliases.</p>
+    <button class="ghost" id="selectNamedCandidates">Select named suggestions</button> <button class="ghost" id="clearNamedCandidates">Clear selection</button>
     <p><button id="trackSelectedCompetitors" class="btn">Track selected competitors</button></p><p id="competitorReviewStatus" role="status"></p></div>
-    <h3>Named bank suggestions</h3><p class="hint">Bulk selection includes only suggestions with a name and cited domain. Review each before tracking.</p>
-    ${d.candidates.map((c,i)=>!c.ignored&&c.bulkEligible?row(c,i):'').join('')||'<p>No named bank suggestions with a domain. Review other names and sources below, or add your own.</p>'}
+    <h3>Named suggestions to review</h3><p class="hint">Bulk selection includes only suggestions with a name and cited domain. Review each before tracking.</p>
+    ${d.candidates.map((c,i)=>!c.ignored&&c.bulkEligible?row(c,i):'').join('')||'<p>No named suggestions with a matching domain. Review other names and sources below, or add your own.</p>'}
     <details class="panel"><summary>Other names and cited sources (${d.candidates.filter(c=>!c.ignored&&!c.bulkEligible).length})</summary><p>These need more review. For another language or name of the same business, copy it into that business’s aliases rather than tracking it twice. Ignore the separate suggestion after saving the confirmed business.</p>${d.candidates.map((c,i)=>!c.ignored&&!c.bulkEligible?row(c,i):'').join('')}</details>
     <details class="panel"><summary>Ignored suggestions (${d.candidates.filter(c=>c.ignored).length})</summary>${d.candidates.map((c,i)=>c.ignored?row(c,i):'').join('')}</details>
     <section class="panel"><h3>Add your own</h3><label>Name <input id="customCompetitorName"></label><label>Domain <input id="customCompetitorDomain" placeholder="Optional domain"></label><label>English / Arabic aliases, one per line<textarea id="customCompetitorAliases" rows="2"></textarea></label><label><input type="checkbox" id="customCompetitorAmbiguous"> Name is also an ordinary word or phrase</label><p><button id="trackCustomCompetitor">Track this competitor</button></p></section>
@@ -4519,8 +4519,8 @@ async function saveCompetitorReview(payload,button) {
 document.addEventListener('click',async event=>{
   const t=event.target.closest('button');if(!t) return;
   const d=state.competitorReview;
-  if(t.id==='selectSuggestedBanks'||t.id==='clearSuggestedBanks') {
-    document.querySelectorAll('[data-candidate-select]').forEach(el=>{el.checked=t.id==='selectSuggestedBanks'&&!el.disabled&&d.candidates[Number(el.dataset.candidateSelect)].bulkEligible; if(el.checked)document.querySelector(`[data-candidate-edit="${el.dataset.candidateSelect}"]`).open=true;});return;
+  if(t.id==='selectNamedCandidates'||t.id==='clearNamedCandidates') {
+    document.querySelectorAll('[data-candidate-select]').forEach(el=>{el.checked=t.id==='selectNamedCandidates'&&!el.disabled&&d.candidates[Number(el.dataset.candidateSelect)].bulkEligible; if(el.checked)document.querySelector(`[data-candidate-edit="${el.dataset.candidateSelect}"]`).open=true;});return;
   }
   if(t.dataset.candidateDecision!==undefined) return saveCompetitorReview({action:t.dataset.decision,key:d.candidates[Number(t.dataset.candidateDecision)].key},t);
   const aliases=value=>value.split(/\n/).map(s=>s.trim()).filter(Boolean);
