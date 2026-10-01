@@ -1246,6 +1246,19 @@ app.delete('/api/projects/:id', requireAuth, wrap(async (req, res) => {
  * So rather than quoting a flat rate, use what this account has actually
  * been charged, falling back to conservative defaults until there is data.
  */
+app.get('/api/projects/:id/setup-progress', requireAuth, wrap(async (req,res) => {
+  const project=await assertProject(req,res);if(!project)return;
+  const stored=await one("SELECT to_jsonb(projects)->>'setup_step' AS step FROM projects WHERE id=$1",[project.id]);
+  res.json({step:stored?.step||null});
+}));
+app.post('/api/projects/:id/setup-progress', requireAuth, wrap(async (req,res) => {
+  const project=await assertProject(req,res);if(!project)return;
+  const step=req.body?.step;
+  if(!['website','sources','questions','measurement','complete'].includes(step))return res.status(400).json({error:'Choose a valid setup step.'});
+  await query('UPDATE projects SET setup_step=$2 WHERE id=$1',[project.id,step]);
+  res.json({step});
+}));
+
 app.get('/api/projects/:id/setup', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
@@ -3626,7 +3639,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20261001-source-setup-67',
+    release: '20261001-resume-setup-68',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

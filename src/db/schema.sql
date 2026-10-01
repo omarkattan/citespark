@@ -706,3 +706,6 @@ ALTER TABLE report_review_notes ADD COLUMN IF NOT EXISTS decision_snapshot JSONB
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS ga4_sync_info JSONB;
 ALTER TABLE ga4_daily ALTER COLUMN revenue TYPE NUMERIC(18,6);
 ALTER TABLE ga4_daily ALTER COLUMN conversions TYPE NUMERIC(18,6);
+
+-- Resumable project setup. Existing measured projects are not re-onboarded.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS setup_step TEXT;

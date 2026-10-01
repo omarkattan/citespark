@@ -374,6 +374,24 @@ async function viewOverview() {
       <span class="hint">Choose report dates in Opportunities.</span></div>`;
 }
 
+const SETUP_VIEWS={website:'setup',sources:'connections',questions:'questions',measurement:'setup',complete:'overview'};
+function setupJourney() {
+  const saved=state.setupStep;
+  const active=state.view==='connections'||['searchDemand','traffic'].includes(state.view)?'sources':state.view==='questions'?'questions':saved==='measurement'?'measurement':'website';
+  return `<section class="panel setup-journey" aria-label="Project setup"><p class="eyebrow">Project setup</p><nav aria-label="Setup steps">${[['website','1. Website'],['sources','2. Connect sources'],['questions','3. Review questions'],['measurement','4. First measurement']].map(([step,label])=>`<button class="ghost" data-setup-step="${step}" ${active===step?'aria-current="step"':''}>${label}</button>`).join('')}</nav><p class="hint">${saved==='complete'?'Setup reviewed. You can revisit any step.':'Your place is saved for this project. Connections are optional.'}</p><p id="setupProgressError" class="error" role="alert"></p>${active==='website'?'<button data-setup-step="sources">Next: connect sources</button>':active==='sources'?'<button data-setup-step="questions">Continue to questions</button> <button class="ghost" data-setup-step="questions">Connect later</button>':active==='questions'?'<button data-setup-step="measurement">Next: review first measurement</button>':'<p>Confirm your questions, market and engines below. Review the estimated cost before starting. Completing setup does not run any checks.</p><button data-start-first-cycle>Review cost and run</button> <button class="ghost" data-setup-step="complete">Finish setup without running</button>'}</section>`;
+}
+async function saveSetupStep(step) {
+ const result=await api(`/api/projects/${state.projectId}/setup-progress`,{method:'POST',body:{step}});
+ if(!result||result.error||result.step!==step)throw new Error(result?.error||'Could not save your place. Please try again.');
+ state.setupStep=step;
+}
+document.addEventListener('click',async event=>{
+ const button=event.target.closest('[data-setup-step]');if(!button)return;
+ button.disabled=true;
+ try{await saveSetupStep(button.dataset.setupStep);state.view=SETUP_VIEWS[button.dataset.setupStep];await render();window.scrollTo({top:0});}
+ catch(error){const el=$('setupProgressError');if(el)el.textContent=error.message;button.disabled=false;}
+});
+
 async function viewConnections() {
   const [gsc,ga4]=await Promise.all([
     api(`/api/projects/${state.projectId}/gsc`).catch(()=>null),
@@ -383,7 +401,7 @@ async function viewConnections() {
   return `<div class="panel"><p class="eyebrow">Website → Connect sources → Review questions → First measurement</p><h2>Connect your data</h2><p>Start with Search Console to inform your question list. You can connect either source now or later.</p></div>
     <div class="panel"><h2>1. Google Search Console</h2><p>Find questions and opportunities from your actual Google search data.</p><p role="status">${status(gsc,gsc?.siteUrl)}</p><button data-open-view="searchDemand">${gsc?.siteUrl?'Review search demand':'Set up Search Console'}</button><p class="hint">Google search demand is not AI question volume. Review suggested wording before adding questions.</p></div>
     <div class="panel"><h2>2. Google Analytics 4</h2><p>See identifiable visits and recorded actions from AI referrals.</p><p role="status">${status(ga4,ga4?.propertyName||ga4?.propertyId)}</p><button class="ghost" data-open-view="traffic">${ga4?.propertyId?'Review AI referral traffic':'Set up Analytics'}</button><p class="hint">Search Console and Analytics can use different Google accounts.</p></div>
-    <div class="panel"><h2>Next: review your questions</h2><p>Website suggestions are already available. Add relevant Search Console suggestions, then review wording, market and engines before starting a measurement.</p><button data-open-view="questions">Review questions</button> <button class="ghost" data-open-view="questions">Connect later</button></div>`;
+    <div class="panel"><h2>Next: review your questions</h2><p>Website suggestions are already available. Add relevant Search Console suggestions, then review wording, market and engines before starting a measurement.</p><button data-setup-step="questions">Review questions</button></div>`;
 }
 
 async function viewSearchDemand() {
@@ -2041,7 +2059,7 @@ async function render() {
     return;
   }
   if (renderId !== state.renderId) return;
-  $('view').innerHTML = html;
+  $('view').innerHTML = (['setup','connections','questions','searchDemand','traffic'].includes(view)?setupJourney():'') + html;
   if (view === 'setup') {
     recalcEstimate();
     // The select is rendered empty but for the country option, then filled
@@ -2075,6 +2093,9 @@ async function render() {
 async function loadProject(id) {
   state.projectId = id;
   state.overview = await api(`/api/projects/${id}/overview`);
+  const progress=await api(`/api/projects/${id}/setup-progress`).catch(()=>null);
+  state.setupStep=progress?.step || (state.overview.cycle?'complete':'sources');
+  if(!state.overview.cycle)state.view=SETUP_VIEWS[state.setupStep]||'connections';
   const p = state.overview.project;
   $('brandTitle').textContent = p.brand_name;
   $('brandDek').textContent = state.overview.cycle
@@ -2220,14 +2241,14 @@ async function boot() {
 
 document.querySelectorAll('.tab[data-view]').forEach((tab) => {
   tab.addEventListener('click', async () => {
-    state.view = tab.dataset.view;
+    state.view = tab.dataset.view==='setup'&&state.setupStep&&state.setupStep!=='complete'?(SETUP_VIEWS[state.setupStep]||'connections'):tab.dataset.view;
     await render();
   });
 });
 
 document.querySelectorAll('[data-section]').forEach(button => {
   button.addEventListener('click', async () => {
-    state.view = SECTION_DEFAULT[button.dataset.section];
+    state.view = button.dataset.section==='settings'&&state.setupStep&&state.setupStep!=='complete'?(SETUP_VIEWS[state.setupStep]||'connections'):SECTION_DEFAULT[button.dataset.section];
     await render();
   });
 });
@@ -5508,6 +5529,7 @@ $('siteSave').addEventListener('click', async () => {
     if (!res.ok) throw new Error(json.error || 'Could not create the site');
     $('siteDialog').close();
     await loadProjectList(json.project.id);
+    state.setupStep='sources';
     state.view = 'connections';
     await render();
     window.scrollTo({top:0});
@@ -5516,7 +5538,7 @@ $('siteSave').addEventListener('click', async () => {
     $('siteError').textContent = err.message;
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Create and write questions';
+    btn.textContent = 'Continue to connect sources';
   }
 });
 
