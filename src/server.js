@@ -1776,6 +1776,8 @@ app.get('/api/projects/:id/run-scope', requireAuth, wrap(async (req, res) => {
     costAll: all * perQuestion,
     costUnrun: unrun * perQuestion,
     costMeasured: priced.length > 0,
+    perEngineCosts: Object.fromEntries(perCall),
+    defaultPerCall: 0.03,
     // A partial run joins this cycle rather than starting a new one.
     joinsCycle: latest
   });
@@ -3639,7 +3641,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20261001-resume-setup-68',
+    release: '20261001-onboarding-review-69',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

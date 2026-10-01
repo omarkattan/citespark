@@ -398,7 +398,7 @@ async function viewConnections() {
     api(`/api/projects/${state.projectId}/ga4`).catch(()=>null)
   ]);
   const status=(data,property)=>!data||data.error?'Status unavailable':property?`Property selected: ${esc(property)}`:data.connected?'Account connected. Choose a property.':'Not connected. Optional.';
-  return `<div class="panel"><p class="eyebrow">Website → Connect sources → Review questions → First measurement</p><h2>Connect your data</h2><p>Start with Search Console to inform your question list. You can connect either source now or later.</p></div>
+  return `<div class="panel"><h2>Connect your data</h2><p>Start with Search Console to inform your question list. You can connect either source now or later.</p></div>
     <div class="panel"><h2>1. Google Search Console</h2><p>Find questions and opportunities from your actual Google search data.</p><p role="status">${status(gsc,gsc?.siteUrl)}</p><button data-open-view="searchDemand">${gsc?.siteUrl?'Review search demand':'Set up Search Console'}</button><p class="hint">Google search demand is not AI question volume. Review suggested wording before adding questions.</p></div>
     <div class="panel"><h2>2. Google Analytics 4</h2><p>See identifiable visits and recorded actions from AI referrals.</p><p role="status">${status(ga4,ga4?.propertyName||ga4?.propertyId)}</p><button class="ghost" data-open-view="traffic">${ga4?.propertyId?'Review AI referral traffic':'Set up Analytics'}</button><p class="hint">Search Console and Analytics can use different Google accounts.</p></div>
     <div class="panel"><h2>Next: review your questions</h2><p>Website suggestions are already available. Add relevant Search Console suggestions, then review wording, market and engines before starting a measurement.</p><button data-setup-step="questions">Review questions</button></div>`;
@@ -1416,10 +1416,10 @@ async function viewQuestions() {
           ${p.measured ? runStrip(p.runs) : `<div class="notrun">${p.active ? 'Not asked yet. Included in the next cycle.' : 'Not asked yet. Paused and excluded from the next cycle.'}</div>`}
           <div class="q-actions">
             ${p.measured ? `<button class="btn" data-see-answer="${p.id}">Read answers</button>` : ''}
-            <details class="question-more"><summary>More actions</summary><div class="q-actions">
+            <button class="ghost" data-question-edit="${p.id}">Edit wording</button><details class="question-more"><summary>More actions</summary><div class="q-actions">
               <button class="ghost" data-brief="${p.id}">Review content brief</button>
               ${p.measured ? `<button class="ghost" data-reask="${p.id}">Ask again now</button><span class="hint">Starts immediately and uses answer checks.</span>` : ''}
-              ${p.replacedBy ? '<span class="tag">Superseded by a newer revision</span>' : `<button class="ghost" data-question-toggle="${p.id}">${p.active ? 'Pause' : 'Resume'}</button><button class="ghost" data-question-edit="${p.id}">Edit wording</button>`}
+              ${p.replacedBy ? '<span class="tag">Superseded by a newer revision</span>' : `<button class="ghost" data-question-toggle="${p.id}">${p.active ? 'Pause' : 'Resume'}</button>`}
             </div></details>
             <label class="qpick"><input type="checkbox" data-qsel="${p.id}" /> Select</label>
           </div>
@@ -2100,7 +2100,7 @@ async function loadProject(id) {
   $('brandTitle').textContent = p.brand_name;
   $('brandDek').textContent = state.overview.cycle
     ? `Measured across ${state.overview.runs} answers on ${shortDate(state.overview.cycle)}. Results cover the questions and engines in that measurement.`
-    : 'Nothing measured yet. Run a cycle to ask every tracked question across the engines.';
+    : 'Start by connecting your sources and reviewing the questions. Nothing has been measured yet.';
   $('cycleMeta').textContent = state.overview.cycle ? `cycle ${shortDate(state.overview.cycle)}` : 'no data';
   const cap = window.innerWidth < 760 ? 12 : 18;
   const short = p.name.length > cap ? p.name.slice(0, cap - 1) + '\u2026' : p.name;
@@ -4486,15 +4486,18 @@ document.addEventListener('click',async event=>{
 });
 
 async function viewSetup() {
-  const [data, engines, billing] = await Promise.all([
+  const [data, engines, billing, scope] = await Promise.all([
     api(`/api/projects/${state.projectId}/setup`),
     state.engines ? Promise.resolve(state.engines) : api('/api/engines'),
-    api('/api/billing')
+    api('/api/billing'),
+    api(`/api/projects/${state.projectId}/run-scope`).catch(()=>null)
   ]);
   if (!data) return '';
   state.engines = engines;
-  state.costs = data.costs || {};
-  state.measured = data.measured || [];
+  state.costs = scope?.perEngineCosts || {};
+  state.estimateAvailable = Boolean(scope && !scope.error && scope.defaultPerCall===0.03);
+  state.estimateDefault = scope?.defaultPerCall ?? 0.03;
+  state.measured = Object.keys(state.costs);
   const p = data.project;
   const rivals = data.entities.filter((e) => e.kind === 'competitor');
   const active = data.prompts.filter((q) => q.active).length;
@@ -4886,7 +4889,7 @@ function recalcEstimate() {
   const chosen = [...document.querySelectorAll('input[data-engine]:checked')].map((b) => b.dataset.engine);
 
   const calls = questions * chosen.length * runs;
-  const perCycle = chosen.reduce((sum, id) => sum + questions * runs * (state.costs?.[id] ?? 0.02), 0);
+  const perCycle = chosen.reduce((sum, id) => sum + questions * runs * (state.costs?.[id] ?? state.estimateDefault ?? 0.03), 0);
 
   box.querySelector('[data-n]').textContent = questions;
   box.querySelector('[data-surfaces-n]').textContent = chosen.length;
@@ -4897,23 +4900,15 @@ function recalcEstimate() {
   box.querySelector('[data-month-cost]').textContent =
     perCycle > 0 ? `about $${(perCycle * 4.33).toFixed(0)} a month at weekly cadence` : '';
 
-  const priced = chosen.filter((id) => state.measured?.includes(id));
   const note = box.querySelector('[data-cost-source]');
   const label = box.querySelector('[data-cost-label]');
+  if (label) label.textContent = 'estimated per cycle';
+  if(!state.estimateAvailable){
+    box.querySelector('[data-cycle-cost]').textContent='Unavailable';
+    box.querySelector('[data-month-cost]').textContent='';
+    note.textContent='Could not load the current estimate. Review cost and run will request it again.';
+  }else note.textContent=chosen.length?'Uses the same project/model pricing basis as the run confirmation. Unpriced engines use a provisional estimate. Actual cost may differ. Save changes before reviewing the final scope.':'Pick at least one surface.';
 
-  if (!chosen.length) {
-    note.textContent = 'Pick at least one surface.';
-    if (label) label.textContent = 'per cycle';
-  } else if (priced.length === chosen.length) {
-    note.textContent = 'Your own measured cost for these surfaces, averaged over previous runs.';
-    if (label) label.textContent = 'per cycle';
-  } else if (priced.length) {
-    note.textContent = `Measured for ${priced.length} of ${chosen.length} surfaces. The rest use a deliberate over-estimate until they have run a few times, so the real figure is usually lower.`;
-    if (label) label.textContent = 'per cycle, at most';
-  } else {
-    note.textContent = 'A ceiling, not a guess. Engines refund the unused part of each call, so your first few cycles usually come in well under this. It converges on your real cost after that.';
-    if (label) label.textContent = 'per cycle, at most';
-  }
 }
 
 /** Keep the "x active questions = y checks per cycle" line honest without a reload. */

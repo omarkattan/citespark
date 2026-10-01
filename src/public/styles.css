@@ -2305,3 +2305,10 @@ a.ans-source:hover { color: var(--accent); text-decoration: underline; }
 .setup-journey nav {display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;}
 .setup-journey [aria-current="step"] {background:var(--ink);color:var(--paper);border-color:var(--ink);}
 .setup-journey {border-left:3px solid var(--you);}
+
+/* Keep source and event evidence readable on narrow screens. */
+.traffic-outcomes table {width:100%;border-collapse:collapse;margin:16px 0;table-layout:fixed;}
+.traffic-outcomes th,.traffic-outcomes td {padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);overflow-wrap:anywhere;}
+.traffic-outcomes th {font-size:12px;color:var(--ink-3);}
+.traffic-outcomes td:last-child,.traffic-outcomes th:last-child {text-align:right;font-variant-numeric:tabular-nums;}
+.traffic-outcomes .note {font-size:13px;line-height:1.6;color:var(--ink-3);}
