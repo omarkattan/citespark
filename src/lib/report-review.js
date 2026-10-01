@@ -16,8 +16,8 @@ export async function reportReview(projectId, measurement, many) {
  WHERE e.project_id=$1 GROUP BY e.id ORDER BY e.kind,e.name`,[projectId,measurement.id]);
  const baselines=await many(`SELECT b.entity_id,b.analysis FROM competitor_baselines b JOIN entities e ON e.id=b.entity_id WHERE e.project_id=$1 AND b.measurement_id=$2`,[projectId,measurement.id]);
  const comparisons=measured.map(row=>{
-  if(row.measured>0) return {...row,method:'Measured in this cycle'};
   const b=baselines.find(b=>String(b.entity_id)===String(row.id))?.analysis;
+  if(row.measured>0 && (!b?.revisedAliases || b.limited || b.measured < row.measured)) return {...row,method:'Measured in this cycle'};
   if(b?.measured>0) return {...row,name:b.entity.name,domain:b.entity.domain,measured:b.measured,named:b.named,cited:b.cited,method:'Retrospective analysis',reviewedAt:b.reviewedAt,limited:!!b.limited};
   return {...row,measured:0,named:null,cited:null,method:'Not measured in this cycle'};
  });

@@ -44,3 +44,17 @@ test('executive output escapes selected notes and labels comparison methods and 
  const html=reportHtml(r);assert.ok(!html.includes('<script>alert(1)'));assert.match(html,/27 \/ 50/);assert.match(html,/Retrospective analysis/);assert.match(html,/Not measured/);assert.match(html,/Explicitly selected notes/);assert.match(html,/Report copy needs review/);assert.match(html,/before sharing this report/);
  if(process.env.REPORT_PREVIEW)writeFileSync(process.env.REPORT_PREVIEW,html);
 });
+
+
+test('reviewed aliases replace only complete same-measurement comparisons and stay retrospective',async()=>{
+ const original={id:2,name:'Emaar Properties',kind:'competitor',measured:6,named:1,cited:0};
+ let analysis={entity:{name:'Emaar Properties',domain:'emaar.com'},revisedAliases:true,measured:6,named:4,cited:0,limited:false,reviewedAt:'2026-10-01'};
+ const many=async sql=>sql.includes('FROM competitor_baselines')?[{entity_id:2,analysis}]:sql.includes('COUNT(m.run_id)')?[original]:[];
+ const result=await reportReview(31,{id:47},many);
+ assert.equal(result.comparisons[0].named,4);assert.equal(result.comparisons[0].method,'Retrospective analysis');
+ for(const change of [{limited:true},{measured:5},{revisedAliases:false}]) {
+  const saved=analysis;analysis={...saved,...change};
+  assert.equal((await reportReview(31,{id:47},many)).comparisons[0].named,1);analysis=saved;
+ }
+ assert.equal(original.named,1);
+});

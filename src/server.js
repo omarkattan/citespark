@@ -1280,7 +1280,7 @@ app.get('/api/projects/:id/competitor-review', requireAuth, wrap(async (req,res)
   const ignored=await many('SELECT candidate_key FROM competitor_review_decisions WHERE project_id=$1 AND ignored',[project.id]);
   const baselines=await many(`SELECT e.id,e.name,b.measurement_id,b.analysis FROM entities e JOIN competitor_baselines b ON b.entity_id=e.id WHERE e.project_id=$1 ORDER BY e.name`,[project.id]);
   res.json({measurement:sample.measurement,answers:sample.rows.length,limited:sample.limited,
-    candidates:competitorCandidates(sample.rows,entities,ignored.map(x=>x.candidate_key)),baselines});
+    candidates:competitorCandidates(sample.rows,entities,ignored.map(x=>x.candidate_key)),baselines,tracked:entities.filter(e=>e.kind==='competitor')});
 }));
 app.post('/api/projects/:id/competitor-review', requireAuth, wrap(async (req,res) => {
   const project=await assertProject(req,res); if(!project) return;
@@ -1290,6 +1290,28 @@ app.post('/api/projects/:id/competitor-review', requireAuth, wrap(async (req,res
     await query(`INSERT INTO competitor_review_decisions(project_id,candidate_key,ignored) VALUES($1,$2,$3)
       ON CONFLICT(project_id,candidate_key) DO UPDATE SET ignored=EXCLUDED.ignored`,[project.id,key,action==='ignore']);
     return res.json({ok:true});
+  }
+  if(action==='aliases') {
+    const {entityId,aliases,expectedAliases,measurementId}=req.body;
+    if(!Number.isInteger(Number(entityId))||!Array.isArray(aliases)||!Array.isArray(expectedAliases)||aliases.length>20||aliases.some(a=>typeof a!=='string'||!a.trim()||a.length>120)) return res.status(400).json({error:'Use up to 20 names, each no longer than 120 characters.'});
+    const client=await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT id FROM projects WHERE id=$1 FOR UPDATE',[project.id]);
+      const entity=(await client.query("SELECT * FROM entities WHERE id=$1 AND project_id=$2 AND kind='competitor' FOR UPDATE",[Number(entityId),project.id])).rows[0];
+      if(!entity) {await client.query('ROLLBACK');return res.status(404).json({error:'Competitor not found in this project.'});}
+      if(JSON.stringify(entity.aliases||[])!==JSON.stringify(expectedAliases)) {await client.query('ROLLBACK');return res.status(409).json({error:'Aliases changed. Reload before saving.'});}
+      const sample=await reviewSample(client,project.id);
+      if(String(measurementId??'')!==String(sample.measurement?.id??'')) {await client.query('ROLLBACK');return res.status(409).json({error:'The measurement changed. Reload before saving.'});}
+      entity.aliases=[...new Set(aliases.map(a=>a.trim()))];
+      const analysis=await retrospective(sample.rows,entity);
+      analysis.limited=sample.limited;
+      analysis.revisedAliases=true;
+      await client.query('UPDATE entities SET aliases=$2 WHERE id=$1',[entity.id,entity.aliases]);
+      await client.query(`INSERT INTO competitor_baselines(entity_id,measurement_id,analysis) VALUES($1,$2,$3)
+        ON CONFLICT(entity_id) DO UPDATE SET measurement_id=EXCLUDED.measurement_id,analysis=EXCLUDED.analysis`,[entity.id,sample.measurement?.id||null,JSON.stringify(analysis)]);
+      await client.query('COMMIT');return res.json({ok:true});
+    } catch(error) {await client.query('ROLLBACK');throw error;} finally {client.release();}
   }
   if(action!=='track'||!Array.isArray(req.body.items)||!req.body.items.length||req.body.items.length>30||req.body.items.some(x=>!x||typeof x!=='object'||Array.isArray(x))) return res.status(400).json({error:'Select between 1 and 30 competitors.'});
   const items=req.body.items.map(x=>({name:String(x.name||'').trim(),domain:domainKey(String(x.domain||'').trim()),

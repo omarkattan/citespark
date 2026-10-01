@@ -4444,6 +4444,8 @@ async function viewCompetitorReview() {
     <button class="ghost" data-candidate-decision="${i}" data-decision="${c.ignored?'restore':'ignore'}">${c.ignored?'Restore suggestion':'Ignore'}</button></details></article>`;
   return `<div class="panel"><h2>Who else appeared?</h2><p>Select businesses you want to compare over time. Confirm their names, domains and aliases before tracking.</p>
     <p class="hint">${d.measurement?`Measurement ${d.measurement.id}: ${d.answers} eligible stored answers reviewed${d.limited?' (first 250 only)':''}.`:'Run your first measurement to discover suggestions.'} Suggestions use cited domains and names identifiable in stored answer text. A cited source is not necessarily a competitor. They can miss businesses or include unrelated sources. Domain-only suggestions need a real brand name. Different names for the same business may need combining as aliases.</p>
+    <section class="panel"><h3>Tracked competitors: review names</h3><p>Add confirmed English or Arabic names for the same business. Avoid ordinary words that could match unrelated text. Saving applies aliases to future scans and rechecks the latest stored answers. Original measurements and trend history stay unchanged.</p>
+    ${(d.tracked||[]).map(e=>`<details><summary>${esc(e.name)} · ${esc(e.domain||'No domain')}</summary><label>Aliases for ${esc(e.name)}, one per line<textarea data-tracked-aliases="${e.id}" rows="3">${esc((e.aliases||[]).join('\n'))}</textarea></label><p class="hint">Primary name: ${esc(e.name)}. ${e.ambiguous_name?'Ordinary-name protection is enabled.':'Ordinary-name protection is not enabled.'} Alias matches are literal.</p><button data-save-tracked-aliases="${e.id}">Save aliases and recheck stored answers</button></details>`).join('')||'<p>No competitors tracked yet.</p>'}</section>
     <button class="ghost" id="selectNamedCandidates">Select named suggestions</button> <button class="ghost" id="clearNamedCandidates">Clear selection</button>
     <p><button id="trackSelectedCompetitors" class="btn">Track selected competitors</button></p><p id="competitorReviewStatus" role="status"></p></div>
     <h3>Named suggestions to review</h3><p class="hint">Bulk selection includes only suggestions with a name and cited domain. Review each before tracking.</p>
@@ -4451,7 +4453,7 @@ async function viewCompetitorReview() {
     <details class="panel"><summary>Other names and cited sources (${d.candidates.filter(c=>!c.ignored&&!c.bulkEligible).length})</summary><p>These need more review. For another language or name of the same business, copy it into that business’s aliases rather than tracking it twice. Ignore the separate suggestion after saving the confirmed business.</p>${d.candidates.map((c,i)=>!c.ignored&&!c.bulkEligible?row(c,i):'').join('')}</details>
     <details class="panel"><summary>Ignored suggestions (${d.candidates.filter(c=>c.ignored).length})</summary>${d.candidates.map((c,i)=>c.ignored?row(c,i):'').join('')}</details>
     <section class="panel"><h3>Add your own</h3><label>Name <input id="customCompetitorName"></label><label>Domain <input id="customCompetitorDomain" placeholder="Optional domain"></label><label>English / Arabic aliases, one per line<textarea id="customCompetitorAliases" rows="2"></textarea></label><label><input type="checkbox" id="customCompetitorAmbiguous"> Name is also an ordinary word or phrase</label><p><button id="trackCustomCompetitor">Track this competitor</button></p></section>
-    <section class="panel"><h3>Retrospective starting comparisons</h3><p>Calculated when each competitor was added, using the confirmed name and aliases against stored answers. These do not change the original measurement or establish a trend. Future scans track confirmed competitors automatically.</p>
+    <section class="panel"><h3>Retrospective starting comparisons</h3><p>Calculated when a competitor was added or its aliases were reviewed, using confirmed names against stored answers. These do not change the original measurement or establish a trend. Future scans track confirmed competitors automatically.</p>
     ${d.baselines.map(b=>`<article><h4>${esc(b.name)}</h4><p>Measurement ${b.measurement_id||'not available'} · ${b.analysis.measured?`${b.analysis.named} / ${b.analysis.measured} answers named the brand. ${b.analysis.cited==null?'Citations not assessed, no domain.':`${b.analysis.cited} / ${b.analysis.measured} cited its domain.`}`:'No eligible stored answers.'} ${b.analysis.limited?'Limited to 250 answers.':''}</p><p class="hint">Analysed ${esc(shortDate(b.analysis.reviewedAt))}. Name: ${esc(b.analysis.entity.name)}. Aliases: ${esc((b.analysis.entity.aliases||[]).join(', ')||'none')}.</p></article>`).join('')||'<p>No competitors added through this review yet.</p>'}</section>`;
 }
 
@@ -4463,7 +4465,7 @@ async function saveCompetitorReview(payload,button) {
     const response=await fetch(`/api/projects/${projectId}/competitor-review`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const data=await response.json();
     if(!response.ok) throw new Error(data.error||'Could not save competitor review');
-    if(state.projectId===projectId) {await render();toast(payload.action==='track'?`${data.added.length} tracked. ${data.skipped.length} already tracked. No new engine calls.`:'Review decision saved.');}
+    if(state.projectId===projectId) {await render();toast(payload.action==='aliases'?'Aliases saved and stored answers rechecked. No new engine calls.':payload.action==='track'?`${data.added.length} tracked. ${data.skipped.length} already tracked. No new engine calls.`:'Review decision saved.');}
   } catch(error) {if(state.projectId===projectId && $('competitorReviewStatus'))$('competitorReviewStatus').textContent=error.message;toast(error.message,'bad');} finally {button.disabled=false;}
 }
 document.addEventListener('click',async event=>{
@@ -4474,6 +4476,12 @@ document.addEventListener('click',async event=>{
   }
   if(t.dataset.candidateDecision!==undefined) return saveCompetitorReview({action:t.dataset.decision,key:d.candidates[Number(t.dataset.candidateDecision)].key},t);
   const aliases=value=>value.split(/\n/).map(s=>s.trim()).filter(Boolean);
+  if(t.dataset.saveTrackedAliases!==undefined) {
+    const entity=d.tracked.find(e=>String(e.id)===t.dataset.saveTrackedAliases);
+    if(!entity) return;
+    const value=document.querySelector(`[data-tracked-aliases="${entity.id}"]`).value;
+    return saveCompetitorReview({action:'aliases',entityId:entity.id,aliases:aliases(value),expectedAliases:entity.aliases||[],measurementId:d.measurement?.id},t);
+  }
   if(t.id==='trackSelectedCompetitors') {
     const items=[...document.querySelectorAll('[data-candidate-select]:checked')].map(el=>{
       const i=el.dataset.candidateSelect,get=name=>document.querySelector(`[data-candidate-${name}="${i}"]`);

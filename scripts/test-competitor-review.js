@@ -75,6 +75,17 @@ test('tracking route persists aliases, skips duplicates, isolates sites and roll
  const e=(await db.query('SELECT * FROM entities')).rows;assert.equal(e.length,1);assert.deepEqual(e[0].aliases,['البنك العربي']);assert.equal(e[0].project_id,28);
  assert.equal((await db.query('SELECT * FROM competitor_baselines')).rows[0].analysis.measured,0);
  assert.equal((await db.query('SELECT * FROM mentions')).rows.length,0);
+ const edit={action:'aliases',entityId:e[0].id,aliases:['Arab Bank Group','البنك العربي'],expectedAliases:['البنك العربي']};
+ assert.equal((await invoke(edit)).status,200);
+ assert.deepEqual((await db.query('SELECT aliases FROM entities WHERE id=$1',[e[0].id])).rows[0].aliases,edit.aliases);
+ assert.equal((await db.query('SELECT analysis FROM competitor_baselines WHERE entity_id=$1',[e[0].id])).rows[0].analysis.revisedAliases,true);
+ assert.equal((await invoke(edit)).status,409);
+ assert.equal((await invoke({...edit,expectedAliases:edit.aliases},async()=>({id:99}))).status,404);
+ assert.equal((await invoke({...edit,expectedAliases:edit.aliases,measurementId:999})).status,409);
+ await assert.rejects(()=>invoke({...edit,aliases:['Changed'],expectedAliases:edit.aliases},undefined,async()=>{throw Error('analysis failed');}));
+ assert.deepEqual((await db.query('SELECT aliases FROM entities WHERE id=$1',[e[0].id])).rows[0].aliases,edit.aliases);
+ assert.equal((await db.query('SELECT * FROM mentions')).rows.length,0);
+
  await invoke({action:'track',items:[{name:'Other Bank'}]},async()=>null);assert.equal((await db.query('SELECT * FROM entities')).rows.length,1);
  await assert.rejects(()=>invoke({action:'track',items:[{name:'Fails'}]},undefined,async()=>{throw Error('test failure');}));
  assert.equal((await db.query("SELECT * FROM entities WHERE name='Fails'")).rows.length,0);
@@ -146,4 +157,25 @@ test('name counts exclude citation-only answers, URL strings and substrings',()=
 test('a name and matching domain in unrelated answers do not establish a pairing',()=>{
  const c=competitorCandidates([{...row,id:1,response_text:'**Example Agency**',citations:[]},{...row,id:2,response_text:'Unrelated advice',citations:[{domain:'exampleagency.com'}]}],[]);
  assert.equal(c[0].name,'exampleagency.com');assert.equal(c[0].bulkEligible,false);
+});
+
+
+test('tracked alias editor sends reviewed aliases with project snapshot and escapes names',async()=>{
+ const {JSDOM}=await import(process.env.JSDOM_MODULE);
+ const source=readFileSync(new URL('../src/public/app.js',import.meta.url),'utf8');
+ const start=source.indexOf("document.addEventListener('click',async event=>{",source.indexOf('async function saveCompetitorReview'));
+ const listener=source.slice(start,source.indexOf('\nasync function viewSetup()',start));
+ const dom=new JSDOM('<textarea data-tracked-aliases="3">Emaar\nإعمار العقارية</textarea><button data-save-tracked-aliases="3">Save</button>');
+ let saved;
+ new Function('document','state','saveCompetitorReview','toast','$',listener)(dom.window.document,{competitorReview:{measurement:{id:47},tracked:[{id:3,aliases:[]}]}},x=>saved=x,()=>{},()=>null);
+ dom.window.document.querySelector('button').click();
+ assert.deepEqual(saved,{action:'aliases',entityId:3,aliases:['Emaar','إعمار العقارية'],expectedAliases:[],measurementId:47});
+ const body=source.slice(source.indexOf('async function viewCompetitorReview() {')+'async function viewCompetitorReview() {'.length,source.indexOf('\nasync function saveCompetitorReview'));
+ const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+ const render=new AsyncFunction('api','state','esc','shortDate',body.trim().replace(/\}$/, ''));
+ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const html=await render(async()=>({measurement:{id:47},answers:6,candidates:[],baselines:[],tracked:[{id:3,name:'<script>bad</script>',domain:'example.com',aliases:['</textarea><img src=x>']}]}),{projectId:31},esc,x=>x);
+ const doc=new JSDOM(html).window.document;
+ assert.equal(doc.querySelectorAll('script,img').length,0);
+ assert.equal(doc.querySelector('[data-tracked-aliases]').value,'</textarea><img src=x>');
 });
