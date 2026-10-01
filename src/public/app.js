@@ -370,7 +370,7 @@ async function viewOverview() {
     </section>
     <details class="panel fold overview-measurement"><summary>Plan the next measurement</summary><p>${esc(next)}</p><p class="hint">Paused questions are excluded. Running again uses answer checks.</p><button class="ghost" data-open-view="questions">Review questions</button> <button class="ghost" data-start-first-cycle>Review cost and run</button></details>
     <div class="overview-footer"><button class="ghost" data-open-view="assigned">See assigned work</button>
-      <a class="ghost" href="/api/projects/${state.projectId}/report" target="_blank" rel="noopener">Open client report</a> <a class="ghost" href="/api/projects/${state.projectId}/measurements" target="_blank" rel="noopener">Measurement archive</a>
+      <a class="ghost" href="/api/projects/${state.projectId}/report/prepare" target="_blank" rel="noopener">Prepare client report</a> <a class="ghost" href="/api/projects/${state.projectId}/report" target="_blank" rel="noopener">Open client report</a> <a class="ghost" href="/api/projects/${state.projectId}/measurements" target="_blank" rel="noopener">Measurement archive</a>
       <span class="hint">Choose report dates in Opportunities.</span></div>`;
 }
 
@@ -524,6 +524,7 @@ async function viewActions() {
       <span>to</span>
       <input type="date" id="repTo" value="${esc(state.repTo || '')}" aria-label="To" />
     </span>
+    <a class="ghost" href="/api/projects/${state.projectId}/report/prepare" target="_blank" rel="noopener">Prepare client report</a>
     <a class="btn" id="repOpen" href="/api/projects/${state.projectId}/report" target="_blank" rel="noopener">Open client report</a>
     <a class="ghost" id="repCsv" href="/api/projects/${state.projectId}/report?format=csv" download>Download data</a>
   </div></details>`;

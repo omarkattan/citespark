@@ -1,0 +1,25 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {reportPreparationHtml,preparationItem} from '../src/lib/report-preparation.js';
+const row={id:1,project_id:28,title:'Transfer review',notes:'Internal old note',status:'open',review_decision:{stage:'ready',title:'Link options',page:'https://bank.example/app',evidence:'Answer 1',change:'Link hub'},selected_at:'2026-09-30',saved_title:'Old title',saved_notes:'Old copy'};
+test('preparation identifies changed selected copies and missing fields without altering them',()=>{
+ const item=preparationItem(row);assert.equal(item.selected,true);assert.equal(item.outdated,true);assert.ok(item.missing.includes('Completion checks'));assert.equal(item.saved_notes,'Old copy');assert.equal(preparationItem({...row,selected_at:null}).selected,false);
+});
+test('page exposes selected and unselected reviews with escaped editable values',()=>{
+ const html=reportPreparationHtml({id:28,name:'<script>bad</script>'},[row,{...row,id:2,selected_at:null}]);
+ assert.match(html,/1 selected · 1 changed copies/);assert.match(html,/Other reviewed decisions/);assert.doesNotMatch(html,/<script>bad/);assert.match(html,/not export blockers/);assert.match(html,/name="completion"/);
+ assert.match(reportPreparationHtml({id:1,name:'Empty'},[]),/No recommendations selected/);
+});
+test('route checks project ownership before reading scoped recommendations and copies',async()=>{
+ const src=readFileSync(new URL('../src/server.js',import.meta.url),'utf8');const a=src.indexOf("app.get('/api/projects/:id/report/prepare'");const b=src.indexOf("app.get('/api/projects/:id/report',",a);const route=src.slice(a,b);
+ assert.ok(route.indexOf('assertProject')<route.indexOf('await many'));assert.match(route,/WHERE r.project_id=\$1/);assert.match(route,/n.project_id=r.project_id/);assert.match(route,/\[project.id\]/);
+});
+test('UI fetches preview before publishing and rejects stale updates without losing drafts',async()=>{
+ const {JSDOM}=await import(process.env.JSDOM_MODULE);const dom=new JSDOM(reportPreparationHtml({id:28,name:'Bank'},[row]),{runScripts:'outside-only',url:'https://cited.ae/api/projects/28/report/prepare'});const w=dom.window;let calls=[];
+ w.fetch=async(url,options)=>{calls.push({url,options});return options?{ok:false,json:async()=>({error:'The action changed. Open preview again.'})}:{ok:true,json:async()=>({current:{title:'Old',notes:'Old copy'},proposed:{title:'<img src=x>',notes:'<script>bad</script>'},canInclude:true,changed:true,version:'v1'})};};
+ w.eval(readFileSync(new URL('../src/public/report-preparation.js',import.meta.url),'utf8'));
+ const settle=()=>new Promise(r=>setTimeout(r,0));w.document.querySelector('[data-preview]').click();await settle();
+ assert.equal(calls.length,1);assert.equal(calls[0].options,undefined);const panel=w.document.querySelector('[data-preview-panel]');assert.equal(panel.querySelector('img,script'),null);
+ panel.querySelector('button').click();await settle();assert.equal(JSON.parse(calls[1].options.body).version,'v1');assert.match(w.document.querySelector('[data-status]').textContent,/action changed/);assert.equal(w.document.querySelector('[name=change]').value,'Link hub');dom.window.close();
+});

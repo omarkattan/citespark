@@ -2527,6 +2527,17 @@ app.get('/api/projects/:id/measurements/:measurementId', requireAuth, wrap(async
  res.type('html').send(measurementHtml(project,batch,rows));
 }));
 
+app.get('/api/projects/:id/report/prepare', requireAuth, wrap(async (req,res)=>{
+ const project=await assertProject(req,res);if(!project)return;
+ const rows=await many(`SELECT r.id,r.project_id,r.title,r.notes,r.review_decision,r.assignee,r.status,
+ n.title AS saved_title,n.notes AS saved_notes,n.selected_at FROM recommendations r
+ LEFT JOIN report_review_notes n ON n.recommendation_id=r.id AND n.project_id=r.project_id
+ WHERE r.project_id=$1 AND (n.recommendation_id IS NOT NULL OR r.review_decision->>'stage' IN ('ready','investigate','no_change'))
+ ORDER BY (n.recommendation_id IS NOT NULL) DESC,r.updated_at DESC,r.id`,[project.id]);
+ const {reportPreparationHtml}=await import('./lib/report-preparation.js');
+ res.type('html').send(reportPreparationHtml(project,rows));
+}));
+
 app.get('/api/projects/:id/report', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
@@ -3678,7 +3689,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20260930-delivery-fields-61',
+    release: '20261001-report-preparation-62',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',
