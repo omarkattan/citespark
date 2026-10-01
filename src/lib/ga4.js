@@ -1,3 +1,4 @@
+import {trafficSourceLabel} from './traffic-sources.js';
 import 'dotenv/config';
 import { pool, query, one } from '../db/index.js';
 import { encrypt, decrypt } from './tokens.js';
@@ -329,7 +330,7 @@ export function ga4Readiness(project) {
 
 export function aggregateTrafficRows(rows) {
  const map=new Map();
- for(const r of rows){const platform=classifySource(r.sessionSource)||r.sessionSource||'(not set)';const page=r.landingPage||'(not set)';const key=JSON.stringify([r.date,platform,page]);
+ for(const r of rows){const platform=trafficSourceLabel(classifySource(r.sessionSource)||r.sessionSource);const page=r.landingPage||'(not set)';const key=JSON.stringify([r.date,platform,page]);
  const v=map.get(key)||{date:isoDate(r.date),platform,page,sessions:0,keyEvents:0,revenue:0};
  v.sessions+=Number(r.sessions||0);v.keyEvents+=Number(r.keyEvents||0);v.revenue+=Number(r.totalRevenue||0);map.set(key,v);}
  return [...map.values()];
@@ -339,6 +340,11 @@ export function validateTrafficResponse(json) {
  if(json.metadata?.subjectToThresholding||json.metadata?.dataLossFromOtherRow||json.metadata?.samplingMetadatas?.length)throw new Error('Analytics flagged thresholding, aggregation loss or sampling. No stored traffic was replaced.');
  if(!['date','sessionSource','landingPage'].every(n=>json.dimensionHeaders?.some(h=>h.name===n)) || !['sessions','keyEvents','totalRevenue'].every(n=>json.metricHeaders?.some(h=>h.name===n)))throw new Error('Analytics response is missing expected fields. No stored traffic was replaced.');
  for(const row of json.rows||[])if(row.dimensionValues?.length!==3 || row.metricValues?.length!==3 || row.metricValues.some(v=>v.value==null||v.value===''||!Number.isFinite(Number(v.value))))throw new Error('Analytics returned an invalid row. No stored traffic was replaced.');
+}
+export function validateEventResponse(json) {
+ if(Number(json.rowCount||0)>(json.rows||[]).length || json.metadata?.subjectToThresholding || json.metadata?.dataLossFromOtherRow || json.metadata?.samplingMetadatas?.length)throw new Error('Event breakdown incomplete or limited.');
+ if(json.dimensionHeaders?.map(h=>h.name).join(',')!=='date,eventName' || json.metricHeaders?.map(h=>h.name).join(',')!=='keyEvents')throw new Error('Event breakdown fields missing.');
+ for(const r of json.rows||[])if(r.dimensionValues?.length!==2 || !/^\d{8}$/.test(r.dimensionValues[0].value||'') || !r.dimensionValues[1].value || r.metricValues?.length!==1 || r.metricValues[0].value==null || r.metricValues[0].value==='' || !Number.isFinite(Number(r.metricValues[0].value)) || Number(r.metricValues[0].value)<0)throw new Error('Invalid event breakdown row.');
 }
 export async function syncGa4(projectId, { days = 540 } = {}) {
  const project=await one('SELECT * FROM projects WHERE id=$1',[projectId]);
@@ -350,14 +356,24 @@ export async function syncGa4(projectId, { days = 540 } = {}) {
  const start=new Date(end);start.setUTCDate(start.getUTCDate()-(Math.max(1,Math.min(540,Math.floor(Number(days)||540)))-1));
  const from=start.toISOString().slice(0,10),to=end.toISOString().slice(0,10);
  const hosts=[...new Set(Object.keys(AI_SOURCES).filter(x=>!x.includes('/')).flatMap(x=>[x.replace(/^www\./,''),'www.'+x.replace(/^www\./,'')]))];
- const json=await runReport(project,property,{
+ const request={
   dateRanges:[{startDate:from,endDate:to}],dimensions:[{name:'date'},{name:'sessionSource'},{name:'landingPage'}],
   metrics:[{name:'sessions'},{name:'keyEvents'},{name:'totalRevenue'}],
   dimensionFilter:{orGroup:{expressions:[{filter:{fieldName:'sessionMedium',stringFilter:{matchType:'EXACT',value:'ai-assistant',caseSensitive:false}}},{filter:{fieldName:'sessionSource',inListFilter:{values:hosts,caseSensitive:false}}}]}},limit:100000
- });
+ };
+ const json=await runReport(project,property,request);
  validateTrafficResponse(json);
  const rows=aggregateTrafficRows(rowsOf(json));
  const info={version:2,propertyId:String(property),from,to,currency:/^[A-Z]{3}$/.test(json.metadata?.currencyCode||'')?json.metadata.currencyCode:null,startedAt:started.toISOString(),method:'ai_referral_v2'};
+ // Event counts have their own query. Never sum sessions grouped by event name.
+ try {
+  const eventJson=await runReport(project,property,{...request,dimensions:[{name:'date'},{name:'eventName'}],metrics:[{name:'keyEvents'}]});
+  validateEventResponse(eventJson);
+  info.eventBreakdown={state:'ready',rows:rowsOf(eventJson).filter(r=>Number(r.keyEvents)>0).map(r=>({date:isoDate(r.date),name:r.eventName,count:Number(r.keyEvents)}))};
+ } catch(error) {
+  console.warn('GA4 event breakdown unavailable:',error.message);
+  info.eventBreakdown={state:'unavailable'};
+ }
  const client=await pool.connect();
  try {await client.query('BEGIN');const current=(await client.query('SELECT ga4_property_id,ga4_synced_at FROM projects WHERE id=$1 FOR UPDATE',[projectId])).rows[0];
  if(String(current?.ga4_property_id)!==String(property))throw new Error('Analytics property changed during sync. Retry for the selected property.');

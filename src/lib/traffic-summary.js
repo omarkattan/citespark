@@ -1,3 +1,4 @@
+import {trafficSourceLabel} from './traffic-sources.js';
 export const TRAFFIC_METHOD='ai_referral_v2';
 export function trafficSummary(project,rows,{days=90,now=new Date()}={}){
  const n=Math.max(1,Math.min(365,Math.floor(Number(days)||90)));
@@ -12,7 +13,13 @@ export function trafficSummary(project,rows,{days=90,now=new Date()}={}){
  const picked=rows.filter(r=>r.classification_method===TRAFFIC_METHOD&&String(r.date instanceof Date?r.date.toISOString().slice(0,10):r.date)>=coveredFrom&&String(r.date instanceof Date?r.date.toISOString().slice(0,10):r.date)<=coveredTo);
  const sources=new Map(),pages=new Map();let total=0,conversions=0,revenue=0;
  for(const r of picked){const sessions=Number(r.sessions),events=Number(r.conversions),money=Number(r.revenue);total+=sessions;conversions+=events;revenue+=money;
-  for(const [map,key] of [[sources,r.platform],[pages,r.landing_page||'(not set)']]){const v=map.get(key)||{source:key,page:key,landing_page:key,sessions:0,conversions:0,revenue:0};v.sessions+=sessions;v.conversions+=events;v.revenue+=money;map.set(key,v);}
+  for(const [map,key] of [[sources,trafficSourceLabel(r.platform)],[pages,r.landing_page||'(not set)']]){const v=map.get(key)||{source:key,page:key,landing_page:key,sessions:0,conversions:0,revenue:0};v.sessions+=sessions;v.conversions+=events;v.revenue+=money;map.set(key,v);}
  }
- return {...empty,state:coveredFrom===from&&coveredTo===to?'ready':'partial',why:null,coveredFrom,coveredTo,total,conversions,revenue,currency:info.currency||null,sources:[...sources.values()].sort((a,b)=>b.sessions-a.sessions),pages:[...pages.values()].sort((a,b)=>b.sessions-a.sessions),trend:picked};
+ const eventMap=new Map();
+ const breakdown=info.eventBreakdown;
+ for(const r of breakdown?.state==='ready'?breakdown.rows||[]:[])if(r.date>=coveredFrom&&r.date<=coveredTo)eventMap.set(r.name,(eventMap.get(r.name)||0)+Number(r.count));
+ const eventRows=[...eventMap].map(([name,count])=>({name,count})).sort((a,b)=>b.count-a.count);
+ const reconciles=Math.abs(eventRows.reduce((sum,r)=>sum+r.count,0)-conversions)<0.000001;
+ const eventState=breakdown?.state==='ready'?(reconciles?'ready':'mismatch'):'needs_sync';
+ return {...empty,eventState,events:eventState==='ready'?eventRows:[],state:coveredFrom===from&&coveredTo===to?'ready':'partial',why:null,coveredFrom,coveredTo,total,conversions,revenue,currency:info.currency||null,sources:[...sources.values()].sort((a,b)=>b.sessions-a.sessions),pages:[...pages.values()].sort((a,b)=>b.sessions-a.sessions),trend:picked};
 }
