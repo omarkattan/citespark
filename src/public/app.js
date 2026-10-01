@@ -282,8 +282,8 @@ function rateClass(rate) {
 }
 
 const VIEW_SECTION = {overview:'overview', questions:'questions', actions:'opportunities', assigned:'opportunities',
-  competitorReview:'evidence', answers:'evidence', connections:'settings', trends:'evidence', rivals:'evidence', sources:'evidence', pages:'evidence', landscape:'evidence', traffic:'evidence', setup:'settings', billing:'settings'};
-const SECTION_DEFAULT = {overview:'overview',questions:'questions',opportunities:'actions',evidence:'answers',settings:'setup'};
+  searchDemand:'evidence', competitorReview:'evidence', answers:'evidence', connections:'settings', trends:'evidence', rivals:'evidence', sources:'evidence', pages:'evidence', landscape:'evidence', traffic:'evidence', setup:'settings', billing:'settings'};
+const SECTION_DEFAULT = {overview:'overview',questions:'questions',opportunities:'actions',evidence:'searchDemand',settings:'setup'};
 
 function syncNavigation() {
   const section = VIEW_SECTION[state.view] || 'overview';
@@ -375,10 +375,23 @@ async function viewOverview() {
 }
 
 async function viewConnections() {
-  return `<div class="panel"><h2>Connections</h2><p>Connect the sources that help you find questions and measure visits.</p>
-    <h3>Google Search Console</h3><p>Import buyer questions from Google search queries. Search impressions stay separate from AI visibility.</p><button class="ghost" data-open-view="questions" data-open-gsc>Manage Search Console</button>
-    <h3>Google Analytics 4</h3><p>Review AI referral traffic and manage the Google account and property used for it.</p><button class="ghost" data-open-view="traffic">Manage Analytics</button>
-    <p class="hint">Search Console and Analytics can use different Google accounts.</p></div>`;
+  const [gsc,ga4]=await Promise.all([
+    api(`/api/projects/${state.projectId}/gsc`).catch(()=>null),
+    api(`/api/projects/${state.projectId}/ga4`).catch(()=>null)
+  ]);
+  const status=(data,property)=>!data||data.error?'Status unavailable':property?`Property selected: ${esc(property)}`:data.connected?'Account connected. Choose a property.':'Not connected. Optional.';
+  return `<div class="panel"><p class="eyebrow">Website → Connect sources → Review questions → First measurement</p><h2>Connect your data</h2><p>Start with Search Console to inform your question list. You can connect either source now or later.</p></div>
+    <div class="panel"><h2>1. Google Search Console</h2><p>Find questions and opportunities from your actual Google search data.</p><p role="status">${status(gsc,gsc?.siteUrl)}</p><button data-open-view="searchDemand">${gsc?.siteUrl?'Review search demand':'Set up Search Console'}</button><p class="hint">Google search demand is not AI question volume. Review suggested wording before adding questions.</p></div>
+    <div class="panel"><h2>2. Google Analytics 4</h2><p>See identifiable visits and recorded actions from AI referrals.</p><p role="status">${status(ga4,ga4?.propertyName||ga4?.propertyId)}</p><button class="ghost" data-open-view="traffic">${ga4?.propertyId?'Review AI referral traffic':'Set up Analytics'}</button><p class="hint">Search Console and Analytics can use different Google accounts.</p></div>
+    <div class="panel"><h2>Next: review your questions</h2><p>Website suggestions are already available. Add relevant Search Console suggestions, then review wording, market and engines before starting a measurement.</p><button data-open-view="questions">Review questions</button> <button class="ghost" data-open-view="questions">Connect later</button></div>`;
+}
+
+async function viewSearchDemand() {
+  const [gsc,demand]=await Promise.all([
+    api(`/api/projects/${state.projectId}/gsc`).catch(()=>({error:true})),
+    api(`/api/projects/${state.projectId}/demand`).catch(()=>null)
+  ]);
+  return `<div class="panel"><h2>Search demand</h2><p>Use actual Google queries to find questions worth measuring. Search demand and AI visibility remain separate.</p><button class="ghost" data-open-view="connections">All connections</button> <button class="ghost" data-open-view="questions">Review tracked questions</button></div>${gscQuestionPanel(gsc||{error:true},true)}${demandSection(demand)}`;
 }
 
 async function viewAnswerEvidence() {
@@ -1286,8 +1299,8 @@ function questionSourceLabel(source) {
     gsc:'GSC import', 'gsc+model':'GSC-derived, AI rephrased', 'gsc-query':'GSC query'})[source] || source || 'Origin not recorded';
 }
 
-function gscQuestionPanel(gsc = {}) {
-  return `    <details class="panel fold" id="gscPanel"><summary>Import from Google Search Console ${gsc.siteUrl ? `&middot; ${esc(gsc.siteUrl)}` : gsc.connected ? '&middot; choose a property' : gsc.error ? '&middot; status unavailable' : '&middot; connect an account'}</summary>
+function gscQuestionPanel(gsc = {}, expanded = false) {
+  return `    <details class="panel fold" id="gscPanel" ${expanded?'open':''}><summary>Import from Google Search Console ${gsc.siteUrl ? `&middot; ${esc(gsc.siteUrl)}` : gsc.connected ? '&middot; choose a property' : gsc.error ? '&middot; status unavailable' : '&middot; connect an account'}</summary>
       <div class="panel-head">
         <h2>From Search Console</h2>
         <div class="spacer"></div>
@@ -1297,7 +1310,7 @@ function gscQuestionPanel(gsc = {}) {
                <button class="ghost danger" id="gscDisconnect">Disconnect</button>`
             : ''
         }
-        <button class="ghost" id="gscLoad">Find questions people already ask</button>
+        ${gsc.error ? '<button class="ghost" data-open-view="searchDemand">Retry connection status</button>' : !gsc.connected ? '<button id="gscGrant">Connect Search Console</button>' : !gsc.siteUrl ? '<button id="gscSwitch">Choose Search Console property</button>' : '<button id="gscLoad">Find questions people already ask</button>'}
       </div>
       <p class="hint" style="margin:0">
         Search Console supplies real Google search queries. We group them and may rephrase them into buyer questions for you to review before importing. Google search impressions are not AI question counts.
@@ -1309,7 +1322,7 @@ function gscQuestionPanel(gsc = {}) {
             : ''
         }
       </p>
-      <div id="gscBody"></div>
+      <p id="gscReturnError" class="error" role="alert"></p><div id="gscBody"></div>
     </details>`;
 }
 
@@ -1680,14 +1693,14 @@ function renderDemandRows(rows) {
  * sessions are arrivals, impressions are demand, and the note says so.
  */
 function demandSection(d) {
-  if (!d || d.error) return `<div class="panel"><h2>Search queries beside AI visibility</h2><p class="notice">Search data could not be loaded. This does not mean there were zero impressions.</p><button class="ghost" data-open-view="traffic">Try again</button><button class="ghost" data-open-view="questions" data-open-gsc>Open Search Console connection</button></div>`;
+  if (!d || d.error) return `<div class="panel"><h2>Search queries beside AI visibility</h2><p class="notice">Search data could not be loaded. This does not mean there were zero impressions.</p><button class="ghost" data-open-view="searchDemand">Try again</button><button class="ghost" data-open-view="searchDemand" data-open-gsc>Open Search Console connection</button></div>`;
   const failed = (d.sources || []).filter((s) => !s.ok);
   if (!d.rows?.length) {
     return `<div class="panel">
       <div class="panel-head"><h2>Search demand against AI visibility</h2></div>
       <p class="hint">${failed.length
         ? `No console is reporting yet. ${failed.map((f) => `${esc(f.name)}: ${esc(f.error)}`).join('. ')}.
-           <button class="ghost" data-open-view="questions" data-open-gsc style="margin-left:6px">Open Search Console connection</button>
+           <button class="ghost" data-open-view="searchDemand" data-open-gsc style="margin-left:6px">Open Search Console connection</button>
            <span style="display:block;margin-top:6px">Impressions and clicks exist nowhere else: they come from the search consoles, not from us and not from Analytics.</span>`
         : 'No topic matched any search query, so there is nothing to show yet. This happens when topic names are internal vocabulary rather than words people type.'}</p>
     </div>`;
@@ -1739,12 +1752,11 @@ function helpDot(text) {
 }
 
 async function viewTraffic() {
-  const [conn, rows, demand] = await Promise.all([
+  const [conn, rows] = await Promise.all([
     api(`/api/projects/${state.projectId}/ga4`).catch(() => null),
-    api(`/api/projects/${state.projectId}/traffic`).catch(() => null),
-    api(`/api/projects/${state.projectId}/demand`).catch(() => null)
+    api(`/api/projects/${state.projectId}/traffic`).catch(() => null)
   ]);
-  const searchPanel = demandSection(demand);
+  const searchPanel = '<p class="hint">Looking for Google search queries? <button class="ghost" data-open-view="searchDemand">Open Search demand</button> <button class="ghost" data-open-view="questions">Review questions</button></p>';
   if (!conn || conn.error) return `<div class="panel"><h2>Google Analytics</h2><p class="notice">Analytics connection status could not be loaded. Your Search Console section is independent.</p><button class="ghost" data-open-view="traffic">Try again</button></div>` + searchPanel;
 
   /* not connected */
@@ -1852,11 +1864,18 @@ document.addEventListener('click', async (e) => {
   }
 
   if (e.target.id === 'gscGrant') {
-    e.target.disabled = true;
-    const res = await fetch(`/api/projects/${state.projectId}/ga4/connect?what=gsc`);
-    const d = await res.json();
-    if (!res.ok) { err(d.error); e.target.disabled = false; return; }
-    window.location.href = d.url;
+    const button=e.target;
+    button.disabled = true;
+    try {
+      const res = await fetch(`/api/projects/${state.projectId}/ga4/connect?what=gsc`);
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Could not connect Search Console.');
+      window.location.href = d.url;
+    } catch(error) {
+      const message=$('gscReturnError');
+      if(message) message.textContent=error.message || 'Could not connect Search Console. Try again.';
+      button.disabled=false;
+    }
   }
 
   /**
@@ -2011,7 +2030,7 @@ async function render() {
   $('view').innerHTML = '<div class="empty">Loading</div>';
   const fn = {
     competitorReview: viewCompetitorReview, overview: viewOverview, connections: viewConnections, answers: viewAnswerEvidence, actions: viewActions, assigned: viewAssigned, pages: viewPages, questions: viewQuestions, rivals: viewRivals,
-    sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling,
+    searchDemand: viewSearchDemand, sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling,
     trends: viewTrends, landscape: viewLandscape
   }[view];
   let html;
@@ -2169,16 +2188,19 @@ async function boot() {
 
   if (returned) {
     // Wait for the destination before restoring the requested connection workflow.
-    const tab = returned.what === 'gsc' ? 'questions' : 'traffic';
+    const tab = returned.what === 'gsc' ? 'searchDemand' : 'traffic';
     state.view = tab;
     await render();
     if (returned.what === 'gsc' && $('questionAdd')) $('questionAdd').open = true;
     if (!returned.ok) {
-      const el = returned.what === 'gsc' ? $('setupError') : $('ga4Error');
+      const el = returned.what === 'gsc' ? $('gscReturnError') : $('ga4Error');
       if (el) el.textContent = returned.message;
     } else if (returned.what === 'gsc') {
       $('gscPanel').open = true;
-      await loadGscCandidates();
+      $('gscPanel').scrollIntoView({block:'start'});
+      const connection=await api(`/api/projects/${state.projectId}/gsc`).catch(()=>null);
+      if(connection?.siteUrl) await loadGscCandidates();
+      else if(connection?.connected) await loadGscSites();
     }
   }
 
@@ -4785,7 +4807,7 @@ document.addEventListener('click', async (e) => {
       if (!res.ok) throw new Error(result.error || 'Could not save this property.');
       const gsc = await api(`/api/projects/${projectId}/gsc`);
       if (state.projectId !== projectId || !$('gscPanel')) return;
-      $('gscPanel').outerHTML = gscQuestionPanel(gsc);
+      $('gscPanel').outerHTML = gscQuestionPanel(gsc,true);
       $('gscPanel').open = true;
       await loadGscCandidates();
     } catch (error) {
@@ -5486,8 +5508,10 @@ $('siteSave').addEventListener('click', async () => {
     if (!res.ok) throw new Error(json.error || 'Could not create the site');
     $('siteDialog').close();
     await loadProjectList(json.project.id);
-    document.querySelector('.tab[data-view="questions"]').click();
-    toast('Your questions are ready. Review their relevance before the first measurement.');
+    state.view = 'connections';
+    await render();
+    window.scrollTo({top:0});
+    toast('Site created. Connect your sources, or continue to review the suggested questions.');
   } catch (err) {
     $('siteError').textContent = err.message;
   } finally {

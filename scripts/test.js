@@ -2329,8 +2329,8 @@ await test('connecting returns to whatever was being connected', async () => {
   assert.ok(/params\.get\('ga4'\)/.test(fn), 'the older parameter is still understood');
 
   const boot = app.slice(app.indexOf('if (returned) {'), app.indexOf('if (returned) {') + 700);
-  assert.ok(/'gsc' \? 'questions' : 'traffic'/.test(boot), 'each lands on its own tab');
-  assert.ok(/setupError/.test(boot), 'and a failure is shown where it started');
+  assert.ok(/'gsc' \? 'searchDemand' : 'traffic'/.test(boot), 'each lands on its own tab');
+  assert.ok(/gscReturnError/.test(boot), 'and a failure is shown in the visible source panel');
 });
 
 await test('a 403 from Google says which 403 it was', async () => {
