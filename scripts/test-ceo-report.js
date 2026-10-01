@@ -40,3 +40,22 @@ test('escapes fields and renders fixture for visual review',()=>{
  assert.doesNotMatch(ceoReportHtml({...r,project:{...r.project,name:'<img src=x>'}}),/<img src=x>/);
  if(process.env.CEO_PREVIEW){writeFileSync(process.env.CEO_PREVIEW,ceoReportHtml({...r,review:{...r.review,notes:[note,note,note]}}));writeFileSync(process.env.CEO_PREVIEW.replace('.html','-long.html'),ceoReportHtml({...r,review:{...r.review,notes:[{...note,title:'قرار مراجعة محتوى التحويلات البنكية',notes:'مراجعة المحتوى والتحقق من الروابط والأدلة. '.repeat(150),decision_snapshot:null}]}}));}
 });
+
+test('retrospective checks have a separate alphabetical table, review dates and their own denominators',()=>{
+ const html=ceoReportHtml({...r,review:{notes:[],comparisons:[brand('Example Bank','owned'),brand('Zeta','competitor',{method:'Retrospective analysis',measured:12,named:0,cited:null,reviewedAt:'2026-10-01'}),brand('<Alpha>','competitor',{method:'Retrospective analysis',measured:30,named:20,cited:0,reviewedAt:'2026-09-30'})]}});
+ assert.match(html,/Competitors checked after collection/);assert.match(html,/No full-sample competitor comparison from the original measurement/);
+ const table=html.split('aria-label="Retrospective competitor checks"')[1].split('</table>')[0];
+ assert.ok(table.indexOf('&lt;Alpha&gt;')<table.indexOf('Zeta'));assert.doesNotMatch(table,/Example Bank/);
+ assert.match(table,/0 \/ 12/);assert.match(table,/0 \/ 30/);assert.match(table,/Not measured/);assert.match(table,/1 Oct 2026/);assert.match(table,/30 Sept 2026/);
+ assert.match(html,/do not establish a trend/);assert.match(html,/do not prove identical answer coverage/);assert.doesNotMatch(html,/Highest competitor|Joint highest|No matched competitor comparison/);
+});
+test('mixed evidence keeps original leaders separate and excludes limited or unmeasured rechecks',()=>{
+ const html=ceoReportHtml({...r,review:{...r.review,comparisons:[...r.review.comparisons,brand('Later check','competitor',{method:'Retrospective analysis',named:29}),brand('Limited recheck','competitor',{method:'Retrospective analysis',limited:true}),brand('Empty recheck','competitor',{method:'Retrospective analysis',measured:0})]}});
+ assert.match(html,/Joint highest[^<]*<b>Bank A, Bank B/);assert.match(html,/Later check/);assert.doesNotMatch(html,/Limited recheck|Empty recheck/);
+ const table=html.split('aria-label="Retrospective competitor checks"')[1].split('</table>')[0];assert.doesNotMatch(table,/Bank A|Bank B/);
+});
+test('retrospective display is bounded without silently omitting other checked brands',()=>{
+ const peers=Array.from({length:7},(_,i)=>brand('Peer '+i,'competitor',{method:'Retrospective analysis'}));
+ const html=ceoReportHtml({...r,review:{notes:[],comparisons:peers}});assert.match(html,/2 more in the full report/);assert.match(html,/Peer 4/);assert.doesNotMatch(html,/Peer 5|Peer 6/);
+ if(process.env.CEO_PREVIEW)writeFileSync(process.env.CEO_PREVIEW.replace('.html','-retrospective.html'),ceoReportHtml({...r,review:{...r.review,comparisons:peers}}));
+});
