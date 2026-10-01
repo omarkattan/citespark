@@ -377,8 +377,9 @@ async function viewOverview() {
 const SETUP_VIEWS={website:'setup',sources:'connections',questions:'questions',measurement:'setup',complete:'overview'};
 function setupJourney() {
   const saved=state.setupStep;
+  if(saved==='complete')return '';
   const active=state.view==='connections'||['searchDemand','traffic'].includes(state.view)?'sources':state.view==='questions'?'questions':saved==='measurement'?'measurement':'website';
-  return `<section class="panel setup-journey" aria-label="Project setup"><p class="eyebrow">Project setup</p><nav aria-label="Setup steps">${[['website','1. Website'],['sources','2. Connect sources'],['questions','3. Review questions'],['measurement','4. First measurement']].map(([step,label])=>`<button class="ghost" data-setup-step="${step}" ${active===step?'aria-current="step"':''}>${label}</button>`).join('')}</nav><p class="hint">${saved==='complete'?'Setup reviewed. You can revisit any step.':'Your place is saved for this project. Connections are optional.'}</p><p id="setupProgressError" class="error" role="alert"></p>${active==='website'?'<button data-setup-step="sources">Next: connect sources</button>':active==='sources'?'<button data-setup-step="questions">Continue to questions</button> <button class="ghost" data-setup-step="questions">Connect later</button>':active==='questions'?'<button data-setup-step="measurement">Next: review first measurement</button>':'<p>Confirm your questions, market and engines below. Review the estimated cost before starting. Completing setup does not run any checks.</p><button data-start-first-cycle>Review cost and run</button> <button class="ghost" data-setup-step="complete">Finish setup without running</button>'}</section>`;
+  return `<section class="panel setup-journey" aria-label="Project setup"><p class="eyebrow">Project setup</p><nav aria-label="Setup steps">${[['website','1. Website'],['sources','2. Connect sources'],['questions','3. Review questions'],['measurement','4. First measurement']].map(([step,label])=>`<button class="ghost" data-setup-step="${step}" ${active===step?'aria-current="step"':''}>${label}</button>`).join('')}</nav><p class="hint">Your place is saved for this project. Connections are optional.</p><p id="setupProgressError" class="error" role="alert"></p>${active==='website'?'<button data-setup-step="sources">Next: connect sources</button>':active==='sources'?'<button data-setup-step="questions">Continue to questions</button> <button class="ghost" data-setup-step="questions">Connect later</button>':active==='questions'?'<button data-setup-step="measurement">Next: review first measurement</button>':'<p>Confirm your questions, market and engines below. Review the estimated cost before starting. Completing setup does not run any checks.</p><button data-start-first-cycle>Review cost and run</button> <button class="ghost" data-setup-step="complete">Finish setup without running</button>'}</section>`;
 }
 async function saveSetupStep(step) {
  const result=await api(`/api/projects/${state.projectId}/setup-progress`,{method:'POST',body:{step}});
@@ -401,7 +402,7 @@ async function viewConnections() {
   return `<div class="panel"><h2>Connect your data</h2><p>Start with Search Console to inform your question list. You can connect either source now or later.</p></div>
     <div class="panel"><h2>1. Google Search Console</h2><p>Find questions and opportunities from your actual Google search data.</p><p role="status">${status(gsc,gsc?.siteUrl)}</p><button data-open-view="searchDemand">${gsc?.siteUrl?'Review search demand':'Set up Search Console'}</button><p class="hint">Google search demand is not AI question volume. Review suggested wording before adding questions.</p></div>
     <div class="panel"><h2>2. Google Analytics 4</h2><p>See identifiable visits and recorded actions from AI referrals.</p><p role="status">${status(ga4,ga4?.propertyName||ga4?.propertyId)}</p><button class="ghost" data-open-view="traffic">${ga4?.propertyId?'Review AI referral traffic':'Set up Analytics'}</button><p class="hint">Search Console and Analytics can use different Google accounts.</p></div>
-    <div class="panel"><h2>Next: review your questions</h2><p>Website suggestions are already available. Add relevant Search Console suggestions, then review wording, market and engines before starting a measurement.</p><button data-setup-step="questions">Review questions</button></div>`;
+    <div class="panel"><h2>${state.setupStep==='complete'?'Keep your questions relevant':'Next: review your questions'}</h2><p>${state.setupStep==='complete'?'Review new Search Console suggestions and update your question list before your next measurement.':'Website suggestions are already available. Add relevant Search Console suggestions, then review wording, market and engines before starting a measurement.'}</p><button ${state.setupStep==='complete'?'data-open-view="questions"':'data-setup-step="questions"'}>Review questions</button></div>`;
 }
 
 async function viewSearchDemand() {
@@ -2091,11 +2092,14 @@ async function render() {
 }
 
 async function loadProject(id) {
+  const finishingSetup=state.projectId===id && state.setupStep && state.setupStep!=='complete';
   state.projectId = id;
   state.overview = await api(`/api/projects/${id}/overview`);
   const progress=await api(`/api/projects/${id}/setup-progress`).catch(()=>null);
-  state.setupStep=progress?.step || (state.overview.cycle?'complete':'sources');
-  if(!state.overview.cycle)state.view=SETUP_VIEWS[state.setupStep]||'connections';
+  const measured=Boolean(state.overview.cycle && state.overview.runs>0);
+  state.setupStep=measured?'complete':progress?.step||'sources';
+  if(!measured)state.view=SETUP_VIEWS[state.setupStep]||'connections';
+  else if(finishingSetup && ['setup','connections','questions','searchDemand','traffic'].includes(state.view))state.view='overview';
   const p = state.overview.project;
   $('brandTitle').textContent = p.brand_name;
   $('brandDek').textContent = state.overview.cycle

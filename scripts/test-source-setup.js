@@ -47,3 +47,27 @@ test('project reload restores the stored step without forcing measured projects 
  ctx.api=async url=>url.endsWith('/overview')?{project:{name:'Second',brand_name:'Second'},cycle:null}:{step:null};await ctx.loadProject(29);assert.equal(rendered,'connections');
  ctx.state.view='overview';ctx.api=async url=>url.endsWith('/overview')?{project:{name:'Measured',brand_name:'Measured'},cycle:'2026-10-01',runs:10}:{step:null};await ctx.loadProject(30);assert.equal(rendered,'overview');assert.equal(ctx.state.setupStep,'complete');dom.window.close();
 });
+
+test('completed setup hides the journey and connections cannot reopen onboarding',async()=>{
+ const {ctx,dom}=harness({connected:true},{connected:true});ctx.state.setupStep='complete';
+ assert.equal(ctx.setupJourney(),'');
+ dom.window.document.body.innerHTML=await ctx.viewConnections();
+ assert.equal(dom.window.document.querySelector('[data-setup-step]'),null);
+ assert.ok(dom.window.document.querySelector('[data-open-view="questions"]'));
+ assert.match(dom.window.document.body.textContent,/Keep your questions relevant/);dom.window.close();
+});
+test('first measured results override stale setup, while empty scans retain the saved step',async()=>{
+ const source=app.slice(app.indexOf('async function loadProject(id)'),app.indexOf('/**\n * Which site is open'));
+ const {ctx,dom}=harness({},{});let rendered;let runs=10;let stored='measurement';
+ Object.assign(ctx,{$:id=>dom.window.document.getElementById(id),window:{innerWidth:1000},shortDate:x=>x,refreshRunScope(){},renderFigures:async()=>{},render:async()=>rendered=ctx.state.view});
+ ctx.api=async url=>url.endsWith('/overview')?{project:{name:'Example',brand_name:'Example'},cycle:'2026-10-01',runs}:{step:stored};
+ vm.runInContext(source,ctx);
+ ctx.state.setupStep='measurement';ctx.state.view='setup';await ctx.loadProject(28);
+ assert.equal(ctx.state.setupStep,'complete');assert.equal(rendered,'overview');assert.equal(ctx.setupJourney(),'');
+ // A later visit to settings stays there, even with stale server progress.
+ ctx.state.view='setup';await ctx.loadProject(28);assert.equal(rendered,'setup');assert.equal(ctx.setupJourney(),'');
+ // A project switch cannot inherit the previous project's completion.
+ runs=0;await ctx.loadProject(29);assert.equal(ctx.state.setupStep,'measurement');assert.equal(rendered,'setup');assert.match(ctx.setupJourney(),/Finish setup without running/);
+ stored='complete';await ctx.loadProject(29);assert.equal(rendered,'overview');assert.equal(ctx.setupJourney(),'');
+ dom.window.close();
+});
