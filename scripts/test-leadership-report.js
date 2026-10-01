@@ -22,3 +22,24 @@ test('report leads with decisions, preserves saved text, separates investigation
  const unsafe=reportHtml({...r,review:{notes:[{title:'<script>bad()</script>',notes:'<img src=x>',selected_at:'2026-09-30'}]}});assert.doesNotMatch(unsafe,/<script>bad/);assert.match(unsafe,/&lt;img/);
  if(process.env.REPORT_PREVIEW)writeFileSync(process.env.REPORT_PREVIEW,html);
 });
+
+test('summary uses measured source groups without inventing intent or a trend',()=>{
+ const origins=[{label:'Search Console-derived',questions:8,measured:47,named:39,cited:31},{label:'Site suggestions',questions:20,measured:118,named:23,cited:4}];
+ const b=leadershipBrief(r,{origins,gap:{text:'SINGLE QUESTION',named:0,cited:0,measured:6}});
+ assert.match(b.matters,/39 \/ 47/);assert.match(b.matters,/4 \/ 118/);assert.match(b.matters,/different question sets/);assert.match(b.matters,/Review answers and cited pages for site suggestions/);assert.doesNotMatch(b.matters,/SINGLE QUESTION|development-specific|broad discovery/);
+ for(const patch of [{measured:0},{questions:1},{named:null}])assert.doesNotMatch(leadershipBrief(r,{origins:[{...origins[0],...patch},origins[1]]}).matters,/Visibility differs/);
+ assert.doesNotMatch(leadershipBrief(r,{origins:[origins[0],{...origins[1],named:95}]}).matters,/Visibility differs/);
+ assert.doesNotMatch(leadershipBrief({...r,executive:{...executive,localeWarnings:['Wrong market']}},{origins}).matters,/Visibility differs/);
+});
+test('specific next step prioritises a current structured ready decision over investigation',async()=>{
+ const {decisionReportText}=await import('../src/lib/recommendation-decision.js');
+ const decision={stage:'ready',title:'Fix phase facts',page:'https://example.com/phase',evidence:'Reviewed page',change:'Confirm the phase and correct inconsistent facts.',suggested_owner:'Project marketing'};
+ const note=d=>({title:d.title,notes:decisionReportText(d),decision_snapshot:d});
+ const review={notes:[note({...decision,stage:'investigate',title:'Review enquiries'}),note(decision)]};
+ const b=leadershipBrief({...r,review},{});assert.match(b.next,/First selected ready action: Fix phase facts/);assert.match(b.next,/https:\/\/example.com\/phase/);assert.match(b.next,/Suggested owner: Project marketing/);assert.match(b.next,/before approving implementation/);
+ const stale={...review,notes:[{...review.notes[1],outdated:true}]};assert.match(leadershipBrief({...r,review:stale},{}).next,/Review and update/);
+ const mismatch={notes:[{...review.notes[1],notes:'Unstructured legacy copy'}]};assert.doesNotMatch(leadershipBrief({...r,review:mismatch},{}).next,/First selected ready action/);
+ const investigate={notes:[review.notes[0]]};assert.match(leadershipBrief({...r,review:investigate},{}).next,/First selected investigation/);assert.match(leadershipBrief({...r,review:investigate},{}).next,/before approving any content change/);
+ const noChange={notes:[note({...decision,stage:'no_change'})]};assert.doesNotMatch(leadershipBrief({...r,review:noChange},{}).next,/First selected/);
+ assert.match(leadershipBrief({...r,review,executive:{...executive,localeWarnings:['Wrong market']}},{}).next,/corrected settings/);
+});
