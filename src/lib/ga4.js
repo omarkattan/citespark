@@ -341,10 +341,10 @@ export function validateTrafficResponse(json) {
  if(!['date','sessionSource','landingPage'].every(n=>json.dimensionHeaders?.some(h=>h.name===n)) || !['sessions','keyEvents','totalRevenue'].every(n=>json.metricHeaders?.some(h=>h.name===n)))throw new Error('Analytics response is missing expected fields. No stored traffic was replaced.');
  for(const row of json.rows||[])if(row.dimensionValues?.length!==3 || row.metricValues?.length!==3 || row.metricValues.some(v=>v.value==null||v.value===''||!Number.isFinite(Number(v.value))))throw new Error('Analytics returned an invalid row. No stored traffic was replaced.');
 }
-export function validateEventResponse(json) {
+export function validateEventResponse(json, {landingPages=false}={}) {
  if(Number(json.rowCount||0)>(json.rows||[]).length || json.metadata?.subjectToThresholding || json.metadata?.dataLossFromOtherRow || json.metadata?.samplingMetadatas?.length)throw new Error('Event breakdown incomplete or limited.');
- if(json.dimensionHeaders?.map(h=>h.name).join(',')!=='date,eventName' || json.metricHeaders?.map(h=>h.name).join(',')!=='keyEvents')throw new Error('Event breakdown fields missing.');
- for(const r of json.rows||[])if(r.dimensionValues?.length!==2 || !/^\d{8}$/.test(r.dimensionValues[0].value||'') || !r.dimensionValues[1].value || r.metricValues?.length!==1 || r.metricValues[0].value==null || r.metricValues[0].value==='' || !Number.isFinite(Number(r.metricValues[0].value)) || Number(r.metricValues[0].value)<0)throw new Error('Invalid event breakdown row.');
+ if(json.dimensionHeaders?.map(h=>h.name).join(',')!==(landingPages?'date,eventName,landingPage':'date,eventName') || json.metricHeaders?.map(h=>h.name).join(',')!=='keyEvents')throw new Error('Event breakdown fields missing.');
+ for(const r of json.rows||[])if(r.dimensionValues?.length!==(landingPages?3:2) || !/^\d{8}$/.test(r.dimensionValues[0].value||'') || !r.dimensionValues[1].value || r.metricValues?.length!==1 || r.metricValues[0].value==null || r.metricValues[0].value==='' || !Number.isFinite(Number(r.metricValues[0].value)) || Number(r.metricValues[0].value)<0)throw new Error('Invalid event breakdown row.');
 }
 export async function syncGa4(projectId, { days = 540 } = {}) {
  const project=await one('SELECT * FROM projects WHERE id=$1',[projectId]);
@@ -374,6 +374,12 @@ export async function syncGa4(projectId, { days = 540 } = {}) {
   console.warn('GA4 event breakdown unavailable:',error.message);
   info.eventBreakdown={state:'unavailable'};
  }
+ // Separate optional context query: a failed detail request must not hide valid totals.
+ try {
+  const context=await runReport(project,property,{...request,dimensions:[{name:'date'},{name:'eventName'},{name:'landingPage'}],metrics:[{name:'keyEvents'}]});
+  validateEventResponse(context,{landingPages:true});
+  info.eventContext={state:'ready',rows:rowsOf(context).filter(r=>Number(r.keyEvents)>0).map(r=>({date:isoDate(r.date),name:r.eventName,page:r.landingPage||'(not set)',count:Number(r.keyEvents)}))};
+ }catch(error){console.warn('GA4 event context unavailable:',error.message);info.eventContext={state:'unavailable'};}
  const client=await pool.connect();
  try {await client.query('BEGIN');const current=(await client.query('SELECT ga4_property_id,ga4_synced_at FROM projects WHERE id=$1 FOR UPDATE',[projectId])).rows[0];
  if(String(current?.ga4_property_id)!==String(property))throw new Error('Analytics property changed during sync. Retry for the selected property.');

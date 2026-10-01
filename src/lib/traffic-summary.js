@@ -1,3 +1,4 @@
+import {summariseEventContext} from './traffic-event-context.js';
 import {trafficSourceLabel} from './traffic-sources.js';
 export const TRAFFIC_METHOD='ai_referral_v2';
 export function trafficSummary(project,rows,{days=90,now=new Date()}={}){
@@ -21,5 +22,6 @@ export function trafficSummary(project,rows,{days=90,now=new Date()}={}){
  const eventRows=[...eventMap].map(([name,count])=>({name,count})).sort((a,b)=>b.count-a.count);
  const reconciles=Math.abs(eventRows.reduce((sum,r)=>sum+r.count,0)-conversions)<0.000001;
  const eventState=breakdown?.state==='ready'?(reconciles?'ready':'mismatch'):'needs_sync';
- return {...empty,eventState,events:eventState==='ready'?eventRows:[],state:coveredFrom===from&&coveredTo===to?'ready':'partial',why:null,coveredFrom,coveredTo,total,conversions,revenue,currency:info.currency||null,sources:[...sources.values()].sort((a,b)=>b.sessions-a.sessions),pages:[...pages.values()].sort((a,b)=>b.sessions-a.sessions),trend:picked};
+ const context=summariseEventContext(info.eventContext,{from:coveredFrom,to:coveredTo,eventState,events:eventRows,pages:[...pages.values()]});
+ return {...empty,...context,eventState,events:eventState==='ready'?eventRows:[],state:coveredFrom===from&&coveredTo===to?'ready':'partial',why:null,coveredFrom,coveredTo,total,conversions,revenue,currency:info.currency||null,sources:[...sources.values()].sort((a,b)=>b.sessions-a.sessions),pages:[...pages.values()].sort((a,b)=>b.sessions-a.sessions),trend:picked};
 }
