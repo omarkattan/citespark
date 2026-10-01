@@ -30,10 +30,16 @@ export function questionRole(text) {
     .replace(/[\u064b-\u065f\u0670\u0640]/g, '').replace(/[أإآ]/g, 'ا');
   const provider = /\b(providers?|firms?|companies|banks?|lenders?|brokers?|advis[oe]rs?|wealth managers?|asset managers?|family offices?)\b|بنك|بنوك|مصارف|شركات|مزودي|مدير(?:ي|و)? الثروات|ادارة الثروات/.test(wording);
   const offering = provider || /\b(accounts?|cards?|mortgages?|loans?|insurance|wealth management|banking|financial services|investment services)\b|حساب|بطاق|قرض|قروض|تمويل|تامين/.test(wording);
+  // Property selection is a buyer decision too. Keep this separate from brand
+  // detection and retain a wording signal so definitions are not treated as purchase intent.
+  const property = /\b(real estate|properties|property|apartments?|villas?|homes?|houses?|residences?|residential (?:communities|developments?)|developers?)\b|عقار|شقق|شقة|فلل|فيلا|مساكن|سكن|المطور|مطورين/.test(wording);
   const selection = /\b(which|who|where|best|top|choose|choosing|compare|comparison|versus|vs)\b|افضل|اختار|اختيار|مقارنة|اي بنك|اي البنوك|اي شركات|من يقدم|اين/.test(wording);
   const terms = /\b(fees?|costs?|minimum|eligible|eligibility|requirements?|interest rates?)\b|رسوم|تكلف|الحد الادنى|شروط|متطلبات|الفائدة/.test(wording);
   const action = /\b(open|apply|switch|transfer|hire)\b|افتح|فتح|اتقدم|التقدم|احول|تحويل/.test(wording);
-  return offering && (selection || terms || action) ? 'Buyer decision' : 'Topic to qualify';
+  const propertyDecision = selection || terms
+    || /\b(buy|buying|purchase|purchasing|rent|renting|payment plans?|handover|worth|trade-offs?|available)\b|شراء|للبيع|للايجار|استئجار|خطط سداد|خطط السداد|خطط دفع|خطط الدفع|تستحق|مقارنة|اقارن|الفروق|تختلف|الخيارات المتاحة|ما (?:المشاريع|المجمعات|المطورون|المطورين)/.test(wording);
+  return (offering && (selection || terms || action)) || (property && propertyDecision)
+    ? 'Buyer decision' : 'Topic to qualify';
 }
 export function reviewShortlist(questions) {
   const candidates = questions.filter(q => questionRole(q.text) === 'Buyer decision');

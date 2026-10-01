@@ -64,3 +64,14 @@ test('actual refresh is property-scoped and writes search JSON without changing 
  const records=await many('SELECT * FROM prompts ORDER BY id');assert.equal(records[0].origin_details.gscSnapshot.impressions,10);assert.equal(records[0].origin_details.impressions,300);assert.equal(records[1].origin_details.gscSnapshot,undefined);assert.equal(records[2].origin_details.gscSnapshot,undefined);
  }finally{await db.close();}
 });
+
+
+test('property report shows buyer topics without the misleading no-decision fallback',()=>{
+ const text='Which developers offer competitive payment plans for homes in Sharjah?';
+ const row={prompt_id:1,text,source:'site',ok:true,engine:'chatgpt',response_text:'Complete answer.',mentioned:true,cited:false};
+ const e=summariseEvidence([row]);
+ const html=executiveReportHtml({executive:{...e,cycle:'2026-10-01'},project:{id:31,name:'Arada',domain:'arada.com'},generatedAt:'2026-10-01',trend:{comparable:false}});
+ assert.ok(html.includes(text));
+ assert.doesNotMatch(html,/No obvious buyer-decision wording was identified/);
+ assert.match(html,/1 \/ 1 measured answers named the brand/);
+});
