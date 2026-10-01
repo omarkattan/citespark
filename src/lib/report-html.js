@@ -1,4 +1,5 @@
 import {collectionDisplayText,collectionAsset} from './collection-display.js';
+import { ceoReportHtml } from './report-ceo.js';
 import { executiveReportHtml } from './report-executive-html.js';
 /**
  * The report as a printable document.
@@ -60,7 +61,8 @@ function ring(pct, label, tone = 'good') {
 
 const escapeHtmlAttr = (s) => collectionDisplayText(s).replace(/"/g, '&quot;');
 
-export function reportHtml(r, { print = false, detailed = false } = {}) {
+export function reportHtml(r, { print = false, detailed = false, ceo = false } = {}) {
+  if (r.executive && ceo && !detailed) return ceoReportHtml(r);
   if (r.executive && !detailed) return executiveReportHtml(r, { print });
   const recurring = r.persistence.items.filter((i) => i.standing === 'recurring');
   const persistentSources = r.sources.sources.filter((s) => s.persistent).slice(0, 12);

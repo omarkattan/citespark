@@ -2570,7 +2570,7 @@ app.get('/api/projects/:id/report', requireAuth, wrap(async (req, res) => {
    * the download button produced the wrong artefact. This opens the report
    * with the save dialog already up, which is one action to a PDF.
    */
-  res.send(reportHtml(report, { print: req.query.print === '1', detailed: req.query.detail === '1' }));
+  res.send(reportHtml(report, { print: req.query.print === '1', detailed: req.query.detail === '1', ceo: req.query.view === 'ceo' }));
 }));
 
 /**
@@ -3689,7 +3689,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20261001-report-preparation-62',
+    release: '20261001-ceo-brief-63',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

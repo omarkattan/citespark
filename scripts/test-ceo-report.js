@@ -1,0 +1,42 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {writeFileSync} from 'node:fs';
+import {ceoReportHtml,reportViewUrl} from '../src/lib/report-ceo.js';
+import {reportHtml} from '../src/lib/report-html.js';
+import {reportPreparationHtml} from '../src/lib/report-preparation.js';
+import {decisionReportText} from '../src/lib/recommendation-decision.js';
+import {summariseEvidence} from '../src/lib/report-evidence.js';
+const answers=Array.from({length:30},(_,i)=>({prompt_id:i+1,text:i%2?'هل يمكن للمقيم فتح حساب بنكي في الأردن؟':'Which bank offers easy transfers?',source:i%3?'manual':'gsc',engine:'chatgpt',ok:true,mentioned:i%2===0,cited:i%2===0,response_text:'Complete answer.'}));
+const executive={...summariseEvidence(answers),measurement:{id:45,started_at:'2026-09-29',settings:{maxTokens:2000}},cycle:'2026-09-29',priorities:[]};
+const d={stage:'ready',title:'Link the app page to existing transfer options',page:'https://bank.example/app',change:'Add “Compare transfer options” beside Payments on the English app page. Add “قارن خيارات التحويل” on the Arabic page. Keep the existing how-to link. Do not introduce unverified claims about fees, speed or eligibility.',evidence:'Two engines cited the existing page. The current transfer hub already lists the available options.',purpose:'Help customers compare existing transfer information without creating another hub.',suggested_owner:'Web content and digital product. A named owner still needs to be assigned.',completion:'Check both language links on mobile and desktop.',follow_up:'Repeat the same questions and engines after publication.',reviewed_at:'2026-09-30'};
+const note={recommendation_id:8502,title:d.title,notes:decisionReportText(d),decision_snapshot:d,selected_at:'2026-09-30'};
+const brand=(name,kind='competitor',props={})=>({name,kind,domain:'bank.example',method:'Measured in this cycle',measured:30,named:15,cited:10,...props});
+const r={project:{id:28,name:'Example Bank',domain:'bank.example'},generatedAt:'2026-10-01',executive,trend:{comparable:false},period:{chosen:true,from:'2026-09-01',to:'2026-09-30'},review:{notes:[note],comparisons:[brand('Example Bank','owned'),brand('Bank A'),brand('Bank B')]}};
+test('brief preserves denominator, separates outcomes and has date-preserving evidence links',()=>{
+ const html=reportHtml(r,{ceo:true});assert.match(html,/CEO BRIEF/);assert.match(html,/15 \/ 30 measured answers/);assert.match(html,/Naming and citation overlap/);assert.match(html,/No comparable movement/);assert.match(html,/#selected-action-8502/);assert.match(html,/from=2026-09-01&amp;to=2026-09-30/);assert.equal(reportViewUrl(r,'ceo'),'/api/projects/28/report?view=ceo&from=2026-09-01&to=2026-09-30');
+ assert.match(reportHtml(r),/id="selected-action-8502"/);assert.match(reportHtml(r),/view=ceo/);
+});
+test('only same-cycle full comparisons enter CEO table and tied leaders are explicit',()=>{
+ const html=ceoReportHtml({...r,review:{...r.review,comparisons:[...r.review.comparisons,brand('PARTIAL','competitor',{measured:3}),brand('RETRO','competitor',{method:'Retrospective'}),brand('LIMITED','competitor',{limited:true})]}});
+ assert.match(html,/Joint highest/);assert.match(html,/Bank A, Bank B/);assert.doesNotMatch(html,/PARTIAL|RETRO|LIMITED/);
+ assert.match(ceoReportHtml({...r,review:{notes:[],comparisons:[]}}),/No matched competitor comparison/);
+});
+test('shortened decisions use selected snapshot, never current edits, and warn when outdated',()=>{
+ const html=ceoReportHtml({...r,review:{notes:[{...note,outdated:true},note,note,{...note,title:'FOURTH'}]}});
+ assert.match(html,/this report copy differs/);assert.match(html,/1 additional selected decision/);assert.doesNotMatch(html,/FOURTH/);assert.match(html,/shortened reading notes/);assert.match(html,/قارن خيارات التحويل/);
+ const legacy=ceoReportHtml({...r,review:{notes:[{...note,notes:'Saved legacy text',decision_snapshot:{...d,change:'UNSAVED CHANGE'}}]}});
+ assert.match(legacy,/Saved legacy text/);assert.doesNotMatch(legacy,/UNSAVED CHANGE/);
+});
+test('unknown and zero remain distinct, bad setup stays visible, no decisions fabricated',()=>{
+ const empty={...r,executive:{...executive,totals:{...executive.totals,measured:0,named:0,cited:0,expectedChecks:null},localeWarnings:['Wrong locale']},review:{notes:[],comparisons:[]}};
+ const html=ceoReportHtml(empty);assert.match(html,/Not measured/);assert.match(html,/Planned coverage unknown/);assert.match(html,/Diagnostic results only/);assert.match(html,/No reviewed decisions selected/);
+ assert.match(ceoReportHtml({...r,executive:{...executive,totals:{...executive.totals,named:0}}}),/0 \/ 30 measured answers/);
+});
+test('preparation heading follows reviewed decision without rewriting saved report copy',()=>{
+ const html=reportPreparationHtml(r.project,[{id:1,status:'open',title:'Invisible for: Old question',saved_title:'Old selected title',saved_notes:'Old copy',selected_at:'2026-09-30',review_decision:{stage:'no_change',change:'Keep the existing document checklist.'}}]);
+ assert.match(html,/<h3 dir="auto">Keep the existing document checklist\.<\/h3>/);assert.doesNotMatch(html,/<h3[^>]*>Invisible/);assert.match(html,/Open CEO brief/);
+});
+test('escapes fields and renders fixture for visual review',()=>{
+ assert.doesNotMatch(ceoReportHtml({...r,project:{...r.project,name:'<img src=x>'}}),/<img src=x>/);
+ if(process.env.CEO_PREVIEW){writeFileSync(process.env.CEO_PREVIEW,ceoReportHtml({...r,review:{...r.review,notes:[note,note,note]}}));writeFileSync(process.env.CEO_PREVIEW.replace('.html','-long.html'),ceoReportHtml({...r,review:{...r.review,notes:[{...note,title:'قرار مراجعة محتوى التحويلات البنكية',notes:'مراجعة المحتوى والتحقق من الروابط والأدلة. '.repeat(150),decision_snapshot:null}]}}));}
+});
