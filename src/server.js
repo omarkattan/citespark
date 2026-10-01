@@ -1011,73 +1011,10 @@ app.get('/api/projects/:id/demand', requireAuth, wrap(async (req, res) => {
 app.get('/api/projects/:id/traffic', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
-  const rows = await many(
-    `SELECT platform, classification_method,
-            SUM(sessions)::int AS sessions,
-            SUM(conversions)::float AS conversions,
-            SUM(revenue)::float AS revenue
-     FROM ga4_daily
-     WHERE project_id = $1 AND date > CURRENT_DATE - INTERVAL '30 days'
-     GROUP BY platform, classification_method ORDER BY sessions DESC`,
-    [project.id]
-  );
-
-  /**
-   * Sessions by platform alone answers "is anything arriving". The useful
-   * questions are which pages they land on, whether those convert, and
-   * whether the number is going anywhere.
-   */
-  const days = Math.min(Number(req.query.days) || 30, 365);
-
-  const pages = await many(
-    `SELECT landing_page,
-            SUM(sessions)::int AS sessions,
-            SUM(conversions)::float AS conversions,
-            SUM(revenue)::float AS revenue
-     FROM ga4_daily
-     WHERE project_id = $1 AND date > CURRENT_DATE - ($2 || ' days')::interval AND landing_page IS NOT NULL
-     GROUP BY landing_page ORDER BY sessions DESC LIMIT 25`,
-    [project.id, String(days)]
-  );
-
-  const daily = await many(
-    `SELECT date, SUM(sessions)::int AS sessions, SUM(conversions)::float AS conversions
-     FROM ga4_daily
-     WHERE project_id = $1 AND date > CURRENT_DATE - ($2 || ' days')::interval
-     GROUP BY date ORDER BY date`,
-    [project.id, String(days)]
-  );
-
-  // The previous window of the same length, so the number has something to
-  // be compared with rather than sitting on its own.
-  const before = await one(
-    `SELECT SUM(sessions)::int AS sessions, SUM(conversions)::float AS conversions
-     FROM ga4_daily
-     WHERE project_id = $1
-       AND date <= CURRENT_DATE - ($2 || ' days')::interval
-       AND date > CURRENT_DATE - ($3 || ' days')::interval`,
-    [project.id, String(days), String(days * 2)]
-  );
-
-  const sessions = rows.reduce((n, r) => n + r.sessions, 0);
-  const conversions = rows.reduce((n, r) => n + Number(r.conversions || 0), 0);
-
-  res.json({
-    rows,
-    pages,
-    daily,
-    days,
-    totals: {
-      sessions,
-      conversions,
-      revenue: rows.reduce((n, r) => n + Number(r.revenue || 0), 0),
-      // A rate of zero and no data at all are different, so this is null
-      // rather than 0 when nothing arrived.
-      conversionRate: sessions ? conversions / sessions : null,
-      previousSessions: before?.sessions ?? null,
-      change: before?.sessions ? (sessions - before.sessions) / before.sessions : null
-    }
-  });
+  const {aiTraffic}=await import('./lib/report.js');
+  const {trafficReportHtml}=await import('./lib/traffic-html.js');
+  const traffic=await aiTraffic(project.id,req.query.days||30);
+  res.json({...traffic,html:trafficReportHtml(traffic)});
 }));
 
 /* ---------------- setup: projects, competitors, questions ---------------- */
@@ -3375,7 +3312,7 @@ app.get('/api/projects/:id/ga4', requireAuth, wrap(async (req, res) => {
     connected: Boolean(project.ga4_refresh_token) || Boolean(process.env.GOOGLE_REFRESH_TOKEN),
     ownConnection: Boolean(project.ga4_refresh_token),
     email: project.ga4_account_email,
-    propertyId: project.ga4_property_id || process.env.GA4_PROPERTY_ID || null,
+    propertyId: project.ga4_property_id || null,
     propertyName: project.ga4_property_name,
     connectedAt: project.ga4_connected_at,
     syncedAt: project.ga4_synced_at
@@ -3689,7 +3626,7 @@ app.get('/api/version', (_req, res) => {
      * not. Render sets this on every deploy, so it cannot drift.
      */
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    release: '20261001-ceo-brief-63',
+    release: '20261001-ga4-outcomes-64',
     deployedAt: process.env.RENDER_GIT_COMMIT ? undefined : 'not on Render',
 
     features: ['landing-page', 'scan-site', 'country-dropdown', 'fanout-queries', 'project-delete',

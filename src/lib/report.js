@@ -420,80 +420,15 @@ function groupActions(items) {
  * is the answer, and when it is missing the report should say why rather than
  * leaving a hole a reader fills with doubt.
  */
-async function aiTraffic(projectId) {
-  const project = await one('SELECT ga4_property_id, ga4_refresh_token FROM projects WHERE id = $1', [projectId]);
-
-  // Same readiness rule as the sync. This used to test the project's own
-  // token alone, so a site syncing fine through the deployment credential
-  // was told on its own report that Analytics was not connected.
-  const { ga4Readiness } = await import('./ga4.js');
-  const ready = ga4Readiness(project);
-  if (!ready.connected) return { connected: false, why: ready.why };
-
-  /**
-   * Read the table the sync actually writes to.
-   *
-   * This queried a table called "ga" that does not exist. The error was
-   * swallowed by the catch below and reported as "nothing pulled yet", so a
-   * site with months of traffic looked like a site with none, and the
-   * section that justifies the retainer was silently empty.
-   */
-  const rows = await many(
-    `SELECT date AS day, platform AS source, landing_page, sessions, conversions, revenue
-     FROM ga4_daily
-     WHERE project_id = $1 AND date > CURRENT_DATE - 90
-     ORDER BY date`,
-    [projectId]
-  ).catch((err) => {
-    // A query fault and an empty table are different things, and reporting
-    // one as the other is how this hid for as long as it did.
-    console.error('traffic query failed:', err.message);
-    return null;
-  });
-
-  if (rows === null) {
-    return { connected: true, rows: [], why: 'We could not read the stored traffic. This is ours to fix.' };
-  }
-
-  if (!rows.length) {
-    return {
-      connected: true,
-      rows: [],
-      why: 'Connected, but no sessions have been pulled yet. Open the Traffic tab and sync, or wait for the next cycle.'
-    };
-  }
-
-  const bySource = new Map();
-  const byPage = new Map();
-  for (const r of rows) {
-    if (!bySource.has(r.source)) bySource.set(r.source, { source: r.source, sessions: 0, conversions: 0 });
-    const g = bySource.get(r.source);
-    g.sessions += Number(r.sessions || 0);
-    g.conversions += Number(r.conversions || 0);
-
-    if (r.landing_page) {
-      if (!byPage.has(r.landing_page)) byPage.set(r.landing_page, { page: r.landing_page, sessions: 0, conversions: 0 });
-      const q = byPage.get(r.landing_page);
-      q.sessions += Number(r.sessions || 0);
-      q.conversions += Number(r.conversions || 0);
-    }
-  }
-
-  return {
-    connected: true,
-    days: 90,
-    total: rows.reduce((n, r) => n + Number(r.sessions || 0), 0),
-    conversions: rows.reduce((n, r) => n + Number(r.conversions || 0), 0),
-    revenue: rows.reduce((n, r) => n + Number(r.revenue || 0), 0),
-    sources: [...bySource.values()].sort((a, b) => b.sessions - a.sessions).slice(0, 8),
-    // Which pages the assistants actually send people to, which is the
-    // bridge between the visibility above and the money.
-    // Every page, not a top slice. On most sites this is a couple of dozen
-    // rows, and which pages the assistants send people to is the most
-    // directly useful thing in an AI visibility report.
-    pages: [...byPage.values()].sort((a, b) => b.sessions - a.sessions),
-    trend: rows
-  };
+export async function aiTraffic(projectId,days=90) {
+ const project=await one("SELECT ga4_property_id,ga4_refresh_token,ga4_synced_at,to_jsonb(projects)->'ga4_sync_info' AS ga4_sync_info FROM projects WHERE id=$1",[projectId]);
+ const {ga4Readiness}=await import('./ga4.js');
+ const {trafficSummary}=await import('./traffic-summary.js');
+ if(!ga4Readiness(project).connected)return {...trafficSummary({...project,ga4_property_id:null},[]),connected:false};
+ try {
+ const rows=await many("SELECT date,platform,classification_method,landing_page,sessions,conversions,revenue FROM ga4_daily WHERE project_id=$1 AND classification_method='ai_referral_v2' ORDER BY date",[projectId]);
+ return {...trafficSummary(project,rows,{days}),connected:true,propertyId:project.ga4_property_id};
+ }catch(error){console.error('traffic query failed:',error.message);return {connected:true,state:'error',total:null,sources:[],pages:[],why:'We could not read the stored traffic. This is ours to fix.'};}
 }
 
 /**

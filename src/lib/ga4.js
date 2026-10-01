@@ -1,28 +1,14 @@
 import 'dotenv/config';
-import { query, one } from '../db/index.js';
+import { pool, query, one } from '../db/index.js';
 import { encrypt, decrypt } from './tokens.js';
 
-/**
- * GA4 ingestion.
- *
- * Two series are pulled deliberately:
- *
- *  1. 'native'  - sessionMedium = 'ai-assistant'. Google's own AI Assistant
- *                 channel, added May 2026. Accurate, but NOT retroactive:
- *                 sessions processed before the rollout still sit in Referral.
- *
- *  2. 'derived' - sessionSource matched against our own domain list. This
- *                 works on historical data, so a new customer gets a real
- *                 trend line on day one instead of starting from June 2026.
- *                 It also catches sources Google has not yet recognised.
- *
- * Report both. The difference between them is a selling point, not an error.
- */
+/** GA4 ingestion: one OR-filtered query includes the AI Assistant medium and
+ * exact recognised source hosts. New data uses ai_referral_v2. Legacy native
+ * and derived rows are retained but never combined with verified totals. */
 
 export const AI_SOURCES = {
   'chatgpt.com': 'ChatGPT',
   'chat.openai.com': 'ChatGPT',
-  'openai.com': 'ChatGPT',
   'perplexity.ai': 'Perplexity',
   'www.perplexity.ai': 'Perplexity',
   'gemini.google.com': 'Gemini',
@@ -33,15 +19,15 @@ export const AI_SOURCES = {
   'you.com': 'You.com',
   'poe.com': 'Poe',
   'grok.com': 'Grok',
-  'x.ai': 'Grok',
   'duckduckgo.com/aichat': 'DuckAssist'
 };
 
 export function classifySource(source) {
   if (!source) return null;
-  const s = source.toLowerCase().replace(/^www\./, '');
+  const s = String(source).trim().toLowerCase().replace(/^www\./, '');
+  // Match complete hosts only, never chatgpt.com.other-domain.example.
   for (const [domain, platform] of Object.entries(AI_SOURCES)) {
-    if (s === domain.replace(/^www\./, '') || s.startsWith(domain)) return platform;
+    if (!domain.includes('/') && s === domain.replace(/^www\./, '')) return platform;
   }
   return null;
 }
@@ -341,60 +327,45 @@ export function ga4Readiness(project) {
   };
 }
 
+export function aggregateTrafficRows(rows) {
+ const map=new Map();
+ for(const r of rows){const platform=classifySource(r.sessionSource)||r.sessionSource||'(not set)';const page=r.landingPage||'(not set)';const key=JSON.stringify([r.date,platform,page]);
+ const v=map.get(key)||{date:isoDate(r.date),platform,page,sessions:0,keyEvents:0,revenue:0};
+ v.sessions+=Number(r.sessions||0);v.keyEvents+=Number(r.keyEvents||0);v.revenue+=Number(r.totalRevenue||0);map.set(key,v);}
+ return [...map.values()];
+}
+export function validateTrafficResponse(json) {
+ if(Number(json.rowCount||0)>(json.rows||[]).length)throw new Error('Analytics returned an incomplete result. No stored traffic was replaced. Use a shorter sync window.');
+ if(json.metadata?.subjectToThresholding||json.metadata?.dataLossFromOtherRow||json.metadata?.samplingMetadatas?.length)throw new Error('Analytics flagged thresholding, aggregation loss or sampling. No stored traffic was replaced.');
+ if(!['date','sessionSource','landingPage'].every(n=>json.dimensionHeaders?.some(h=>h.name===n)) || !['sessions','keyEvents','totalRevenue'].every(n=>json.metricHeaders?.some(h=>h.name===n)))throw new Error('Analytics response is missing expected fields. No stored traffic was replaced.');
+ for(const row of json.rows||[])if(row.dimensionValues?.length!==3 || row.metricValues?.length!==3 || row.metricValues.some(v=>v.value==null||v.value===''||!Number.isFinite(Number(v.value))))throw new Error('Analytics returned an invalid row. No stored traffic was replaced.');
+}
 export async function syncGa4(projectId, { days = 540 } = {}) {
-  const project = await one('SELECT * FROM projects WHERE id = $1', [projectId]);
-  const property = project?.ga4_property_id || process.env.GA4_PROPERTY_ID;
-  const ready = ga4Readiness(project);
-  if (!ready.connected) return { skipped: true, reason: ready.why };
-
-  const dateRanges = [{ startDate: `${days}daysAgo`, endDate: 'yesterday' }];
-  const metrics = [
-    { name: 'sessions' },
-    { name: 'conversions' },
-    { name: 'totalRevenue' }
-  ];
-
-  const native = rowsOf(
-    await runReport(project, property, {
-      dateRanges,
-      dimensions: [{ name: 'date' }, { name: 'sessionSource' }, { name: 'landingPage' }],
-      metrics,
-      dimensionFilter: {
-        filter: { fieldName: 'sessionMedium', stringFilter: { matchType: 'EXACT', value: 'ai-assistant' } }
-      },
-      limit: 100000
-    })
-  );
-
-  const all = rowsOf(
-    await runReport(project, property, {
-      dateRanges,
-      dimensions: [{ name: 'date' }, { name: 'sessionSource' }, { name: 'landingPage' }],
-      metrics,
-      limit: 100000
-    })
-  );
-
-  const derived = all.filter((r) => classifySource(r.sessionSource));
-
-  let written = 0;
-  const write = async (rows, method) => {
-    for (const r of rows) {
-      const platform = classifySource(r.sessionSource) || r.sessionSource;
-      await query(
-        `INSERT INTO ga4_daily (project_id, date, platform, classification_method, landing_page, sessions, conversions, revenue)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-         ON CONFLICT (project_id, date, platform, classification_method, landing_page)
-         DO UPDATE SET sessions = EXCLUDED.sessions, conversions = EXCLUDED.conversions, revenue = EXCLUDED.revenue`,
-        [projectId, isoDate(r.date), platform, method, r.landingPage, r.sessions, r.conversions, r.totalRevenue]
-      );
-      written++;
-    }
-  };
-
-  await write(native, 'native');
-  await write(derived, 'derived');
-  await query('UPDATE projects SET ga4_synced_at = now() WHERE id = $1', [projectId]);
-
-  return { skipped: false, native: native.length, derived: derived.length, written };
+ const project=await one('SELECT * FROM projects WHERE id=$1',[projectId]);
+ // A deployment-wide property must never supply another project’s traffic.
+ const property=project?.ga4_property_id;
+ if(!property)return {skipped:true,reason:'Choose an Analytics property for this project first.'};
+ const ready=ga4Readiness(project);if(!ready.connected)return {skipped:true,reason:ready.why};
+ const started=new Date(),end=new Date(started);end.setUTCDate(end.getUTCDate()-1);
+ const start=new Date(end);start.setUTCDate(start.getUTCDate()-(Math.max(1,Math.min(540,Math.floor(Number(days)||540)))-1));
+ const from=start.toISOString().slice(0,10),to=end.toISOString().slice(0,10);
+ const hosts=[...new Set(Object.keys(AI_SOURCES).filter(x=>!x.includes('/')).flatMap(x=>[x.replace(/^www\./,''),'www.'+x.replace(/^www\./,'')]))];
+ const json=await runReport(project,property,{
+  dateRanges:[{startDate:from,endDate:to}],dimensions:[{name:'date'},{name:'sessionSource'},{name:'landingPage'}],
+  metrics:[{name:'sessions'},{name:'keyEvents'},{name:'totalRevenue'}],
+  dimensionFilter:{orGroup:{expressions:[{filter:{fieldName:'sessionMedium',stringFilter:{matchType:'EXACT',value:'ai-assistant',caseSensitive:false}}},{filter:{fieldName:'sessionSource',inListFilter:{values:hosts,caseSensitive:false}}}]}},limit:100000
+ });
+ validateTrafficResponse(json);
+ const rows=aggregateTrafficRows(rowsOf(json));
+ const info={version:2,propertyId:String(property),from,to,currency:/^[A-Z]{3}$/.test(json.metadata?.currencyCode||'')?json.metadata.currencyCode:null,startedAt:started.toISOString(),method:'ai_referral_v2'};
+ const client=await pool.connect();
+ try {await client.query('BEGIN');const current=(await client.query('SELECT ga4_property_id,ga4_synced_at FROM projects WHERE id=$1 FOR UPDATE',[projectId])).rows[0];
+ if(String(current?.ga4_property_id)!==String(property))throw new Error('Analytics property changed during sync. Retry for the selected property.');
+ if(current.ga4_synced_at&&new Date(current.ga4_synced_at)>started)throw new Error('A newer Analytics sync already completed. Its data was kept.');
+ await client.query("DELETE FROM ga4_daily WHERE project_id=$1 AND classification_method='ai_referral_v2'",[projectId]);
+ for(const r of rows)await client.query("INSERT INTO ga4_daily (project_id,date,platform,classification_method,landing_page,sessions,conversions,revenue) VALUES($1,$2,$3,'ai_referral_v2',$4,$5,$6,$7)",[projectId,r.date,r.platform,r.page,r.sessions,r.keyEvents,r.revenue]);
+ await client.query('UPDATE projects SET ga4_synced_at=now(),ga4_sync_info=$2::jsonb WHERE id=$1',[projectId,JSON.stringify(info)]);
+ await client.query('COMMIT');
+ }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+ return {skipped:false,written:rows.length,from,to};
 }

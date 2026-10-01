@@ -2220,15 +2220,13 @@ await test('the traffic panel says more than a session count', async () => {
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
   const route = server.slice(server.indexOf("app.get('/api/projects/:id/traffic'"), server.indexOf('setup: projects, competitors'));
 
-  // Sessions by platform answers "is anything arriving". The useful questions
-  // are which pages they land on, whether those convert, and whether the
-  // number is moving.
-  assert.ok(/landing_page/.test(route), 'landing pages must be returned');
-  assert.ok(/previousSessions/.test(route), 'with something to compare against');
-  assert.ok(/conversionRate: sessions \? /.test(route), 'and a rate that is null rather than zero when nothing arrived');
-
-  assert.ok(/Where AI traffic lands/.test(app), 'and shown, not just computed');
-  assert.ok(/p\.sessions > 20 && rate === 0/.test(app), 'a page with traffic and no conversions is worth flagging');
+  const {trafficReportHtml}=await import('../src/lib/traffic-html.js');
+  const html=trafficReportHtml({total:10,conversions:2,revenue:0,currency:'JOD',state:'ready',sources:[],pages:[{page:'/account',sessions:10,conversions:2}]});
+  assert.match(route,/aiTraffic/);
+  assert.match(html,/Landing pages to review/);
+  assert.match(html,/key events/);
+  assert.match(html,/No conversion rate is inferred/);
+  assert.match(app,/rows.html/);
 });
 
 await test('Analytics and Search Console can be different Google accounts', async () => {
@@ -4160,9 +4158,11 @@ await test('figures a client might screenshot explain themselves', async () => {
   assert.ok((app.match(/helpDot\(/g) || []).length >= 8, 'and is used across the portal, not once');
 
   // Labels say what the number IS, not which system produced it.
-  assert.ok(/Visits from AI assistants/.test(app), 'sessions are named in plain words');
-  assert.ok(/of \$\{totals\.sessions\.toLocaleString\(\)\} visits/.test(app), 'and a count carries its denominator');
-  assert.ok(/not reported by this property/.test(app), 'a dash is explained, since absent is not zero');
+  const {trafficReportHtml}=await import('../src/lib/traffic-html.js');
+  const traffic=trafficReportHtml({total:0,conversions:0,revenue:0,currency:null,sources:[],pages:[]});
+  assert.match(traffic,/0 sessions/);
+  assert.match(traffic,/Monetary totals are withheld/);
+  assert.match(traffic,/recorded zero does not establish/);
 
   // The discrepancy a client will hit first: our topic total vs one query
   // in their own console.

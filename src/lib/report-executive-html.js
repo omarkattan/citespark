@@ -1,3 +1,4 @@
+import {trafficReportHtml} from './traffic-html.js';
 import { DECISION_LABELS, DELIVERY_LABELS, decisionReportText } from './recommendation-decision.js';
 import { reportViewUrl, reportActionAnchor } from './report-ceo.js';
 import { leadershipBrief, reportTitle } from './report-brief.js';
@@ -80,6 +81,7 @@ export function executiveReportHtml(r,{print=false}={}) {
  <p class="note">Script is inferred from question text. Latin-script includes English and may include other languages. These groups can contain different questions, so differences do not isolate a language effect.</p>
  <p><b>Where the questions came from:</b> ${readout.origins.map(x=>`${esc(x.label)}: ${x.questions} / ${e.questions.length}`).join(' · ')}.</p><p class="note">Search Console supports demand for the original Google queries, not AI search volume for a rephrased question. Manually selected and site-suggested questions are research hypotheses. Adding questions changes the sample. Use the same question-and-engine cohort for any comparison over time.</p>
  </section>
+ ${trafficReportHtml(r.traffic)}
  <section class="page" id="selected-actions"><p class="kicker">Selected by your team</p><h2>The decisions to take forward</h2><p class="note">Explicitly selected notes, copied on the dates below. These are editorial recommendations, not measured outcomes or proof of causation. They may refer to an earlier measurement than this report. Confirm current scope and ownership before implementation.</p>
  ${(r.review?.notes||[]).length ? r.review.notes.map((n,i)=>`<article class="action selected-action" id="${esc(reportActionAnchor(n,i))}"><span class="brief-label">Selected recommendation ${i+1} · ${date(n.selected_at)}</span><h3 dir="auto">${esc(reportTitle(n.title))}</h3>${n.outdated?'<p class="callout warn"><b>Report copy needs review.</b> The saved action has changed since this copy was selected. Open Opportunities and review the report copy before sharing. The text below has not been automatically replaced.</p>':''}${selectedReportAction(n)}</article>`).join('') : '<div class="callout">No reviewed recommendations selected yet. The investigations below are starting points for review, not approved implementation instructions.</div>'}</section>
  <section class="page"><p class="kicker">Further investigation</p><h2>What still needs checking</h2><p>These automated priorities are evidence-led review steps, separate from your team’s selected recommendations. They do not establish why an engine selected a source or promise an improvement.</p>

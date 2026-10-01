@@ -229,19 +229,9 @@ export async function buildRecommendations(projectId) {
     if (list.length < 8) list.push({ domain: row.domain, url: row.url, position: row.position, n: row.n });
   }
 
-  const ga4 = await many(
-    `SELECT landing_page,
-            SUM(sessions)::int AS sessions,
-            SUM(conversions)::float AS conversions,
-            SUM(revenue)::float AS revenue
-     FROM ga4_daily
-     WHERE project_id = $1 AND date > CURRENT_DATE - INTERVAL '30 days'
-       AND landing_page IS NOT NULL
-     GROUP BY landing_page
-     ORDER BY sessions DESC
-     LIMIT 25`,
-    [projectId]
-  );
+  const {aiTraffic}=await import('./report.js');
+  const verifiedTraffic=await aiTraffic(projectId,30);
+  const ga4=verifiedTraffic.state==='ready'?verifiedTraffic.pages:[];
 
   return evaluateRules({ project, stats, sourceRows, ownCitedByPrompt, citedByPrompt, priorRates, ga4, fanOutByPrompt });
 }

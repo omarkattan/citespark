@@ -701,3 +701,8 @@ ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS review_decision JSONB NOT N
 
 -- Batch 61: retain structured report copies independently of later task edits.
 ALTER TABLE report_review_notes ADD COLUMN IF NOT EXISTS decision_snapshot JSONB;
+
+-- Verified GA4 coverage, property binding and currency. Legacy rows remain isolated.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS ga4_sync_info JSONB;
+ALTER TABLE ga4_daily ALTER COLUMN revenue TYPE NUMERIC(18,6);
+ALTER TABLE ga4_daily ALTER COLUMN conversions TYPE NUMERIC(18,6);

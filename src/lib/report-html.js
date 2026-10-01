@@ -1,3 +1,4 @@
+import {trafficReportHtml} from './traffic-html.js';
 import {collectionDisplayText,collectionAsset} from './collection-display.js';
 import { ceoReportHtml } from './report-ceo.js';
 import { executiveReportHtml } from './report-executive-html.js';
@@ -481,70 +482,7 @@ ${
     : ''
 }
 
-<h2>What the assistants actually sent</h2>
-${
-  r.traffic?.total
-    ? `<div class="cards">
-        <div class="card">
-          <div class="k">Sessions</div>
-          <div class="v good">${r.traffic.total.toLocaleString()}</div>
-          <div class="s">from AI assistants, last ${r.traffic.days} days</div>
-        </div>
-        <div class="card">
-          <div class="k">Conversions</div>
-          <div class="v">${Math.round(r.traffic.conversions).toLocaleString()}</div>
-          <div class="s">recorded against those sessions</div>
-        </div>
-        ${
-          r.traffic.revenue
-            ? `<div class="card">
-                <div class="k">Revenue</div>
-                <div class="v good">$${Math.round(r.traffic.revenue).toLocaleString()}</div>
-                <div class="s">attributed in Analytics</div>
-              </div>`
-            : ''
-        }
-      </div>
-
-      <table><thead><tr><th>Assistant</th><th class="num">Sessions</th><th class="barcell"></th><th class="num">Conversions</th></tr></thead><tbody>
-      ${(() => {
-        const top = Math.max(...r.traffic.sources.map((x) => x.sessions), 1);
-        return r.traffic.sources
-          .map(
-            (x) => `<tr>
-              <td>${esc(x.source)}</td>
-              <td class="num">${x.sessions.toLocaleString()}</td>
-              <td class="barcell"><span class="bar"><i style="width:${Math.round((x.sessions / top) * 100)}%"></i></span></td>
-              <td class="num">${Math.round(x.conversions).toLocaleString()}</td>
-            </tr>`
-          )
-          .join('');
-      })()}
-      </tbody></table>
-
-      ${
-        r.traffic.pages?.length
-          ? `<h3 style="font-size:14px;margin:26px 0 4px">Where they landed</h3>
-            <table><thead><tr><th>Page</th><th class="num">Sessions</th><th class="num">Conversions</th></tr></thead><tbody>
-            ${r.traffic.pages
-              .map(
-                (p) => `<tr>
-                  <td><span class="url">${esc(p.page.slice(0, 76))}</span></td>
-                  <td class="num">${p.sessions.toLocaleString()}</td>
-                  <td class="num">${Math.round(p.conversions).toLocaleString()}</td>
-                </tr>`
-              )
-              .join('')}
-            </tbody></table>`
-          : ''
-      }
-
-      <div class="callout">
-        Everything above this section is a leading indicator. This is the part that pays for the work, and it is the
-        number to watch as the visibility figures move.
-      </div>`
-    : `<div class="callout warn">${esc(r.traffic?.why || 'No Analytics data is available for this site.')}</div>`
-}
+${trafficReportHtml(r.traffic)}
 
 ${
   r.themes?.length
@@ -660,8 +598,14 @@ export function reportCsv(r) {
       ['Questions asked, first cycle', r.trend.firstQuestions ?? ''],
       ['Questions asked, latest cycle', r.trend.lastQuestions ?? ''],
       ['Cycles citing our own site', `${r.sources.ownCited} of ${r.sources.totalCycles}`],
-      ['AI sessions, last 90 days', r.traffic?.total ?? 'not connected'],
-      ['Conversions from AI traffic', r.traffic?.conversions ?? '']
+      ['GA4 requested start', r.traffic?.from ?? ''],
+      ['GA4 requested end', r.traffic?.to ?? ''],
+      ['GA4 covered start', r.traffic?.coveredFrom ?? ''],
+      ['GA4 covered end', r.traffic?.coveredTo ?? ''],
+      ['GA4 last sync', r.traffic?.syncedAt ?? ''],
+      ['GA4 currency', r.traffic?.currency ?? 'unknown'],
+      ['AI sessions, requested last 90 days', r.traffic?.total ?? (r.traffic?.state || 'unavailable')],
+      ['Key events from AI referral sessions', r.traffic?.conversions ?? '']
     ]
   );
 
@@ -679,20 +623,19 @@ export function reportCsv(r) {
 
   section(
     'AI traffic by assistant, last 90 days',
-    ['assistant', 'sessions', 'conversions'],
-    (r.traffic?.sources || []).map((x) => [x.source, x.sessions, Math.round(x.conversions)])
+    ['assistant', 'sessions', 'key_events'],
+    (r.traffic?.sources || []).map((x) => [x.source, x.sessions, x.conversions])
   );
 
   // The pages assistants actually send people to, which is the thing a
   // client can act on directly.
   section(
     'Pages AI traffic lands on',
-    ['url', 'sessions', 'conversions', 'conversion_rate_pct'],
+    ['url', 'sessions', 'key_events'],
     (r.traffic?.pages || []).map((p) => [
       p.page,
       p.sessions,
-      Math.round(p.conversions),
-      p.sessions ? Math.round((p.conversions / p.sessions) * 100) : 0
+      p.conversions
     ])
   );
 
