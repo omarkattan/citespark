@@ -733,3 +733,9 @@ CREATE TABLE IF NOT EXISTS report_analyst_drafts (
 CREATE INDEX IF NOT EXISTS report_analyst_project ON report_analyst_drafts(project_id,created_at DESC);
 
 ALTER TABLE report_analyst_drafts ADD COLUMN IF NOT EXISTS cost_estimate JSONB;
+
+-- Batch 96: retain editorial history without replacing the original AI response.
+ALTER TABLE report_analyst_drafts ADD COLUMN IF NOT EXISTS edit_revision INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE report_analyst_drafts ADD COLUMN IF NOT EXISTS edit_history JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE report_analyst_drafts ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
+ALTER TABLE report_analyst_drafts ADD COLUMN IF NOT EXISTS edited_by INTEGER;

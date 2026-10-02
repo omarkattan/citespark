@@ -43,7 +43,7 @@ test('rendering escapes model text and keeps source links, limitations and unkno
 function store(deps={}){
  let src=readFileSync(new URL('../src/lib/report-analyst-store.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replace(/export /g,'');
  const context=vm.createContext({...analyst,process:{env:{ANTHROPIC_API_KEY:'test'}},...deps});
- vm.runInContext(src+'\nthis.api={reportPacket,currentAnalysis,generateAnalysis,approveAnalysis,recoverAnalysis};',context);return context.api;
+ vm.runInContext(src+'\nthis.api={reportPacket,currentAnalysis,generateAnalysis,approveAnalysis,recoverAnalysis,editAnalysis};',context);return context.api;
 }
 test('unapproved and stale analysis cannot appear in reports; approval checks project and evidence',async()=>{
  const r=report(),p=analyst.analystPacket(r),row={id:7,evidence_hash:'old',packet:p,analysis:draft(p)};let updated=false;
@@ -162,4 +162,31 @@ test('analysis policy update invalidates earlier approval without changing measu
  assert.deepEqual(p.records,old.records);
  assert.equal(p.sourceFingerprint,old.sourceFingerprint);
  assert.match(p.definitions.traffic,/No question-level attribution/);
+});
+test('editing preserves original response and references, archives wording, clears approval and rejects stale saves',async()=>{
+ const {PGlite}=await import(process.env.PGLITE_MODULE),db=new PGlite(),r=report(),p=analyst.analystPacket(r),a=draft(p);
+ try{
+ await db.exec('CREATE TABLE projects(id int PRIMARY KEY); INSERT INTO projects VALUES(31);');
+ await db.exec('-- Batch 85:'+readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8').split('-- Batch 85:')[1]);
+ await db.query("INSERT INTO report_analyst_drafts(id,project_id,evidence_hash,packet,status,requested_model,analysis,raw_response,approved_at) VALUES(7,31,$1,$2,'draft','test',$3,'original raw',now())",[analyst.packetHash(p),p,a]);
+ const api=store({many:async()=>[],pool:{connect:async()=>({query:(sql,args)=>db.query(sql,args),release(){}})},one:async(sql,args)=>(await db.query(sql,args)).rows[0],query:async(sql,args)=>{const out=await db.query(sql,args);return {rowCount:out.affectedRows};}});
+ const changes=structuredClone(a);changes.findings[0].title='Review developer attribution';changes.findings[0].evidence=[{id:'fabricated',quote:'do not accept this'}];changes.findings[0].kind='proposed_change';
+ await api.editAnalysis(r,7,42,0,changes);
+ const row=(await db.query('SELECT * FROM report_analyst_drafts WHERE id=7')).rows[0];
+ assert.equal(row.raw_response,'original raw');assert.equal(row.edit_revision,1);assert.equal(row.approved_at,null);assert.equal(row.edited_by,42);
+ assert.deepEqual(row.edit_history[0].analysis,a);assert.deepEqual(row.analysis.findings[0].evidence,a.findings[0].evidence);assert.equal(row.analysis.findings[0].kind,'investigate');
+ await assert.rejects(api.editAnalysis(r,7,42,0,changes),/Someone edited/);
+ await assert.rejects(api.approveAnalysis(r,7,42,0),/draft has changed/);
+ await api.approveAnalysis(r,7,42,1);
+ assert.ok((await db.query('SELECT approved_at FROM report_analyst_drafts WHERE id=7')).rows[0].approved_at);
+ const invalid=structuredClone(changes);invalid.findings[0].title='';await assert.rejects(api.editAnalysis(r,7,42,1,invalid),/missing/);
+ assert.equal((await db.query('SELECT edit_revision FROM report_analyst_drafts WHERE id=7')).rows[0].edit_revision,1);
+ await assert.rejects(api.editAnalysis({...r,project:{id:99}},7,42,1,changes),/not found/);
+ }finally{await db.close();}
+});
+test('editor escapes values, keeps evidence outside text fields and includes review version',()=>{
+ const p=analyst.analystPacket(report()),a=draft(p);a.findings[0].title='</textarea><script>bad</script>';
+ const row={id:7,packet:p,analysis:a,status:'draft',evidence_hash:analyst.packetHash(p),edit_revision:2,raw_response:'<script>raw</script>'};
+ const html=analystPageHtml(report().project,new URLSearchParams(),{...p,hash:row.evidence_hash},[row],'test');
+ assert.match(html,/data-analysis-editor/);assert.match(html,/data-revision="2"/);assert.doesNotMatch(html,/<script>bad|<script>raw/);assert.doesNotMatch(html,/data-field="evidence"/);
 });

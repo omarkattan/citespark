@@ -46,13 +46,15 @@ export async function generateAnalysis(report,userId,{regenerate=false}={}){
   return await one("UPDATE report_analyst_drafts SET analysis=$2,status='draft' WHERE id=$1 RETURNING *",[row.id,analysis]);
  }catch(error){await query("UPDATE report_analyst_drafts SET status='failed',error=$2 WHERE id=$1",[row.id,error.name==='TimeoutError'?'Analysis timed out. Provider usage may be unknown.':error.message]);throw error;}
 }
-export async function approveAnalysis(report,id,userId){
+export async function approveAnalysis(report,id,userId,revision=0){
  const row=await one("SELECT * FROM report_analyst_drafts WHERE id=$1 AND project_id=$2 AND status='draft'",[id,report.project.id]);
  if(!row)throw new Error('Draft not found for this project.');
  const packet=await reportPacket(report);
  if(row.evidence_hash!==packetHash(packet))throw new Error('The evidence has changed. Generate and review a current draft before including it.');
+ if(!Number.isInteger(revision)||revision!==(row.edit_revision||0))throw Error('The draft has changed. Refresh and review the latest wording before inclusion.');
  validateAnalysis(row.analysis,packet);
- await query('UPDATE report_analyst_drafts SET approved_at=now(),approved_by=$2 WHERE id=$1',[row.id,userId]);
+ const updated=await query('UPDATE report_analyst_drafts SET approved_at=now(),approved_by=$2 WHERE id=$1 AND project_id=$3 AND edit_revision=$4',[row.id,userId,report.project.id,revision]);
+ if(updated?.rowCount===0)throw Error('The draft changed while you were reviewing it. Refresh before inclusion.');
 }
 
 // Revalidate the retained response. Never make a provider call or approve the result here.
@@ -67,4 +69,27 @@ export async function recoverAnalysis(report,id){
  validateAnalysis(value,row.packet);
  const analysis=validateAnalysis(value,packet);
  return await one("UPDATE report_analyst_drafts SET analysis=$3,status='draft',error=NULL WHERE id=$1 AND project_id=$2 AND status='failed' RETURNING *",[id,report.project.id,analysis]);
+}
+
+export async function editAnalysis(report,id,userId,revision,changes){
+ if(!Number.isInteger(revision)||revision<0)throw Error('Refresh the draft before editing.');
+ const packet=await reportPacket(report),db=await pool.connect();
+ try{
+  await db.query('BEGIN');
+  const {rows}=await db.query("SELECT * FROM report_analyst_drafts WHERE id=$1 AND project_id=$2 AND status='draft' FOR UPDATE",[id,report.project.id]);
+  const row=rows[0];
+  if(!row)throw Error('Draft not found for this project.');
+  if(row.edit_revision!==revision)throw Error('Someone edited this draft. Copy your changes before refreshing.');
+  if(row.evidence_hash!==packetHash(packet))throw Error('The evidence has changed. Generate a current draft before editing.');
+  if(!Array.isArray(changes?.findings)||changes.findings.length!==row.analysis.findings.length)throw Error('Keep the existing findings and their evidence references.');
+  const fields=['title','observation','implication','action','done_when','follow_up'];
+  const candidate={findings:row.analysis.findings.map((f,i)=>({...f,...Object.fromEntries(fields.map(k=>[k,changes.findings[i]?.[k]]))})),limitations:changes.limitations};
+  const analysis=validateAnalysis(candidate,packet);
+  const history=[{revision:row.edit_revision,analysis:row.analysis,edited_at:row.edited_at,edited_by:row.edited_by,approved_at:row.approved_at,approved_by:row.approved_by}];
+  await db.query(`UPDATE report_analyst_drafts SET analysis=$3,edit_revision=edit_revision+1,
+   edit_history=edit_history || $4::jsonb,edited_at=now(),edited_by=$5,approved_at=NULL,approved_by=NULL
+   WHERE id=$1 AND project_id=$2`,[id,report.project.id,analysis,JSON.stringify(history),userId]);
+  await db.query('UPDATE report_analyst_drafts SET approved_at=NULL,approved_by=NULL WHERE project_id=$1 AND evidence_hash=$2 AND approved_at IS NOT NULL',[report.project.id,row.evidence_hash]);
+  await db.query('COMMIT');
+ }catch(error){await db.query('ROLLBACK');throw error;}finally{db.release();}
 }
