@@ -47,3 +47,16 @@ test('Analytics refresh rechecks coverage and preserves dirty forms on success, 
  dom.window.close();
  }
 });
+
+test('Search Console preparation separates property provenance, missing dates and historical report scope',()=>{
+ const project={id:28,name:'Bank'},property='sc-domain:bank.example';
+ const q=(prop,date,snapshotProp=prop)=>({origin_details:{property:prop,gscSnapshot:{property:snapshotProp,fetchedAt:date}}});
+ const search={connected:true,siteUrl:property,questions:[q(property,'2026-10-01'),q(property,'2026-09-01'),q(property,'bad-date'),q('sc-domain:other.example','2026-10-01'),q(property,'2026-10-01','sc-domain:old.example')]};
+ const html=reportPreparationHtml(project,[],{},search);
+ assert.match(html,/2 \/ 5 have dated evidence/);assert.match(html,/1 question has a different/);assert.match(html,/from 2026-09-01 to 2026-10-01/);assert.match(html,/not the Google search reporting period/);assert.match(html,/does not certify the report/);assert.ok(html.indexOf('Search Console evidence')<html.indexOf('Analytics report coverage'));
+ assert.match(reportPreparationHtml(project,[],{}, {...search,connected:false}),/not connected/);
+ assert.match(reportPreparationHtml(project,[],{}, {...search,siteUrl:null}),/Choose a Search Console property/);
+ assert.match(reportPreparationHtml(project,[],{}, {...search,questions:[]}),/No active Search Console-derived questions/);
+ assert.doesNotMatch(reportPreparationHtml(project,[],{}, {...search,siteUrl:'<img src=x>'}),/<img/);
+ assert.match(reportPreparationHtml(project,[],{},null),/could not be checked/);
+});

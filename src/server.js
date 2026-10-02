@@ -2511,7 +2511,9 @@ app.get('/api/projects/:id/report/prepare', requireAuth, wrap(async (req,res)=>{
  const {reportPreparationHtml}=await import('./lib/report-preparation.js');
  const {aiTraffic}=await import('./lib/report.js');
  const traffic=await aiTraffic(project.id,90).catch(()=>({state:'error',why:'Analytics coverage could not be checked. Try refreshing this page.'}));
- res.type('html').send(reportPreparationHtml(project,rows,traffic));
+ const search=await many("SELECT origin_details FROM prompts WHERE project_id=$1 AND active AND source LIKE 'gsc%'",[project.id])
+  .then(questions=>({connected:gscAuth(project).connected,siteUrl:project.gsc_site_url,questions})).catch(()=>null);
+ res.type('html').send(reportPreparationHtml(project,rows,traffic,search));
 }));
 
 app.get('/api/projects/:id/report', requireAuth, wrap(async (req, res) => {
