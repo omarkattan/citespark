@@ -709,3 +709,27 @@ ALTER TABLE ga4_daily ALTER COLUMN conversions TYPE NUMERIC(18,6);
 
 -- Resumable project setup. Existing measured projects are not re-onboarded.
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS setup_step TEXT;
+
+-- Batch 85: versioned report analysis, separate from measurement and task decisions.
+CREATE TABLE IF NOT EXISTS report_analyst_drafts (
+ id BIGSERIAL PRIMARY KEY,
+ project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ evidence_hash TEXT NOT NULL,
+ packet JSONB NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('generating','draft','failed')),
+ requested_model TEXT NOT NULL,
+ returned_model TEXT,
+ provider_id TEXT,
+ usage JSONB,
+ stop_reason TEXT,
+ raw_response TEXT,
+ analysis JSONB,
+ error TEXT,
+ created_by INTEGER,
+ approved_by INTEGER,
+ approved_at TIMESTAMPTZ,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS report_analyst_project ON report_analyst_drafts(project_id,created_at DESC);
+
+ALTER TABLE report_analyst_drafts ADD COLUMN IF NOT EXISTS cost_estimate JSONB;

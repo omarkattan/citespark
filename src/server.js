@@ -2516,6 +2516,44 @@ app.get('/api/projects/:id/report/prepare', requireAuth, wrap(async (req,res)=>{
  res.type('html').send(reportPreparationHtml(project,rows,traffic,search,req.query));
 }));
 
+// Analyst generation is explicit. Report reads never call a model.
+app.get('/api/projects/:id/report/analyst',requireAuth,wrap(async(req,res)=>{
+ const project=await assertProject(req,res);if(!project)return;
+ const {buildReport}=await import('./lib/report.js');
+ const {reportRange}=await import('./lib/report-loading.js');
+ const {reportPacket}=await import('./lib/report-analyst-store.js');
+ const {packetHash,analystModel}=await import('./lib/report-analyst.js');
+ const {analystPageHtml}=await import('./lib/report-analyst-html.js');
+ const range=reportRange(req.query);
+ if(range.get('from')&&range.get('to')&&range.get('from')>range.get('to'))return res.status(400).send('Choose a valid report period.');
+ const report=await buildReport(project.id,Object.fromEntries(range),{presentationOnly:true});
+ const packet=await reportPacket(report);packet.hash=packetHash(packet);
+ const rows=await many('SELECT * FROM report_analyst_drafts WHERE project_id=$1 ORDER BY id DESC LIMIT 10',[project.id]);
+ res.type('html').send(analystPageHtml(project,range,packet,rows,analystModel()));
+}));
+app.post('/api/projects/:id/report/analyst',requireAuth,wrap(async(req,res)=>{
+ const project=await assertProject(req,res);if(!project)return;
+ // JSON requests and same-site session cookies prevent cross-site form submissions.
+ if(!req.is('application/json'))return res.status(415).json({error:'Send a JSON request.'});
+ const op=req.body?.operation;
+ if(!['generate','regenerate','approve','remove'].includes(op))return res.status(400).json({error:'Unknown analysis operation.'});
+ if(op==='remove'){
+  await query('UPDATE report_analyst_drafts SET approved_at=NULL,approved_by=NULL WHERE project_id=$1',[project.id]);
+  return res.json({ok:true});
+ }
+ const {buildReport}=await import('./lib/report.js');
+ const {reportRange}=await import('./lib/report-loading.js');
+ const range=reportRange(req.query);
+ if(range.get('from')&&range.get('to')&&range.get('from')>range.get('to'))return res.status(400).json({error:'Choose a valid report period.'});
+ const report=await buildReport(project.id,Object.fromEntries(range),{presentationOnly:true});
+ const {generateAnalysis,approveAnalysis}=await import('./lib/report-analyst-store.js');
+ try{
+  if(op==='generate'||op==='regenerate'){const draft=await generateAnalysis(report,req.session.userId,{regenerate:op==='regenerate'});return res.json({ok:true,id:draft.id});}
+  if(!/^\d+$/.test(String(req.body.id||'')))return res.status(400).json({error:'Choose a saved draft.'});
+  await approveAnalysis(report,req.body.id,req.session.userId);res.json({ok:true});
+ }catch(error){res.status(400).json({error:error.message});}
+}));
+
 // Respond immediately with an honest waiting screen, before building the report.
 app.get('/api/projects/:id/report/open', requireAuth, wrap(async(req,res)=>{
  const project=await assertProject(req,res);if(!project)return;
@@ -2533,6 +2571,11 @@ app.get('/api/projects/:id/report', requireAuth, wrap(async (req, res) => {
   const format = String(req.query.format || 'html');
   const started = performance.now();
   const report = await buildReport(project.id, { from: req.query.from, to: req.query.to }, {presentationOnly:format==='html' && req.query.detail!=='1'});
+  if(format==='html' && req.query.detail!=='1'){
+    const {currentAnalysis}=await import('./lib/report-analyst-store.js');
+    try{const analysis=await currentAnalysis(report);if(analysis?.stale)report.analystNotice='AI analysis is withheld because its evidence has changed. Review a fresh draft in report preparation.';else report.analyst=analysis;}
+    catch(error){console.error('Report analyst verification failed:',error.message);report.analystNotice=error.code==='42P01'?'AI analysis is unavailable until the database update is applied.':'AI analysis could not be verified and has been left out. Review it in report preparation before sharing.';}
+  }
   res.setHeader('Server-Timing', `report;dur=${(performance.now()-started).toFixed(1)}`);
 
   const stamp = new Date().toISOString().slice(0, 10);

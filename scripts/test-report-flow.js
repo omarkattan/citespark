@@ -43,3 +43,8 @@ test('engine detail stays in collection review even when every check is complete
  const html=executiveReportHtml(f),section=html.indexOf('<section id="collection-review"');
  assert.ok(section>html.indexOf('id="selected-actions"'));assert.ok(html.indexOf('<b>Engine coverage:</b>')>section);assert.equal(html.split('<b>Engine coverage:</b>').length,2);assert.match(html,/<h2>Collection coverage<\/h2>/);assert.doesNotMatch(html.slice(section),/Review affected questions and complete/);
 });
+test('reviewed AI analysis replaces generic readout cards while preserving measurement coverage',()=>{
+ const f=fixture();f.analyst={packet:{records:[{id:'scope',label:'Measurement',text:'Evidence',link:'/api/projects/28/report#collection-review'}]},analysis:{findings:[{kind:'investigate',title:'A specific management decision',observation:'Observed evidence',implication:'Commercial interpretation',action:'Check the relevant page',done_when:'A supported decision is recorded',follow_up:'Repeat the same sample',evidence:[{id:'scope',quote:'Evidence'}]}],limitations:['No causal claim.']}};
+ const html=executiveReportHtml(f);if(process.env.REPORT_AI_PREVIEW)writeFileSync(process.env.REPORT_AI_PREVIEW,html);assert.match(html,/A specific management decision/);assert.match(html,/Commercial interpretation/);assert.match(html,/Done when:/);assert.match(html,/No causal claim/);assert.doesNotMatch(html,/Protect an existing strength/);assert.match(html,/Question coverage/);assert.match(html,/id="selected-actions"/);
+ delete f.analyst;f.analystNotice='Evidence has changed. Review a fresh draft.';const stale=executiveReportHtml(f);assert.match(stale,/Evidence has changed/);assert.doesNotMatch(stale,/A specific management decision/);
+});

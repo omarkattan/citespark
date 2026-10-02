@@ -56,3 +56,13 @@ document.addEventListener('change',event=>{
   const q=new URLSearchParams(params);if(link.dataset.reportLink==='ceo')q.set('view','ceo');link.href=link.dataset.path+(q.size?'?'+q.toString():'');
  });
 });
+
+// Keep analyst evidence scope aligned with the report date inputs.
+document.addEventListener('change',event=>{
+ if(!event.target.matches('[data-report-from],[data-report-to]'))return;
+ const a=document.querySelector('[data-analyst-link]');if(!a)return;
+ if(!a.dataset.path)a.dataset.path=new URL(a.href).pathname;
+ const from=document.querySelector('[data-report-from]').value,to=document.querySelector('[data-report-to]').value;
+ const invalid=!!(from&&to&&from>to);a.setAttribute('aria-disabled',String(invalid));
+ if(invalid)a.removeAttribute('href');else a.href=a.dataset.path+location.search;
+});
