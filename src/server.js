@@ -2509,7 +2509,9 @@ app.get('/api/projects/:id/report/prepare', requireAuth, wrap(async (req,res)=>{
  WHERE r.project_id=$1 AND (n.recommendation_id IS NOT NULL OR r.review_decision->>'stage' IN ('ready','investigate','no_change'))
  ORDER BY (n.recommendation_id IS NOT NULL) DESC,r.updated_at DESC,r.id`,[project.id]);
  const {reportPreparationHtml}=await import('./lib/report-preparation.js');
- res.type('html').send(reportPreparationHtml(project,rows));
+ const {aiTraffic}=await import('./lib/report.js');
+ const traffic=await aiTraffic(project.id,90).catch(()=>({state:'error',why:'Analytics coverage could not be checked. Try refreshing this page.'}));
+ res.type('html').send(reportPreparationHtml(project,rows,traffic));
 }));
 
 app.get('/api/projects/:id/report', requireAuth, wrap(async (req, res) => {

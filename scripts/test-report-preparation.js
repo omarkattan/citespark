@@ -23,3 +23,27 @@ test('UI fetches preview before publishing and rejects stale updates without los
  assert.equal(calls.length,1);assert.equal(calls[0].options,undefined);const panel=w.document.querySelector('[data-preview-panel]');assert.equal(panel.querySelector('img,script'),null);
  panel.querySelector('button').click();await settle();assert.equal(JSON.parse(calls[1].options.body).version,'v1');assert.match(w.document.querySelector('[data-status]').textContent,/action changed/);assert.equal(w.document.querySelector('[name=change]').value,'Link hub');dom.window.close();
 });
+
+test('Analytics preflight distinguishes partial, covered, missing and disconnected data',()=>{
+ const project={id:28,name:'Bank'};
+ for(const [state,expected] of [['partial',/Requested 2026-07-04 to 2026-10-01/],['ready',/requested period is covered/],['needs_sync',/Sync first/],['error',/Sync first/]]){
+ const html=reportPreparationHtml(project,[],{state,connected:true,from:'2026-07-04',to:'2026-10-01',coveredFrom:'2026-07-04',coveredTo:'2026-09-30',days:90,why:'Sync first'});
+ assert.match(html,expected);assert.match(html,/data-report-sync-ga4="28"/);assert.ok(html.indexOf('Analytics report coverage')<html.indexOf('<h2>Selected recommendations'));
+ }
+ const html=reportPreparationHtml(project,[],{state:'disconnected',why:'<img src=x>'});assert.doesNotMatch(html,/data-report-sync-ga4|<img/);assert.match(html,/Open project Settings/);
+});
+test('Analytics refresh rechecks coverage and preserves dirty forms on success, partial coverage and failure',async()=>{
+ const {JSDOM}=await import(process.env.JSDOM_MODULE);
+ for(const result of ['ready','partial','failure']){
+ const dom=new JSDOM(reportPreparationHtml({id:28,name:'Bank'},[row],{state:'partial',connected:true}),{runScripts:'outside-only',url:'https://cited.ae/api/projects/28/report/prepare'});const w=dom.window;const calls=[];
+ w.fetch=async(url,options)=>{calls.push({url,options});return {ok:result!=='failure',json:async()=>result==='failure'?{error:'Permission expired'}:{state:result,from:'2026-07-04',to:'2026-10-01',coveredFrom:'2026-07-04',coveredTo:result==='ready'?'2026-10-01':'2026-09-30',days:90,syncedAt:'2026-10-02'}};};
+ w.eval(readFileSync(new URL('../src/public/report-preparation.js',import.meta.url),'utf8'));
+ const edit=w.document.querySelector('[name=change]');edit.value='Unsaved edit';edit.dispatchEvent(new w.Event('input',{bubbles:true}));
+ const button=w.document.querySelector('[data-report-sync-ga4]');button.click();assert.equal(button.disabled,true);button.click();await new Promise(r=>setTimeout(r,0));
+ assert.equal(calls[0].url,'/api/projects/28/sync-ga4');assert.equal(calls[0].options.method,'POST');assert.equal(calls.length,result==='failure'?1:2);
+ assert.equal(edit.value,'Unsaved edit');assert.equal(button.disabled,false);
+ if(result==='failure')assert.match(w.document.querySelector('[data-traffic-status]').textContent,/Permission expired/);
+ else {assert.equal(calls[1].url,'/api/projects/28/traffic?days=90');assert.match(w.document.querySelector('[data-traffic-coverage]').textContent,result==='ready'?/requested period is covered/:/still partial/);assert.equal(w.document.querySelector('[data-traffic-synced]').textContent,'2026-10-02');}
+ dom.window.close();
+ }
+});

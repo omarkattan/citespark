@@ -25,3 +25,19 @@ document.addEventListener('click',async event=>{
   const close=document.createElement('button');close.className='secondary';close.textContent='Close preview';close.addEventListener('click',()=>panel.hidden=true);panel.append(close);
  }catch(error){status.textContent=error.message;}finally{button.disabled=false;}
 });
+
+// Refresh only Analytics status. Never reload or replace unsaved recommendation forms.
+document.addEventListener('click',async event=>{
+ const button=event.target.closest('[data-report-sync-ga4]');if(!button||button.disabled)return;
+ const status=document.querySelector('[data-traffic-status]'),coverage=document.querySelector('[data-traffic-coverage]');
+ button.disabled=true;status.textContent='Syncing Analytics. Your recommendation edits stay here.';
+ try{
+  await reportRequest(`/api/projects/${button.dataset.reportSyncGa4}/sync-ga4`,{method:'POST'});
+  const t=await reportRequest(`/api/projects/${button.dataset.reportSyncGa4}/traffic?days=90`);
+  document.querySelector('[data-traffic-synced]').textContent=t.syncedAt||'Not recorded';
+  const covered=t.coveredFrom&&t.coveredTo?`Stored data covers ${t.coveredFrom} to ${t.coveredTo}. `:'';
+  coverage.textContent=t.state==='ready'?`${covered}The requested period is covered. Coverage does not verify lead quality or tracking accuracy.`:t.state==='partial'?`${covered}Coverage is still partial for ${t.from} to ${t.to}. Do not present it as a complete ${t.days}-day period.`:t.why||'Coverage could not be verified. Do not treat missing data as zero.';
+  status.textContent=`Analytics sync finished. ${t.syncedAt?`Last successful sync: ${t.syncedAt}. `:''}Reopen the report to use the latest stored data. Existing PDF downloads do not update.`;
+ }catch(error){status.textContent=`Analytics refresh could not be verified: ${error.message}. Recommendation edits are preserved. Retry before sharing.`;}
+ finally{button.disabled=false;}
+});
