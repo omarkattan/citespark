@@ -6,7 +6,7 @@ import {reportHtml} from '../src/lib/report-html.js';
 import {summariseEvidence} from '../src/lib/report-evidence.js';
 import {writeFileSync} from 'node:fs';
 const executive={...summariseEvidence([{prompt_id:1,text:'Which bank offers easy transfers?',source:'manual',engine:'chatgpt',ok:true,mentioned:true,cited:false,response_text:'Complete answer.'},{prompt_id:1,text:'Which bank offers easy transfers?',source:'manual',engine:'perplexity',ok:true,mentioned:false,cited:true,response_text:'Complete answer.'}]),measurement:{id:45,started_at:'2026-09-29',settings:{maxTokens:2000}},cycle:'2026-09-29',priorities:[{do:'Inspect the transfer answers',because:'Engines gave different results.',owner:'Content team',done:'Evidence reviewed.'}]};
-const r={project:{id:28,name:'Example Bank',domain:'bank.example'},generatedAt:'2026-09-30',executive,trend:{comparable:false},review:{notes:[{title:'Link the app page to existing transfer options',notes:'Review decision: Ready to implement\nPage: https://bank.example/app\nEvidence reviewed: Two measured answers. The existing transfer hub covers available options.\nChange or decision: Add a descriptive link to the existing transfer hub. Keep the instructions link.\nArabic label: قارن خيارات التحويل\nThis is an editorial decision, not a measured outcome.',selected_at:'2026-09-30'}],comparisons:[]}};
+const r={project:{id:28,name:'Example Bank',domain:'bank.example'},generatedAt:'2026-09-30',executive,trend:{comparable:false},review:{notes:[{status:'open',title:'Link the app page to existing transfer options',notes:'Review decision: Ready to implement\nPage: https://bank.example/app\nEvidence reviewed: Two measured answers. The existing transfer hub covers available options.\nChange or decision: Add a descriptive link to the existing transfer hub. Keep the instructions link.\nArabic label: قارن خيارات التحويل\nThis is an editorial decision, not a measured outcome.',selected_at:'2026-09-30'}],comparisons:[]}};
 test('titles end at word boundaries with visible truncation and preserve short Arabic titles',()=>{
  const text='Add a descriptive link beside the existing payments section so customers can compare the transfer options already available from the bank';const title=reportTitle(text);assert.ok(title.length<=120);assert.ok(title.endsWith('…'));assert.ok(text.startsWith(title.slice(0,-1)+' '));assert.equal(reportTitle('قارن خيارات التحويل'),'قارن خيارات التحويل');
  assert.equal(reportNoteDraft({title:'Legacy',review_decision:{change:text,stage:'ready'}}).title,title);
@@ -34,7 +34,7 @@ test('summary uses measured source groups without inventing intent or a trend',(
 test('specific next step prioritises a current structured ready decision over investigation',async()=>{
  const {decisionReportText}=await import('../src/lib/recommendation-decision.js');
  const decision={stage:'ready',title:'Fix phase facts',page:'https://example.com/phase',evidence:'Reviewed page',change:'Confirm the phase and correct inconsistent facts.',suggested_owner:'Project marketing'};
- const note=d=>({title:d.title,notes:decisionReportText(d),decision_snapshot:d});
+ const note=d=>({status:'open',title:d.title,notes:decisionReportText(d),decision_snapshot:d});
  const review={notes:[note({...decision,stage:'investigate',title:'Review enquiries'}),note(decision)]};
  const b=leadershipBrief({...r,review},{});assert.match(b.next,/First selected ready action: Fix phase facts/);assert.match(b.next,/https:\/\/example.com\/phase/);assert.match(b.next,/Suggested owner: Project marketing/);assert.match(b.next,/before approving implementation/);
  const stale={...review,notes:[{...review.notes[1],outdated:true}]};assert.match(leadershipBrief({...r,review:stale},{}).next,/Review and update/);
@@ -42,4 +42,22 @@ test('specific next step prioritises a current structured ready decision over in
  const investigate={notes:[review.notes[0]]};assert.match(leadershipBrief({...r,review:investigate},{}).next,/First selected investigation/);assert.match(leadershipBrief({...r,review:investigate},{}).next,/before approving any content change/);
  const noChange={notes:[note({...decision,stage:'no_change'})]};assert.doesNotMatch(leadershipBrief({...r,review:noChange},{}).next,/First selected/);
  assert.match(leadershipBrief({...r,review,executive:{...executive,localeWarnings:['Wrong market']}},{}).next,/corrected settings/);
+});
+
+test('closed work cannot lead the next action, reopening restores eligibility and assignment is current',async()=>{
+ const {decisionReportText}=await import('../src/lib/recommendation-decision.js');
+ const d={stage:'ready',title:'Correct the page facts',page:'https://example.com/page',change:'Correct the reviewed facts.',evidence:'Verified page',suggested_owner:'Suggested team'};
+ const note={status:'open',title:d.title,notes:decisionReportText(d),decision_snapshot:d};
+ const brief=notes=>leadershipBrief({...r,review:{notes}},{});
+ for(const status of ['done','dismissed']) {
+  const closed={...note,status};assert.doesNotMatch(brief([closed]).next,/First selected/);assert.match(brief([closed]).next,/No selected work remains open/);
+  assert.match(brief([closed,{...note,title:'Other',decision_snapshot:{...d,title:'Other'},notes:decisionReportText({...d,title:'Other'})}]).next,/First selected ready action: Other/);
+ }
+ assert.match(brief([{...note,status:'doing',assignee:'Assigned person'}]).next,/Continue selected work/);
+ assert.match(brief([{...note,status:'doing',assignee:'Assigned person'}]).next,/Assigned owner: Assigned person/);
+ assert.doesNotMatch(brief([{...note,status:'doing'}]).next,/before approving implementation/);
+ assert.match(brief([{...note,status:null}]).next,/Confirm the current status/);
+ assert.match(brief([note]).next,/First selected ready action/);
+ const html=reportHtml({...r,review:{notes:[{...note,status:'done',assignee:'<img src=x>'}]}});
+ assert.match(html,/Current work status: Marked complete/);assert.match(html,/not a verified visibility improvement/);assert.match(html,/&lt;img src=x&gt;/);assert.doesNotMatch(html,/<img src=x>/);assert.match(html,/Correct the reviewed facts/);
 });

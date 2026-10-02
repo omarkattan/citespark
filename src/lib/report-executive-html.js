@@ -1,7 +1,7 @@
 import {trafficReportHtml} from './traffic-html.js';
 import { DECISION_LABELS, DELIVERY_LABELS, decisionReportText } from './recommendation-decision.js';
 import { reportViewUrl, reportActionAnchor } from './report-ceo.js';
-import { leadershipBrief, reportTitle } from './report-brief.js';
+import { leadershipBrief, reportTitle, reportWorkStatus } from './report-brief.js';
 import {collectionDisplayText,collectionAsset} from './collection-display.js';
 import { reportReadout } from './report-readout.js';
 import { evidenceUrl } from './report-actions.js';
@@ -83,7 +83,7 @@ export function executiveReportHtml(r,{print=false}={}) {
  </section>
  ${trafficReportHtml(r.traffic)}
  <section class="page" id="selected-actions"><p class="kicker">Selected by your team</p><h2>The decisions to take forward</h2><p class="note">Explicitly selected notes, copied on the dates below. These are editorial recommendations, not measured outcomes or proof of causation. They may refer to an earlier measurement than this report. Confirm current scope and ownership before implementation.</p>
- ${(r.review?.notes||[]).length ? r.review.notes.map((n,i)=>`<article class="action selected-action" id="${esc(reportActionAnchor(n,i))}"><span class="brief-label">Selected recommendation ${i+1} · ${date(n.selected_at)}</span><h3 dir="auto">${esc(reportTitle(n.title))}</h3>${n.outdated?'<p class="callout warn"><b>Report copy needs review.</b> The saved action has changed since this copy was selected. Open Opportunities and review the report copy before sharing. The text below has not been automatically replaced.</p>':''}${selectedReportAction(n)}</article>`).join('') : '<div class="callout">No reviewed recommendations selected yet. The investigations below are starting points for review, not approved implementation instructions.</div>'}</section>
+ ${(r.review?.notes||[]).length ? r.review.notes.map((n,i)=>`<article class="action selected-action" id="${esc(reportActionAnchor(n,i))}"><span class="brief-label">Selected recommendation ${i+1} · ${date(n.selected_at)}</span><h3 dir="auto">${esc(reportTitle(n.title))}</h3><p class="muted">${esc(reportWorkStatus(n))}</p>${n.outdated?'<p class="callout warn"><b>Report copy needs review.</b> The saved action has changed since this copy was selected. Open Opportunities and review the report copy before sharing. The text below has not been automatically replaced.</p>':''}${selectedReportAction(n)}</article>`).join('') : '<div class="callout">No reviewed recommendations selected yet. The investigations below are starting points for review, not approved implementation instructions.</div>'}</section>
  <section class="page further-investigation"><p class="kicker">Further investigation</p><h2>What still needs checking</h2><p>These automated priorities are evidence-led review steps, separate from your team’s selected recommendations. They do not establish why an engine selected a source or promise an improvement.</p>
  ${!priorities.length?'<p class="callout">No additional automated review steps are listed for this sample. Refer to saved decisions in Opportunities. This does not mean every question or page has been reviewed.</p>':''}
  ${priorities.map((p,i)=>`<article class="action priority-action"><h3><span class="n">0${i+1}</span>${esc(p.do)}</h3><p>${esc(p.because)}</p>${p.steps?.length ? `<ol>${p.steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ol>` : ''}<small><b>Suggested owner:</b> ${esc(p.owner)}</small><small><b>Done when:</b> ${esc(p.done)}</small>${actionEvidence(p,r)}</article>`).join('')}

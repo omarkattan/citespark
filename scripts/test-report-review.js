@@ -8,7 +8,7 @@ import {reportHtml} from '../src/lib/report-html.js';
 test('comparisons isolate project and measurement, preserve zero and missing, and label retrospective results',async()=>{
  const {PGlite}=await import(process.env.PGLITE_MODULE);const db=new PGlite();
  try{
- await db.exec(`CREATE TABLE recommendations(id int,project_id int,title text,notes text,review_decision jsonb DEFAULT '{}',type text,evidence jsonb DEFAULT '{}');CREATE TABLE report_review_notes(recommendation_id int,project_id int,title text,notes text,selected_at timestamp,decision_snapshot jsonb);
+ await db.exec(`CREATE TABLE recommendations(id int,project_id int,title text,notes text,status text DEFAULT 'open',assignee text,review_decision jsonb DEFAULT '{}',type text,evidence jsonb DEFAULT '{}');CREATE TABLE report_review_notes(recommendation_id int,project_id int,title text,notes text,selected_at timestamp,decision_snapshot jsonb);
  CREATE TABLE entities(id int PRIMARY KEY,project_id int,name text,domain text,kind text);CREATE TABLE mentions(run_id int,entity_id int,mentioned boolean);
  CREATE TABLE citations(run_id int,domain text);CREATE TABLE runs(id int,project_id int,ok boolean,response_text text);CREATE TABLE measurement_answers(measurement_id int,run_id int);CREATE TABLE competitor_baselines(entity_id int,measurement_id int,analysis jsonb);
  INSERT INTO entities VALUES(1,28,'Own','www.bank.test','owned'),(2,28,'Retro','retro.test','competitor'),(3,28,'New',null,'competitor'),(4,99,'Other','other.test','owned');
@@ -19,7 +19,9 @@ test('comparisons isolate project and measurement, preserve zero and missing, an
  const many=async(sql,args)=>(await db.query(sql,args)).rows;
  await db.exec(`UPDATE recommendations SET type='content_gap',evidence='{"prompt_id":7}',review_decision='{"stage":"no_change","reviewed_at":"2026-09-29"}' WHERE id=1;
  UPDATE recommendations SET type='engine_gap',evidence='{"prompt_id":8}',review_decision='{"stage":"ready","reviewed_at":"2026-09-29"}' WHERE id=2;`);
- const r=await reportReview(28,{id:41},many);assert.equal(r.decisions.length,1);assert.equal(r.decisions[0].prompt_id,'7');assert.equal(r.notes[0].outdated,true);assert.equal(r.notes[0].notes,'Reviewed');assert.equal(r.notes.length,1);assert.equal(r.comparisons.length,3);
+ const r=await reportReview(28,{id:41},many);assert.equal(r.decisions.length,1);assert.equal(r.decisions[0].prompt_id,'7');assert.equal(r.notes[0].outdated,true);assert.equal(r.notes[0].notes,'Reviewed');assert.equal(r.notes.length,1);assert.equal(r.notes[0].status,'open');
+ await db.exec("UPDATE recommendations SET status='done',assignee='Content lead' WHERE id=1");
+ const updated=await reportReview(28,{id:41},many);assert.equal(updated.notes[0].status,'done');assert.equal(updated.notes[0].assignee,'Content lead');assert.equal(updated.notes[0].notes,'Reviewed');assert.equal(r.comparisons.length,3);
  const own=r.comparisons.find(x=>x.id===1);assert.equal(own.measured,1);assert.equal(own.named,0);assert.equal(own.cited,1);assert.equal(own.method,'Measured in this cycle');
  const retro=r.comparisons.find(x=>x.id===2);assert.equal(retro.method,'Retrospective analysis');assert.equal(retro.named,0);
  const fresh=r.comparisons.find(x=>x.id===3);assert.equal(fresh.named,null);assert.equal(fresh.cited,null);

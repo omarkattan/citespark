@@ -9,7 +9,7 @@ import {summariseEvidence} from '../src/lib/report-evidence.js';
 const answers=Array.from({length:30},(_,i)=>({prompt_id:i+1,text:i%2?'هل يمكن للمقيم فتح حساب بنكي في الأردن؟':'Which bank offers easy transfers?',source:i%3?'manual':'gsc',engine:'chatgpt',ok:true,mentioned:i%2===0,cited:i%2===0,response_text:'Complete answer.'}));
 const executive={...summariseEvidence(answers),measurement:{id:45,started_at:'2026-09-29',settings:{maxTokens:2000}},cycle:'2026-09-29',priorities:[]};
 const d={stage:'ready',title:'Link the app page to existing transfer options',page:'https://bank.example/app',change:'Add “Compare transfer options” beside Payments on the English app page. Add “قارن خيارات التحويل” on the Arabic page. Keep the existing how-to link. Do not introduce unverified claims about fees, speed or eligibility.',evidence:'Two engines cited the existing page. The current transfer hub already lists the available options.',purpose:'Help customers compare existing transfer information without creating another hub.',suggested_owner:'Web content and digital product. A named owner still needs to be assigned.',completion:'Check both language links on mobile and desktop.',follow_up:'Repeat the same questions and engines after publication.',reviewed_at:'2026-09-30'};
-const note={recommendation_id:8502,title:d.title,notes:decisionReportText(d),decision_snapshot:d,selected_at:'2026-09-30'};
+const note={status:'open',recommendation_id:8502,title:d.title,notes:decisionReportText(d),decision_snapshot:d,selected_at:'2026-09-30'};
 const brand=(name,kind='competitor',props={})=>({name,kind,domain:'bank.example',method:'Measured in this cycle',measured:30,named:15,cited:10,...props});
 const r={project:{id:28,name:'Example Bank',domain:'bank.example'},generatedAt:'2026-10-01',executive,trend:{comparable:false},period:{chosen:true,from:'2026-09-01',to:'2026-09-30'},review:{notes:[note],comparisons:[brand('Example Bank','owned'),brand('Bank A'),brand('Bank B')]}};
 test('brief preserves denominator, separates outcomes and has date-preserving evidence links',()=>{
@@ -58,4 +58,9 @@ test('retrospective display is bounded without silently omitting other checked b
  const peers=Array.from({length:7},(_,i)=>brand('Peer '+i,'competitor',{method:'Retrospective analysis'}));
  const html=ceoReportHtml({...r,review:{notes:[],comparisons:peers}});assert.match(html,/2 more in the full report/);assert.match(html,/Peer 4/);assert.doesNotMatch(html,/Peer 5|Peer 6/);
  if(process.env.CEO_PREVIEW)writeFileSync(process.env.CEO_PREVIEW.replace('.html','-retrospective.html'),ceoReportHtml({...r,review:{...r.review,comparisons:peers}}));
+});
+
+test('CEO saved decisions retain their text with current work status and escaped owner',()=>{
+ const html=ceoReportHtml({...r,review:{notes:[{...note,status:'done',assignee:'<img src=x>'}]}});
+ assert.match(html,/Current work status: Marked complete/);assert.match(html,/&lt;img src=x&gt;/);assert.match(html,/not a verified visibility improvement/);assert.doesNotMatch(html,/<img src=x>/);assert.match(html,/No selected work remains open/);assert.match(html,/Keep the existing how-to link/);
 });
