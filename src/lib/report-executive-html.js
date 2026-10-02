@@ -131,5 +131,5 @@ ${reportNavigationCss}
      if(data.updated){const url=new URL(location.href);url.searchParams.delete('print');location.replace(url.href);}else{status.textContent=data.message;refreshButton.disabled=false;}
    }catch(error){status.textContent=error.message;refreshButton.disabled=false;}
  });
- </script>${reportBackToContents}<script src="/context-help.js?v=89" defer></script></body></html>`;
+ </script>${reportBackToContents}<script src="/context-help.js?v=90" defer></script></body></html>`;
 }

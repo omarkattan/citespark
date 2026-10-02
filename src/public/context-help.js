@@ -2,13 +2,16 @@
 (()=>{
  if(document.querySelector('[data-cited-help-root]'))return;
  const style=document.createElement('style');style.textContent=`
- .cited-help-button{display:inline-flex!important;align-items:center;justify-content:center;flex:0 0 24px;vertical-align:middle;width:24px!important;min-width:24px!important;height:24px!important;padding:0!important;margin:0 4px!important;border:1px solid #738a90!important;border-radius:50%!important;background:#fff!important;color:#24474f!important;font:600 13px/1 system-ui!important;cursor:help!important;box-shadow:none!important;text-transform:none!important}
+ .cited-help-group{display:inline-flex;align-items:center;gap:3px;max-width:100%;min-width:0;vertical-align:middle}
+ .cited-help-group[hidden]{display:none!important}
+ .cited-help-button{display:inline-flex!important;position:relative;align-items:center;justify-content:center;flex:0 0 15px;vertical-align:middle;width:15px!important;min-width:15px!important;height:15px!important;padding:0!important;margin:0!important;border:1px solid #aab6b9!important;border-radius:50%!important;background:transparent!important;color:#64777c!important;font:500 10px/1 system-ui!important;cursor:help!important;box-shadow:none!important;text-transform:none!important}
+ .cited-help-button:hover{color:#24474f!important;border-color:#64777c!important}
  .cited-help-button[hidden]{display:none!important}
  .cited-help-button:focus-visible{outline:3px solid #087e83!important;outline-offset:3px}
  .cited-help-popup{position:fixed;inset:auto;margin:0;box-sizing:border-box;width:320px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:auto;padding:14px 16px;border:1px solid #627b81;border-radius:8px;background:#12333b;color:#fff;font:14px/1.5 system-ui,sans-serif;box-shadow:0 6px 22px #0003;z-index:2147483647;text-align:left;white-space:normal}
  .cited-help-popup[hidden]{display:none!important}
- @media(pointer:coarse){.cited-help-button{width:32px!important;min-width:32px!important;height:32px!important;flex-basis:32px}}
- @media print{.cited-help-button,.cited-help-popup{display:none!important}}`;
+ @media(pointer:coarse){.cited-help-button::after{content:"";position:absolute;inset:-5px -4px}}
+ @media print{.cited-help-button,.cited-help-popup{display:none!important}.cited-help-group{display:contents}}`;
  document.head.append(style);
  const popup=document.createElement('div');popup.id='cited-context-help';popup.dataset.citedHelpRoot='';popup.className='cited-help-popup';popup.role='tooltip';popup.hidden=true;document.body.append(popup);
  const operations={
@@ -110,12 +113,12 @@
  const observer=new MutationObserver(()=>{if(!pending){pending=true;requestAnimationFrame(()=>{pending=false;decorate();});}});
  function decorate(){
   observer.disconnect();
-  for(const [el,button] of attached){if(!el.isConnected||!helpFor(el)){if(active===button)close();button.remove();attached.delete(el);}else{button.hidden=!!el.closest('[hidden]');if(button.hidden&&active===button)close();}}
+  for(const [el,button] of attached){if(!el.isConnected||!helpFor(el)){if(active===button)close();const group=button.parentElement;button.remove();if(group?.classList.contains('cited-help-group'))group.replaceWith(...group.childNodes);attached.delete(el);}else{button.hidden=el.hidden||!!el.parentElement?.parentElement?.closest('[hidden]');button.parentElement.hidden=button.hidden;if(button.hidden&&active===button)close();}}
   for(const el of document.querySelectorAll('button,a,label,dt,.metric b,.stat-label,.kpi-label,[data-help]')){
    if(el.closest('[data-cited-help-root]')||el.classList.contains('cited-help-button')||el.parentElement?.closest('button,a,label,summary')||el.closest('[hidden]'))continue;
    const explanation=helpFor(el);if(!explanation)continue;
    let button=attached.get(el);
-   if(!button){button=document.createElement('button');button.type='button';button.className='cited-help-button';button.textContent='?';button.addEventListener('pointerenter',()=>show(button));button.addEventListener('pointerleave',later);button.addEventListener('focus',()=>show(button));button.addEventListener('blur',()=>{if(active===button)close();});el.after(button);attached.set(el,button);}
+   if(!button){button=document.createElement('button');button.type='button';button.className='cited-help-button';button.textContent='?';button.addEventListener('pointerenter',()=>show(button));button.addEventListener('pointerleave',later);button.addEventListener('focus',()=>show(button));button.addEventListener('blur',()=>{if(active===button)close();});const group=document.createElement('span');group.className='cited-help-group';el.before(group);group.append(el,button);attached.set(el,button);}
    button.dataset.explanation=explanation;const name=el.getAttribute('aria-label')||el.textContent.trim().replace(/\s+/g,' ').slice(0,90);button.setAttribute('aria-label','Explain '+name);
    if(active===button)popup.textContent=explanation;
   }

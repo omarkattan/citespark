@@ -16,7 +16,7 @@ test('help is separate, accessible and never activates the action or form',()=>{
 });
 test('dynamic controls get one help button and hidden or removed controls leave no visible help',async()=>{
  const dom=setup('<main></main>'),w=dom.window,d=w.document,m=d.querySelector('main');m.innerHTML='<button data-question-toggle>Pause</button>';await tick(w);
- const target=m.firstElementChild,help=target.nextElementSibling;assert.match(help.dataset.explanation,/Stops asking/);
+ const target=m.querySelector('[data-question-toggle]'),help=target.nextElementSibling;assert.match(help.dataset.explanation,/Stops asking/);
  target.textContent='Resume';await tick(w);assert.match(help.dataset.explanation,/Makes this question active/);assert.equal(d.querySelectorAll('.cited-help-button').length,1);
  target.hidden=true;await tick(w);assert.equal(help.hidden,true);target.hidden=false;await tick(w);assert.equal(help.hidden,false);
  target.remove();await tick(w);assert.equal(d.querySelectorAll('.cited-help-button').length,0);dom.window.close();
