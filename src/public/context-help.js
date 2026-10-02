@@ -2,16 +2,16 @@
 (()=>{
  if(document.querySelector('[data-cited-help-root]'))return;
  const style=document.createElement('style');style.textContent=`
- .cited-help-group{display:inline-flex;align-items:center;gap:3px;max-width:100%;min-width:0;vertical-align:middle}
+ .cited-help-group{display:inline-flex;position:relative;align-items:center;gap:0;padding-inline-end:10px;max-width:100%;min-width:0;vertical-align:middle}
  .cited-help-group[hidden]{display:none!important}
- .cited-help-button{display:inline-flex!important;position:relative;align-items:center;justify-content:center;flex:0 0 15px;vertical-align:middle;width:15px!important;min-width:15px!important;height:15px!important;padding:0!important;margin:0!important;border:1px solid #aab6b9!important;border-radius:50%!important;background:transparent!important;color:#64777c!important;font:500 10px/1 system-ui!important;cursor:help!important;box-shadow:none!important;text-transform:none!important}
+ .cited-help-button{display:inline-flex!important;position:absolute;right:var(--help-right,0px);top:var(--help-top,-3px);align-items:center;justify-content:center;width:11px!important;min-width:11px!important;height:12px!important;padding:0!important;margin:0!important;border:0!important;border-radius:2px!important;background:transparent!important;color:#64777c!important;font:500 10px/1 system-ui!important;cursor:help!important;box-shadow:none!important;text-transform:none!important}
  .cited-help-button:hover{color:#24474f!important;border-color:#64777c!important}
  .cited-help-button[hidden]{display:none!important}
  .cited-help-button:focus-visible{outline:3px solid #087e83!important;outline-offset:3px}
  .cited-help-popup{position:fixed;inset:auto;margin:0;box-sizing:border-box;width:320px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:auto;padding:14px 16px;border:1px solid #627b81;border-radius:8px;background:#12333b;color:#fff;font:14px/1.5 system-ui,sans-serif;box-shadow:0 6px 22px #0003;z-index:2147483647;text-align:left;white-space:normal}
  .cited-help-popup[hidden]{display:none!important}
  @media(pointer:coarse){.cited-help-button::after{content:"";position:absolute;inset:-5px -4px}}
- @media print{.cited-help-button,.cited-help-popup{display:none!important}.cited-help-group{display:contents}}`;
+ @media print{.cited-help-button,.cited-help-popup{display:none!important}.cited-help-group{display:contents;padding:0}}`;
  document.head.append(style);
  const popup=document.createElement('div');popup.id='cited-context-help';popup.dataset.citedHelpRoot='';popup.className='cited-help-popup';popup.role='tooltip';popup.hidden=true;document.body.append(popup);
  const operations={
@@ -108,7 +108,7 @@
  popup.addEventListener('pointerenter',()=>clearTimeout(hideTimer));popup.addEventListener('pointerleave',later);
  document.addEventListener('click',event=>{const button=event.target.closest('.cited-help-button');if(button){event.preventDefault();event.stopImmediatePropagation();if(active===button&&pinned)close();else{show(button);pinned=true;}return;}if(!popup.contains(event.target))close();},true);
  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&active){event.preventDefault();event.stopImmediatePropagation();close();}},true);
- window.addEventListener('resize',position);document.addEventListener('scroll',()=>{if(active&&!active.isConnected)close();else position();},true);
+ window.addEventListener('resize',()=>{decorate();position();});document.addEventListener('scroll',()=>{if(active&&!active.isConnected)close();else position();},true);
  const attached=new Map();let pending=false;
  const observer=new MutationObserver(()=>{if(!pending){pending=true;requestAnimationFrame(()=>{pending=false;decorate();});}});
  function decorate(){
@@ -119,6 +119,7 @@
    const explanation=helpFor(el);if(!explanation)continue;
    let button=attached.get(el);
    if(!button){button=document.createElement('button');button.type='button';button.className='cited-help-button';button.textContent='?';button.addEventListener('pointerenter',()=>show(button));button.addEventListener('pointerleave',later);button.addEventListener('focus',()=>show(button));button.addEventListener('blur',()=>{if(active===button)close();});const group=document.createElement('span');group.className='cited-help-group';el.before(group);group.append(el,button);attached.set(el,button);}
+   const controlStyle=getComputedStyle(el);button.style.setProperty('--help-right',Math.max(0,(parseFloat(controlStyle.paddingRight)||0)-1)+'px');button.style.setProperty('--help-top',((parseFloat(controlStyle.paddingTop)||0)-3)+'px');
    button.dataset.explanation=explanation;const name=el.getAttribute('aria-label')||el.textContent.trim().replace(/\s+/g,' ').slice(0,90);button.setAttribute('aria-label','Explain '+name);
    if(active===button)popup.textContent=explanation;
   }
