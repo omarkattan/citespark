@@ -82,3 +82,24 @@ test('migration is additive, repeatable, and supports archived usage and approva
  assert.equal((await db.query('SELECT * FROM report_analyst_drafts WHERE project_id=99')).rows.length,0);
  }finally{await db.close();}
 });
+test('large source tables fit the analyst budget without changing totals, dates or nulls',()=>{
+ const r=report();
+ const queries=Array.from({length:5000},(_,i)=>'a detailed search query '+i);
+ r.executive.questions=Array.from({length:28},(_,i)=>({id:i+1,text:'Buyer question '+i,source:'gsc',measured:6,named:0,cited:null,originDetails:{property:'https://www.arada.com/',querySet:queries,gscSnapshot:{property:'https://www.arada.com/',startDate:'2026-07-01',endDate:'2026-09-30',impressions:42000,clicks:0,matchedQueries:5000,storedQueries:5000,returnedRows:20000,rows:queries}}}));
+ r.traffic.pages=Array.from({length:10000},(_,i)=>({page:'/page-'+i,sessions:10,conversions:0}));
+ const answers=Array.from({length:24},(_,i)=>({id:i,engine:'chatgpt',question:'Buyer question '+i,response_text:'An answer. '.repeat(2000)}));
+ assert.ok(JSON.stringify(r).length>1e6);
+ const p=analyst.analystPacket(r,answers);assert.ok(JSON.stringify(p).length<=110000);assert.equal(p.limits.questionsIncluded,28);
+ const traffic=JSON.parse(p.records.find(x=>x.id==='traffic').text);assert.equal(traffic.total,3065);assert.equal(traffic.conversions,209);assert.equal(traffic.coveredFrom,'2026-07-04');assert.equal(traffic.pages.length,12);assert.equal(traffic.detailCoverage.pages.total,10000);
+ const q=JSON.parse(p.records.find(x=>x.id==='q-1').text);assert.equal(q.cited,null);assert.equal(q.named,0);assert.equal(q.originDetails.gscSnapshot.impressions,42000);assert.equal(q.originDetails.gscSnapshot.clicks,0);assert.equal(q.originDetails.queryExamples.length,3);assert.equal(q.originDetails.queryExamplesTotal,5000);
+ const hash=analyst.packetHash(p);r.traffic.pages[9999].sessions++;
+ assert.notEqual(analyst.packetHash(analyst.analystPacket(r,answers)),hash,'Changes in omitted evidence invalidate old approvals');
+});
+test('budget admits complete records only and accurately discloses omitted excerpts',()=>{
+ const r=report();r.executive.questions=Array.from({length:100},(_,i)=>({id:i,text:'A long buyer question '.repeat(100),measured:6,named:0,cited:0}));
+ const answers=Array.from({length:24},(_,i)=>({id:i,response_text:'answer '.repeat(500)}));
+ const p=analyst.analystPacket(r,answers);assert.ok(JSON.stringify(p).length<=110000);assert.ok(p.limits.omittedRecordCount>0);
+ assert.equal(p.limits.questionsIncluded,p.records.filter(x=>x.id.startsWith('q-')).length);
+ assert.equal(p.limits.answerExcerpts,p.records.filter(x=>x.id.startsWith('answer-')).length);
+ for(const record of p.records)assert.doesNotThrow(()=>JSON.parse(record.text));
+});
