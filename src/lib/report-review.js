@@ -1,10 +1,11 @@
+import {reportDecisionOrder} from './report-order.js';
 import { reportNotePreview } from './report-note.js';
 /** Match comparisons to the report's exact measurement. Retrospective rows never enter trend tables. */
 export async function reportReview(projectId, measurement, many) {
  const saved=await many(`SELECT n.decision_snapshot,n.title,n.notes,n.selected_at,n.recommendation_id,r.id,r.project_id,r.title AS current_title,r.notes AS current_notes,r.review_decision,r.status,r.assignee FROM report_review_notes n
  JOIN recommendations r ON r.id=n.recommendation_id WHERE n.project_id=$1 AND r.project_id=$1 ORDER BY n.selected_at DESC,n.recommendation_id`,[projectId]);
  const notes=saved.map(n=>({status:n.status,assignee:n.assignee,decision_snapshot:n.decision_snapshot,title:n.title,notes:n.notes,selected_at:n.selected_at,recommendation_id:n.recommendation_id,
-   outdated:reportNotePreview({id:n.id,project_id:n.project_id,title:n.current_title,notes:n.current_notes,review_decision:n.review_decision},n).changed}));
+   outdated:reportNotePreview({id:n.id,project_id:n.project_id,title:n.current_title,notes:n.current_notes,review_decision:n.review_decision},n).changed})).sort(reportDecisionOrder);
  const decisions=await many(`SELECT type,evidence->>'prompt_id' AS prompt_id,review_decision->>'stage' AS stage,review_decision->>'reviewed_at' AS reviewed_at
  FROM recommendations WHERE project_id=$1 AND review_decision->>'stage' IN ('ready','no_change','investigate')`,[projectId]);
  if(!measurement) return {notes,decisions,comparisons:[]};

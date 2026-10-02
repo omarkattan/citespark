@@ -500,22 +500,23 @@ function windowFor({ from, to } = {}) {
   return { from: clean(from), to: clean(to) };
 }
 
-export async function buildReport(projectId, range = {}) {
+export async function buildReport(projectId, range = {}, { presentationOnly = false } = {}) {
   const period = windowFor(range);
   const project = await one('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!project) throw new Error('Project not found');
 
-  const personas = await many('SELECT name, descriptor FROM personas WHERE project_id = $1', [projectId]);
+  // Standard reports never render the historical appendix below. Avoid its queries.
+  const personas = presentationOnly ? [] : await many('SELECT name, descriptor FROM personas WHERE project_id = $1', [projectId]);
 
   const [p, s, patterns, points, done, traffic, competitors, personaRows, executive, methodNotes] = await Promise.all([
-    persistence(projectId),
-    sourceGaps(projectId),
-    citedPagePatterns(projectId),
+    presentationOnly ? {items:[]} : persistence(projectId),
+    presentationOnly ? {sources:[]} : sourceGaps(projectId),
+    presentationOnly ? null : citedPagePatterns(projectId),
     trend(projectId, period),
-    completed(projectId),
+    presentationOnly ? [] : completed(projectId),
     aiTraffic(projectId),
-    rivals(projectId, period),
-    byPersona(projectId, period),
+    presentationOnly ? [] : rivals(projectId, period),
+    presentationOnly ? [] : byPersona(projectId, period),
     reportEvidence(projectId, period, many),
     many('SELECT at, note, detail FROM method_notes WHERE project_id=$1 ORDER BY at DESC, id DESC LIMIT 20', [projectId])
   ]);

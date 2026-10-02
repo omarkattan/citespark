@@ -2504,7 +2504,7 @@ app.get('/api/projects/:id/measurements/:measurementId', requireAuth, wrap(async
 app.get('/api/projects/:id/report/prepare', requireAuth, wrap(async (req,res)=>{
  const project=await assertProject(req,res);if(!project)return;
  const rows=await many(`SELECT r.id,r.project_id,r.title,r.notes,r.review_decision,r.assignee,r.status,
- n.title AS saved_title,n.notes AS saved_notes,n.selected_at FROM recommendations r
+ n.title AS saved_title,n.notes AS saved_notes,n.selected_at,n.decision_snapshot FROM recommendations r
  LEFT JOIN report_review_notes n ON n.recommendation_id=r.id AND n.project_id=r.project_id
  WHERE r.project_id=$1 AND (n.recommendation_id IS NOT NULL OR r.review_decision->>'stage' IN ('ready','investigate','no_change'))
  ORDER BY (n.recommendation_id IS NOT NULL) DESC,r.updated_at DESC,r.id`,[project.id]);
@@ -2530,8 +2530,10 @@ app.get('/api/projects/:id/report', requireAuth, wrap(async (req, res) => {
   const { buildReport } = await import('./lib/report.js');
   // A period makes the document about a window rather than about everything,
   // which is what lets two reports be compared.
-  const report = await buildReport(project.id, { from: req.query.from, to: req.query.to });
   const format = String(req.query.format || 'html');
+  const started = performance.now();
+  const report = await buildReport(project.id, { from: req.query.from, to: req.query.to }, {presentationOnly:format==='html' && req.query.detail!=='1'});
+  res.setHeader('Server-Timing', `report;dur=${(performance.now()-started).toFixed(1)}`);
 
   const stamp = new Date().toISOString().slice(0, 10);
   const slug = String(project.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
