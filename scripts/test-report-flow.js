@@ -38,3 +38,8 @@ if(process.env.REPORT_PREVIEW){
  f.methodNotes=[{at:'2026-09-29',note:'Question set expanded',detail:'The sample changed from 10 to 30 questions. Compare only the same question-and-engine cohort.'}];f.caveats=['Counts come from stored answers. Unmeasured is not zero.','A citation does not establish relevance or explain selection. Review the exact question, answer and page.'];
  writeFileSync(process.env.REPORT_PREVIEW,executiveReportHtml(f));
 }
+test('engine detail stays in collection review even when every check is complete',()=>{
+ const f=fixture();f.executive={...f.executive,totals:{...f.executive.totals,failed:0,unmeasured:0,missingChecks:0,possiblyTruncated:0},engineCoverage:[{engine:'chatgpt',measured:30,failed:0,unmeasured:0}]};
+ const html=executiveReportHtml(f),section=html.indexOf('<section id="collection-review"');
+ assert.ok(section>html.indexOf('id="selected-actions"'));assert.ok(html.indexOf('<b>Engine coverage:</b>')>section);assert.equal(html.split('<b>Engine coverage:</b>').length,2);assert.match(html,/<h2>Collection coverage<\/h2>/);assert.doesNotMatch(html.slice(section),/Review affected questions and complete/);
+});
