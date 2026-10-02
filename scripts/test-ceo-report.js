@@ -64,3 +64,13 @@ test('CEO saved decisions retain their text with current work status and escaped
  const html=ceoReportHtml({...r,review:{notes:[{...note,status:'done',assignee:'<img src=x>'}]}});
  assert.match(html,/Current work status: Marked complete/);assert.match(html,/&lt;img src=x&gt;/);assert.match(html,/not a verified visibility improvement/);assert.doesNotMatch(html,/<img src=x>/);assert.match(html,/No selected work remains open/);assert.match(html,/Keep the existing how-to link/);
 });
+test('contents links resolve once in both formats, including optional sections, with printable navigation',async()=>{
+ const {JSDOM}=await import(process.env.JSDOM_MODULE);
+ for(const full of [r,{...r,review:{notes:[],comparisons:[]},executive:{...r.executive,questions:[],totals:{...r.executive.totals,failed:1}}}])for(const ceo of [true,false]){
+  const html=reportHtml(full,{ceo}),doc=new JSDOM(html).window.document;
+  const nav=doc.querySelector('nav[aria-label="Report contents"]');assert.ok(nav);assert.ok(nav.querySelectorAll('a').length>=4);
+  for(const link of nav.querySelectorAll('a'))assert.equal(doc.querySelectorAll(link.getAttribute('href')).length,1,link.textContent);
+  assert.equal(doc.querySelector('.report-back-top').getAttribute('href'),'#report-contents');assert.equal(doc.querySelector('.report-back-top').getAttribute('aria-label'),'Back to report contents');
+  assert.match(html,/@media print\{\.report-back-top\{display:none!important/);assert.match(html,/prefers-reduced-motion:no-preference/);
+ }
+});

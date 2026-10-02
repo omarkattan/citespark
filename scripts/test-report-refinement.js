@@ -30,5 +30,5 @@ test('standard report skips appendix work but preserves rendered evidence and tr
  for(const key of ['trend','traffic','evidence','review'])assert.ok(calls.includes(key),key);
  all.generatedAt=lean.generatedAt='2026-10-02';
  assert.equal(executiveReportHtml(all),executiveReportHtml(lean));assert.equal(ceoReportHtml(all),ceoReportHtml(lean));
- const html=executiveReportHtml(lean);assert.ok(html.indexOf('id="selected-actions"')<html.indexOf('Executive readout'));
+ const html=executiveReportHtml(lean);assert.ok(html.indexOf('id="selected-actions"')<html.indexOf('id="report-section-readout"'));
 });
