@@ -125,3 +125,22 @@ test('recovery reuses stored output without billing or approval and refuses stal
  row.stop_reason='end_turn';row.evidence_hash='stale';await assert.rejects(api.recoverAnalysis(r,2),/evidence has changed/);
  row.evidence_hash=analyst.packetHash(p);d.findings[0].evidence[0].quote='invented evidence reference';row.raw_response=JSON.stringify(d);await assert.rejects(api.recoverAnalysis(r,2),/unverified/);assert.equal(updates,1);
 });
+test('real Masaar quote matches omitted Markdown bold without altering words',()=>{
+ const excerpt='- Overview: **Masaar 3** (also referred to as Phase 3 of the Masaar master community, named **Layan** or **Laura** in specific district rollouts) is a major residential launch by developer **Arada** in Sharjah, UAE.';
+ const quote='Masaar 3 (also referred to as Phase 3 of the Masaar master community, named Layan or Laura in specific district rollouts)';
+ const record={id:'answer-18063',text:JSON.stringify({engine:'ai_mode',question:'What is Masaar 3?',excerpt})};
+ assert.equal(analyst.evidenceQuoteMatch(record,quote),'formatting-normalised');
+ for(const invalid of [quote.replace('Phase 3','Phase 2'),quote.replace('Layan','Layan Hills'),quote.replace(' or ',' and '),quote.replace('specific ','')])assert.equal(analyst.evidenceQuoteMatch(record,invalid),null);
+ const p=analyst.analystPacket(report());p.records.push(record);const d=draft(p);d.findings[0].evidence=[{id:record.id,quote}];
+ const checked=analyst.validateAnalysis(d,p);assert.equal(checked.findings[0].evidence[0].quote,quote);assert.equal(checked.findings[0].evidence[0].sourceMatch,'formatting-normalised');
+ assert.match(analystFindingsHtml({packet:p,analysis:checked}),/Quotation formatting normalised/);
+});
+test('format matching stays within answer prose and preserves negation, punctuation and numerical values',()=>{
+ const record={id:'answer-1',text:JSON.stringify({question:'**An unrelated quoted question**',excerpt:'Prices are **not** confirmed.\nThe price is AED **1.8 million**. [Source](https://example.com)'})};
+ assert.equal(analyst.evidenceQuoteMatch(record,'Prices are not confirmed. The price is AED 1.8 million.'),'formatting-normalised');
+ assert.equal(analyst.evidenceQuoteMatch(record,'Prices are confirmed. The price is AED 1.8 million.'),null);
+ assert.equal(analyst.evidenceQuoteMatch(record,'The price is AED 18 million.'),null);
+ assert.equal(analyst.evidenceQuoteMatch(record,'An unrelated quoted question'),null);
+ assert.equal(analyst.evidenceQuoteMatch({...record,id:'decision-1'},'Prices are not confirmed.'),null);
+ assert.equal(analyst.evidenceQuoteMatch(record,'The price is AED 1.8 million. Source'),null);
+});
