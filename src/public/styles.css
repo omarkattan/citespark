@@ -2312,3 +2312,7 @@ a.ans-source:hover { color: var(--accent); text-decoration: underline; }
 .traffic-outcomes th {font-size:12px;color:var(--ink-3);}
 .traffic-outcomes td:last-child,.traffic-outcomes th:last-child {text-align:right;font-variant-numeric:tabular-nums;}
 .traffic-outcomes .note {font-size:13px;line-height:1.6;color:var(--ink-3);}
+
+/* Reporting is a primary destination on Overview. */
+.overview-ctas{display:flex;flex-wrap:wrap;gap:10px;flex-shrink:0;align-items:center}.overview-ctas .btn{white-space:nowrap}
+@media(max-width:900px){.overview-intro{flex-wrap:wrap}.overview-ctas{width:100%}}

@@ -34,7 +34,7 @@ test('unknown and zero remain distinct, bad setup stays visible, no decisions fa
 });
 test('preparation heading follows reviewed decision without rewriting saved report copy',()=>{
  const html=reportPreparationHtml(r.project,[{id:1,status:'open',title:'Invisible for: Old question',saved_title:'Old selected title',saved_notes:'Old copy',selected_at:'2026-09-30',review_decision:{stage:'no_change',change:'Keep the existing document checklist.'}}]);
- assert.match(html,/<h3 dir="auto">Keep the existing document checklist\.<\/h3>/);assert.doesNotMatch(html,/<h3[^>]*>Invisible/);assert.match(html,/Open CEO brief/);
+ assert.match(html,/<h3 dir="auto">Keep the existing document checklist\.<\/h3>/);assert.doesNotMatch(html,/<h3[^>]*>Invisible/);assert.match(html,/Preview executive brief/);
 });
 test('escapes fields and renders fixture for visual review',()=>{
  assert.doesNotMatch(ceoReportHtml({...r,project:{...r.project,name:'<img src=x>'}}),/<img src=x>/);

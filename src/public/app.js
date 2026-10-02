@@ -352,7 +352,8 @@ async function viewOverview() {
     : `${cycles.length} days of results available. Open the trend view for the comparable question-and-engine cohort and any measurement-method changes.`;
   return `${!data || data.error || !scope || scope.error || !history || history.error ? '<div class="notice" role="status">Some sections could not be loaded. Available results are shown below. <button class="ghost" data-retry-view>Try again</button></div>' : ''}<div class="overview-intro"><div><p class="eyebrow">Your next move</p><h2>${measured ? 'What needs your attention' : 'Start with the questions your buyers ask'}</h2>
     <p>${measured ? `Latest measurement: ${esc(shortDate(o.cycle))}. Start with one evidence review below.` : 'Review your questions and their origins, then measure how AI engines answer them.'}</p></div>
-    ${measured && suggested.length ? '<button class="btn" data-overview-next>Review next task</button>' : '<button class="btn" data-open-view="questions">Review questions</button>'}</div>
+    <div class="overview-ctas"><a class="btn" href="/api/projects/${state.projectId}/report/prepare" target="_blank" rel="noopener">Prepare report</a>
+    ${measured && suggested.length ? '<button class="ghost" data-overview-next>Review next task</button>' : '<button class="btn" data-open-view="questions">Review questions</button>'}</div></div>
     <div class="overview-summary overview-focus">
       <section class="panel"><h3>What changed</h3><p>${esc(changes)}</p><p class="hint">Compare the same questions and engines before calling a difference a trend.</p><button class="ghost" data-open-view="trends">Review changes over time</button></section>
       <section class="panel"><h3>What matters</h3><p class="overview-number">${measured ? pct(o.visibility) : 'Not measured'}</p>
@@ -370,8 +371,8 @@ async function viewOverview() {
     </section>
     <details class="panel fold overview-measurement"><summary>Plan the next measurement</summary><p>${esc(next)}</p><p class="hint">Paused questions are excluded. Running again uses answer checks.</p><button class="ghost" data-open-view="questions">Review questions</button> <button class="ghost" data-start-first-cycle>Review cost and run</button></details>
     <div class="overview-footer"><button class="ghost" data-open-view="assigned">See assigned work</button>
-      <a class="ghost" href="/api/projects/${state.projectId}/report/prepare" target="_blank" rel="noopener">Prepare client report</a> <a class="ghost" href="/api/projects/${state.projectId}/report" target="_blank" rel="noopener">Open client report</a> <a class="ghost" href="/api/projects/${state.projectId}/measurements" target="_blank" rel="noopener">Measurement archive</a>
-      <span class="hint">Choose report dates in Opportunities.</span></div>`;
+      <a class="ghost" href="/api/projects/${state.projectId}/measurements" target="_blank" rel="noopener">Measurement archive</a>
+      <span class="hint">Prepare an executive brief or a full report using the button above.</span></div>`;
 }
 
 const SETUP_VIEWS={website:'setup',sources:'connections',questions:'questions',measurement:'setup',complete:'overview'};
@@ -546,7 +547,7 @@ async function viewActions() {
    * and it sat below an early return, so filtering to an empty view removed
    * it altogether.
    */
-  const reportBar = `<details class="panel fold"><summary>Export report or data</summary><div class="reportbar">
+  const reportBar = `<details class="panel fold" open><summary>Reports and downloads</summary><div class="reportbar">
     <div class="reportbar-text">
       <b>Client report</b>
       <span>Leave the dates empty for everything measured so far, or set a period to report on one month.</span>
@@ -556,9 +557,9 @@ async function viewActions() {
       <span>to</span>
       <input type="date" id="repTo" value="${esc(state.repTo || '')}" aria-label="To" />
     </span>
-    <a class="ghost" href="/api/projects/${state.projectId}/report/prepare" target="_blank" rel="noopener">Prepare client report</a>
-    <a class="btn" id="repOpen" href="/api/projects/${state.projectId}/report" target="_blank" rel="noopener">Open client report</a>
-    <a class="ghost" id="repCsv" href="/api/projects/${state.projectId}/report?format=csv" download>Download data</a>
+    <a class="btn" id="repPrepare" href="/api/projects/${state.projectId}/report/prepare?${new URLSearchParams({...(state.repFrom?{from:state.repFrom}:{}),...(state.repTo?{to:state.repTo}:{})})}" target="_blank" rel="noopener">Prepare report</a>
+    <a class="ghost" id="repOpen" href="/api/projects/${state.projectId}/report/open?${new URLSearchParams({...(state.repFrom?{from:state.repFrom}:{}),...(state.repTo?{to:state.repTo}:{})})}" target="_blank" rel="noopener">Open client report</a>
+    <a class="ghost" id="repCsv" href="/api/projects/${state.projectId}/report?${new URLSearchParams({format:'csv',...(state.repFrom?{from:state.repFrom}:{}),...(state.repTo?{to:state.repTo}:{})})}" download>Download data</a>
   </div></details>`;
 
   const bar = `<div class="taskbar">
@@ -585,7 +586,7 @@ async function viewActions() {
   const intro = `<div class="panel queue-intro"><h2>Your work queue</h2><p>Start with one buyer question. Related checks are grouped so you can review its answers once. Due work and work in progress come first, then ready actions, further investigation and no-change decisions.</p><p class="hint">The status tabs and Focus counts refer to saved checks. Each keeps its notes and owner. Completion records work done, not a visibility improvement.</p>${opportunityFilters(data.tasks, kind, data.focusCounts)}<label class="queue-filter">Review decision <select id="opportunityDecision">${[['all','All decisions'],['ready','Ready to implement'],['investigate','Needs investigation'],['no_change','No change needed']].map(([value,label])=>`<option value="${value}"${value===(state.opportunityDecision || 'all')?' selected':''}>${label}</option>`).join('')}</select></label><p class="hint">Decision and completion are separate. Ready means reviewed, not implemented. Counts follow the selected decision filter.</p></div>`;
   const total = filter === 'active' ? c.open + c.doing : filter === 'all' ? c.total : c[filter];
   const resultCount = `<p class="hint" id="queueCount">${queueCountText(tasks,total)}</p>`;
-  return intro + bar + resultCount + `<div id="opportunityQueue">${tasks.length ? reviewGroups(tasks).map(group=>reviewGroupCard(group)).join('') : '<div class="empty"><h2>No tasks match this focus</h2><p>Choose another review decision, focus or status above.</p></div>'}</div>` + reportBar + suppressedPanel;
+  return reportBar + intro + bar + resultCount + `<div id="opportunityQueue">${tasks.length ? reviewGroups(tasks).map(group=>reviewGroupCard(group)).join('') : '<div class="empty"><h2>No tasks match this focus</h2><p>Choose another review decision, focus or status above.</p></div>'}</div>` + suppressedPanel;
 }
 
 const STATUS_LABEL = { open: 'To do', doing: 'In progress', done: 'Done', dismissed: 'Dismissed' };
@@ -3738,7 +3739,9 @@ document.addEventListener('change', (e) => {
 
   const open = $('repOpen');
   const csv = $('repCsv');
-  if (open) open.href = `/api/projects/${state.projectId}/report${range.length ? '?' + range.join('&') : ''}`;
+  const prepare = $('repPrepare');
+  if (prepare) prepare.href = `/api/projects/${state.projectId}/report/prepare${range.length ? '?' + range.join('&') : ''}`;
+  if (open) open.href = `/api/projects/${state.projectId}/report/open${range.length ? '?' + range.join('&') : ''}`;
   if (csv) csv.href = `/api/projects/${state.projectId}/report?format=csv${q}`;
 });
 

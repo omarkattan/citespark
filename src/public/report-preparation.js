@@ -17,7 +17,7 @@ document.addEventListener('click',async event=>{
   if(button.hasAttribute('data-remove')){await reportRequest(`/api/recommendations/${card.dataset.rec}/report-note`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({include:false})});panel.hidden=true;status.textContent='Removed from the report. Task notes are preserved. Reload to refresh the summary counts.';button.hidden=true;return;}
   const data=await reportRequest(`/api/recommendations/${card.dataset.rec}/report-note-preview`);panel.replaceChildren();panel.hidden=false;
   const intro=document.createElement('p');intro.textContent='Preview uses saved content. Unsaved form edits are not included.';panel.append(intro);
-  showCopy(panel,'Currently in the report',data.current);showCopy(panel,'Proposed report copy',data.proposed);
+  if(data.current&&!data.changed)showCopy(panel,'Current report copy',data.current);else{showCopy(panel,'Currently in the report',data.current);showCopy(panel,'Proposed report copy',data.proposed);}
   if(data.canInclude && (!data.current||data.changed)){
    const save=document.createElement('button');save.textContent=data.current?'Confirm report update':'Include in report';panel.append(save);
    save.addEventListener('click',async()=>{save.disabled=true;try{await reportRequest(`/api/recommendations/${card.dataset.rec}/report-note`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({include:true,version:data.version})});panel.hidden=true;status.textContent='Report copy saved. Open the client report to review it. Reload this page to refresh summary counts.';}catch(error){status.textContent=error.message;}finally{save.disabled=false;}});
@@ -40,4 +40,19 @@ document.addEventListener('click',async event=>{
   status.textContent=`Analytics sync finished. ${t.syncedAt?`Last successful sync: ${t.syncedAt}. `:''}Reopen the report to use the latest stored data. Existing PDF downloads do not update.`;
  }catch(error){status.textContent=`Analytics refresh could not be verified: ${error.message}. Recommendation edits are preserved. Retry before sharing.`;}
  finally{button.disabled=false;}
+});
+
+// Date selection changes only document scope, never the saved recommendations.
+document.addEventListener('change',event=>{
+ if(!event.target.matches('[data-report-from],[data-report-to]'))return;
+ const from=document.querySelector('[data-report-from]').value,to=document.querySelector('[data-report-to]').value;
+ const invalid=!!(from&&to&&from>to);document.querySelector('[data-period-status]').textContent=invalid?'Choose an end date on or after the start date.':'Report dates updated. Analytics retains its separately labelled 90-day window.';
+ const params=new URLSearchParams();if(from)params.set('from',from);if(to)params.set('to',to);
+ history.replaceState(null,'',location.pathname+(params.size?'?'+params.toString():''));
+ document.querySelectorAll('[data-report-link]').forEach(link=>{
+  if(!link.dataset.path)link.dataset.path=new URL(link.href).pathname;
+  link.setAttribute('aria-disabled',String(invalid));
+  if(invalid){link.removeAttribute('href');return;}
+  const q=new URLSearchParams(params);if(link.dataset.reportLink==='ceo')q.set('view','ceo');link.href=link.dataset.path+(q.size?'?'+q.toString():'');
+ });
 });

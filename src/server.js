@@ -2513,7 +2513,14 @@ app.get('/api/projects/:id/report/prepare', requireAuth, wrap(async (req,res)=>{
  const traffic=await aiTraffic(project.id,90).catch(()=>({state:'error',why:'Analytics coverage could not be checked. Try refreshing this page.'}));
  const search=await many("SELECT origin_details FROM prompts WHERE project_id=$1 AND active AND source LIKE 'gsc%'",[project.id])
   .then(questions=>({connected:gscAuth(project).connected,siteUrl:project.gsc_site_url,questions})).catch(()=>null);
- res.type('html').send(reportPreparationHtml(project,rows,traffic,search));
+ res.type('html').send(reportPreparationHtml(project,rows,traffic,search,req.query));
+}));
+
+// Respond immediately with an honest waiting screen, before building the report.
+app.get('/api/projects/:id/report/open', requireAuth, wrap(async(req,res)=>{
+ const project=await assertProject(req,res);if(!project)return;
+ const {reportLoadingHtml}=await import('./lib/report-loading.js');
+ res.type('html').send(reportLoadingHtml(project,req.query));
 }));
 
 app.get('/api/projects/:id/report', requireAuth, wrap(async (req, res) => {
