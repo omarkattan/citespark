@@ -66,3 +66,16 @@ test('preparation links go directly to the correct source on the same project',(
  assert.match(html,/href="\/app\?site=31&amp;source=gsc">Review Search Console/);
  assert.match(html,/href="\/app\?site=31&amp;source=analytics">Review Analytics connection/);
 });
+
+test('opening analyst page immediately shows progress without making a paid request',async()=>{
+ const {JSDOM}=await import(process.env.JSDOM_MODULE);
+ const dom=new JSDOM('<div class="toolbar"><a data-analyst-link href="/api/projects/31/report/analyst">AI report analysis</a></div>',{runScripts:'outside-only',url:'https://cited.ae'});
+ const w=dom.window;w.fetch=()=>assert.fail('Opening feedback must not make an API request');
+ w.eval(readFileSync(new URL('../src/public/report-preparation.js',import.meta.url),'utf8'));
+ w.document.addEventListener('click',e=>e.preventDefault());
+ const link=w.document.querySelector('a');link.click();
+ assert.equal(link.textContent,'Opening AI analysis…');
+ assert.match(w.document.querySelector('#analyst-opening-status').textContent,/does not generate a paid draft/);
+ w.dispatchEvent(new w.Event('pageshow'));assert.equal(link.textContent,'AI report analysis');assert.equal(w.document.querySelector('#analyst-opening-status'),null);
+ dom.window.close();
+});

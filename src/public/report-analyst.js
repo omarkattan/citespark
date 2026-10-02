@@ -1,7 +1,10 @@
 document.addEventListener('click',async event=>{
  const button=event.target.closest('[data-operation]');if(!button||button.disabled)return;
  const buttons=[...document.querySelectorAll('[data-operation]')],status=document.querySelector('#analyst-status');
- buttons.forEach(b=>b.disabled=true);
+ const previous=buttons.map(b=>({button:b,disabled:b.disabled})),originalLabel=button.textContent;
+ buttons.forEach(b=>b.disabled=true);button.setAttribute('aria-busy','true');
+ button.textContent=['generate','regenerate'].includes(button.dataset.operation)?'Analysing evidence…':'Working…';
+ status.setAttribute('aria-live','polite');status.scrollIntoView?.({block:'nearest',behavior:'smooth'});
  const generating=['generate','regenerate'].includes(button.dataset.operation),started=Date.now();
  const update=()=>status.textContent=generating?`Analysing saved evidence… ${Math.floor((Date.now()-started)/1000)} seconds. This can take up to 90 seconds after the evidence is prepared.`:button.dataset.operation==='recover'?'Rechecking the saved response. No new AI request…':'Saving your report selection…';
  update();const timer=setInterval(update,1000);
@@ -9,6 +12,6 @@ document.addEventListener('click',async event=>{
   const response=await fetch(document.querySelector('[data-analyst-base]').dataset.analystBase,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:button.dataset.operation,id:button.dataset.id})});
   if(response.redirected)throw Error('Your session may have expired. Sign in again, then refresh this page.');
   const result=await response.json();if(!response.ok)throw Error(result.error||'Could not complete the request.');
-  clearInterval(timer);location.reload();
- }catch(error){clearInterval(timer);status.textContent=error.message+' Refresh to check whether a draft was saved before retrying.';buttons.forEach(b=>b.disabled=false);}
+  clearInterval(timer);status.textContent='Request complete. Opening the updated analysis…';location.reload();
+ }catch(error){clearInterval(timer);status.textContent=error.message+' Refresh to check whether a draft was saved before retrying.';previous.forEach(x=>x.button.disabled=x.disabled);button.textContent=originalLabel;button.removeAttribute('aria-busy');}
 });

@@ -66,3 +66,20 @@ document.addEventListener('change',event=>{
  const invalid=!!(from&&to&&from>to);a.setAttribute('aria-disabled',String(invalid));
  if(invalid)a.removeAttribute('href');else a.href=a.dataset.path+location.search;
 });
+
+// Give feedback before the server prepares the analyst page. Navigation remains native.
+(()=>{
+ let timer,link,original;
+ const reset=()=>{clearInterval(timer);if(link){link.textContent=original;link.removeAttribute('aria-busy');}document.getElementById('analyst-opening-status')?.remove();link=null;};
+ window.addEventListener('pageshow',reset);window.addEventListener('pagehide',()=>clearInterval(timer));
+ document.addEventListener('click',event=>{
+  const target=event.target.closest('[data-analyst-link]');
+  if(!target||event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
+  reset();link=target;original=target.textContent;target.textContent='Opening AI analysis…';target.setAttribute('aria-busy','true');
+  const status=document.createElement('p');status.id='analyst-opening-status';status.className='hint';status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+  target.closest('.toolbar').after(status);
+  const started=Date.now();
+  const update=()=>{const seconds=Math.floor((Date.now()-started)/1000);status.textContent=seconds<20?`Preparing saved evidence and checking existing drafts… ${seconds}s. Opening this page does not generate a paid draft.`:`Still opening the analysis page… ${seconds}s. No paid draft has been requested. If it does not open, refresh and try again.`;};
+  update();timer=setInterval(update,1000);
+ });
+})();
