@@ -71,3 +71,13 @@ test('first measured results override stale setup, while empty scans retain the 
  stored='complete';await ctx.loadProject(29);assert.equal(rendered,'overview');assert.equal(ctx.setupJourney(),'');
  dom.window.close();
 });
+
+test('report source links open only a known source for the intended loaded project',()=>{
+ const ctx=vm.createContext({URL});vm.runInContext(app.slice(app.indexOf('function reportSourceDestination'),app.indexOf('async function boot()')),ctx);
+ assert.equal(ctx.reportSourceDestination('https://cited.ae/app?site=31&source=gsc',31),'searchDemand');
+ assert.equal(ctx.reportSourceDestination('https://cited.ae/app?site=28&source=analytics',28),'traffic');
+ for(const url of ['https://cited.ae/app?site=31&source=analytics','https://cited.ae/app?source=gsc','https://cited.ae/app?site=28&source=run','https://cited.ae/app?site=28&source=constructor','https://cited.ae/app?site=28&source=https://other.example','https://cited.ae/app?site=28.5&source=gsc'])assert.equal(ctx.reportSourceDestination(url,28),null);
+ const boot=app.slice(app.indexOf('async function boot()'),app.indexOf('// Someone may have started'));
+ assert.ok(boot.indexOf('const requestedSourceUrl=location.href')<boot.indexOf('await loadProjectList()'));
+ assert.match(boot,/if\(!returned\)/);assert.ok(boot.indexOf('await loadProjectList()')<boot.indexOf('reportSourceDestination(requestedSourceUrl'));
+});

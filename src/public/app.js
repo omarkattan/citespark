@@ -2187,7 +2187,16 @@ function handleGoogleReturn() {
   };
 }
 
+function reportSourceDestination(url,projectId) {
+ const params=new URL(url).searchParams;
+ const site=Number(params.get('site'));
+ if(!Number.isInteger(site)||site<=0||site!==Number(projectId))return null;
+ const source=params.get('source');
+ return source==='gsc'?'searchDemand':source==='analytics'?'traffic':null;
+}
+
 async function boot() {
+  const requestedSourceUrl=location.href;
   const returned = handleGoogleReturn();
   const me = await api('/api/me');
   if (!me?.signedIn) { window.location.href = '/login'; return; }
@@ -2210,6 +2219,11 @@ async function boot() {
 
   await loadProjectList();
   await refreshUsagePill();
+
+  if(!returned) {
+    const destination=reportSourceDestination(requestedSourceUrl,state.projectId);
+    if(destination){state.view=destination;await render();}
+  }
 
   if (returned) {
     // Wait for the destination before restoring the requested connection workflow.

@@ -30,7 +30,7 @@ test('Analytics preflight distinguishes partial, covered, missing and disconnect
  const html=reportPreparationHtml(project,[],{state,connected:true,from:'2026-07-04',to:'2026-10-01',coveredFrom:'2026-07-04',coveredTo:'2026-09-30',days:90,why:'Sync first'});
  assert.match(html,expected);assert.match(html,/data-report-sync-ga4="28"/);assert.ok(html.indexOf('Analytics report coverage')<html.indexOf('<h2>Selected recommendations'));
  }
- const html=reportPreparationHtml(project,[],{state:'disconnected',why:'<img src=x>'});assert.doesNotMatch(html,/data-report-sync-ga4|<img/);assert.match(html,/Open project Settings/);
+ const html=reportPreparationHtml(project,[],{state:'disconnected',why:'<img src=x>'});assert.doesNotMatch(html,/data-report-sync-ga4|<img/);assert.match(html,/Review Analytics connection/);
 });
 test('Analytics refresh rechecks coverage and preserves dirty forms on success, partial coverage and failure',async()=>{
  const {JSDOM}=await import(process.env.JSDOM_MODULE);
@@ -59,4 +59,10 @@ test('Search Console preparation separates property provenance, missing dates an
  assert.match(reportPreparationHtml(project,[],{}, {...search,questions:[]}),/No active Search Console-derived questions/);
  assert.doesNotMatch(reportPreparationHtml(project,[],{}, {...search,siteUrl:'<img src=x>'}),/<img/);
  assert.match(reportPreparationHtml(project,[],{},null),/could not be checked/);
+});
+
+test('preparation links go directly to the correct source on the same project',()=>{
+ const html=reportPreparationHtml({id:31,name:'Arada'},[],{state:'disconnected'},{connected:true,siteUrl:'https://www.arada.com/',questions:[]});
+ assert.match(html,/href="\/app\?site=31&amp;source=gsc">Review Search Console/);
+ assert.match(html,/href="\/app\?site=31&amp;source=analytics">Review Analytics connection/);
 });
