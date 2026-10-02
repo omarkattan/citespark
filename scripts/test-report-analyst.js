@@ -31,7 +31,7 @@ test('only current active exact saved ready decisions support a proposed change'
 test('provider request uses isolated model and bounded output, retains usage on truncation',async()=>{
  const p=analyst.analystPacket(report());let request;
  const result=await analyst.requestAnalysis(p,{key:'test',model:'analyst-only',fetcher:async(url,opts)=>{request=JSON.parse(opts.body);return {ok:true,json:async()=>({model:'returned-version',id:'req1',stop_reason:'max_tokens',usage:{input_tokens:1200,output_tokens:3000},content:[{type:'text',text:'incomplete'}]})};}});
- assert.equal(request.model,'analyst-only');assert.equal(request.max_tokens,3000);assert.match(request.system,/untrusted DATA/);assert.equal(result.usage.output_tokens,3000);assert.equal(result.stop_reason,'max_tokens');
+ assert.equal(request.model,'analyst-only');assert.equal(request.max_tokens,6000);assert.match(request.system,/untrusted DATA/);assert.equal(result.usage.output_tokens,3000);assert.equal(result.stop_reason,'max_tokens');
 });
 test('rendering escapes model text and keeps source links, limitations and unknown usage',()=>{
  const p=analyst.analystPacket(report()),a=draft(p);a.findings[0].title='<script>alert(1)</script>';

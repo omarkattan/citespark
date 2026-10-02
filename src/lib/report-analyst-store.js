@@ -40,7 +40,7 @@ export async function generateAnalysis(report,userId,{regenerate=false}={}){
  try{
   const result=await requestAnalysis(packet,{model});
   await query('UPDATE report_analyst_drafts SET returned_model=$2,usage=$3,provider_id=$4,stop_reason=$5,raw_response=$6,cost_estimate=$7 WHERE id=$1',[row.id,result.model,result.usage,result.provider_id,result.stop_reason,result.raw,analystCost(result.model,result.usage)]);
-  if(result.stop_reason!=='end_turn')throw new Error('The AI response did not finish normally. Usage was recorded, but the draft was withheld.');
+  if(result.stop_reason!=='end_turn')throw new Error(result.stop_reason==='max_tokens'?'The AI draft reached its output limit before finishing. The incomplete response and usage were saved, but nothing was published. Review the latest attempt before making another paid request.':`The AI response stopped before completion (${result.stop_reason||'unknown reason'}). Usage was recorded, but the draft was withheld.`);
   let value;try{value=JSON.parse(result.raw.replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,''));}catch{throw new Error('AI response was not valid JSON. Usage was recorded, but the draft was withheld.');}
   const analysis=validateAnalysis(value,packet);
   return await one("UPDATE report_analyst_drafts SET analysis=$2,status='draft' WHERE id=$1 RETURNING *",[row.id,analysis]);
