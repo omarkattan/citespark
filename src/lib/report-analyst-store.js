@@ -54,3 +54,17 @@ export async function approveAnalysis(report,id,userId){
  validateAnalysis(row.analysis,packet);
  await query('UPDATE report_analyst_drafts SET approved_at=now(),approved_by=$2 WHERE id=$1',[row.id,userId]);
 }
+
+// Revalidate the retained response. Never make a provider call or approve the result here.
+export async function recoverAnalysis(report,id){
+ const row=await one("SELECT * FROM report_analyst_drafts WHERE id=$1 AND project_id=$2 AND status='failed'",[id,report.project.id]);
+ if(!row)throw new Error('A failed saved response was not found for this project.');
+ if(row.stop_reason!=='end_turn'||!row.raw_response)throw new Error('This response is incomplete and cannot be recovered.');
+ const packet=await reportPacket(report);
+ if(row.evidence_hash!==packetHash(packet))throw new Error('The evidence has changed. The saved response cannot be reused for the current report.');
+ let value;try{value=JSON.parse(row.raw_response.replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,''));}catch{throw new Error('The saved response is not valid JSON.');}
+ // References must pass against both the original evidence and the current identical packet.
+ validateAnalysis(value,row.packet);
+ const analysis=validateAnalysis(value,packet);
+ return await one("UPDATE report_analyst_drafts SET analysis=$3,status='draft',error=NULL WHERE id=$1 AND project_id=$2 AND status='failed' RETURNING *",[id,report.project.id,analysis]);
+}

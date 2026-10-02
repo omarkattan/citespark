@@ -2536,7 +2536,7 @@ app.post('/api/projects/:id/report/analyst',requireAuth,wrap(async(req,res)=>{
  // JSON requests and same-site session cookies prevent cross-site form submissions.
  if(!req.is('application/json'))return res.status(415).json({error:'Send a JSON request.'});
  const op=req.body?.operation;
- if(!['generate','regenerate','approve','remove'].includes(op))return res.status(400).json({error:'Unknown analysis operation.'});
+ if(!['generate','regenerate','approve','remove','recover'].includes(op))return res.status(400).json({error:'Unknown analysis operation.'});
  if(op==='remove'){
   await query('UPDATE report_analyst_drafts SET approved_at=NULL,approved_by=NULL WHERE project_id=$1',[project.id]);
   return res.json({ok:true});
@@ -2546,10 +2546,11 @@ app.post('/api/projects/:id/report/analyst',requireAuth,wrap(async(req,res)=>{
  const range=reportRange(req.query);
  if(range.get('from')&&range.get('to')&&range.get('from')>range.get('to'))return res.status(400).json({error:'Choose a valid report period.'});
  const report=await buildReport(project.id,Object.fromEntries(range),{presentationOnly:true});
- const {generateAnalysis,approveAnalysis}=await import('./lib/report-analyst-store.js');
+ const {generateAnalysis,approveAnalysis,recoverAnalysis}=await import('./lib/report-analyst-store.js');
  try{
   if(op==='generate'||op==='regenerate'){const draft=await generateAnalysis(report,req.session.userId,{regenerate:op==='regenerate'});return res.json({ok:true,id:draft.id});}
   if(!/^\d+$/.test(String(req.body.id||'')))return res.status(400).json({error:'Choose a saved draft.'});
+  if(op==='recover'){await recoverAnalysis(report,req.body.id);return res.json({ok:true});}
   await approveAnalysis(report,req.body.id,req.session.userId);res.json({ok:true});
  }catch(error){res.status(400).json({error:error.message});}
 }));

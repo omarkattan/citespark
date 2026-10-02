@@ -3,7 +3,7 @@ document.addEventListener('click',async event=>{
  const buttons=[...document.querySelectorAll('[data-operation]')],status=document.querySelector('#analyst-status');
  buttons.forEach(b=>b.disabled=true);
  const generating=['generate','regenerate'].includes(button.dataset.operation),started=Date.now();
- const update=()=>status.textContent=generating?`Analysing saved evidence… ${Math.floor((Date.now()-started)/1000)} seconds. This can take up to 90 seconds after the evidence is prepared.`:'Saving your report selection…';
+ const update=()=>status.textContent=generating?`Analysing saved evidence… ${Math.floor((Date.now()-started)/1000)} seconds. This can take up to 90 seconds after the evidence is prepared.`:button.dataset.operation==='recover'?'Rechecking the saved response. No new AI request…':'Saving your report selection…';
  update();const timer=setInterval(update,1000);
  try{
   const response=await fetch(document.querySelector('[data-analyst-base]').dataset.analystBase,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:button.dataset.operation,id:button.dataset.id})});

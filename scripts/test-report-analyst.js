@@ -43,7 +43,7 @@ test('rendering escapes model text and keeps source links, limitations and unkno
 function store(deps={}){
  let src=readFileSync(new URL('../src/lib/report-analyst-store.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replace(/export /g,'');
  const context=vm.createContext({...analyst,process:{env:{ANTHROPIC_API_KEY:'test'}},...deps});
- vm.runInContext(src+'\nthis.api={reportPacket,currentAnalysis,generateAnalysis,approveAnalysis};',context);return context.api;
+ vm.runInContext(src+'\nthis.api={reportPacket,currentAnalysis,generateAnalysis,approveAnalysis,recoverAnalysis};',context);return context.api;
 }
 test('unapproved and stale analysis cannot appear in reports; approval checks project and evidence',async()=>{
  const r=report(),p=analyst.analystPacket(r),row={id:7,evidence_hash:'old',packet:p,analysis:draft(p)};let updated=false;
@@ -102,4 +102,26 @@ test('budget admits complete records only and accurately discloses omitted excer
  assert.equal(p.limits.questionsIncluded,p.records.filter(x=>x.id.startsWith('q-')).length);
  assert.equal(p.limits.answerExcerpts,p.records.filter(x=>x.id.startsWith('answer-')).length);
  for(const record of p.records)assert.doesNotThrow(()=>JSON.parse(record.text));
+});
+
+test('a 470-character implication is retained in full; missing and excessive text identify the field',()=>{
+ const p=analyst.analystPacket(report()),d=draft(p);d.findings[0].implication='A'.repeat(470);
+ assert.equal(analyst.validateAnalysis(d,p).findings[0].implication.length,470);
+ d.findings[0].implication='A'.repeat(901);assert.throws(()=>analyst.validateAnalysis(d,p),/finding 1.implication has 901 characters; the hard limit is 900/);
+ d.findings[0].implication='';assert.throws(()=>analyst.validateAnalysis(d,p),/missing finding 1.implication/);
+ d.findings[0].implication='A'.repeat(470);d.findings[0].evidence[0].quote='fabricated quote that never appeared';assert.throws(()=>analyst.validateAnalysis(d,p),/unverified/);
+});
+test('recovery reuses stored output without billing or approval and refuses stale, incomplete or false evidence',async()=>{
+ const r=report(),p=analyst.analystPacket(r),d=draft(p);d.findings[0].implication='A'.repeat(470);
+ const row={id:2,project_id:31,status:'failed',stop_reason:'end_turn',packet:p,evidence_hash:analyst.packetHash(p),raw_response:JSON.stringify(d)};
+ let updates=0;
+ const api=store({many:async()=>[],one:async(sql,args)=>{
+  assert.equal(args[1],31);
+  if(sql.startsWith('SELECT'))return row;
+  assert.doesNotMatch(sql,/approved_|usage|cost_estimate|raw_response/);updates++;return {...row,status:'draft',analysis:args[2]};
+ },requestAnalysis:async()=>assert.fail('Recovery must not call AI')});
+ const result=await api.recoverAnalysis(r,2);assert.equal(result.analysis.findings[0].implication.length,470);assert.equal(updates,1);
+ row.stop_reason='max_tokens';await assert.rejects(api.recoverAnalysis(r,2),/incomplete/);
+ row.stop_reason='end_turn';row.evidence_hash='stale';await assert.rejects(api.recoverAnalysis(r,2),/evidence has changed/);
+ row.evidence_hash=analyst.packetHash(p);d.findings[0].evidence[0].quote='invented evidence reference';row.raw_response=JSON.stringify(d);await assert.rejects(api.recoverAnalysis(r,2),/unverified/);assert.equal(updates,1);
 });
