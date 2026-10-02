@@ -25,3 +25,15 @@ test('help uses plain text, avoids nested interactive content and stays out of p
  const dom=setup('<button data-help="&lt;img src=x onerror=alert(1)&gt;">Custom</button><a href="#"><b data-help="Nested">Nested</b></a>'),d=dom.window.document;
  d.querySelector('.cited-help-button').click();assert.equal(d.querySelector('[role=tooltip] img'),null);assert.match(d.querySelector('[role=tooltip]').textContent,/<img/);assert.equal(d.querySelectorAll('.cited-help-button').length,1);assert.match(d.querySelector('style').textContent,/@media print/);dom.window.close();
 });
+test('report document replacement retires the loader observer and adds exactly one working help',async()=>{
+ const dom=setup('<button data-help="Loading context">Loading</button>'),w=dom.window,d=w.document;
+ d.open();d.write('<!doctype html><html><head></head><body><button onclick="window.print()">Print / save PDF</button><button id="refresh-search">Refresh GSC evidence</button></body></html>');d.close();
+ w.eval(code);await tick(w);await tick(w);
+ assert.equal(d.querySelectorAll('.cited-help-button').length,2);
+ assert.equal(d.querySelectorAll('.cited-help-group .cited-help-group').length,0);
+ d.querySelector('.cited-help-button').click();assert.equal(d.querySelector('[role=tooltip]').hidden,false);
+ w.eval(code);await tick(w);assert.equal(d.querySelectorAll('.cited-help-button').length,2);dom.window.close();
+});
+test('existing question-mark help controls do not receive a second question mark',()=>{
+ const dom=setup('<button data-help="Existing explanatory text">?</button>');assert.equal(dom.window.document.querySelectorAll('.cited-help-button').length,0);dom.window.close();
+});

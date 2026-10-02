@@ -1,6 +1,9 @@
 /* Shared contextual help. No network calls, data writes or changes to action handlers. */
 (()=>{
  if(document.querySelector('[data-cited-help-root]'))return;
+ window.citedContextHelpCleanup?.();
+ const lifecycle=new AbortController();let disposed=false;
+ const listen=(target,event,handler,capture=false)=>target.addEventListener(event,handler,{capture,signal:lifecycle.signal});
  const style=document.createElement('style');style.textContent=`
  .cited-help-group{display:inline-flex;position:relative;align-items:center;gap:0;padding-inline-end:10px;max-width:100%;min-width:0;vertical-align:middle}
  .cited-help-group[hidden]{display:none!important}
@@ -106,16 +109,17 @@
  const show=button=>{clearTimeout(hideTimer);if(active!==button)close();active=button;popup.textContent=button.dataset.explanation;popup.hidden=false;button.setAttribute('aria-describedby',popup.id);if(typeof popup.showPopover==='function'){popup.setAttribute('popover','manual');if(!popup.matches(':popover-open'))popup.showPopover();}position();};
  const later=()=>{if(!pinned)hideTimer=setTimeout(close,160);};
  popup.addEventListener('pointerenter',()=>clearTimeout(hideTimer));popup.addEventListener('pointerleave',later);
- document.addEventListener('click',event=>{const button=event.target.closest('.cited-help-button');if(button){event.preventDefault();event.stopImmediatePropagation();if(active===button&&pinned)close();else{show(button);pinned=true;}return;}if(!popup.contains(event.target))close();},true);
- document.addEventListener('keydown',event=>{if(event.key==='Escape'&&active){event.preventDefault();event.stopImmediatePropagation();close();}},true);
- window.addEventListener('resize',()=>{decorate();position();});document.addEventListener('scroll',()=>{if(active&&!active.isConnected)close();else position();},true);
+ listen(document,'click',event=>{const button=event.target.closest('.cited-help-button');if(button){event.preventDefault();event.stopImmediatePropagation();if(active===button&&pinned)close();else{show(button);pinned=true;}return;}if(!popup.contains(event.target))close();},true);
+ listen(document,'keydown',event=>{if(event.key==='Escape'&&active){event.preventDefault();event.stopImmediatePropagation();close();}},true);
+ listen(window,'resize',()=>{decorate();position();});listen(document,'scroll',()=>{if(active&&!active.isConnected)close();else position();},true);
  const attached=new Map();let pending=false;
  const observer=new MutationObserver(()=>{if(!pending){pending=true;requestAnimationFrame(()=>{pending=false;decorate();});}});
  function decorate(){
   observer.disconnect();
+  if(disposed||!popup.isConnected){window.citedContextHelpCleanup===cleanup&&cleanup();return;}
   for(const [el,button] of attached){if(!el.isConnected||!helpFor(el)){if(active===button)close();const group=button.parentElement;button.remove();if(group?.classList.contains('cited-help-group'))group.replaceWith(...group.childNodes);attached.delete(el);}else{button.hidden=el.hidden||!!el.parentElement?.parentElement?.closest('[hidden]');button.parentElement.hidden=button.hidden;if(button.hidden&&active===button)close();}}
   for(const el of document.querySelectorAll('button,a,label,dt,.metric b,.stat-label,.kpi-label,[data-help]')){
-   if(el.closest('[data-cited-help-root]')||el.classList.contains('cited-help-button')||el.parentElement?.closest('button,a,label,summary')||el.closest('[hidden]'))continue;
+   if(el.closest('[data-cited-help-root]')||el.classList.contains('cited-help-button')||(el.hasAttribute('data-help')&&el.textContent.trim()==='?')||el.parentElement?.closest('button,a,label,summary')||el.closest('[hidden]'))continue;
    const explanation=helpFor(el);if(!explanation)continue;
    let button=attached.get(el);
    if(!button){button=document.createElement('button');button.type='button';button.className='cited-help-button';button.textContent='?';button.addEventListener('pointerenter',()=>show(button));button.addEventListener('pointerleave',later);button.addEventListener('focus',()=>show(button));button.addEventListener('blur',()=>{if(active===button)close();});const group=document.createElement('span');group.className='cited-help-group';el.before(group);group.append(el,button);attached.set(el,button);}
@@ -125,5 +129,7 @@
   }
   observer.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden','data-operation','data-status','data-view','data-include']});
  }
+ const cleanup=()=>{disposed=true;observer.disconnect();clearTimeout(hideTimer);lifecycle.abort();};
+ window.citedContextHelpCleanup=cleanup;
  decorate();
 })();
