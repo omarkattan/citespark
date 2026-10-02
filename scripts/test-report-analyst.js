@@ -144,3 +144,22 @@ test('format matching stays within answer prose and preserves negation, punctuat
  assert.equal(analyst.evidenceQuoteMatch({...record,id:'decision-1'},'Prices are not confirmed.'),null);
  assert.equal(analyst.evidenceQuoteMatch(record,'The price is AED 1.8 million. Source'),null);
 });
+test('review prompts flag risky wording privately without pretending to verify meaning',()=>{
+ const p=analyst.analystPacket(report()),a=draft(p),f=a.findings[0];
+ f.implication='This visibility translates to measurable referral traffic.';
+ f.done_when='FAQ schema is deployed with one set of prices.';
+ f.follow_up='Track cost per qualified lead.';
+ assert.equal(analyst.analysisReviewWarnings(f).length,4);
+ const row={packet:p,analysis:a};
+ assert.match(analystFindingsHtml(row,{review:true}),/Check before inclusion/);
+ assert.match(analystFindingsHtml(row,{review:true}),/not a verdict/);
+ assert.doesNotMatch(analystFindingsHtml(row),/Check before inclusion/);
+ assert.deepEqual(analyst.analysisReviewWarnings(draft(p).findings[0]),[]);
+});
+test('analysis policy update invalidates earlier approval without changing measured evidence',()=>{
+ const p=analyst.analystPacket(report()),old=structuredClone(p);delete old.analysisPolicy;delete old.definitions;
+ assert.notEqual(analyst.packetHash(p),analyst.packetHash(old));
+ assert.deepEqual(p.records,old.records);
+ assert.equal(p.sourceFingerprint,old.sourceFingerprint);
+ assert.match(p.definitions.traffic,/No question-level attribution/);
+});
