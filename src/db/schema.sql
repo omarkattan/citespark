@@ -739,3 +739,16 @@ ALTER TABLE report_analyst_drafts ADD COLUMN IF NOT EXISTS edit_revision INTEGER
 ALTER TABLE report_analyst_drafts ADD COLUMN IF NOT EXISTS edit_history JSONB NOT NULL DEFAULT '[]';
 ALTER TABLE report_analyst_drafts ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
 ALTER TABLE report_analyst_drafts ADD COLUMN IF NOT EXISTS edited_by INTEGER;
+
+-- Batch 99: immutable, authenticated client report versions.
+CREATE TABLE IF NOT EXISTS report_snapshots (
+ id UUID PRIMARY KEY,
+ project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ created_by INTEGER NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ analysis_state TEXT NOT NULL CHECK(analysis_state IN ('included','none','stale')),
+ report JSONB NOT NULL,
+ full_html TEXT NOT NULL,
+ ceo_html TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS report_snapshots_project ON report_snapshots(project_id,created_at DESC);

@@ -2516,6 +2516,36 @@ app.get('/api/projects/:id/report/prepare', requireAuth, wrap(async (req,res)=>{
  res.type('html').send(reportPreparationHtml(project,rows,traffic,search,req.query));
 }));
 
+// Saved report copies remain private to users with access to this project.
+app.get('/api/projects/:id/report/snapshots',requireAuth,wrap(async(req,res)=>{
+ const project=await assertProject(req,res);if(!project)return;
+ res.set('Cache-Control','no-store');
+ const {listReportSnapshots}=await import('./lib/report-snapshots.js');
+ res.json({snapshots:await listReportSnapshots(project.id)});
+}));
+app.post('/api/projects/:id/report/snapshots',requireAuth,wrap(async(req,res)=>{
+ const project=await assertProject(req,res);if(!project)return;
+ if(!req.is('application/json'))return res.status(400).json({error:'Use the report preparation save control.'});
+ const {reportRange}=await import('./lib/report-loading.js');
+ const range=reportRange(req.body||{});
+ for(const key of ['from','to'])if(req.body?.[key]&&range.get(key)!==req.body[key])return res.status(400).json({error:'Choose valid report dates.'});
+ if(range.get('from')&&range.get('to')&&range.get('from')>range.get('to'))return res.status(400).json({error:'Choose a valid report period.'});
+ try{
+  const {saveReportSnapshot}=await import('./lib/report-snapshots.js');
+  const saved=await saveReportSnapshot(project,req.body?.requestId,req.session.userId,Object.fromEntries(range));
+  res.json({id:saved.id});
+ }catch(error){console.error('Report snapshot save failed:',error.message);res.status(400).json({error:error.code==='42P01'?'Apply the database migration before saving report versions.':'The report version could not be saved. Check saved versions before retrying. No AI request was made.'});}
+}));
+app.get('/api/projects/:id/report/snapshots/:snapshotId',requireAuth,wrap(async(req,res)=>{
+ const project=await assertProject(req,res);if(!project)return;
+ const {snapshotIdValid}=await import('./lib/report-snapshots.js');
+ if(!snapshotIdValid(req.params.snapshotId))return res.status(404).send('Saved report not found.');
+ const row=await one('SELECT full_html,ceo_html FROM report_snapshots WHERE id=$1 AND project_id=$2',[req.params.snapshotId,project.id]);
+ if(!row)return res.status(404).send('Saved report not found.');
+ res.set('Cache-Control','private, no-store');
+ res.type('html').send(req.query.view==='ceo'?row.ceo_html:row.full_html);
+}));
+
 // Read-only preparation check. No paid generation and no approval changes.
 app.get('/api/projects/:id/report/analysis-status',requireAuth,wrap(async(req,res)=>{
  const project=await assertProject(req,res);if(!project)return;

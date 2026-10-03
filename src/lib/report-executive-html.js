@@ -55,7 +55,7 @@ export function executiveReportHtml(r,{print=false}={}) {
  const shortlist=reviewShortlist(e.questions);
  const searchQuestions=e.questions.filter(q=>/gsc/i.test(q.source || ''));
  const count=value=>value == null ? 'Not matched' : Number(value).toLocaleString('en-GB');
- const refresh=r.project.id && searchQuestions.length ? `<button id="refresh-search" data-project="${esc(r.project.id)}">Refresh GSC evidence</button><span id="refresh-status" role="status"></span>` : '';
+ const refresh=!r.snapshot && r.project.id && searchQuestions.length ? `<button id="refresh-search" data-project="${esc(r.project.id)}">Refresh GSC evidence</button><span id="refresh-status" role="status"></span>` : '';
  const searchRows=searchQuestions.map(q=>{
    const o=q.originDetails || {}, g=o.gscSnapshot;
    return `<tr><td>${esc(q.text)}<span class="tag">${esc(g?.property || o.property || 'Property not recorded')}</span></td><td class="number">${g ? count(g.impressions) : o.impressions == null ? 'Not recorded' : count(o.impressions)}<span class="tag">${g ? `${count(g.clicks)} clicks` : 'Historical import'}</span></td><td>${g ? `${date(g.startDate)} to ${date(g.endDate)}<span class="tag">${g.matchedQueries} / ${g.storedQueries} ${esc(g.scope)} matched in ${g.returnedRows} returned query rows. Refreshed ${date(g.fetchedAt)}.</span>` : 'Dates and clicks were not retained. Refresh to obtain dated evidence for stored query examples.'}</td></tr>`;
@@ -67,7 +67,7 @@ export function executiveReportHtml(r,{print=false}={}) {
  .report-delivery dt{font-weight:700;font-size:12px;color:#087e83;margin-top:16px;break-after:avoid}.report-delivery dd{margin:5px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}.report-delivery{margin:0}@media print{.report-delivery dd{font-size:11px}.report-delivery dt{margin-top:12px}}
 @media print{.analyst-findings details> *{display:block!important}.analyst-findings details{content-visibility:visible}.analyst-findings details::details-content{content-visibility:visible;display:block}}
 ${reportNavigationCss}
- </style></head><body><main class="wrap"><div class="tools"><a href="${esc(reportViewUrl(r,'ceo'))}">CEO brief</a><a href="?${esc(detailParams.toString())}">Detailed evidence report</a><button onclick="window.print()">Print / save PDF</button>${refresh}</div>
+ </style></head><body><main class="wrap"><div class="tools"><a href="${esc(reportViewUrl(r,'ceo'))}">CEO brief</a><a href="${r.snapshot?`/api/projects/${encodeURIComponent(r.project.id)}/report`:""}?${esc(detailParams.toString())}">${r.snapshot?"Live detailed evidence report":"Detailed evidence report"}</a><button onclick="window.print()">Print / save PDF</button>${refresh}</div>
  <div class="mast" id="report-section-summary" tabindex="-1"><span class="logo">CITED</span><span>EXECUTIVE BRIEFING</span></div>
  <p class="kicker">${esc(r.project.domain)} · ${date(r.generatedAt)}</p><h1>${esc(r.project.name)}<br>AI visibility and next steps</h1>
  <p class="muted">Latest measured cycle within the selected dates: ${date(e.cycle)}. ${e.measuredQuestions} measured questions, ${t.measured} measured answer samples.</p>

@@ -13,6 +13,7 @@ export function reportViewUrl(r,view='full',anchor=''){
  const params=new URLSearchParams();
  if(view==='ceo')params.set('view','ceo');
  if(r.period?.chosen)for(const k of ['from','to'])if(r.period[k])params.set(k,r.period[k]);
+ if(r.snapshot&&view!=='prepare')return `/api/projects/${encodeURIComponent(r.project.id)}/report/snapshots/${encodeURIComponent(r.snapshot.id)}${view==='ceo'?'?view=ceo':''}${anchor?'#'+anchor:''}`;
  return `/api/projects/${encodeURIComponent(r.project.id)}/report${view==='prepare'?'/prepare':''}${params.size?'?'+params:''}${anchor?'#'+anchor:''}`;
 }
 export function ceoReportHtml(r){
