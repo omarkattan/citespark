@@ -2516,6 +2516,24 @@ app.get('/api/projects/:id/report/prepare', requireAuth, wrap(async (req,res)=>{
  res.type('html').send(reportPreparationHtml(project,rows,traffic,search,req.query));
 }));
 
+// Read-only preparation check. No paid generation and no approval changes.
+app.get('/api/projects/:id/report/analysis-status',requireAuth,wrap(async(req,res)=>{
+ const project=await assertProject(req,res);if(!project)return;
+ res.set('Cache-Control','no-store');
+ const {reportRange}=await import('./lib/report-loading.js');
+ const range=reportRange(req.query);
+ if(range.get('from')&&range.get('to')&&range.get('from')>range.get('to'))return res.status(400).json({error:'Choose a valid report period.'});
+ try{
+  const {buildReport}=await import('./lib/report.js');
+  const {analysisInclusionStatus}=await import('./lib/report-analyst-store.js');
+  const report=await buildReport(project.id,Object.fromEntries(range),{presentationOnly:true});
+  res.json(await analysisInclusionStatus(report));
+ }catch(error){
+  console.error('Report analysis status check failed:',error.message);
+  res.status(503).json({error:'Analysis inclusion could not be verified. Open AI report analysis to review it before sharing.'});
+ }
+}));
+
 // Analyst generation is explicit. Report reads never call a model.
 app.get('/api/projects/:id/report/analyst',requireAuth,wrap(async(req,res)=>{
  const project=await assertProject(req,res);if(!project)return;

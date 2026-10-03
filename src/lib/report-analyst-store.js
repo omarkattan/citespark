@@ -18,6 +18,20 @@ export async function currentAnalysis(report){
  const row=rows.find(r=>r.evidence_hash===hash);
  return row?{...row,packet,analysis:validateAnalysis(row.analysis,packet)}:{stale:true};
 }
+// Uses the same approval and evidence checks as report rendering. Never calls a model.
+export async function analysisInclusionStatus(report){
+ const included=await currentAnalysis(report);
+ if(included&&!included.stale)return {state:'included',draftId:included.id,revision:included.edit_revision||0};
+ const latest=await one('SELECT * FROM report_analyst_drafts WHERE project_id=$1 ORDER BY id DESC LIMIT 1',[report.project.id]);
+ if(!latest)return {state:'none'};
+ if(latest.status==='draft'){
+  const packet=await reportPacket(report);
+  if(latest.evidence_hash!==packetHash(packet))return {state:'stale'};
+  validateAnalysis(latest.analysis,packet);
+  return {state:'draft',draftId:latest.id,revision:latest.edit_revision||0};
+ }
+ return {state:latest.status==='generating'?'generating':'failed'};
+}
 export async function generateAnalysis(report,userId,{regenerate=false}={}){
  if(!process.env.ANTHROPIC_API_KEY)throw new Error('Report analyst is not configured. Add the Anthropic API key in Render.');
  if(!report.executive.totals.measured)throw new Error('Collect a measured baseline before requesting analysis.');

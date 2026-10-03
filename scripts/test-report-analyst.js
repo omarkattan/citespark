@@ -43,7 +43,7 @@ test('rendering escapes model text and keeps source links, limitations and unkno
 function store(deps={}){
  let src=readFileSync(new URL('../src/lib/report-analyst-store.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replace(/export /g,'');
  const context=vm.createContext({...analyst,process:{env:{ANTHROPIC_API_KEY:'test'}},...deps});
- vm.runInContext(src+'\nthis.api={reportPacket,currentAnalysis,generateAnalysis,approveAnalysis,recoverAnalysis,editAnalysis};',context);return context.api;
+ vm.runInContext(src+'\nthis.api={reportPacket,currentAnalysis,generateAnalysis,approveAnalysis,recoverAnalysis,editAnalysis,analysisInclusionStatus};',context);return context.api;
 }
 test('unapproved and stale analysis cannot appear in reports; approval checks project and evidence',async()=>{
  const r=report(),p=analyst.analystPacket(r),row={id:7,evidence_hash:'old',packet:p,analysis:draft(p)};let updated=false;
@@ -217,4 +217,19 @@ test('top edit button opens the editor and focuses the title without a request',
  assert.equal(dom.window.document.activeElement.tagName,'TEXTAREA');
  assert.equal(dom.window.document.querySelector('button').getAttribute('aria-expanded'),'true');
  }finally{dom.window.close();}
+});
+
+test('preparation status agrees with report approval checks without making paid requests',async()=>{
+ const r=report(),p=analyst.analystPacket(r),a=draft(p);
+ let rows=[],latest=null;
+ const api=store({many:async sql=>sql.includes('approved_at IS NOT NULL')?rows:[],one:async()=>latest,requestAnalysis:()=>{throw Error('No paid calls');}});
+ assert.equal((await api.analysisInclusionStatus(r)).state,'none');
+ latest={id:1,status:'draft',packet:p,analysis:a,evidence_hash:analyst.packetHash(p)};
+ assert.equal((await api.analysisInclusionStatus(r)).state,'draft');
+ latest.evidence_hash='old';assert.equal((await api.analysisInclusionStatus(r)).state,'stale');
+ latest.status='failed';assert.equal((await api.analysisInclusionStatus(r)).state,'failed');
+ latest.status='generating';assert.equal((await api.analysisInclusionStatus(r)).state,'generating');
+ rows=[{id:2,analysis:a,packet:p,evidence_hash:analyst.packetHash(p),edit_revision:3}];
+ const status=await api.analysisInclusionStatus(r);assert.equal(status.state,'included');assert.equal(status.draftId,2);assert.equal(status.revision,3);
+ rows[0].analysis={findings:[]};await assert.rejects(api.analysisInclusionStatus(r));
 });
