@@ -46,6 +46,7 @@ export function analystPacket(r,answers=[]){
  // Exclude connection credentials and internal property data, retaining labelled reporting windows.
  const traffic=pick(t,['state','why','from','to','days','coveredFrom','coveredTo','total','conversions','revenue','currency','eventState','eventContextState']);
  traffic.quality=t.quality||{state:'unavailable'};
+ traffic.sessionBasis={detailRowSum:t.total??null,periodAggregate:t.quality?.state==='ready'?t.quality.sessions:null,rule:'When quality is ready, use quality.sessions for the report headline and quality-rate denominators. total is the detailed-row sum. If these differ, disclose both and do not infer a cause or combine query denominators.'};
  traffic.detailCoverage={};
  for(const key of ['events','eventPages','pages','sources']){
   const rows=t[key]||[];
