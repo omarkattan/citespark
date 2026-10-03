@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {benchmarkArm} from '../src/lib/report-analyst-benchmark.js';
+import {benchmarkArm,benchmarkPlan} from '../src/lib/report-analyst-benchmark.js';
 import {analysisReviewWarnings} from '../src/lib/report-analyst.js';
 const packet={records:[{id:'scope',text:'165 measured answers on one day'}]};
 const finding={kind:'investigate',title:'Review attribution',observation:'One day of evidence.',implication:'Scope remains limited.',action:'Inspect the answers.',done_when:'Review recorded.',follow_up:'Repeat the same questions.',evidence:[{id:'scope',quote:'165 measured answers'}]};
@@ -33,6 +33,18 @@ test('benchmark schema is repeatable and duplicate reservation cannot charge twi
  const schema=readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8').split('-- Batch 102:')[1];
  await db.exec('CREATE TABLE projects(id INTEGER PRIMARY KEY); INSERT INTO projects VALUES(31);');
  await db.exec('-- Batch 102:'+schema);await db.exec('-- Batch 102:'+schema);
- const sql="INSERT INTO report_analyst_benchmarks(project_id,source_draft_id,evidence_hash,packet,system_prompt,status) VALUES(31,4,'hash','{}','test','running') ON CONFLICT(project_id,source_draft_id) DO NOTHING RETURNING id";
- assert.equal((await db.query(sql)).rows.length,1);assert.equal((await db.query(sql)).rows.length,0);await db.close();
+ const sql="INSERT INTO report_analyst_benchmarks(project_id,source_draft_id,evidence_hash,packet,system_prompt,status) VALUES(31,4,'hash','{}','test','running') ON CONFLICT(project_id,source_draft_id,evaluation_key) DO NOTHING RETURNING id";
+ assert.equal((await db.query(sql)).rows.length,1);assert.equal((await db.query(sql)).rows.length,0);
+ await db.query("INSERT INTO report_analyst_benchmarks(project_id,source_draft_id,evidence_hash,packet,system_prompt,status,evaluation_key) VALUES(31,4,'new-hash','{}','new prompt','running','new-evidence')");
+ await db.exec('-- Batch 102:'+schema);
+ assert.equal((await db.query('SELECT * FROM report_analyst_benchmarks')).rows.length,2);
+ await db.close();
+});
+
+test('candidate-only plan makes one request and distinguishes changed evidence and settings',()=>{
+ const single=benchmarkPlan(packet,{candidateOnly:true});
+ assert.deepEqual(single.models,['claude-sonnet-5-5']);assert.equal(single.requests,1);
+ assert.equal(single.evaluationKey,benchmarkPlan(structuredClone(packet),{candidateOnly:true}).evaluationKey);
+ assert.notEqual(single.evaluationKey,benchmarkPlan(packet).evaluationKey);
+ assert.notEqual(single.evaluationKey,benchmarkPlan({...packet,analysisPolicy:'new'},{candidateOnly:true}).evaluationKey);
 });

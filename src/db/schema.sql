@@ -766,3 +766,9 @@ CREATE TABLE IF NOT EXISTS report_analyst_benchmarks (
  results JSONB NOT NULL DEFAULT '[]'::jsonb,
  UNIQUE(project_id,source_draft_id)
 );
+
+-- Batch 104: preserve prior trials while reserving each evidence/settings combination once.
+ALTER TABLE report_analyst_benchmarks ADD COLUMN IF NOT EXISTS evaluation_key TEXT NOT NULL DEFAULT 'original';
+ALTER TABLE report_analyst_benchmarks DROP CONSTRAINT IF EXISTS report_analyst_benchmarks_project_id_source_draft_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS report_analyst_benchmark_evaluation
+ ON report_analyst_benchmarks(project_id,source_draft_id,evaluation_key);
