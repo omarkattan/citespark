@@ -1,3 +1,4 @@
+import {QUALITY_METRICS,parseTrafficQuality} from './traffic-quality.js';
 import {trafficSourceLabel} from './traffic-sources.js';
 import 'dotenv/config';
 import { pool, query, one } from '../db/index.js';
@@ -380,6 +381,14 @@ export async function syncGa4(projectId, { days = 540 } = {}) {
   validateEventResponse(context,{landingPages:true});
   info.eventContext={state:'ready',rows:rowsOf(context).filter(r=>Number(r.keyEvents)>0).map(r=>({date:isoDate(r.date),name:r.eventName,page:r.landingPage||'(not set)',count:Number(r.keyEvents)}))};
  }catch(error){console.warn('GA4 event context unavailable:',error.message);info.eventContext={state:'unavailable'};}
+ // Optional session-quality aggregate for the report's exact rolling 90-day period.
+ // Keep rates at period scope. They cannot be summed across dates or pages.
+ try{
+  const qualityStart=new Date(end);qualityStart.setUTCDate(qualityStart.getUTCDate()-89);
+  const qualityFrom=qualityStart.toISOString().slice(0,10);
+  const quality=await runReport(project,property,{dateRanges:[{startDate:qualityFrom,endDate:to}],metrics:QUALITY_METRICS.map(name=>({name})),dimensionFilter:request.dimensionFilter,limit:1});
+  info.quality=parseTrafficQuality(quality,qualityFrom,to);
+ }catch(error){console.warn('GA4 quality unavailable:',error.message);info.quality={state:'unavailable'};}
  const client=await pool.connect();
  try {await client.query('BEGIN');const current=(await client.query('SELECT ga4_property_id,ga4_synced_at FROM projects WHERE id=$1 FOR UPDATE',[projectId])).rows[0];
  if(String(current?.ga4_property_id)!==String(property))throw new Error('Analytics property changed during sync. Retry for the selected property.');
