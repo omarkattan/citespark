@@ -752,3 +752,17 @@ CREATE TABLE IF NOT EXISTS report_snapshots (
  ceo_html TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS report_snapshots_project ON report_snapshots(project_id,created_at DESC);
+
+-- Batch 102: isolated, immutable-input analyst comparisons. Never publish these rows.
+CREATE TABLE IF NOT EXISTS report_analyst_benchmarks (
+ id BIGSERIAL PRIMARY KEY,
+ project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ source_draft_id BIGINT NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ evidence_hash TEXT NOT NULL,
+ packet JSONB NOT NULL,
+ system_prompt TEXT NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('running','complete')),
+ results JSONB NOT NULL DEFAULT '[]'::jsonb,
+ UNIQUE(project_id,source_draft_id)
+);
