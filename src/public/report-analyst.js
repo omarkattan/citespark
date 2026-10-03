@@ -1,3 +1,13 @@
+document.addEventListener('click',event=>{
+ const button=event.target.closest('[data-open-editor]');if(!button)return;
+ const editor=document.getElementById('analysis-editor');if(!editor)return;
+ editor.open=true;button.setAttribute('aria-expanded','true');
+ editor.scrollIntoView({behavior:'smooth',block:'start'});
+ editor.querySelector('textarea')?.focus({preventScroll:true});
+});
+document.addEventListener('toggle',event=>{
+ if(event.target.id==='analysis-editor')document.querySelector('[data-open-editor]')?.setAttribute('aria-expanded',String(event.target.open));
+},true);
 let analystEditorDirty=false;
 window.addEventListener('beforeunload',e=>{if(analystEditorDirty){e.preventDefault();e.returnValue='';}});
 document.addEventListener('input',e=>{if(e.target.closest('[data-analysis-editor]'))analystEditorDirty=true;});

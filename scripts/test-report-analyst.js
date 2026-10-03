@@ -182,6 +182,12 @@ test('editing preserves original response and references, archives wording, clea
  const invalid=structuredClone(changes);invalid.findings[0].title='';await assert.rejects(api.editAnalysis(r,7,42,1,invalid),/missing/);
  assert.equal((await db.query('SELECT edit_revision FROM report_analyst_drafts WHERE id=7')).rows[0].edit_revision,1);
  await assert.rejects(api.editAnalysis({...r,project:{id:99}},7,42,1,changes),/not found/);
+ const changed=structuredClone(r);changed.project.name='Updated project name';
+ await api.editAnalysis(changed,7,42,1,changes);
+ const older=(await db.query('SELECT * FROM report_analyst_drafts WHERE id=7')).rows[0];
+ assert.equal(older.edit_revision,2);assert.equal(older.approved_at,null);
+ assert.deepEqual(older.packet,p);assert.equal(older.evidence_hash,analyst.packetHash(p));
+ await assert.rejects(api.approveAnalysis(changed,7,42,2),/evidence has changed/i);
  }finally{await db.close();}
 });
 test('editor escapes values, keeps evidence outside text fields and includes review version',()=>{
@@ -189,4 +195,26 @@ test('editor escapes values, keeps evidence outside text fields and includes rev
  const row={id:7,packet:p,analysis:a,status:'draft',evidence_hash:analyst.packetHash(p),edit_revision:2,raw_response:'<script>raw</script>'};
  const html=analystPageHtml(report().project,new URLSearchParams(),{...p,hash:row.evidence_hash},[row],'test');
  assert.match(html,/data-analysis-editor/);assert.match(html,/data-revision="2"/);assert.doesNotMatch(html,/<script>bad|<script>raw/);assert.doesNotMatch(html,/data-field="evidence"/);
+});
+
+test('older drafts keep a prominent editor but cannot be included',()=>{
+ const p=analyst.analystPacket(report()),row={id:7,packet:p,analysis:draft(p),status:'draft',evidence_hash:'older'};
+ const html=analystPageHtml(report().project,new URLSearchParams(),{...p,hash:'current'},[row],'test');
+ assert.ok(html.indexOf('data-open-editor')<html.indexOf('Latest attempt'));
+ assert.match(html,/id="analysis-editor"/);assert.match(html,/data-analysis-editor/);
+ assert.match(html,/Editing does not refresh its evidence/);
+ assert.doesNotMatch(html,/data-operation="approve"/);
+});
+test('top edit button opens the editor and focuses the title without a request',async()=>{
+ const {JSDOM}=await import(process.env.JSDOM_MODULE);
+ const dom=new JSDOM('<button data-open-editor aria-expanded="false"></button><details id="analysis-editor"><form data-analysis-editor><textarea></textarea></form></details>',{runScripts:'outside-only'});
+ try{
+ dom.window.HTMLElement.prototype.scrollIntoView=function(){};
+ dom.window.fetch=()=>{throw Error('Editing entry must not make a request');};
+ dom.window.eval(readFileSync(new URL('../src/public/report-analyst.js',import.meta.url),'utf8'));
+ dom.window.document.querySelector('button').click();
+ assert.equal(dom.window.document.querySelector('details').open,true);
+ assert.equal(dom.window.document.activeElement.tagName,'TEXTAREA');
+ assert.equal(dom.window.document.querySelector('button').getAttribute('aria-expanded'),'true');
+ }finally{dom.window.close();}
 });

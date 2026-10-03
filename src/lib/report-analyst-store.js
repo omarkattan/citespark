@@ -73,14 +73,16 @@ export async function recoverAnalysis(report,id){
 
 export async function editAnalysis(report,id,userId,revision,changes){
  if(!Number.isInteger(revision)||revision<0)throw Error('Refresh the draft before editing.');
- const packet=await reportPacket(report),db=await pool.connect();
+ const db=await pool.connect();
  try{
   await db.query('BEGIN');
   const {rows}=await db.query("SELECT * FROM report_analyst_drafts WHERE id=$1 AND project_id=$2 AND status='draft' FOR UPDATE",[id,report.project.id]);
   const row=rows[0];
   if(!row)throw Error('Draft not found for this project.');
   if(row.edit_revision!==revision)throw Error('Someone edited this draft. Copy your changes before refreshing.');
-  if(row.evidence_hash!==packetHash(packet))throw Error('The evidence has changed. Generate a current draft before editing.');
+  // Editorial saves retain the original evidence and never make an older draft current.
+  const packet=row.packet;
+  if(!packet?.records)throw Error('The original evidence is unavailable. This draft cannot be edited safely.');
   if(!Array.isArray(changes?.findings)||changes.findings.length!==row.analysis.findings.length)throw Error('Keep the existing findings and their evidence references.');
   const fields=['title','observation','implication','action','done_when','follow_up'];
   const candidate={findings:row.analysis.findings.map((f,i)=>({...f,...Object.fromEntries(fields.map(k=>[k,changes.findings[i]?.[k]]))})),limitations:changes.limitations};
