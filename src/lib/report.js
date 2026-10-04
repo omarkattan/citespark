@@ -420,14 +420,14 @@ function groupActions(items) {
  * is the answer, and when it is missing the report should say why rather than
  * leaving a hole a reader fills with doubt.
  */
-export async function aiTraffic(projectId,days=90) {
+export async function aiTraffic(projectId,days=90,{window='rolling'}={}) {
  const project=await one("SELECT ga4_property_id,ga4_refresh_token,ga4_synced_at,to_jsonb(projects)->'ga4_sync_info' AS ga4_sync_info FROM projects WHERE id=$1",[projectId]);
  const {ga4Readiness}=await import('./ga4.js');
  const {trafficSummary}=await import('./traffic-summary.js');
  if(!ga4Readiness(project).connected)return {...trafficSummary({...project,ga4_property_id:null},[]),connected:false};
  try {
  const rows=await many("SELECT date,platform,classification_method,landing_page,sessions,conversions,revenue FROM ga4_daily WHERE project_id=$1 AND classification_method='ai_referral_v2' ORDER BY date",[projectId]);
- return {...trafficSummary(project,rows,{days}),connected:true,propertyId:project.ga4_property_id};
+ return {...trafficSummary(project,rows,{days,window}),connected:true,propertyId:project.ga4_property_id};
  }catch(error){console.error('traffic query failed:',error.message);return {connected:true,state:'error',total:null,sources:[],pages:[],why:'We could not read the stored traffic. This is ours to fix.'};}
 }
 
@@ -514,7 +514,7 @@ export async function buildReport(projectId, range = {}, { presentationOnly = fa
     presentationOnly ? null : citedPagePatterns(projectId),
     trend(projectId, period),
     presentationOnly ? [] : completed(projectId),
-    aiTraffic(projectId),
+    aiTraffic(projectId,90,{window:'saved'}),
     presentationOnly ? [] : rivals(projectId, period),
     presentationOnly ? [] : byPersona(projectId, period),
     reportEvidence(projectId, period, many),

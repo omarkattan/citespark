@@ -1013,7 +1013,7 @@ app.get('/api/projects/:id/traffic', requireAuth, wrap(async (req, res) => {
   if (!project) return;
   const {aiTraffic}=await import('./lib/report.js');
   const {trafficReportHtml}=await import('./lib/traffic-html.js');
-  const traffic=await aiTraffic(project.id,req.query.days||30);
+  const traffic=await aiTraffic(project.id,req.query.days||30,{window:req.query.report==='1'?'saved':'rolling'});
   res.json({...traffic,html:trafficReportHtml(traffic)});
 }));
 
@@ -2510,7 +2510,7 @@ app.get('/api/projects/:id/report/prepare', requireAuth, wrap(async (req,res)=>{
  ORDER BY (n.recommendation_id IS NOT NULL) DESC,r.updated_at DESC,r.id`,[project.id]);
  const {reportPreparationHtml}=await import('./lib/report-preparation.js');
  const {aiTraffic}=await import('./lib/report.js');
- const traffic=await aiTraffic(project.id,90).catch(()=>({state:'error',why:'Analytics coverage could not be checked. Try refreshing this page.'}));
+ const traffic=await aiTraffic(project.id,90,{window:'saved'}).catch(()=>({state:'error',why:'Analytics coverage could not be checked. Try refreshing this page.'}));
  const search=await many("SELECT origin_details FROM prompts WHERE project_id=$1 AND active AND source LIKE 'gsc%'",[project.id])
   .then(questions=>({connected:gscAuth(project).connected,siteUrl:project.gsc_site_url,questions})).catch(()=>null);
  res.type('html').send(reportPreparationHtml(project,rows,traffic,search,req.query));

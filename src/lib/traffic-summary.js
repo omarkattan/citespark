@@ -2,13 +2,20 @@ import {qualityForPeriod} from './traffic-quality.js';
 import {summariseEventContext} from './traffic-event-context.js';
 import {trafficSourceLabel} from './traffic-sources.js';
 export const TRAFFIC_METHOD='ai_referral_v2';
-export function trafficSummary(project,rows,{days=90,now=new Date()}={}){
+export function trafficSummary(project,rows,{days=90,now=new Date(),window='rolling'}={}){
  const n=Math.max(1,Math.min(365,Math.floor(Number(days)||90)));
+ const info=project.ga4_sync_info;
+ const validDay=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value))&&new Date(value).toISOString().slice(0,10)===value;
  const end=new Date(now);end.setUTCDate(end.getUTCDate()-1);
+ const savedPeriodValid=info?.version===2&&String(info.propertyId)===String(project.ga4_property_id)&&validDay(info.from)&&validDay(info.to)&&info.from<=info.to&&info.to<=end.toISOString().slice(0,10);
+ // Reports use the last verified collection period. A calendar rollover is not new evidence.
+ // Operational views retain the rolling window so stale coverage remains visible there.
+ if(window==='saved'&&savedPeriodValid)end.setTime(Date.parse(info.to));
  const start=new Date(end);start.setUTCDate(start.getUTCDate()-(n-1));
- const from=start.toISOString().slice(0,10),to=end.toISOString().slice(0,10),info=project.ga4_sync_info;
+ const from=start.toISOString().slice(0,10),to=end.toISOString().slice(0,10);
  const empty={days:n,from,to,total:null,conversions:null,revenue:null,sources:[],pages:[],trend:[],syncedAt:project.ga4_synced_at||null,currency:null,method:TRAFFIC_METHOD};
  if(!project.ga4_property_id)return {...empty,state:'disconnected',why:'Choose an Analytics property for this project. Search Console is a separate connection.'};
+ if(window==='saved'&&!savedPeriodValid)return {...empty,state:'needs_sync',why:'Sync Analytics to establish a valid saved reporting period for this property.'};
  if(!info||info.version!==2||String(info.propertyId)!==String(project.ga4_property_id))return {...empty,state:'needs_sync',why:'Sync Analytics to verify this property, remove overlapping classifications and record coverage. Older traffic totals are not shown.'};
  const coveredFrom=info.from>from?info.from:from,coveredTo=info.to<to?info.to:to;
  if(coveredFrom>coveredTo)return {...empty,state:'needs_sync',why:'No verified sync covers this reporting period. Sync Analytics.'};

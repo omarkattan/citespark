@@ -33,7 +33,7 @@ document.addEventListener('click',async event=>{
  button.disabled=true;status.textContent='Syncing Analytics. Your recommendation edits stay here.';
  try{
   await reportRequest(`/api/projects/${button.dataset.reportSyncGa4}/sync-ga4`,{method:'POST'});
-  const t=await reportRequest(`/api/projects/${button.dataset.reportSyncGa4}/traffic?days=90`);
+  const t=await reportRequest(`/api/projects/${button.dataset.reportSyncGa4}/traffic?days=90&report=1`);
   document.querySelector('[data-traffic-synced]').textContent=t.syncedAt||'Not recorded';
   const covered=t.coveredFrom&&t.coveredTo?`Stored data covers ${t.coveredFrom} to ${t.coveredTo}. `:'';
   coverage.textContent=t.state==='ready'?`${covered}The requested period is covered. Coverage does not verify lead quality or tracking accuracy.`:t.state==='partial'?`${covered}Coverage is still partial for ${t.from} to ${t.to}. Do not present it as a complete ${t.days}-day period.`:t.why||'Coverage could not be verified. Do not treat missing data as zero.';

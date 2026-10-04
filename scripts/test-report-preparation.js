@@ -43,7 +43,7 @@ test('Analytics refresh rechecks coverage and preserves dirty forms on success, 
  assert.equal(calls[0].url,'/api/projects/28/sync-ga4');assert.equal(calls[0].options.method,'POST');assert.equal(calls.length,result==='failure'?1:2);
  assert.equal(edit.value,'Unsaved edit');assert.equal(button.disabled,false);
  if(result==='failure')assert.match(w.document.querySelector('[data-traffic-status]').textContent,/Permission expired/);
- else {assert.equal(calls[1].url,'/api/projects/28/traffic?days=90');assert.match(w.document.querySelector('[data-traffic-coverage]').textContent,result==='ready'?/requested period is covered/:/still partial/);assert.equal(w.document.querySelector('[data-traffic-synced]').textContent,'2026-10-02');}
+ else {assert.equal(calls[1].url,'/api/projects/28/traffic?days=90&report=1');assert.match(w.document.querySelector('[data-traffic-coverage]').textContent,result==='ready'?/requested period is covered/:/still partial/);assert.equal(w.document.querySelector('[data-traffic-synced]').textContent,'2026-10-02');}
  dom.window.close();
  }
 });
