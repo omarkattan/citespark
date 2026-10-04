@@ -2577,7 +2577,8 @@ app.get('/api/projects/:id/report/analyst',requireAuth,wrap(async(req,res)=>{
  const report=await buildReport(project.id,Object.fromEntries(range),{presentationOnly:true});
  const packet=await reportPacket(report);packet.hash=packetHash(packet);
  const rows=await many('SELECT * FROM report_analyst_drafts WHERE project_id=$1 ORDER BY id DESC LIMIT 10',[project.id]);
- res.type('html').send(analystPageHtml(project,range,packet,rows,analystModel()));
+ const currentDraft=rows.find(r=>r.status==='draft'&&r.evidence_hash===packet.hash)||await one("SELECT * FROM report_analyst_drafts WHERE project_id=$1 AND evidence_hash=$2 AND status='draft' ORDER BY id DESC LIMIT 1",[project.id,packet.hash]);
+ res.type('html').send(analystPageHtml(project,range,packet,rows,analystModel(),currentDraft));
 }));
 app.post('/api/projects/:id/report/analyst',requireAuth,wrap(async(req,res)=>{
  const project=await assertProject(req,res);if(!project)return;

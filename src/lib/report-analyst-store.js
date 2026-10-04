@@ -24,6 +24,9 @@ export async function analysisInclusionStatus(report){
  if(included&&!included.stale)return {state:'included',draftId:included.id,revision:included.edit_revision||0};
  const latest=await one('SELECT * FROM report_analyst_drafts WHERE project_id=$1 ORDER BY id DESC LIMIT 1',[report.project.id]);
  if(!latest)return {state:'none'};
+ const currentPacket=await reportPacket(report);
+ const matching=await one("SELECT * FROM report_analyst_drafts WHERE project_id=$1 AND evidence_hash=$2 AND status='draft' ORDER BY id DESC LIMIT 1",[report.project.id,packetHash(currentPacket)]);
+ if(matching){validateAnalysis(matching.analysis,currentPacket);return {state:'draft',draftId:matching.id,revision:matching.edit_revision||0};}
  if(latest.status==='draft'){
   const packet=await reportPacket(report);
   if(latest.evidence_hash!==packetHash(packet))return {state:'stale'};
@@ -33,7 +36,6 @@ export async function analysisInclusionStatus(report){
  return {state:latest.status==='generating'?'generating':'failed'};
 }
 export async function generateAnalysis(report,userId,{regenerate=false}={}){
- if(!process.env.ANTHROPIC_API_KEY)throw new Error('Report analyst is not configured. Add the Anthropic API key in Render.');
  if(!report.executive.totals.measured)throw new Error('Collect a measured baseline before requesting analysis.');
  if(report.executive.localeWarnings?.length)throw new Error('Correct the measurement settings before requesting management analysis.');
  const packet=await reportPacket(report),hash=packetHash(packet),model=analystModel();
@@ -42,8 +44,9 @@ export async function generateAnalysis(report,userId,{regenerate=false}={}){
   await db.query('BEGIN');
   // Short reservation lock across analyst jobs. No lock is held during the provider request.
   await db.query('SELECT pg_advisory_xact_lock(853001)');
-  const existing=await db.query("SELECT * FROM report_analyst_drafts WHERE project_id=$1 AND evidence_hash=$2 AND requested_model=$3 AND status='draft' ORDER BY id DESC LIMIT 1",[report.project.id,hash,model]);
-  if(existing.rows.length && !regenerate){await db.query('COMMIT');return existing.rows[0];}
+  const existing=await db.query("SELECT * FROM report_analyst_drafts WHERE project_id=$1 AND evidence_hash=$2 AND status='draft' ORDER BY id DESC LIMIT 1",[report.project.id,hash]);
+  if(existing.rows.length && !regenerate){validateAnalysis(existing.rows[0].analysis,packet);await db.query('COMMIT');return existing.rows[0];}
+  if(!process.env.ANTHROPIC_API_KEY)throw new Error('Report analyst is not configured. Add the Anthropic API key in Render.');
   const pending=await db.query("SELECT 1 FROM report_analyst_drafts WHERE project_id=$1 AND status='generating' AND created_at>now()-interval '3 minutes'",[report.project.id]);
   if(pending.rows.length)throw new Error('An analysis is already running. Wait a moment, then refresh this page.');
   const count=await db.query("SELECT count(*)::int AS total,count(*) FILTER(WHERE project_id=$1)::int AS project FROM report_analyst_drafts WHERE created_at>now()-interval '24 hours'",[report.project.id]);

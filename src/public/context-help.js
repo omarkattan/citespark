@@ -18,7 +18,7 @@
  document.head.append(style);
  const popup=document.createElement('div');popup.id='cited-context-help';popup.dataset.citedHelpRoot='';popup.className='cited-help-popup';popup.role='tooltip';popup.hidden=true;document.body.append(popup);
  const operations={
- generate:'Creates an AI analysis draft from saved project evidence, or reopens a matching saved draft. A new draft uses a paid AI request. It does not run visibility checks or include itself in the report.',
+ generate:'Creates a paid AI analysis draft from saved project evidence. If a matching draft already exists, it is reused without a new charge, even if the configured model has changed. It does not run visibility checks or include itself in the report.',
  regenerate:'Requests another paid AI draft using the current evidence. Existing attempts stay recorded. The new draft still needs review before inclusion.',
  recover:'Rechecks the saved AI response against the validation rules and current evidence. No new AI request or charge. A recovered draft still needs review.',
  approve:'Includes this reviewed AI analysis in reports whose evidence matches this draft. This does not assign tasks, approve implementation or send anything to your client.',

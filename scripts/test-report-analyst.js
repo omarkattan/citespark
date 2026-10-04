@@ -56,7 +56,7 @@ test('successful response usage survives draft validation failure; cached drafts
  const db={release(){},async query(sql,args){if(sql.includes('status=\'draft\''))return {rows:[]};if(sql.includes('count(*)'))return {rows:[{total:0,project:0}]};if(sql.startsWith('INSERT'))return {rows:[{id:5}]};return {rows:[]};}};
  const api=store({pool:{connect:async()=>db},many:async()=>[],query:async(sql,args)=>updates.push({sql,args}),requestAnalysis:async()=>{calls++;return {model:'test',usage:{input_tokens:100,output_tokens:30},stop_reason:'end_turn',raw:'invalid JSON'};}});
  await assert.rejects(api.generateAnalysis(r,1),/not valid JSON/);assert.equal(calls,1);assert.equal(updates[0].args[2].input_tokens,100);assert.match(updates[1].sql,/status='failed'/);
- const old=db.query;db.query=async(sql,args)=>sql.includes("status='draft'")?{rows:[{id:8}]}:old(sql,args);
+ const old=db.query;db.query=async(sql,args)=>sql.includes("status='draft'")?{rows:[{id:8,analysis:draft(analyst.analystPacket(r))}]}:old(sql,args);
  assert.equal((await api.generateAnalysis(r,1)).id,8);assert.equal(calls,1);
 });
 test('daily and concurrent request gates prevent provider calls',async()=>{
@@ -222,7 +222,7 @@ test('top edit button opens the editor and focuses the title without a request',
 test('preparation status agrees with report approval checks without making paid requests',async()=>{
  const r=report(),p=analyst.analystPacket(r),a=draft(p);
  let rows=[],latest=null;
- const api=store({many:async sql=>sql.includes('approved_at IS NOT NULL')?rows:[],one:async()=>latest,requestAnalysis:()=>{throw Error('No paid calls');}});
+ const api=store({many:async sql=>sql.includes('approved_at IS NOT NULL')?rows:[],one:async sql=>sql.includes('evidence_hash=$2')?(latest?.status==='draft'&&latest.evidence_hash===analyst.packetHash(p)?latest:null):latest,requestAnalysis:()=>{throw Error('No paid calls');}});
  assert.equal((await api.analysisInclusionStatus(r)).state,'none');
  latest={id:1,status:'draft',packet:p,analysis:a,evidence_hash:analyst.packetHash(p)};
  assert.equal((await api.analysisInclusionStatus(r)).state,'draft');
@@ -232,4 +232,33 @@ test('preparation status agrees with report approval checks without making paid 
  rows=[{id:2,analysis:a,packet:p,evidence_hash:analyst.packetHash(p),edit_revision:3}];
  const status=await api.analysisInclusionStatus(r);assert.equal(status.state,'included');assert.equal(status.draftId,2);assert.equal(status.revision,3);
  rows[0].analysis={findings:[]};await assert.rejects(api.analysisInclusionStatus(r));
+});
+
+test('matching saved analysis remains prominent after a failed or different-period attempt',()=>{
+ const p=analyst.analystPacket(report()),hash=analyst.packetHash(p);
+ const current={id:6,packet:p,analysis:draft(p),status:'draft',evidence_hash:hash,requested_model:'different-model'};
+ const failed={id:7,status:'failed',evidence_hash:hash,error:'Failed attempt',requested_model:'test'};
+ const page=analystPageHtml(report().project,new URLSearchParams(),{...p,hash},[failed,current],'test');
+ assert.match(page,/Review saved analysis \(no AI charge\)/);assert.doesNotMatch(page,/data-operation="generate"/);assert.match(page,/data-operation="regenerate"/);assert.match(page,/data-operation="approve" data-id="6"/);assert.match(page,/Draft 7/);
+ const outsideRecent=analystPageHtml(report().project,new URLSearchParams(),{...p,hash},[failed],'test',current);
+ assert.match(outsideRecent,/data-operation="approve" data-id="6"/);
+ const empty=analystPageHtml(report().project,new URLSearchParams(),{...p,hash},[],'test');assert.match(empty,/Generate analysis \(paid\)/);assert.doesNotMatch(empty,/Review saved analysis/);
+});
+test('real reuse query is scoped by project and evidence, independent of model and API configuration',async()=>{
+ const {PGlite}=await import(process.env.PGLITE_MODULE),db=new PGlite();
+ const r=report(),p=analyst.analystPacket(r),hash=analyst.packetHash(p);
+ try{
+ await db.exec('CREATE TABLE report_analyst_drafts(id int,project_id int,evidence_hash text,status text,requested_model text,analysis jsonb,created_at timestamptz default now());');
+ for(const [id,projectId,h,status] of [[6,31,hash,'draft'],[7,99,hash,'draft'],[8,31,'different','draft'],[9,31,hash,'failed']])await db.query('INSERT INTO report_analyst_drafts(id,project_id,evidence_hash,status,requested_model,analysis) VALUES($1,$2,$3,$4,$5,$6)',[id,projectId,h,status,'benchmark-candidate',JSON.stringify(draft(p))]);
+ const api=store({process:{env:{}},many:async()=>[],pool:{connect:async()=>({release(){},query:(sql,args)=>sql.includes('pg_advisory_xact_lock')?Promise.resolve({rows:[]}):db.query(sql,args)})},requestAnalysis:()=>assert.fail('No provider request for saved evidence')});
+ assert.equal((await api.generateAnalysis(r,1)).id,6);
+ await assert.rejects(api.generateAnalysis(r,1,{regenerate:true}),/not configured/);
+ await db.exec("UPDATE report_analyst_drafts SET evidence_hash='old' WHERE id=6");
+ await assert.rejects(api.generateAnalysis(r,1),/not configured/);
+ }finally{await db.close();}
+});
+test('preparation finds a current saved draft behind a later failed attempt',async()=>{
+ const r=report(),p=analyst.analystPacket(r),matching={id:6,status:'draft',analysis:draft(p),evidence_hash:analyst.packetHash(p),edit_revision:2};
+ const api=store({many:async()=>[],one:async(sql,args)=>{assert.equal(args[0],31);if(sql.includes('evidence_hash=$2')){assert.equal(args[1],matching.evidence_hash);return matching;}return {id:7,status:'failed'};},requestAnalysis:()=>assert.fail('No provider request')});
+ const result=await api.analysisInclusionStatus(r);assert.equal(result.state,'draft');assert.equal(result.draftId,6);assert.equal(result.revision,2);
 });
