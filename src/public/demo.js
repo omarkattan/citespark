@@ -20,6 +20,9 @@ function note(msg, kind = '') {
   const el = $('demoNote');
   el.textContent = msg;
   el.className = `demo-note ${kind}`;
+  if(kind === 'limit'){
+    const link=document.createElement('a');link.href='/login?demo=1&signup=1';link.className='btn';link.textContent='Create a free account';el.append(document.createElement('br'),link);
+  }
 }
 
 function highlight(text, brand) {
@@ -46,10 +49,11 @@ async function scan() {
       body: JSON.stringify({ domain })
     });
     const d = await res.json();
-    if (!res.ok) throw new Error(d.error || 'Could not read that site');
+    if (!res.ok) {const error=new Error(d.error || 'Could not read that site');error.limited=res.status===429;throw error;}
 
     if(demo.site?.domain !== d.domain){ demo.results.clear(); $('demoResult').hidden = true; }
     demo.site = d;
+    window.CitedDemoHandoff?.save(d,demo.results.values());
     $('demoRead').innerHTML = `
       <div class="demo-read-line"><span class="k">Brand</span><span class="v">${esc(d.brandName)}</span></div>
       <div class="demo-read-line"><span class="k">What you do</span><span class="v">${esc(d.category)}</span></div>
@@ -67,7 +71,7 @@ async function scan() {
     $('demoStep1').hidden = true;
     $('demoStep2').hidden = false;
   } catch (err) {
-    note(err.message, 'warn');
+    note(err.message, err.limited?'limit':'warn');
   } finally {
     $('demoScan').disabled = false;
     $('demoScan').textContent = 'Read my site';
@@ -98,12 +102,12 @@ async function run(index) {
       })
     });
     const d = await res.json();
-    if (!res.ok) throw new Error(d.error || 'That did not work');
+    if (!res.ok) {const error=new Error(d.error || 'That did not work');error.limited=res.status===429;throw error;}
     showResult(d);
   } catch (err) {
     $('demoStep3').hidden = true;
     $('demoStep2').hidden = false;
-    note(err.message, 'warn');
+    note(err.message, err.limited?'limit':'warn');
     $('demoStep1').hidden = false;
   } finally {
     demo.running = false;
@@ -137,6 +141,7 @@ function showResult(d) {
   const known=Number.isInteger(d.runs)&&d.runs>0&&Number.isInteger(d.mentions)&&d.mentions>=0&&d.mentions<=d.runs;
   const pct = known ? Math.round(d.mentions/d.runs*100) : null;
   if(known)demo.results.set(d.question,{...d});
+  const retained=window.CitedDemoHandoff?.save(demo.site||d,demo.results.values());
   const strip = (d.strip||[]).map((hit) => `<span class="tick ${hit ? 'hit' : ''}"></span>`).join('');
 
   $('demoResult').innerHTML = `
@@ -168,8 +173,8 @@ function showResult(d) {
 
     <div class="demo-cta">
       <p><b>Build a clearer picture across your buyer questions.</b> Create an account to set up a project, inspect supporting evidence and review next steps. Available checks and engines depend on your plan.</p>
-      <div class="demo-cta-row">
-        <a class="btn" href="/login">Create a free account</a>
+      <p class="demo-hint">${retained?'Your demo notes are kept in this browser for 24 hours so you can refer to them during setup. They are separate from project measurements.':'This browser could not retain your demo. You can still create an account.'}</p><div class="demo-cta-row">
+        <a class="btn" href="/login?demo=1&signup=1">${retained?'Continue with my demo':'Create a free account'}</a>
         <button class="btn ghost" id="demoAgain">Try another question</button>
       </div>
     </div>`;

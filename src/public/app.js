@@ -2220,6 +2220,7 @@ async function boot() {
 
   await loadProjectList();
   await refreshUsagePill();
+  showDemoHandoff();
 
   if(!returned) {
     const destination=reportSourceDestination(requestedSourceUrl,state.projectId);
@@ -6159,3 +6160,21 @@ document.addEventListener('click',async event=>{
   panel.hidden=false;
  }catch(error){toast(error.message,'bad');}finally{button.disabled=false;}
 });
+
+
+function showDemoHandoff(){
+ const draft=window.CitedDemoHandoff?.read();
+ if(!draft)return;
+ const box=document.createElement('section');box.className='panel';box.id='demoHandoff';
+ box.innerHTML=`<h2>Continue your demo: ${esc(draft.site.domain)}</h2><p>Browser-local notes, retained for 24 hours. These are not verified project measurements and are not included in reports.</p><details><summary>Review tested questions and demo notes</summary>${(Array.isArray(draft.results)?draft.results:[]).slice(0,10).map(r=>`<article><h3>${esc(r.question)}</h3><p>${esc(r.mentions)} / ${esc(r.runs)} answers · ${esc(r.engine)} · ${esc(r.collectedAt||'Collection date unavailable')}</p><p>${esc(r.excerpt||'')}</p></article>`).join('')}</details><p>Use these notes to choose your project questions. Creating a project does not automatically import these answers or run new checks.</p><button type="button" id="demoUseSetup">Use this site for setup</button> <button type="button" class="ghost" id="demoDiscard">Discard demo notes</button>`;
+ document.querySelector('main').prepend(box);
+ $('demoDiscard').onclick=()=>{window.CitedDemoHandoff.clear();box.remove();};
+ $('demoUseSetup').onclick=()=>{
+  $('addSiteBtn').click();
+  for(const [field,key] of [['f_domain','domain'],['f_brand','brandName'],['f_category','category'],['f_qualifier','qualifier']])$(field).value=String(draft.site[key]||'');
+  $('f_aliases').value='';$('f_rivals').value='';
+  $('f_market').innerHTML=window.countryOptions(draft.site.market||window.DEFAULT_COUNTRY);
+  fillCities($('f_market').value,$('f_city'),$('f_cityHint'));
+  $('f_scanned').textContent='Prefilled from your demo. Review the details and market before continuing.';
+ };
+}

@@ -808,3 +808,5 @@ footer { border-top: 1px solid var(--line); padding: 52px 0 40px; background: va
 .demo-verdict.bad .demo-pct,.demo-verdict.bad h3 { color:#f5bd9a; }
 .demo-verdict-text h3 { color:var(--sand); }
 @media(max-width:600px){.demo-comparison .demo-read-line{grid-template-columns:1fr;gap:6px}.demo-comparison{padding:14px}}
+.demo-verdict.bad { color:var(--sand); }
+#demoResult { scroll-margin-top:90px; }

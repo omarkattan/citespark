@@ -51,13 +51,16 @@ export function verifyQuestion(domain, question, token) {
 
 /* ---------------- limits ---------------- */
 
-export async function checkLimits(ipHash) {
+export async function checkLimits(ipHash, { internal = false } = {}) {
   const spent = await one(
     "SELECT COALESCE(SUM(cost_usd),0)::float AS total FROM demo_runs WHERE created_at > now() - interval '1 day'"
   );
   if (spent.total >= DEMO_DAILY_BUDGET) {
     return { ok: false, reason: 'The live demo has hit its daily limit. Try again tomorrow, or create a free account to run it now.' };
   }
+
+  // Internal testing bypasses visit allowances, never the shared spend backstop.
+  if(internal === true)return {ok:true,remaining:null};
 
   const day = await one(
     "SELECT COUNT(*)::int AS n FROM demo_runs WHERE ip_hash = $1 AND created_at > now() - interval '1 day'",

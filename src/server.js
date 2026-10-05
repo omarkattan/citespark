@@ -1634,11 +1634,17 @@ function clientIp(req) {
   return hashIp((req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip);
 }
 
+async function demoInternal(req) {
+  if(!req.session?.userId || !req.session?.orgId)return false;
+  const row=await one(`SELECT o.internal FROM users u JOIN orgs o ON o.id=u.org_id WHERE u.id=$1 AND o.id=$2`,[req.session.userId,req.session.orgId]);
+  return row?.internal === true;
+}
+
 app.get('/api/demo/config', (_req, res) => res.json(DEMO_CONFIG));
 
 app.post('/api/demo/scan', wrap(async (req, res) => {
   const ipHash = clientIp(req);
-  const limits = await checkLimits(ipHash);
+  const limits = await checkLimits(ipHash, {internal:await demoInternal(req)});
   if (!limits.ok) return res.status(429).json({ error: limits.reason });
 
   const result = await proposeQuestions(req.body?.domain);
@@ -1648,7 +1654,7 @@ app.post('/api/demo/scan', wrap(async (req, res) => {
 
 app.post('/api/demo/run', wrap(async (req, res) => {
   const ipHash = clientIp(req);
-  const limits = await checkLimits(ipHash);
+  const limits = await checkLimits(ipHash, {internal:await demoInternal(req)});
   if (!limits.ok) return res.status(429).json({ error: limits.reason });
 
   const { domain, brandName, question, token, market, source } = req.body || {};
@@ -1671,7 +1677,7 @@ app.post('/api/demo/run', wrap(async (req, res) => {
     });
   }
 
-  res.json({ ...result, remaining: Math.max(0, limits.remaining - 1) });
+  res.json({ ...result, remaining: limits.remaining === null ? null : Math.max(0, limits.remaining - 1) });
 }));
 
 app.post('/api/demo/lead', wrap(async (req, res) => {

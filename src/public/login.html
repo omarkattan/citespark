@@ -46,6 +46,7 @@
   </div>
 </div>
 
+<script src="/demo-handoff.js?v=111"></script>
 <script>
   let mode = 'login';
   const $ = (id) => document.getElementById(id);
@@ -60,6 +61,14 @@
     $('password').setAttribute('autocomplete', mode === 'login' ? 'current-password' : 'new-password');
     $('error').textContent = '';
   });
+
+  if(new URLSearchParams(location.search).get('signup')==='1')$('toggle').click();
+  const demoHint=window.CitedDemoHandoff?.read();
+  if(new URLSearchParams(location.search).get('demo')==='1' && demoHint){
+    $('orgName').value=demoHint.site.brandName||'';
+    const hint=document.createElement('p');hint.textContent=`Continue setting up ${demoHint.site.domain}. Your demo notes remain available in this browser for 24 hours.`;
+    $('panel').prepend(hint);
+  }
 
   const escapeHtml = (t) =>
     String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
