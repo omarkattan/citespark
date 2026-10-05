@@ -799,3 +799,12 @@ footer { border-top: 1px solid var(--line); padding: 52px 0 40px; background: va
 .sent-hint { font-size: 12.5px; color: var(--mute); margin: 14px 0 0; }
 .switch { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .note { color: var(--sand-2); font-size: 13.5px; }
+
+/* Demo comparison: readable question text, independent of setup field labels. */
+.demo-comparison { margin:24px 0; padding:20px; border:1px solid var(--line-2); border-radius:12px; }
+.demo-comparison .demo-read-line { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:16px; }
+.demo-comparison .demo-read-line .k { width:auto; flex:auto; text-transform:none; letter-spacing:normal; font-size:15px; color:var(--sand); }
+.demo-comparison .demo-read-line .v { white-space:nowrap; }
+.demo-verdict.bad .demo-pct,.demo-verdict.bad h3 { color:#f5bd9a; }
+.demo-verdict-text h3 { color:var(--sand); }
+@media(max-width:600px){.demo-comparison .demo-read-line{grid-template-columns:1fr;gap:6px}.demo-comparison{padding:14px}}

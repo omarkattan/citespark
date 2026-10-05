@@ -118,7 +118,7 @@ function verdict(d) {
   return {
     head: `Named in ${d.mentions} of ${d.runs} answers`,
     body: d.mentions === 0
-      ? `${esc(d.brandName)} was not named in this sample. Review the answer excerpt and cited sources to investigate this gap.`
+      ? `${esc(d.brandName)} was not named in this sample. Check whether the answer recommends any providers. Advice-only answers may name none, so absence alone is not a competitive loss.`
       : d.mentions === d.runs
         ? `${esc(d.brandName)} appeared in every answer in this sample. Test another buying question to see where that presence holds.`
         : `${esc(d.brandName)} appeared in some answers in this sample. Review the evidence before deciding what to change.`
@@ -158,9 +158,6 @@ function showResult(d) {
     ${comparisonHtml()}
     <p class="demo-label">One answer excerpt</p>
     <div class="demo-excerpt">${highlight(d.excerpt, d.brandName)}</div>
-
-    ${d.others.length ? `<p class="demo-label">Other names detected in the excerpt’s answer, check before treating them as competitors</p>
-      <div class="chips">${d.others.map((n) => `<span class="chip">${esc(n)}</span>`).join('')}</div>` : ''}
 
     ${d.sources.length ? `<p class="demo-label">Sources cited in the sampled answers</p>
       <div class="chips">${d.sources.map((s) => `<span class="chip ${s.domain === d.domain ? 'own' : ''}">${esc(s.domain)}${s.domain === d.domain ? ' (you)' : ''}</span>`).join('')}</div>` : ''}
