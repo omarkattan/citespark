@@ -51,7 +51,13 @@ async function scan() {
     const d = await res.json();
     if (!res.ok) {const error=new Error(d.error || 'Could not read that site');error.limited=res.status===429;throw error;}
 
-    if(demo.site?.domain !== d.domain){ demo.results.clear(); $('demoResult').hidden = true; }
+    if(demo.site?.domain !== d.domain){
+      demo.results.clear(); $('demoResult').hidden = true;
+      const saved=window.CitedDemoHandoff?.read();
+      if(saved?.site?.domain===d.domain)for(const r of saved.results||[]){
+        if(typeof r.question==='string'&&Number.isInteger(r.runs)&&r.runs>0&&Number.isInteger(r.mentions)&&r.mentions>=0&&r.mentions<=r.runs)demo.results.set(r.question,r);
+      }
+    }
     demo.site = d;
     window.CitedDemoHandoff?.save(d,demo.results.values());
     $('demoRead').innerHTML = `

@@ -37,3 +37,11 @@ test('app setup uses demo hints only on click and keeps notes separate from repo
  w.document.querySelector('#demoUseSetup').click();assert.equal(w.document.querySelector('#f_domain').value,'example.com');assert.equal(w.document.querySelectorAll('img').length,0);assert.equal(w.document.querySelector('[data-demo-question]').value,'Which agency should I choose?');
  w.document.querySelector('#demoDiscard').click();assert.equal(w.CitedDemoHandoff.read(),null);
 });
+test('rescanning the same domain preserves results, another domain does not inherit them',()=>{
+ const w=new JSDOM('',{url:'https://cited.ae',runScripts:'outside-only'}).window;
+ w.eval(readFileSync(new URL('../src/public/demo-handoff.js',import.meta.url),'utf8'));
+ const h=w.CitedDemoHandoff,q={question:'Which agency should I choose?',runs:3,mentions:2};
+ h.save({domain:'example.com'},[q]);h.save({domain:'example.com'},[]);assert.equal(h.read().results.length,1);
+ h.save({domain:'example.com'},[{...q,mentions:0}]);assert.equal(h.read().results.length,1);assert.equal(h.read().results[0].mentions,0);
+ h.save({domain:'different.com'},[]);assert.equal(h.read().results.length,0);
+});

@@ -5526,6 +5526,10 @@ $('f_scan').addEventListener('click', async () => {
 $('siteCancel').addEventListener('click', () => $('siteDialog').close());
 
 $('siteSave').addEventListener('click', async () => {
+  if(state.demoSetupDomain && $('f_domain').value.trim().toLowerCase()!==state.demoSetupDomain && document.querySelector('[data-demo-question]:checked')){
+    $('siteError').textContent='These demo questions belong to '+state.demoSetupDomain+'. Restore that domain or uncheck the demo questions before continuing.';
+    return;
+  }
   const btn = $('siteSave');
   $('siteError').textContent = '';
   btn.disabled = true;
