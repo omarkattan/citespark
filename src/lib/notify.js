@@ -123,25 +123,20 @@ export function notify({ kind, title, subject, lead, rows = [], action, actionUr
 
 /* ---------------- the events worth knowing about ---------------- */
 
-export function notifyTrial({ domain, brandName, rate, runs, source, question }) {
-  const pct = rate === null || rate === undefined ? null : Math.round(rate * 100);
-  const invisible = pct === 0;
-
+export function notifyTrial({ domain, brandName, rate, runs, mentions, engine, source, question }) {
+  const known = Number.isInteger(runs) && runs > 0 && Number.isInteger(mentions) && mentions >= 0 && mentions <= runs;
   notify({
     kind: 'trial',
-    title: invisible ? `${domain} is invisible` : `${domain} tried the demo`,
-    subject: invisible ? `Lead: ${domain} scored 0% AI visibility` : `${domain} tried Cited${pct !== null ? ` (${pct}%)` : ''}`,
-    lead: invisible
-      ? 'They typed their own domain in, waited, and found out AI never names them. This is the easiest conversation you will have today.'
-      : null,
+    title: `${domain} completed a public demo`,
+    subject: `Demo: ${domain}${known ? ` named in ${mentions}/${runs} answers` : ' result unavailable'}`,
+    lead: 'One question on one engine. This is not overall AI visibility, proof of registration or proof that the visitor owns this domain.',
     rows: [
       brandName ? ['Brand', brandName] : null,
-      pct !== null ? ['Visibility', `${pct}% of ${runs} answers`] : null,
+      ['Naming in this sample', known ? `${mentions} of ${runs} answers (${Math.round(mentions / runs * 100)}%)` : 'Unavailable, not zero'],
+      ['Engine', engine || 'Not recorded'],
       ['Came from', source || 'unknown'],
       question ? ['Question asked', question] : null
-    ].filter(Boolean),
-    action: 'Open the index',
-    actionUrl: `${SITE}/uae`
+    ].filter(Boolean)
   });
 }
 

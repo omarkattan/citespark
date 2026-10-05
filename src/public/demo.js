@@ -9,6 +9,8 @@ const esc = (s) =>
 // Where the visitor came from, so the index page can be judged as a funnel.
 const demo = {
   site: null,
+  results: new Map(),
+  running: false,
   source: new URLSearchParams(location.search).get('from') ||
     (location.hash.includes('from=uae') ? 'uae' : null) ||
     (document.referrer.includes('/uae') ? 'uae' : 'landing')
@@ -46,6 +48,7 @@ async function scan() {
     const d = await res.json();
     if (!res.ok) throw new Error(d.error || 'Could not read that site');
 
+    if(demo.site?.domain !== d.domain){ demo.results.clear(); $('demoResult').hidden = true; }
     demo.site = d;
     $('demoRead').innerHTML = `
       <div class="demo-read-line"><span class="k">Brand</span><span class="v">${esc(d.brandName)}</span></div>
@@ -73,23 +76,13 @@ async function scan() {
 
 /* ---------- step two ---------- */
 
-const WORKING = [
-  'Asking ChatGPT',
-  'Asking again, because answers vary',
-  'Once more for a trustworthy number',
-  'Reading what came back'
-];
-
 async function run(index) {
+  if(demo.running) return;
   const q = demo.site.questions[index];
+  demo.running = true;
   $('demoStep2').hidden = true;
   $('demoStep3').hidden = false;
-
-  let i = 0;
-  const cycle = setInterval(() => {
-    i = Math.min(i + 1, WORKING.length - 1);
-    $('demoWorking').textContent = WORKING[i];
-  }, 4000);
+  $('demoWorking').textContent = 'Checking this question. Answers can take a moment.';
 
   try {
     const res = await fetch('/api/demo/run', {
@@ -113,41 +106,46 @@ async function run(index) {
     note(err.message, 'warn');
     $('demoStep1').hidden = false;
   } finally {
-    clearInterval(cycle);
+    demo.running = false;
   }
 }
 
 /* ---------- step three ---------- */
 
 function verdict(d) {
-  const pct = Math.round(d.rate * 100);
-  if (pct === 0) {
-    return {
-      head: 'Not named once.',
-      body: `ChatGPT answered this question ${d.runs} times and did not mention ${esc(d.brandName)} in any of them. It named ${d.others.length ? esc(d.others.slice(0, 3).join(', ')) : 'other businesses'} instead.`
-    };
-  }
-  if (pct === 100) {
-    return {
-      head: `Named every time${d.avgOrdinal ? `, position ${d.avgOrdinal.toFixed(1)}` : ''}.`,
-      body: `${esc(d.brandName)} came back in all ${d.runs} answers. ${d.avgOrdinal > 2 ? 'Worth pushing higher up the list, since few people read past the first two.' : 'That is a strong position to defend.'}`
-    };
-  }
+  if(!Number.isInteger(d.runs)||d.runs<1||!Number.isInteger(d.mentions)||d.mentions<0||d.mentions>d.runs)
+    return {head:'Result unavailable',body:'No usable naming result is available. This is not zero visibility.'};
   return {
-    head: `Named in ${d.mentions} of ${d.runs} answers.`,
-    body: `Ask the same question again and you may not appear at all. That inconsistency is invisible to every rank tracker, and it is the number worth improving.`
+    head: `Named in ${d.mentions} of ${d.runs} answers`,
+    body: d.mentions === 0
+      ? `${esc(d.brandName)} was not named in this sample. Review the answer excerpt and cited sources to investigate this gap.`
+      : d.mentions === d.runs
+        ? `${esc(d.brandName)} appeared in every answer in this sample. Test another buying question to see where that presence holds.`
+        : `${esc(d.brandName)} appeared in some answers in this sample. Review the evidence before deciding what to change.`
   };
+}
+
+function comparisonHtml() {
+  const rows=[...demo.results.values()];
+  if(rows.length<2)return '';
+  const varied=new Set(rows.map(r=>r.mentions/r.runs)).size>1;
+  return `<section class="demo-comparison"><h3>${varied?'Your presence varies by question':'Your tested questions'}</h3><p>Latest result per question in this visit. These are separate samples, not a trend or an overall visibility score.</p>${rows.map(r=>`<div class="demo-read-line"><span class="k">${esc(r.question)}</span><span class="v">${r.mentions} / ${r.runs} answers · ${esc(r.engine||'Engine not recorded')}${r.cached?' · cached':''}</span></div>`).join('')}</section>`;
 }
 
 function showResult(d) {
   const v = verdict(d);
-  const pct = Math.round(d.rate * 100);
-  const strip = d.strip.map((hit) => `<span class="tick ${hit ? 'hit' : ''}"></span>`).join('');
+  const known=Number.isInteger(d.runs)&&d.runs>0&&Number.isInteger(d.mentions)&&d.mentions>=0&&d.mentions<=d.runs;
+  const pct = known ? Math.round(d.mentions/d.runs*100) : null;
+  if(known)demo.results.set(d.question,{...d});
+  const strip = (d.strip||[]).map((hit) => `<span class="tick ${hit ? 'hit' : ''}"></span>`).join('');
 
   $('demoResult').innerHTML = `
+    <p class="demo-label">Question tested · ${esc(d.engine||'Engine not recorded')}</p>
+    <h3>${esc(d.question)}</h3>
+    <p class="demo-hint">${d.cached?'Previously collected result, reused without a new check.':'New answer sample.'} ${d.collectedAt?`Collected ${esc(d.collectedAt)}.`:''} ${d.failed>0?`${d.failed} failed attempts excluded from the naming denominator.`:''}</p>
     <div class="demo-verdict ${pct === 0 ? 'bad' : pct === 100 ? 'good' : 'mixed'}">
       <div class="demo-score">
-        <div class="demo-pct">${pct}%</div>
+        <div class="demo-pct" style="font-size:1.6rem">${known?`${d.mentions} / ${d.runs}`:'—'}</div><small>${known?`${pct}% named in this sample`:'Not measured'}</small>
         <div class="ticks">${strip}</div>
       </div>
       <div class="demo-verdict-text">
@@ -156,21 +154,23 @@ function showResult(d) {
       </div>
     </div>
 
-    <p class="demo-label">What it said</p>
+    <p class="demo-hint">One question on one engine. Naming is not the same as citing your website. This sample does not measure overall market visibility.</p>
+    ${comparisonHtml()}
+    <p class="demo-label">One answer excerpt</p>
     <div class="demo-excerpt">${highlight(d.excerpt, d.brandName)}</div>
 
-    ${d.others.length ? `<p class="demo-label">Who it named instead</p>
+    ${d.others.length ? `<p class="demo-label">Other names detected in the excerpt’s answer, check before treating them as competitors</p>
       <div class="chips">${d.others.map((n) => `<span class="chip">${esc(n)}</span>`).join('')}</div>` : ''}
 
-    ${d.sources.length ? `<p class="demo-label">What it read to answer</p>
+    ${d.sources.length ? `<p class="demo-label">Sources cited in the sampled answers</p>
       <div class="chips">${d.sources.map((s) => `<span class="chip ${s.domain === d.domain ? 'own' : ''}">${esc(s.domain)}${s.domain === d.domain ? ' (you)' : ''}</span>`).join('')}</div>` : ''}
 
-    ${d.fanOut.length ? `<p class="demo-label">The search it ran first</p>
+    ${d.fanOut.length ? `<p class="demo-label">Reported search queries</p>
       <div class="chips">${d.fanOut.map((q) => `<span class="chip dashed">${esc(q)}</span>`).join('')}</div>
-      <p class="demo-hint">That is an ordinary Google query. If you do not rank for it, you were never a candidate for the answer.</p>` : ''}
+      <p class="demo-hint">These reported queries are context, not proof of how the engine chose its answer.</p>` : ''}
 
     <div class="demo-cta">
-      <p><b>That was one question, on one engine, three times.</b> Cited tracks twenty-five of them across six AI surfaces every week, and tells you what to change.</p>
+      <p><b>Build a clearer picture across your buyer questions.</b> Create an account to set up a project, inspect supporting evidence and review next steps. Available checks and engines depend on your plan.</p>
       <div class="demo-cta-row">
         <a class="btn" href="/login">Create a free account</a>
         <button class="btn ghost" id="demoAgain">Try another question</button>
@@ -192,7 +192,6 @@ document.addEventListener('click', (e) => {
   if (q) run(Number(q.dataset.q));
 
   if (e.target.id === 'demoAgain') {
-    $('demoResult').hidden = true;
     $('demoStep2').hidden = false;
     $('demoStep2').scrollIntoView({ behavior: 'smooth', block: 'center' });
   }

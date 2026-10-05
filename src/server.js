@@ -1666,7 +1666,7 @@ app.post('/api/demo/run', wrap(async (req, res) => {
   if (!result.cached) {
     notifyTrial({
       domain, brandName, question,
-      rate: result.rate, runs: result.runs,
+      rate: result.rate, runs: result.runs, mentions: result.mentions, engine: result.engine,
       source: String(source || '').slice(0, 40) || null
     });
   }

@@ -134,7 +134,7 @@ export async function runDemo({ domain, brandName, question, token, market, ipHa
 
   // Serve an identical recent request from cache rather than paying twice.
   const cached = await one(
-    `SELECT result FROM demo_runs
+    `SELECT result, created_at FROM demo_runs
      WHERE domain = $1 AND question = $2 AND result IS NOT NULL
        AND created_at > now() - ($3 || ' hours')::interval
      ORDER BY created_at DESC LIMIT 1`,
@@ -145,7 +145,7 @@ export async function runDemo({ domain, brandName, question, token, market, ipHa
       'INSERT INTO demo_runs (ip_hash, domain, question, cost_usd, source, brand_name) VALUES ($1,$2,$3,0,$4,$5)',
       [ipHash, domain, question, source || null, brandName || null]
     );
-    return { ok: true, cached: true, ...cached.result };
+    return { ...cached.result, ok: true, cached: true, collectedAt: cached.result.collectedAt || cached.created_at };
   }
 
   const entity = { id: 1, name: brandName, domain, kind: 'owned', aliases: [] };
@@ -191,6 +191,9 @@ export async function runDemo({ domain, brandName, question, token, market, ipHa
     question,
     engine: DEMO_ENGINE,
     runs: answers.length,
+    attempted: DEMO_RUNS,
+    failed: DEMO_RUNS - answers.length,
+    collectedAt: new Date().toISOString(),
     mentions: hits.length,
     rate: hits.length / answers.length,
     avgOrdinal: ordinals.length ? ordinals.reduce((a, b) => a + b, 0) / ordinals.length : null,
