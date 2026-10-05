@@ -27,13 +27,13 @@ test('only matching authenticated user and organisation can qualify for internal
  response={internal:true};assert.equal(await c.demoInternal({session:{userId:1,orgId:2}}),true);assert.equal(params.join(','),'1,2');
 });
 test('app setup uses demo hints only on click and keeps notes separate from reports',()=>{
- const w=new JSDOM('<main></main><button id="addSiteBtn"></button><input id="f_domain"><input id="f_brand"><input id="f_category"><input id="f_qualifier"><input id="f_aliases"><input id="f_rivals"><select id="f_market"></select><select id="f_city"></select><p id="f_cityHint"></p><p id="f_scanned"></p>',{url:'https://cited.ae/app',runScripts:'outside-only'}).window;
+ const w=new JSDOM('<main></main><button id="addSiteBtn"></button><input id="f_domain"><input id="f_brand"><input id="f_category"><input id="f_qualifier"><input id="f_aliases"><input id="f_rivals"><select id="f_market"></select><select id="f_city"></select><p id="f_cityHint"></p><p id="f_scanned"></p><p id="siteError"></p>',{url:'https://cited.ae/app',runScripts:'outside-only'}).window;
  w.eval(readFileSync(new URL('../src/public/demo-handoff.js',import.meta.url),'utf8'));
- w.CitedDemoHandoff.save({domain:'example.com',brandName:'<img src=x>',market:'GB'},[{question:'Which?',runs:3,mentions:0}]);
+ w.CitedDemoHandoff.save({domain:'example.com',brandName:'<img src=x>',market:'GB'},[{question:'Which agency should I choose?',runs:3,mentions:0}]);
  w.countryOptions=()=>'<option>GB</option>';w.DEFAULT_COUNTRY='AE';w.fillCities=()=>{};
- w.eval("var $=id=>document.getElementById(id);var esc=s=>String(s??'').replaceAll('<','&lt;').replaceAll('>','&gt;');");
+ w.eval("var state={};var $=id=>document.getElementById(id);var esc=s=>String(s??'').replaceAll('<','&lt;').replaceAll('>','&gt;');");
  const app=readFileSync(new URL('../src/public/app.js',import.meta.url),'utf8');w.eval(app.slice(app.indexOf('function showDemoHandoff(){')));w.showDemoHandoff();
  assert.equal(w.document.querySelector('#f_domain').value,'');assert.match(w.document.body.textContent,/not included in reports/);
- w.document.querySelector('#demoUseSetup').click();assert.equal(w.document.querySelector('#f_domain').value,'example.com');assert.equal(w.document.querySelectorAll('img').length,0);
+ w.document.querySelector('#demoUseSetup').click();assert.equal(w.document.querySelector('#f_domain').value,'example.com');assert.equal(w.document.querySelectorAll('img').length,0);assert.equal(w.document.querySelector('[data-demo-question]').value,'Which agency should I choose?');
  w.document.querySelector('#demoDiscard').click();assert.equal(w.CitedDemoHandoff.read(),null);
 });

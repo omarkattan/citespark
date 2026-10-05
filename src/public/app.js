@@ -5458,6 +5458,8 @@ document.addEventListener('click', (e) => {
 });
 
 $('addSiteBtn').addEventListener('click', () => {
+  state.demoSetupDomain=null;
+  $('demoQuestionSelection')?.remove();
   $('f_ambiguous').checked = false;
   $('f_market').innerHTML = window.countryOptions(window.DEFAULT_COUNTRY);
   $('siteDialog').showModal();
@@ -5533,6 +5535,7 @@ $('siteSave').addEventListener('click', async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        demoQuestions: state.demoSetupDomain && $('f_domain').value.trim().toLowerCase()===state.demoSetupDomain ? [...document.querySelectorAll('[data-demo-question]:checked')].map(el=>el.value) : [],
         brandName: $('f_brand').value,
         ambiguousName: $('f_ambiguous').checked,
         aliases: $('f_aliases').value.split(',').map((x) => x.trim()).filter(Boolean),
@@ -5558,7 +5561,7 @@ $('siteSave').addEventListener('click', async () => {
     state.view = 'connections';
     await render();
     window.scrollTo({top:0});
-    toast('Site created. Connect your sources, or continue to review the suggested questions.');
+    toast(json.questionGenerationWarning || 'Site created. Connect your sources, or continue to review the suggested questions.',json.questionGenerationWarning?'warn':'ok');
   } catch (err) {
     $('siteError').textContent = err.message;
   } finally {
@@ -6166,7 +6169,7 @@ function showDemoHandoff(){
  const draft=window.CitedDemoHandoff?.read();
  if(!draft)return;
  const box=document.createElement('section');box.className='panel';box.id='demoHandoff';
- box.innerHTML=`<h2>Continue your demo: ${esc(draft.site.domain)}</h2><p>Browser-local notes, retained for 24 hours. These are not verified project measurements and are not included in reports.</p><details><summary>Review tested questions and demo notes</summary>${(Array.isArray(draft.results)?draft.results:[]).slice(0,10).map(r=>`<article><h3>${esc(r.question)}</h3><p>${esc(r.mentions)} / ${esc(r.runs)} answers · ${esc(r.engine)} · ${esc(r.collectedAt||'Collection date unavailable')}</p><p>${esc(r.excerpt||'')}</p></article>`).join('')}</details><p>Use these notes to choose your project questions. Creating a project does not automatically import these answers or run new checks.</p><button type="button" id="demoUseSetup">Use this site for setup</button> <button type="button" class="ghost" id="demoDiscard">Discard demo notes</button>`;
+ box.innerHTML=`<h2>Continue your demo: ${esc(draft.site.domain)}</h2><p>Browser-local notes, retained for 24 hours. These are not verified project measurements and are not included in reports.</p><details><summary>Review tested questions and demo notes</summary>${(Array.isArray(draft.results)?draft.results:[]).slice(0,10).map(r=>`<article><h3>${esc(r.question)}</h3><p>${esc(r.mentions)} / ${esc(r.runs)} answers · ${esc(r.engine)} · ${esc(r.collectedAt||'Collection date unavailable')}</p><p>${esc(r.excerpt||'')}</p></article>`).join('')}</details><p>Use these notes to choose your project questions. You can select these questions during setup. Demo answers are never imported as project measurements, and setup does not run new checks.</p><button type="button" id="demoUseSetup">Use this site for setup</button> <button type="button" class="ghost" id="demoDiscard">Discard demo notes</button>`;
  document.querySelector('main').prepend(box);
  $('demoDiscard').onclick=()=>{window.CitedDemoHandoff.clear();box.remove();};
  $('demoUseSetup').onclick=()=>{
@@ -6176,5 +6179,13 @@ function showDemoHandoff(){
   $('f_market').innerHTML=window.countryOptions(draft.site.market||window.DEFAULT_COUNTRY);
   fillCities($('f_market').value,$('f_city'),$('f_cityHint'));
   $('f_scanned').textContent='Prefilled from your demo. Review the details and market before continuing.';
+  state.demoSetupDomain=String(draft.site.domain).trim().toLowerCase();
+  const questions=[...new Set((draft.results||[]).map(r=>r.question).filter(q=>typeof q==='string'&&q.length>=10&&q.length<=500))];
+  if(questions.length){
+    const selection=document.createElement('fieldset');selection.id='demoQuestionSelection';
+    selection.innerHTML=`<legend>Keep questions from your demo</legend><p>Selected wording is kept exactly. These questions use your plan allowance. Answers start unmeasured.</p>${questions.map(q=>`<label style="display:block;margin:12px 0"><input type="checkbox" data-demo-question value="${esc(q)}" checked> ${esc(q)}</label>`).join('')}`;
+    $('siteError').before(selection);
+  }
+
  };
 }

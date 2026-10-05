@@ -772,3 +772,15 @@ ALTER TABLE report_analyst_benchmarks ADD COLUMN IF NOT EXISTS evaluation_key TE
 ALTER TABLE report_analyst_benchmarks DROP CONSTRAINT IF EXISTS report_analyst_benchmarks_project_id_source_draft_id_key;
 CREATE UNIQUE INDEX IF NOT EXISTS report_analyst_benchmark_evaluation
  ON report_analyst_benchmarks(project_id,source_draft_id,evaluation_key);
+
+-- Batch 112: anonymous demo session milestones, not unique-person tracking.
+CREATE TABLE IF NOT EXISTS demo_journeys (
+ id UUID PRIMARY KEY,
+ domain TEXT,
+ started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ result_at TIMESTAMPTZ,
+ signup_view_at TIMESTAMPTZ,
+ registered_at TIMESTAMPTZ,
+ org_id INTEGER REFERENCES orgs(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS demo_journeys_started ON demo_journeys(started_at);

@@ -1,3 +1,5 @@
+import {demoMilestone} from './lib/demo-funnel.js';
+import {selectedDemoQuestions} from './lib/demo-setup.js';
 import { reportNotePreview } from './lib/report-note.js';
 import { validateDecision, decisionReportText } from './lib/recommendation-decision.js';
 import { competitorCandidates, domainKey, retrospective, reviewSample } from './lib/competitor-review.js';
@@ -214,6 +216,8 @@ app.post('/api/register', wrap(async (req, res) => {
   const token = await issueToken(user.id, 'verify');
   sendVerification(address, `${siteUrl(req)}/verify?t=${encodeURIComponent(token)}`);
 
+  await demoMilestone(req,'registered');
+  notifySignup({email:address,org:orgName});
   res.json({ ok: true, verificationSent: true });
 }));
 
@@ -1095,6 +1099,11 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
   const blocked = await checkCanAddSite(req.session.orgId);
   if (blocked) return res.status(402).json({ error: blocked, upgrade: true });
 
+  let demoQuestions;
+  try{demoQuestions=selectedDemoQuestions(req.body?.demoQuestions);}catch(e){return res.status(400).json({error:e.message});}
+  const setupEntitlements=await getEntitlements(req.session.orgId);
+  if(demoQuestions.length>setupEntitlements.plan.questions)return res.status(402).json({error:'The selected questions exceed your plan allowance.',upgrade:true});
+
   const startingEngines = ENGINE_IDS.slice(0, (await getEntitlements(req.session.orgId)).plan.engines);
 
   const marketCode = (market || 'AE').toUpperCase();
@@ -1134,28 +1143,25 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
     );
   }
 
-  const entitlements = await getEntitlements(req.session.orgId);
+  const entitlements = setupEntitlements;
   let added = 0;
-  if (generate !== false) {
-    const prompts = await generatePrompts({
-      brand: project.brand_name,
-      domain: project.domain,
-      category: project.category,
-      market: MARKET_NAMES[project.market] || project.market,
-      qualifier: project.qualifier,
-      count: Math.min(20, entitlements.plan.questions)
-    });
-    for (const p of prompts.slice(0, entitlements.plan.questions)) {
-      await query(
-        `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume)
-         VALUES ($1,$2,$3,$4,$5) ON CONFLICT (project_id, text) DO NOTHING`,
-        [project.id, p.text, p.cluster, p.intent, p.ai_search_volume]
-      );
-      added++;
-    }
+  for(const text of demoQuestions){
+    const inserted=await query(`INSERT INTO prompts(project_id,text,cluster,intent,ai_search_volume,source,origin_details) VALUES($1,$2,'custom','commercial',NULL,'custom',$3) ON CONFLICT(project_id,text) DO NOTHING`,[project.id,text,JSON.stringify({entry:'demo_setup',userSelected:true,measurementImported:false})]);
+    added+=inserted.rowCount;
+  }
+  const remaining=Math.max(0,Math.min(20,entitlements.plan.questions)-added);
+  let questionGenerationWarning=null;
+  if(generate !== false && remaining>0){
+    try{
+      const prompts=await generatePrompts({brand:project.brand_name,domain:project.domain,category:project.category,market:MARKET_NAMES[project.market]||project.market,qualifier:project.qualifier,count:remaining});
+      for(const p of prompts.slice(0,remaining)){
+        const inserted=await query(`INSERT INTO prompts(project_id,text,cluster,intent,ai_search_volume) VALUES($1,$2,$3,$4,$5) ON CONFLICT(project_id,text) DO NOTHING`,[project.id,p.text,p.cluster,p.intent,p.ai_search_volume]);
+        added+=inserted.rowCount;
+      }
+    }catch(error){questionGenerationWarning='Your site and selected questions are saved. Additional question suggestions were unavailable. Review your questions before running a measurement.';console.error('Question generation during setup failed:',error.message);}
   }
 
-  res.json({ ok: true, project, promptsAdded: added });
+  res.json({ ok: true, project, promptsAdded: added, questionGenerationWarning });
 }));
 
 app.patch('/api/projects/:id', requireAuth, wrap(async (req, res) => {
@@ -1647,6 +1653,7 @@ app.post('/api/demo/scan', wrap(async (req, res) => {
   const limits = await checkLimits(ipHash, {internal:await demoInternal(req)});
   if (!limits.ok) return res.status(429).json({ error: limits.reason });
 
+  await demoMilestone(req,'started',req.body?.domain);
   const result = await proposeQuestions(req.body?.domain);
   if (!result.ok) return res.status(422).json(result);
   res.json({ ...result, remaining: limits.remaining });
@@ -1667,6 +1674,8 @@ app.post('/api/demo/run', wrap(async (req, res) => {
     source: String(source || '').slice(0, 40) || null
   });
   if (!result.ok) return res.status(422).json(result);
+
+  await demoMilestone(req,'result');
 
   // Not for a cached repeat: the same link doing the rounds is not a new lead.
   if (!result.cached) {
@@ -3657,7 +3666,8 @@ app.use(
   })
 );
 
-app.get('/login', (_req, res) => {
+app.get('/login', (req, res) => {
+  if(req.query.demo==='1')void demoMilestone(req,'signup_view');
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(publicDir, 'login.html'));
 });
