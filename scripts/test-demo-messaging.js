@@ -9,7 +9,7 @@ function page(){
  vm.runInContext(readFileSync(new URL('../src/public/demo.js',import.meta.url),'utf8'),dom.getInternalVMContext());
  return dom.window;
 }
-const result=(overrides={})=>({domain:'example.com',brandName:'Example',question:'Where to buy?',engine:'chatgpt',runs:3,mentions:3,rate:1,strip:[true,true,true],others:[],sources:[],fanOut:[],excerpt:'Example',...overrides});
+const result=(overrides={})=>({collectionProfile:'test-profile',domain:'example.com',brandName:'Example',question:'Where to buy?',engine:'chatgpt',runs:3,mentions:3,rate:1,strip:[true,true,true],others:[],sources:[],fanOut:[],excerpt:'Example',...overrides});
 test('distinct questions stay separate, repeat replaces its row and unsafe text is escaped',()=>{
  const w=page();w.showResult(result());w.showResult(result({question:'Other question',mentions:0,rate:0,strip:[false,false,false]}));
  let text=w.document.body.textContent;assert.match(text,/presence varies by question/);assert.match(text,/Where to buy/);assert.match(text,/Other question/);assert.doesNotMatch(text,/never names|other businesses|market share/);
@@ -70,4 +70,14 @@ test('a legacy or different-profile cached demo cannot replace the new model sam
  askEngine:async()=>{calls++;return {ok:true,text:'An answer with a complete ending.',model:'gpt-4.1-2025-04-14',citations:[],costUsd:0.07};},analyseRun:async()=>[{mentioned:false}]});vm.runInContext(fn,c);
  const r=await c.runDemo({domain:'example.com',brandName:'Example',question:'Question',token:'t',ipHash:'test'});
  assert.equal(calls,3);assert.equal(r.requestedModel,'gpt-4.1');assert.equal(r.runs,3);assert.equal(r.cached,undefined);assert.equal(saved.collectionProfile,r.collectionProfile);assert.equal(saved.answerEvidence[0].model,'gpt-4.1-2025-04-14');
+});
+
+test('comparison excludes legacy and different model settings while preserving current results',()=>{
+ const w=page();w.showResult(result({question:'Old question',collectionProfile:undefined}));
+ w.showResult(result({question:'Mini question',collectionProfile:'old-mini'}));
+ w.showResult(result({question:'Current question'}));
+ assert.equal(w.document.querySelectorAll('.demo-comparison').length,0);
+ w.showResult(result({question:'Second current question'}));
+ const text=w.document.querySelector('.demo-comparison').textContent;
+ assert.match(text,/Current question/);assert.match(text,/Second current question/);assert.doesNotMatch(text,/Old question|Mini question/);
 });

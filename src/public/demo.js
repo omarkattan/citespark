@@ -136,11 +136,11 @@ function verdict(d) {
   };
 }
 
-function comparisonHtml() {
-  const rows=[...demo.results.values()].filter(r=>r.status!=='inconclusive'&&Number.isInteger(r.mentions)&&r.runs>0);
+function comparisonHtml(collectionProfile) {
+  const rows=[...demo.results.values()].filter(r=>collectionProfile&&r.collectionProfile===collectionProfile&&r.status!=='inconclusive'&&Number.isInteger(r.mentions)&&r.runs>0);
   if(rows.length<2)return '';
   const varied=new Set(rows.map(r=>r.mentions/r.runs)).size>1;
-  return `<section class="demo-comparison"><h3>${varied?'Your presence varies by question':'Your tested questions'}</h3><p>Latest result per question in this visit. These are separate samples, not a trend or an overall visibility score.</p>${rows.map(r=>`<div class="demo-read-line"><span class="k">${esc(r.question)}</span><span class="v">${r.mentions} / ${r.runs} answers · ${esc(r.engine||'Engine not recorded')}${r.cached?' · cached':''}</span></div>`).join('')}</section>`;
+  return `<section class="demo-comparison"><h3>${varied?'Your presence varies by question':'Your tested questions'}</h3><p>Latest saved result per question using the same collection settings. These are separate samples, not a trend or an overall visibility score.</p>${rows.map(r=>`<div class="demo-read-line"><span class="k">${esc(r.question)}</span><span class="v">${r.mentions} / ${r.runs} answers · ${esc(r.engine||'Engine not recorded')}${r.cached?' · cached':''}</span></div>`).join('')}</section>`;
 }
 
 function answerEvidenceHtml(d) {
@@ -174,7 +174,7 @@ function showResult(d) {
 
     <p class="demo-hint">API-generated answer sample${d.requestedModel?` · ${esc(d.requestedModel)}`:''}. These answers can contain errors. Citations identify sources the engine referenced, not independently verified claims.</p>
     <p class="demo-hint">One question on one engine. Naming is not the same as citing your website. This sample does not measure overall market visibility.</p>
-    ${comparisonHtml()}
+    ${comparisonHtml(d.collectionProfile)}
     ${answerEvidenceHtml(d)}
 
     ${d.sources.length ? `<p class="demo-label">Selected sources cited in the sampled answers</p>
