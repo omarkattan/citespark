@@ -123,6 +123,7 @@ async function run(index) {
 /* ---------- step three ---------- */
 
 function verdict(d) {
+  if(d.status==='inconclusive')return {head:'Result inconclusive',body:esc(d.qualityWarning||'The answer sample needs review. No visibility score is shown.')};
   if(!Number.isInteger(d.runs)||d.runs<1||!Number.isInteger(d.mentions)||d.mentions<0||d.mentions>d.runs)
     return {head:'Result unavailable',body:'No usable naming result is available. This is not zero visibility.'};
   return {
@@ -136,7 +137,7 @@ function verdict(d) {
 }
 
 function comparisonHtml() {
-  const rows=[...demo.results.values()];
+  const rows=[...demo.results.values()].filter(r=>r.status!=='inconclusive'&&Number.isInteger(r.mentions)&&r.runs>0);
   if(rows.length<2)return '';
   const varied=new Set(rows.map(r=>r.mentions/r.runs)).size>1;
   return `<section class="demo-comparison"><h3>${varied?'Your presence varies by question':'Your tested questions'}</h3><p>Latest result per question in this visit. These are separate samples, not a trend or an overall visibility score.</p>${rows.map(r=>`<div class="demo-read-line"><span class="k">${esc(r.question)}</span><span class="v">${r.mentions} / ${r.runs} answers · ${esc(r.engine||'Engine not recorded')}${r.cached?' · cached':''}</span></div>`).join('')}</section>`;
@@ -145,14 +146,14 @@ function comparisonHtml() {
 function answerEvidenceHtml(d) {
   const answers=Array.isArray(d.answerEvidence)?d.answerEvidence:[];
   if(!answers.length)return `<p class="demo-label">One saved answer excerpt</p><div class="demo-excerpt">${highlight(d.excerpt||'',d.brandName)}</div><p class="demo-hint">This older result retained only an excerpt. The full set of answers cannot be reviewed here.</p>`;
-  return `<section aria-label="Answers behind this result"><p class="demo-label">Review the ${answers.length} saved answers</p><p class="demo-hint">Text received by Cited, before shortening for display. A short or incomplete answer may not support a conclusion about competitors.</p>${answers.map((a,i)=>`<details><summary>Answer ${i+1} · ${a.mentioned===true?'Brand named':a.mentioned===false?'Brand not named':'Naming unavailable'}</summary><div class="demo-excerpt" style="white-space:pre-wrap;overflow-wrap:anywhere">${highlight(a.text||'',d.brandName)}</div></details>`).join('')}</section>`;
+  return `<section aria-label="Answers behind this result"><p class="demo-label">Review the ${answers.length} saved answers</p><p class="demo-hint">Text received by Cited, before shortening for display. A short or incomplete answer may not support a conclusion about competitors.</p>${answers.map((a,i)=>`<details><summary>Answer ${i+1} · ${a.qualityReview?'Needs review':a.mentioned===true?'Brand named':a.mentioned===false?'Brand not named':'Naming unavailable'}</summary><div class="demo-excerpt" style="white-space:pre-wrap;overflow-wrap:anywhere">${highlight(a.text||'',d.brandName)}</div></details>`).join('')}</section>`;
 }
 
 function showResult(d) {
   const v = verdict(d);
   const known=Number.isInteger(d.runs)&&d.runs>0&&Number.isInteger(d.mentions)&&d.mentions>=0&&d.mentions<=d.runs;
   const pct = known ? Math.round(d.mentions/d.runs*100) : null;
-  if(known)demo.results.set(d.question,{...d});
+  if(known||d.status==='inconclusive')demo.results.set(d.question,{...d});
   const retained=window.CitedDemoHandoff?.save(demo.site||d,demo.results.values());
   const strip = (d.strip||[]).map((hit) => `<span class="tick ${hit ? 'hit' : ''}"></span>`).join('');
 
@@ -162,7 +163,7 @@ function showResult(d) {
     <p class="demo-hint">${d.cached?'Previously collected result, reused without a new check.':'New answer sample.'} ${d.collectedAt?`Collected ${esc(d.collectedAt)}.`:''} ${d.failed>0?`${d.failed} failed attempts excluded from the naming denominator.`:''}</p>
     <div class="demo-verdict ${pct === 0 ? 'bad' : pct === 100 ? 'good' : 'mixed'}">
       <div class="demo-score">
-        <div class="demo-pct" style="font-size:1.6rem">${known?`${d.mentions} / ${d.runs}`:'—'}</div><small>${known?`${pct}% named in this sample`:'Not measured'}</small>
+        <div class="demo-pct" style="font-size:1.6rem">${known?`${d.mentions} / ${d.runs}`:'—'}</div><small>${known?`${pct}% named in this sample`:d.status==='inconclusive'?'Score withheld':'Not measured'}</small>
         <div class="ticks">${strip}</div>
       </div>
       <div class="demo-verdict-text">

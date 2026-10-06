@@ -130,6 +130,22 @@ export async function proposeQuestions(domainInput) {
 
 /* ---------------- step two: run it ---------------- */
 
+// Narrow, conservative warning for the observed unfulfilled-list response.
+// This is a review flag, not a universal completeness detector or brand rule.
+export function assessDemoEvidence(result) {
+  const introOnly = text => typeof text === 'string' && text.trim().length < 600 &&
+    /(?:here are|the following are)\s+(?:some\s+)?(?:of the\s+)?(?:top|best|leading|recommended|reputable)?\s*(?:agencies|firms|companies|providers|options)(?:\s+to consider)?\s*:\s*$/i.test(text) &&
+    !/(?:^|\n)\s*(?:[-*]\s|\d+[.)]\s)/m.test(text);
+  const evidence = Array.isArray(result.answerEvidence) ? result.answerEvidence : [];
+  const flagged = evidence.filter(a => introOnly(a.text)).length;
+  if (!flagged && !(evidence.length === 0 && introOnly(result.excerpt))) return result;
+  return { ...result, status: 'inconclusive', mentions: null, rate: null,
+    avgOrdinal: null, strip: [],
+    qualityWarning: 'The saved text appears to introduce a list without supplying it. This sample needs review, so no visibility score is shown. It is not evidence that your brand is absent from complete answers.',
+    answerEvidence: evidence.map(a => introOnly(a.text) ? { ...a, qualityReview: 'Possible introduction-only answer' } : a)
+  };
+}
+
 export async function runDemo({ domain, brandName, question, token, market, ipHash, source }) {
   if (!verifyQuestion(domain, question, token)) {
     return { ok: false, error: 'That question was not one of ours. Scan the site again to get a fresh set.' };
@@ -148,7 +164,7 @@ export async function runDemo({ domain, brandName, question, token, market, ipHa
       'INSERT INTO demo_runs (ip_hash, domain, question, cost_usd, source, brand_name) VALUES ($1,$2,$3,0,$4,$5)',
       [ipHash, domain, question, source || null, brandName || null]
     );
-    return { ...cached.result, ok: true, cached: true, collectedAt: cached.result.collectedAt || cached.created_at };
+    return { ...assessDemoEvidence(cached.result), ok: true, cached: true, collectedAt: cached.result.collectedAt || cached.created_at };
   }
 
   const entity = { id: 1, name: brandName, domain, kind: 'owned', aliases: [] };
@@ -189,7 +205,7 @@ export async function runDemo({ domain, brandName, question, token, market, ipHa
   const domains = {};
   for (const a of answers) for (const c of a.citations) domains[c.domain] = (domains[c.domain] || 0) + 1;
 
-  const result = {
+  const result = assessDemoEvidence({
     domain,
     brandName,
     question,
@@ -208,7 +224,7 @@ export async function runDemo({ domain, brandName, question, token, market, ipHa
     others: others.slice(0, 5),
     sources: Object.entries(domains).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([d, n]) => ({ domain: d, n })),
     fanOut: [...new Set(answers.flatMap((a) => a.fanOut))].slice(0, 2)
-  };
+  });
 
   await query(
     'INSERT INTO demo_runs (ip_hash, domain, question, result, cost_usd, source, brand_name) VALUES ($1,$2,$3,$4,$5,$6,$7)',

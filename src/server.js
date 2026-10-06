@@ -1678,7 +1678,7 @@ app.post('/api/demo/run', wrap(async (req, res) => {
   await demoMilestone(req,'result');
 
   // Not for a cached repeat: the same link doing the rounds is not a new lead.
-  if (!result.cached) {
+  if (!result.cached && result.status !== 'inconclusive') {
     notifyTrial({
       domain, brandName, question,
       rate: result.rate, runs: result.runs, mentions: result.mentions, engine: result.engine,

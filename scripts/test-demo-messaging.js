@@ -37,10 +37,26 @@ test('all saved answers are inspectable, escaped and old excerpts are identified
 });
 test('demo retains each received answer and metadata without extra calls or altered counts',async()=>{
  const source=readFileSync(new URL('../src/lib/demo.js',import.meta.url),'utf8');
- const fn=source.slice(source.indexOf('export async function runDemo'),source.indexOf('export const DEMO_CONFIG')).replace('export ','');
+ const fn=source.slice(source.indexOf('export function assessDemoEvidence'),source.indexOf('export const DEMO_CONFIG')).replaceAll('export ','');
  let saved,calls=0;const values=[{ok:true,text:'Example '+ 'detail '.repeat(200),citations:[],fanOut:[],model:'model-a',costUsd:0.01},{ok:false,costUsd:0.02},{ok:true,text:'Advice only.',citations:[],fanOut:[],model:'model-a',costUsd:0.01}];
  const c=vm.createContext({verifyQuestion:()=>true,one:async()=>null,query:async(sql,p)=>{saved=p},CACHE_HOURS:24,DEMO_RUNS:3,DEMO_ENGINE:'chatgpt',askEngine:async()=>values[calls++],analyseRun:async({text})=>[{mentioned:text.includes('Example'),ordinal:null,snippet:null}]});vm.runInContext(fn,c);
  const r=await c.runDemo({domain:'example.com',brandName:'Example',question:'Question',token:'t',ipHash:'test'});
  assert.equal(calls,3);assert.equal(r.runs,2);assert.equal(r.mentions,1);assert.equal(r.failed,1);
  assert.equal(r.answerEvidence[0].text,values[0].text);assert.equal(r.answerEvidence[1].model,'model-a');assert.equal(JSON.parse(saved[3]).answerEvidence.length,2);assert.equal(saved[4],0.04);
+});
+test('introduction-only samples withhold scores, including cache, without rewriting stored evidence',async()=>{
+ const source=readFileSync(new URL('../src/lib/demo.js',import.meta.url),'utf8');
+ const fn=source.slice(source.indexOf('export function assessDemoEvidence'),source.indexOf('export const DEMO_CONFIG')).replaceAll('export ','');
+ const intro='When seeking an agency, several firms offer services. Here are some top agencies to consider:\n\n ';
+ const original=result({answerEvidence:[{text:intro,mentioned:false},{text:'Example is an agency.',mentioned:true}],mentions:1,runs:2});
+ const c=vm.createContext({verifyQuestion:()=>true,one:async()=>({result:original}),query:async()=>{},CACHE_HOURS:24,askEngine:()=>{throw Error('Cache must not call engine')}});vm.runInContext(fn,c);
+ const r=await c.runDemo({domain:'example.com',brandName:'Example',question:'Where to buy?',token:'t',ipHash:'test'});
+ assert.equal(r.status,'inconclusive');assert.equal(r.mentions,null);assert.equal(r.rate,null);assert.equal(r.cached,true);
+ assert.equal(r.answerEvidence[0].text,intro);assert.equal(original.mentions,1);assert.equal(original.answerEvidence[0].qualityReview,undefined);
+ assert.equal(c.assessDemoEvidence(result({excerpt:intro})).status,'inconclusive');
+ for(const text of ['Here are some top agencies to consider:\n1. Example','Try Example.','Compare fees and experience before choosing an agency.']){
+  const good=result({answerEvidence:[{text,mentioned:false}]});assert.equal(c.assessDemoEvidence(good),good);
+ }
+ const w=page();w.showResult(r);assert.match(w.document.body.textContent,/Result inconclusive/);assert.match(w.document.body.textContent,/Score withheld/);assert.doesNotMatch(w.document.body.textContent,/0%|Named in 0/);assert.match(w.document.body.textContent,/Needs review/);
+ w.showResult(result({question:'Another question'}));assert.equal(w.document.querySelectorAll('.demo-comparison').length,0);
 });
