@@ -1,3 +1,4 @@
+import { ANSWER_ELIGIBILITY_POLICY } from './answer-eligibility.js';
 import { one, query, pool } from '../db/index.js';
 
 export async function lockMeasurements(projectId) {
@@ -17,7 +18,7 @@ export function measurementSettings(project, models, engines, runs, maxTokens, e
  return {version:1,market:project.market,locationName:project.location_name || null,models,
    engines:[...engines].sort(),runs,maxTokens,
    ...(engines.some(e=>e==='ai_mode'||e==='ai_overview') ? {googleLocalePolicy:'country-map-v2-question-script-ar-en-v1'} : {}),
-   detection:'visible-text-v2',
+   detection:'visible-text-v2',answerEligibility:ANSWER_ELIGIBILITY_POLICY,
    entities:entities.map(e=>({id:e.id,name:e.name,aliases:e.aliases,domain:e.domain,kind:e.kind,ambiguous_name:e.ambiguous_name})).sort((a,b)=>a.id-b.id)};
 }
 export async function startMeasurement(projectId, day, settings) {

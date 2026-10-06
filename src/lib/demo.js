@@ -185,9 +185,9 @@ export async function runDemo({ domain, brandName, question, token, market, ipHa
     if (!a.ok) continue;
     const [mine] = await analyseRun({ text: a.text, entities: [entity] });
     answers.push({
-      mentioned: mine.mentioned,
-      ordinal: mine.ordinal,
-      snippet: mine.snippet,
+      mentioned: mine?.mentioned ?? null,
+      ordinal: mine?.ordinal ?? null,
+      snippet: mine?.snippet ?? null,
       text: a.text,
       model: a.model || null,
       citations: a.citations,

@@ -1,3 +1,4 @@
+import { introductionOnly } from './answer-eligibility.js';
 import { mentionText } from './mention-text.js';
 import { complete } from './anthropic.js';
 
@@ -118,7 +119,7 @@ export function looksTruncated(text, maxTokens = 2000) {
 }
 
 export async function analyseRun({ text, entities, useModel = false }) {
-  if (typeof text !== 'string' || !text.trim()) return [];
+  if (typeof text !== 'string' || !text.trim() || introductionOnly(text)) return [];
   text = mentionText(text);
   const found = entities.map((entity) => ({
     entity,

@@ -1,3 +1,4 @@
+import { introductionOnly, INTRO_ONLY_REASON } from './answer-eligibility.js';
 import { looksTruncated } from './analyze.js';
 /** Missing text cannot establish a brand's absence. Keep provider-confirmed
  * no-overview outcomes separate from legacy blanks with unknown cause. */
@@ -6,6 +7,7 @@ export function hasAnswerText(text) { return typeof text === 'string' && text.tr
 export function unmeasuredReason(run) {
   if (!run.ok) return run.error || 'The provider call failed.';
   if (!hasAnswerText(run.response_text)) return run.no_overview === true || run.error === NO_OVERVIEW ? NO_OVERVIEW : 'No answer text was stored. The reason is not recorded.';
+  if (run.mentioned == null && introductionOnly(run.response_text)) return INTRO_ONLY_REASON;
   return 'This answer has no brand measurement.';
 }
 export function measuredQuestionRates(runs) {

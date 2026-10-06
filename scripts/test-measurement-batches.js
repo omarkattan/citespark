@@ -56,8 +56,8 @@ test('archive escapes untrusted questions, answers and settings',()=>{
  assert.ok(!html.includes('<script>x</script>'));assert.ok(!html.includes('<script>alert(1)</script>'));assert.match(html,/&lt;script&gt;/);
  assert.match(archiveHtml(project,[batch]),/measurements\/1/);
 });
-const helperSource=readFileSync(new URL('../src/lib/measurement-batches.js',import.meta.url),'utf8').replace(/^import .*;\n/,'').replaceAll('export ','');
-function helper(db){return new Function('one','query','pool',`${helperSource};return {startMeasurement,finishMeasurement,inheritMeasurement,comparableSettings,measurementSettings};`)(async(s,p)=>(await db.query(s,p)).rows[0],(s,p)=>db.query(s,p),{});}
+const helperSource=readFileSync(new URL('../src/lib/measurement-batches.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replaceAll('export ','');
+function helper(db){return new Function('ANSWER_ELIGIBILITY_POLICY','one','query','pool',`${helperSource};return {startMeasurement,finishMeasurement,inheritMeasurement,comparableSettings,measurementSettings};`)('intro-only-withheld-v1',async(s,p)=>(await db.query(s,p)).rows[0],(s,p)=>db.query(s,p),{});}
 test('changed limits and unknown legacy methods refuse partial merges before any provider call',async()=>{
  const db=await fixture();try{
  await db.exec('CREATE TABLE method_notes(project_id integer,note text,detail text)');
