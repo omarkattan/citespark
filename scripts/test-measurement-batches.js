@@ -1,3 +1,4 @@
+import { estimateEngineCosts } from '../src/lib/measurement-cost.js';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -110,7 +111,7 @@ const collectSource=jobSource.slice(jobSource.indexOf('async function collectPro
 const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
 async function collectionFixture(failSave=false){
  const events=[],inserts=[];let registered;
- const deps={requestCounts,one:async(sql,params)=>{
+ const deps={estimateEngineCosts,requestCounts,one:async(sql,params)=>{
   if(sql.includes('FROM projects'))return {id:27,org_id:1,brand_name:'Acme',engines:['gemini'],runs_per_cycle:1};
   if(sql.includes('INSERT INTO runs')){inserts.push(params);if(failSave)throw Error('write failed');return {id:1};}
   return null;

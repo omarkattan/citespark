@@ -1,3 +1,4 @@
+import { estimateEngineCosts } from '../lib/measurement-cost.js';
 import { requestCounts } from '../lib/measurement-coverage.js';
 import { lockMeasurements, measurementSettings, startMeasurement, finishMeasurement, comparableSettings, inheritMeasurement } from '../lib/measurement-batches.js';
 import { retrySamples, collectionLimit, possibleTruncation } from '../lib/answer-quality.js';
@@ -169,34 +170,18 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
      GROUP BY engine`,
     [projectId]
   );
-  const perCall = new Map(priced.map((r) => [r.engine, r.per]));
+  const modelPrices = await many(
+    `SELECT engine, model, AVG(cost_usd)::float AS per FROM runs
+     WHERE cost_usd > 0 AND model IS NOT NULL
+     GROUP BY engine, model HAVING COUNT(*) >= 5`, []);
+  const perCall = estimateEngineCosts(budget.engines, ENGINE_CFG, projectModels, priced, modelPrices);
 
-  /**
-   * A model's price is provider pricing, the same for every org, so it is
-   * measured across all stored runs. When the project has chosen a model
-   * whose price we have seen at least five times, that price beats the
-   * engine's blended history - which is exactly the number that goes wrong
-   * when a model changes.
-   */
-  if (Object.keys(projectModels).length) {
-    const modelPrices = await many(
-      `SELECT engine, model, AVG(cost_usd)::float AS per, COUNT(*)::int AS n
-       FROM runs WHERE cost_usd > 0 AND model IS NOT NULL
-       GROUP BY engine, model HAVING COUNT(*) >= 5`,
-      []
-    );
-    for (const [eng, wanted] of Object.entries(projectModels)) {
-      const hit = modelPrices.find((m) => m.engine === eng && (m.model.startsWith(wanted) || wanted.startsWith(m.model)));
-      if (hit) perCall.set(eng, hit.per);
-    }
-  }
-  // A project with no history gets a deliberately pessimistic figure: the
-  // first cycle should over-warn rather than under-warn.
+  // Missing model history uses a planning allowance, not a price guarantee.
   const FALLBACK = 0.03;
   const estimate = prompts.length * budget.runs *
     budget.engines.reduce((sum, e) => sum + (perCall.get(e) || FALLBACK), 0);
 
-  console.log(`Estimated cost: $${estimate.toFixed(2)} (from ${priced.length ? "this project's last cycle" : 'a conservative default'}), cap $${CAP.toFixed(2)}`);
+  console.log(`Estimated cost: $${estimate.toFixed(2)} (from matching cost history or a planning allowance), cap $${CAP.toFixed(2)}`);
 
   if (estimate > CAP && !force) {
     const reason =
@@ -279,7 +264,6 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
    * where the models silently switched cost real money and left no record,
    * so now the record writes itself before the first call is made.
    */
-  const { resolveModel, ENGINES: ENGINE_CFG } = await import('../lib/dataforseo.js');
   const chosenModel = {};
   for (const eng of budget.engines) {
     if (ENGINE_CFG[eng]?.kind === 'llm') {
@@ -442,7 +426,8 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
     // list of questions that appear to hang. Whether the brand was named is
     // the interesting part while waiting.
     asking.state = 'answered';
-    asking.named = results.some((r) => r.mentioned && ownedIds.has(r.entity_id));
+    const ownedResults = results.filter(r => ownedIds.has(r.entity_id));
+    asking.named = ownedResults.length ? ownedResults.some(r => r.mentioned) : null;
     report({ phase: 'asking' });
     if (done % 20 === 0) console.log(`  ${done}/${jobs.length} runs complete`);
   }, CONCURRENCY, () => { persistenceErrors++; });

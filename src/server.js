@@ -1,3 +1,4 @@
+import { estimateEngineCosts } from './lib/measurement-cost.js';
 import {demoMilestone} from './lib/demo-funnel.js';
 import {selectedDemoQuestions} from './lib/demo-setup.js';
 import { reportNotePreview } from './lib/report-note.js';
@@ -1791,18 +1792,11 @@ app.get('/api/projects/:id/run-scope', requireAuth, wrap(async (req, res) => {
      WHERE project_id = $1 AND cost_usd > 0
        AND cycle_date = (SELECT MAX(cycle_date) FROM reporting_runs WHERE project_id = $1 AND cost_usd > 0)
      GROUP BY engine`, [project.id]);
-  const perCall = new Map(priced.map((r) => [r.engine, r.per]));
-  const chosen = project.models || {};
-  if (Object.keys(chosen).length) {
-    const mp = await many(
-      `SELECT engine, model, AVG(cost_usd)::float AS per FROM reporting_runs
-       WHERE cost_usd > 0 AND model IS NOT NULL
-       GROUP BY engine, model HAVING COUNT(*) >= 5`, []);
-    for (const [eng, want] of Object.entries(chosen)) {
-      const hit = mp.find((m) => m.engine === eng && (m.model.startsWith(want) || want.startsWith(m.model)));
-      if (hit) perCall.set(eng, hit.per);
-    }
-  }
+  const mp = await many(
+    `SELECT engine, model, AVG(cost_usd)::float AS per FROM runs
+     WHERE cost_usd > 0 AND model IS NOT NULL
+     GROUP BY engine, model HAVING COUNT(*) >= 5`, []);
+  const perCall = estimateEngineCosts(engineList, ENGINES, project.models || {}, priced, mp);
   const perQuestion = runs * engineList.reduce((sum, e) => sum + (perCall.get(e) ?? 0.03), 0);
 
   res.json({

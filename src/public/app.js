@@ -2438,7 +2438,9 @@ function showProgress(phase, done, total, recent = []) {
     .map((r) => {
       const mark =
         r.state === 'answered'
-          ? r.named
+          ? r.named == null
+            ? '<span class="fmark" title="No brand measurement was established. Review the saved answer.">unmeasured</span>'
+            : r.named
             ? '<span class="fmark named" title="You were named in this answer">named</span>'
             : '<span class="fmark missed" title="You were not named">not named</span>'
           : r.state === 'failed'
