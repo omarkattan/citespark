@@ -298,3 +298,27 @@ test('analyst receives measured-engine facts and dated causes without treating n
  assert.match(analyst.ANALYST_SYSTEM,/Do not suggest changing question wording/);
  assert.match(analyst.ANALYST_SYSTEM,/Never stitch fragments/);
 });
+test('source passage selection inserts saved text and rejects invented or mixed references',()=>{
+ const p=analyst.analystPacket(report(),[{id:99,engine:'chatgpt',question:'Agency?',response_text:'Raj Digital offers ecommerce services. No certification is stated in this evidence.'}]);
+ const d=draft(p);d.findings[0].evidence=[{id:'answer-99',passage:1}];
+ const raw=JSON.stringify(d),result=analyst.validateAnalysis(d,p);
+ assert.equal(result.findings[0].evidence[0].quote,'Raj Digital offers ecommerce services. No certification is stated in this evidence.');
+ assert.equal(JSON.stringify(d),raw);assert.deepEqual(analyst.validateAnalysis(result,p),result);
+ for(const ref of [{id:'answer-99',passage:999},{id:'answer-99',passage:0},{id:'answer-99',passage:'1'},{id:'answer-elsewhere',passage:1},{id:'answer-99',passage:1,quote:'Google Premier Partner'}]){
+  d.findings[0].evidence=[ref];assert.throws(()=>analyst.validateAnalysis(d,p),/invalid evidence passage/);
+ }
+});
+test('numbered passages preserve Arabic, punctuation and full context within the request budget',async()=>{
+ const text=('• وكالة دبي **خدمات** 😀. '.repeat(150))+'Final fact.';
+ const p=analyst.analystPacket(report(),[{id:99,engine:'chatgpt',question:'Agency?',response_text:text}]);
+ const record=p.records.find(r=>r.id==='answer-99'),parts=analyst.evidencePassages(record);
+ assert.equal(parts.map(x=>x.text).join(''),JSON.parse(record.text).excerpt);
+ assert.ok(parts.every(x=>x.text.length<=350&&x.text.trim().length>=12));
+ let sent;await analyst.requestAnalysis(p,{key:'test',fetcher:async(url,opts)=>{sent=JSON.parse(JSON.parse(opts.body).messages[0].content);return {ok:true,json:async()=>({content:[],stop_reason:'end_turn'})};}});
+ const answer=sent.records.find(r=>r.id==='answer-99');assert.equal(answer.context.question,'Agency?');assert.deepEqual(answer.passages,parts);assert.equal(answer.text,undefined);
+ assert.ok(JSON.stringify(sent).length<=110000);
+});
+test('oversized saved evidence is refused before a provider charge',async()=>{
+ let called=false;const p={records:[{id:'scope',text:'x'.repeat(110001)}]};
+ await assert.rejects(analyst.requestAnalysis(p,{key:'test',fetcher:async()=>{called=true;}}),/No AI request/);assert.equal(called,false);
+});
