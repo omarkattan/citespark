@@ -39,7 +39,7 @@ test('demo retains each received answer and metadata without extra calls or alte
  const source=readFileSync(new URL('../src/lib/demo.js',import.meta.url),'utf8');
  const fn=source.slice(source.indexOf('export function assessDemoEvidence'),source.indexOf('export const DEMO_CONFIG')).replaceAll('export ','');
  let saved,calls=0;const values=[{ok:true,text:'Example '+ 'detail '.repeat(200),citations:[],fanOut:[],model:'model-a',costUsd:0.01},{ok:false,costUsd:0.02},{ok:true,text:'Advice only.',citations:[],fanOut:[],model:'model-a',costUsd:0.01}];
- const c=vm.createContext({verifyQuestion:()=>true,one:async()=>null,query:async(sql,p)=>{saved=p},CACHE_HOURS:24,DEMO_RUNS:3,DEMO_ENGINE:'chatgpt',askEngine:async()=>values[calls++],analyseRun:async({text})=>[{mentioned:text.includes('Example'),ordinal:null,snippet:null}]});vm.runInContext(fn,c);
+ const c=vm.createContext({DEMO_MODEL:'gpt-4.1',DEMO_MAX_TOKENS:2000,DEMO_ENGINE:'chatgpt',DEMO_RUNS:3,ENGINES:{chatgpt:{}},resolveModel:async()=> 'gpt-4.1',verifyQuestion:()=>true,one:async()=>null,query:async(sql,p)=>{saved=p},CACHE_HOURS:24,DEMO_RUNS:3,DEMO_ENGINE:'chatgpt',askEngine:async opts=>{assert.equal(opts.model,'gpt-4.1');assert.equal(opts.maxTokens,2000);return values[calls++];},analyseRun:async({text})=>[{mentioned:text.includes('Example'),ordinal:null,snippet:null}]});vm.runInContext(fn,c);
  const r=await c.runDemo({domain:'example.com',brandName:'Example',question:'Question',token:'t',ipHash:'test'});
  assert.equal(calls,3);assert.equal(r.runs,2);assert.equal(r.mentions,1);assert.equal(r.failed,1);
  assert.equal(r.answerEvidence[0].text,values[0].text);assert.equal(r.answerEvidence[1].model,'model-a');assert.equal(JSON.parse(saved[3]).answerEvidence.length,2);assert.equal(saved[4],0.04);
@@ -49,14 +49,25 @@ test('introduction-only samples withhold scores, including cache, without rewrit
  const fn=source.slice(source.indexOf('export function assessDemoEvidence'),source.indexOf('export const DEMO_CONFIG')).replaceAll('export ','');
  const intro='When seeking an agency, several firms offer services. Here are some top agencies to consider:\n\n ';
  const original=result({answerEvidence:[{text:intro,mentioned:false},{text:'Example is an agency.',mentioned:true}],mentions:1,runs:2});
- const c=vm.createContext({verifyQuestion:()=>true,one:async()=>({result:original}),query:async()=>{},CACHE_HOURS:24,askEngine:()=>{throw Error('Cache must not call engine')}});vm.runInContext(fn,c);
+ const c=vm.createContext({DEMO_MODEL:'gpt-4.1',DEMO_MAX_TOKENS:2000,DEMO_ENGINE:'chatgpt',DEMO_RUNS:3,ENGINES:{chatgpt:{}},resolveModel:async()=> 'gpt-4.1',verifyQuestion:()=>true,one:async(sql,params)=>({result:{...original,collectionProfile:params[3]}}),query:async()=>{},CACHE_HOURS:24,askEngine:()=>{throw Error('Cache must not call engine')}});vm.runInContext(fn,c);
  const r=await c.runDemo({domain:'example.com',brandName:'Example',question:'Where to buy?',token:'t',ipHash:'test'});
  assert.equal(r.status,'inconclusive');assert.equal(r.mentions,null);assert.equal(r.rate,null);assert.equal(r.cached,true);
  assert.equal(r.answerEvidence[0].text,intro);assert.equal(original.mentions,1);assert.equal(original.answerEvidence[0].qualityReview,undefined);
  assert.equal(c.assessDemoEvidence(result({excerpt:intro})).status,'inconclusive');
+ assert.equal(c.assessDemoEvidence(result({excerpt:'When seeking top digital marketing agencies specializing in e-commerce growth within the UAE and the broader Middle East, several firms stand out for their expertise and proven results:'})).status,'inconclusive');
  for(const text of ['Here are some top agencies to consider:\n1. Example','Try Example.','Compare fees and experience before choosing an agency.']){
   const good=result({answerEvidence:[{text,mentioned:false}]});assert.equal(c.assessDemoEvidence(good),good);
  }
  const w=page();w.showResult(r);assert.match(w.document.body.textContent,/Result inconclusive/);assert.match(w.document.body.textContent,/Score withheld/);assert.doesNotMatch(w.document.body.textContent,/0%|Named in 0/);assert.match(w.document.body.textContent,/Needs review/);
  w.showResult(result({question:'Another question'}));assert.equal(w.document.querySelectorAll('.demo-comparison').length,0);
+});
+test('a legacy or different-profile cached demo cannot replace the new model sample',async()=>{
+ const source=readFileSync(new URL('../src/lib/demo.js',import.meta.url),'utf8');
+ const fn=source.slice(source.indexOf('export function assessDemoEvidence'),source.indexOf('export const DEMO_CONFIG')).replaceAll('export ','');
+ let calls=0,saved;const c=vm.createContext({DEMO_MODEL:'gpt-4.1',DEMO_MAX_TOKENS:2000,DEMO_ENGINE:'chatgpt',DEMO_RUNS:3,ENGINES:{chatgpt:{}},resolveModel:async()=> 'gpt-4.1',verifyQuestion:()=>true,CACHE_HOURS:24,
+ one:async(sql,params)=>{assert.match(sql,/result->>'collectionProfile' = \$4/);const profile=JSON.parse(params[3]);assert.equal(profile.model,'gpt-4.1');assert.equal(profile.maxTokens,2000);assert.equal(profile.market,'AE');return {result:result({collectionProfile:'old-settings'})};},
+ query:async(sql,p)=>{saved=JSON.parse(p[3]);},
+ askEngine:async()=>{calls++;return {ok:true,text:'An answer with a complete ending.',model:'gpt-4.1-2025-04-14',citations:[],costUsd:0.07};},analyseRun:async()=>[{mentioned:false}]});vm.runInContext(fn,c);
+ const r=await c.runDemo({domain:'example.com',brandName:'Example',question:'Question',token:'t',ipHash:'test'});
+ assert.equal(calls,3);assert.equal(r.requestedModel,'gpt-4.1');assert.equal(r.runs,3);assert.equal(r.cached,undefined);assert.equal(saved.collectionProfile,r.collectionProfile);assert.equal(saved.answerEvidence[0].model,'gpt-4.1-2025-04-14');
 });

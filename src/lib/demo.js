@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { one, many, query } from '../db/index.js';
 import { discoverSite } from './discover.js';
 import { complete, parseJsonArray } from './anthropic.js';
-import { askEngine, MOCK } from './dataforseo.js';
+import { askEngine, MOCK, ENGINES, resolveModel } from './dataforseo.js';
 import { analyseRun } from './analyze.js';
 
 /**
@@ -21,6 +21,9 @@ import { analyseRun } from './analyze.js';
  */
 
 const DEMO_ENGINE = process.env.DEMO_ENGINE || 'chatgpt';
+// Separate demo settings: do not change project measurement defaults.
+const DEMO_MODEL = process.env.DEMO_MODEL || (DEMO_ENGINE === 'chatgpt' ? 'gpt-4.1' : null);
+const DEMO_MAX_TOKENS = 2000;
 const DEMO_RUNS = Number(process.env.DEMO_RUNS || 3);
 const DEMO_PER_IP_DAY = Number(process.env.DEMO_PER_IP_DAY || 3);
 const DEMO_PER_IP_HOUR = Number(process.env.DEMO_PER_IP_HOUR || 2);
@@ -133,8 +136,10 @@ export async function proposeQuestions(domainInput) {
 // Narrow, conservative warning for the observed unfulfilled-list response.
 // This is a review flag, not a universal completeness detector or brand rule.
 export function assessDemoEvidence(result) {
-  const introOnly = text => typeof text === 'string' && text.trim().length < 600 &&
-    /(?:here are|the following are)\s+(?:some\s+)?(?:of the\s+)?(?:top|best|leading|recommended|reputable)?\s*(?:agencies|firms|companies|providers|options)(?:\s+to consider)?\s*:\s*$/i.test(text) &&
+  // A short response ending at a colon, without a list item, may be only
+  // a lead-in. Withhold the demo summary for review, never delete the text.
+  const introOnly = text => typeof text === 'string' && text.trim().length > 0 &&
+    text.trim().length < 600 && /[:：]\s*$/.test(text) &&
     !/(?:^|\n)\s*(?:[-*]\s|\d+[.)]\s)/m.test(text);
   const evidence = Array.isArray(result.answerEvidence) ? result.answerEvidence : [];
   const flagged = evidence.filter(a => introOnly(a.text)).length;
@@ -151,15 +156,18 @@ export async function runDemo({ domain, brandName, question, token, market, ipHa
     return { ok: false, error: 'That question was not one of ours. Scan the site again to get a fresh set.' };
   }
 
-  // Serve an identical recent request from cache rather than paying twice.
+  const model = await resolveModel(DEMO_ENGINE, ENGINES[DEMO_ENGINE], DEMO_MODEL);
+  const collectionProfile = JSON.stringify({ engine: DEMO_ENGINE, model, maxTokens: DEMO_MAX_TOKENS, runs: DEMO_RUNS, market: market || 'AE', brandName, version: 1 });
+  // Reuse only the same collection settings. Keep old evidence unchanged.
   const cached = await one(
     `SELECT result, created_at FROM demo_runs
      WHERE domain = $1 AND question = $2 AND result IS NOT NULL
        AND created_at > now() - ($3 || ' hours')::interval
+       AND result->>'collectionProfile' = $4
      ORDER BY created_at DESC LIMIT 1`,
-    [domain, question, String(CACHE_HOURS)]
+    [domain, question, String(CACHE_HOURS), collectionProfile]
   );
-  if (cached?.result) {
+  if (cached?.result?.collectionProfile === collectionProfile) {
     await query(
       'INSERT INTO demo_runs (ip_hash, domain, question, cost_usd, source, brand_name) VALUES ($1,$2,$3,0,$4,$5)',
       [ipHash, domain, question, source || null, brandName || null]
@@ -172,7 +180,7 @@ export async function runDemo({ domain, brandName, question, token, market, ipHa
   let spend = 0;
 
   for (let i = 0; i < DEMO_RUNS; i++) {
-    const a = await askEngine({ engine: DEMO_ENGINE, prompt: question, market: market || 'AE', maxTokens: 600 });
+    const a = await askEngine({ engine: DEMO_ENGINE, prompt: question, market: market || 'AE', model, maxTokens: DEMO_MAX_TOKENS });
     spend += a.costUsd || 0;
     if (!a.ok) continue;
     const [mine] = await analyseRun({ text: a.text, entities: [entity] });
@@ -182,7 +190,7 @@ export async function runDemo({ domain, brandName, question, token, market, ipHa
       snippet: mine.snippet,
       text: a.text,
       model: a.model || null,
-      citations: a.citations.slice(0, 6),
+      citations: a.citations,
       fanOut: a.fanOut || []
     });
   }
@@ -210,6 +218,9 @@ export async function runDemo({ domain, brandName, question, token, market, ipHa
     brandName,
     question,
     engine: DEMO_ENGINE,
+    requestedModel: model,
+    maxTokens: DEMO_MAX_TOKENS,
+    collectionProfile,
     runs: answers.length,
     attempted: DEMO_RUNS,
     failed: DEMO_RUNS - answers.length,

@@ -172,11 +172,12 @@ function showResult(d) {
       </div>
     </div>
 
+    <p class="demo-hint">API-generated answer sample${d.requestedModel?` · ${esc(d.requestedModel)}`:''}. These answers can contain errors. Citations identify sources the engine referenced, not independently verified claims.</p>
     <p class="demo-hint">One question on one engine. Naming is not the same as citing your website. This sample does not measure overall market visibility.</p>
     ${comparisonHtml()}
     ${answerEvidenceHtml(d)}
 
-    ${d.sources.length ? `<p class="demo-label">Sources cited in the sampled answers</p>
+    ${d.sources.length ? `<p class="demo-label">Selected sources cited in the sampled answers</p>
       <div class="chips">${d.sources.map((s) => `<span class="chip ${s.domain === d.domain ? 'own' : ''}">${esc(s.domain)}${s.domain === d.domain ? ' (you)' : ''}</span>`).join('')}</div>` : ''}
 
     ${d.fanOut.length ? `<p class="demo-label">Reported search queries</p>
