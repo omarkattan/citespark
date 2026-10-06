@@ -19,7 +19,7 @@ Reasoning requirements:
 - supportedChange and workflow status are internal eligibility controls, not evidence of client approval, agreement or implementation. Never print internal field names or boolean values. A proposed change still needs owner approval.
 - Careers landing pages do not establish recruitment intent. Describe events as associated with careers-entry sessions, with purpose unverified. Do not infer lead type from a page or overlap. Call GA4 conversions key events, not sales conversions. Zero recorded revenue does not prove zero sales or functioning revenue tracking.
 - Label numbers quoted from older editorial notes as historical, using their own stated window where available. A note's review date is not its measurement period. Omit old figures when unnecessary. Do not silently mix them into the current period.
-- Use the calculated question-summary record for question-group counts, zeros and rates. Cite that record whenever making an aggregate question claim. Its source groups are collection methods, NOT branded/unbranded classifications. Do not invent semantic group membership or calculate a new subgroup in prose. Without an approved semantic grouping, discuss specific named question examples and their recorded counts instead. Never describe a one-cycle zero as "never". Do not sum percentages or combine numerator and denominator from different groups.
+- Use the calculated question-summary record for question-group counts, zeros and rates. Cite that record whenever making an aggregate question claim. quotationHints provides short exact excerpts from that record. Prefer these when they support the claim. Never omit intervening JSON fields inside a quotation. Its source groups are collection methods, NOT branded/unbranded classifications. Do not invent semantic group membership or calculate a new subgroup in prose. Without an approved semantic grouping, discuss specific named question examples and their recorded counts instead. Never describe a one-cycle zero as "never". Do not sum percentages or combine numerator and denominator from different groups.
 - Historical editorial figures must stay inside a sentence explicitly attributed to the older measurement window. A review date does not establish that window. If the original period is unavailable, omit the historical number. Do not place historical figures in a paragraph describing current GA4 totals.
 - When GSC originDetails.gscSnapshot supplies figures and dates, use those paired figures and dates. Legacy originDetails.impressions without its own dated window is not interchangeable with that snapshot. Never attach refreshed snapshot dates to an older impression count.
 Before returning, check every numeric claim against its cited record, every date against that same source, and every action against its supporting evidence. Delete unsupported specifics rather than replacing them with generic advice.
@@ -92,6 +92,19 @@ export function evidenceQuoteMatch(record,quote){
  const expected=visibleAnswerText(quote);
  return expected.length>=12 && visibleAnswerText(data.excerpt).includes(expected)?'formatting-normalised':null;
 }
+// Recover only this known omitted metadata field. The repaired quotation must
+// then be a literal, bounded substring of the original saved evidence.
+// Never accept a paraphrase, changed value, reordered field or joined excerpt.
+export function restoreSummaryExcerpt(record,quote){
+ if(record?.id!=='question-summary'||typeof quote!=='string')return null;
+ for(const match of record.text.matchAll(/"measuredAnswers":\d+,"questionsWithUnknownMeasurement":\d+,"named":/g)){
+  const shortened=match[0].replace(/"questionsWithUnknownMeasurement":\d+,/,'');
+  if(!quote.includes(shortened))continue;
+  const restored=quote.replace(shortened,match[0]);
+  if(restored.length<=350&&record.text.includes(restored))return restored;
+ }
+ return null;
+}
 export function validateAnalysis(value,packet){
  if(!value||!Array.isArray(value.findings)||value.findings.length<1||value.findings.length>3)throw new Error('AI draft must contain one to three supported findings.');
  const lookup=new Map(packet.records.map(r=>[r.id,r]));
@@ -105,16 +118,27 @@ export function validateAnalysis(value,packet){
   const result={kind:f.kind};
   for(const [k,max] of Object.entries({title:160,observation:1300,implication:900,action:1300,done_when:800,follow_up:800}))result[k]=text(f[k],max,`finding ${i+1}.${k}`);
   if(!Array.isArray(f.evidence)||!f.evidence.length||f.evidence.length>4)throw new Error('Each finding needs supporting evidence.');
-  result.evidence=f.evidence.map(ref=>{const record=lookup.get(ref.id),quote=text(ref.quote,350,`finding ${i+1} evidence quote`),match=evidenceQuoteMatch(record,quote);if(!match)throw new Error(`AI draft finding ${i+1} contains an unverified evidence reference or quote (${ref.id}).`);return {id:record.id,quote,...(match==='formatting-normalised'?{sourceMatch:match}:{})};});
+  result.evidence=f.evidence.map(ref=>{const record=lookup.get(ref.id);let quote=text(ref.quote,350,`finding ${i+1} evidence quote`),match=evidenceQuoteMatch(record,quote),restored=false;if(!match){const recovered=restoreSummaryExcerpt(record,quote);if(recovered){quote=recovered;match='exact';restored=true;}}if(!match)throw new Error(`AI draft finding ${i+1} contains an unverified evidence reference or quote (${ref.id}).`);return {id:record.id,quote,...(restored?{sourceMatch:'source-excerpt-restored'}:match==='formatting-normalised'?{sourceMatch:match}:{})};});
   if(f.kind==='proposed_change'&&!result.evidence.some(ref=>ref.id.startsWith('decision-') && JSON.parse(lookup.get(ref.id).text).supportedChange===true))throw new Error('A proposed change needs a current, active, ready-to-implement saved decision. Otherwise investigate first.');
   return result;
  });
  if(!Array.isArray(value.limitations)||!value.limitations.length||value.limitations.length>4)throw new Error('AI draft needs explicit limitations.');
  return {findings,limitations:value.limitations.map((v,i)=>text(v,700,`limitation ${i+1}`))};
 }
+// Request-only guidance. Does not change saved evidence or its fingerprint.
+export function summaryQuoteHints(packet){
+ const record=packet.records.find(r=>r.id==='question-summary');
+ if(!record)return [];
+ let data;try{data=JSON.parse(record.text);}catch{return [];}
+ return ['named','cited'].flatMap(metric=>{
+  const v=data.all?.[metric];if(!v)return [];
+  const quote=`"${metric}":{"answers":${JSON.stringify(v.answers)},"measuredAnswerDenominator":${JSON.stringify(v.measuredAnswerDenominator)}`;
+  return record.text.includes(quote)?[{id:record.id,scope:'Overall supplied question sample',metric,quote}]:[];
+ });
+}
 export async function requestAnalysis(packet,{fetcher=fetch,model=analystModel(),key=process.env.ANTHROPIC_API_KEY}={}){
  if(!key)throw new Error('Report analyst is not configured. Add the Anthropic API key in Render.');
- const response=await fetcher('https://api.anthropic.com/v1/messages',{method:'POST',signal:AbortSignal.timeout(90000),headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01'},body:json({model,max_tokens:ANALYST_MAX_OUTPUT_TOKENS,system:ANALYST_SYSTEM,messages:[{role:'user',content:json(packet)}]})});
+ const response=await fetcher('https://api.anthropic.com/v1/messages',{method:'POST',signal:AbortSignal.timeout(90000),headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01'},body:json({model,max_tokens:ANALYST_MAX_OUTPUT_TOKENS,system:ANALYST_SYSTEM,messages:[{role:'user',content:json({...packet,quotationHints:summaryQuoteHints(packet)})}]})});
  if(!response.ok)throw new Error(`Report analyst provider returned HTTP ${response.status}. No draft was published.`);
  const body=await response.json();
  const result={model:body.model||model,usage:body.usage||null,provider_id:body.id||null,stop_reason:body.stop_reason,raw:(body.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n')};

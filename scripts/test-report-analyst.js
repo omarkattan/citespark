@@ -74,7 +74,7 @@ test('cost estimates respect returned model, cache categories, unknowns and genu
 test('migration is additive, repeatable, and supports archived usage and approval records',async()=>{
  const {PGlite}=await import(process.env.PGLITE_MODULE);const db=new PGlite();
  try{
- await db.exec('CREATE TABLE projects(id int PRIMARY KEY); INSERT INTO projects VALUES(31),(99);');
+ await db.exec('CREATE TABLE orgs(id int PRIMARY KEY); CREATE TABLE projects(id int PRIMARY KEY); INSERT INTO projects VALUES(31),(99);');
  const sql=readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8').split('-- Batch 85:')[1];
  const migration='-- Batch 85:'+sql;await db.exec(migration);await db.exec(migration);
  await db.query("INSERT INTO report_analyst_drafts(project_id,evidence_hash,packet,status,requested_model,usage,cost_estimate) VALUES($1,'hash','{}','failed','test',$2,$3)",[31,{input_tokens:100,output_tokens:10},{usd:0.1}]);
@@ -166,7 +166,7 @@ test('analysis policy update invalidates earlier approval without changing measu
 test('editing preserves original response and references, archives wording, clears approval and rejects stale saves',async()=>{
  const {PGlite}=await import(process.env.PGLITE_MODULE),db=new PGlite(),r=report(),p=analyst.analystPacket(r),a=draft(p);
  try{
- await db.exec('CREATE TABLE projects(id int PRIMARY KEY); INSERT INTO projects VALUES(31);');
+ await db.exec('CREATE TABLE orgs(id int PRIMARY KEY); CREATE TABLE projects(id int PRIMARY KEY); INSERT INTO projects VALUES(31);');
  await db.exec('-- Batch 85:'+readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8').split('-- Batch 85:')[1]);
  await db.query("INSERT INTO report_analyst_drafts(id,project_id,evidence_hash,packet,status,requested_model,analysis,raw_response,approved_at) VALUES(7,31,$1,$2,'draft','test',$3,'original raw',now())",[analyst.packetHash(p),p,a]);
  const api=store({many:async()=>[],pool:{connect:async()=>({query:(sql,args)=>db.query(sql,args),release(){}})},one:async(sql,args)=>(await db.query(sql,args)).rows[0],query:async(sql,args)=>{const out=await db.query(sql,args);return {rowCount:out.affectedRows};}});
@@ -261,4 +261,24 @@ test('preparation finds a current saved draft behind a later failed attempt',asy
  const r=report(),p=analyst.analystPacket(r),matching={id:6,status:'draft',analysis:draft(p),evidence_hash:analyst.packetHash(p),edit_revision:2};
  const api=store({many:async()=>[],one:async(sql,args)=>{assert.equal(args[0],31);if(sql.includes('evidence_hash=$2')){assert.equal(args[1],matching.evidence_hash);return matching;}return {id:7,status:'failed'};},requestAnalysis:()=>assert.fail('No provider request')});
  const result=await api.analysisInclusionStatus(r);assert.equal(result.state,'draft');assert.equal(result.draftId,6);assert.equal(result.revision,2);
+});
+
+test('summary recovery restores only omitted metadata and then requires an exact source substring',()=>{
+ const source='{"all":{"measuredAnswers":89,"questionsWithUnknownMeasurement":0,"named":{"answers":0,"measuredAnswerDenominator":89,"rate":0,"eligibleQuestionCount":20,"excludedQuestionCount":0,"zeroInMeasuredAnswersQuestionCount":20}}}';
+ const record={id:'question-summary',text:source,label:'Totals',link:'#totals'};
+ const quote='"measuredAnswers":89,"named":{"answers":0,"measuredAnswerDenominator":89,"rate":0,"eligibleQuestionCount":20,"excludedQuestionCount":0,"zeroInMeasuredAnswersQuestionCount":20';
+ const p=analyst.analystPacket(report());p.records.push(record);
+ const d=draft(p);d.findings[0].evidence=[{id:record.id,quote}];
+ const checked=analyst.validateAnalysis(d,p),ref=checked.findings[0].evidence[0];
+ assert.equal(ref.sourceMatch,'source-excerpt-restored');assert.ok(source.includes(ref.quote));assert.equal(d.findings[0].evidence[0].quote,quote);
+ assert.match(analystFindingsHtml({analysis:checked,packet:p}),/omitted source field was restored/);
+ for(const bad of [quote.replace('89','88'),quote.replace('"answers":0','"answers":1'),quote.replace(',"rate":0','')]){
+  d.findings[0].evidence[0].quote=bad;assert.throws(()=>analyst.validateAnalysis(d,p),/unverified/);
+ }
+ assert.equal(analyst.restoreSummaryExcerpt({...record,id:'traffic'},quote),null);
+});
+test('short quote hints are exact and leave evidence hashes unchanged',()=>{
+ const p=analyst.analystPacket(report()),hash=analyst.packetHash(p),hints=analyst.summaryQuoteHints(p);
+ assert.equal(hints.length,2);assert.equal(analyst.packetHash(p),hash);
+ for(const hint of hints)assert.ok(p.records.find(r=>r.id===hint.id).text.includes(hint.quote));
 });
