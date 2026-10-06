@@ -2139,6 +2139,8 @@ function projectFromUrl() {
 
 async function loadProjectList(selectId) {
   const projects = await api('/api/projects');
+  state.projects = projects || [];
+  showDemoHandoff();
   if (!projects?.length) {
     $('projectPicker').innerHTML = '';
     $('brandTitle').textContent = 'No sites yet';
@@ -6170,13 +6172,23 @@ document.addEventListener('click',async event=>{
 
 
 function showDemoHandoff(){
+ $('demoHandoff')?.remove();
  const draft=window.CitedDemoHandoff?.read();
  if(!draft)return;
+ const domainKey=value=>String(value||'').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/^www\./,'').replace(/\/$/,'');
+ const existing=(state.projects||[]).find(p=>domainKey(p.domain)===domainKey(draft.site.domain));
  const box=document.createElement('section');box.className='panel';box.id='demoHandoff';
- box.innerHTML=`<h2>Continue your demo: ${esc(draft.site.domain)}</h2><p>Browser-local notes, retained for 24 hours. These are not verified project measurements and are not included in reports.</p><details><summary>Review tested questions and demo notes</summary>${(Array.isArray(draft.results)?draft.results:[]).slice(0,10).map(r=>`<article><h3>${esc(r.question)}</h3><p>${esc(r.mentions)} / ${esc(r.runs)} answers · ${esc(r.engine)} · ${esc(r.collectedAt||'Collection date unavailable')}</p><p>${esc(r.excerpt||'')}</p></article>`).join('')}</details><p>Use these notes to choose your project questions. You can select these questions during setup. Demo answers are never imported as project measurements, and setup does not run new checks.</p><button type="button" id="demoUseSetup">Use this site for setup</button> <button type="button" class="ghost" id="demoDiscard">Discard demo notes</button>`;
+ box.innerHTML=`<h2>Continue your demo: ${esc(draft.site.domain)}</h2><p>Browser-local notes, retained for 24 hours. These are not verified project measurements and are not included in reports.</p><details><summary>Review tested questions and demo notes</summary>${(Array.isArray(draft.results)?draft.results:[]).slice(0,10).map(r=>`<article><h3>${esc(r.question)}</h3><p>${esc(r.mentions)} / ${esc(r.runs)} answers · ${esc(r.engine)} · ${esc(r.collectedAt||'Collection date unavailable')}</p><p>${esc(r.excerpt||'')}</p></article>`).join('')}</details><p>${existing?'This site already has a project in your account. Review its saved questions before running a measurement.':'Use these notes to choose your project questions. You can select these questions during setup.'} Demo answers are never imported as project measurements, and setup does not run new checks.</p><button type="button" id="demoUseSetup">${existing?'Open project questions':'Use this site for setup'}</button> <button type="button" class="ghost" id="demoDiscard">Discard demo notes</button>`;
  document.querySelector('main').prepend(box);
  $('demoDiscard').onclick=()=>{window.CitedDemoHandoff.clear();box.remove();};
- $('demoUseSetup').onclick=()=>{
+ $('demoUseSetup').onclick=async()=>{
+  if(existing){
+   const button=$('demoUseSetup');button.disabled=true;
+   try{await loadProjectList(existing.id);state.view='questions';await render();$('view').scrollIntoView({block:'start'});}
+   catch(error){toast('Could not open the project. Please try again.','bad');}
+   finally{button.disabled=false;}
+   return;
+  }
   $('addSiteBtn').click();
   for(const [field,key] of [['f_domain','domain'],['f_brand','brandName'],['f_category','category'],['f_qualifier','qualifier']])$(field).value=String(draft.site[key]||'');
   $('f_aliases').value='';$('f_rivals').value='';

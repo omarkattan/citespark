@@ -45,3 +45,18 @@ test('rescanning the same domain preserves results, another domain does not inhe
  h.save({domain:'example.com'},[{...q,mentions:0}]);assert.equal(h.read().results.length,1);assert.equal(h.read().results[0].mentions,0);
  h.save({domain:'different.com'},[]);assert.equal(h.read().results.length,0);
 });
+test('existing account project opens questions instead of repeating setup, notes remain',async()=>{
+ const w=new JSDOM('<main></main><button id="addSiteBtn"></button><div id="view"></div>',{url:'https://cited.ae/app',runScripts:'outside-only'}).window;
+ w.eval(readFileSync(new URL('../src/public/demo-handoff.js',import.meta.url),'utf8'));
+ w.CitedDemoHandoff.save({domain:'www.example.com'},[]);
+ w.eval("var state={projects:[]};var $=id=>document.getElementById(id);var esc=s=>String(s??'');");
+ const app=readFileSync(new URL('../src/public/app.js',import.meta.url),'utf8');w.eval(app.slice(app.indexOf('function showDemoHandoff(){')));
+ w.showDemoHandoff();assert.equal(w.document.getElementById('demoUseSetup').textContent,'Use this site for setup');
+ w.state.projects=[{id:77,domain:'example.com'}];w.showDemoHandoff();
+ assert.equal(w.document.querySelectorAll('#demoHandoff').length,1);
+ assert.equal(w.document.getElementById('demoUseSetup').textContent,'Open project questions');
+ let opened=null,rendered=false;w.loadProjectList=async id=>{opened=id};w.render=async()=>{rendered=true};w.document.getElementById('view').scrollIntoView=()=>{};
+ await w.document.getElementById('demoUseSetup').onclick();assert.equal(opened,77);assert.equal(w.state.view,'questions');assert.equal(rendered,true);assert.ok(w.CitedDemoHandoff.read());
+ w.state.projects=[];w.showDemoHandoff();assert.equal(w.document.getElementById('demoUseSetup').textContent,'Use this site for setup');
+ w.CitedDemoHandoff.clear();w.showDemoHandoff();assert.equal(w.document.getElementById('demoHandoff'),null);
+});
