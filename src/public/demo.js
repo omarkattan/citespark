@@ -142,6 +142,12 @@ function comparisonHtml() {
   return `<section class="demo-comparison"><h3>${varied?'Your presence varies by question':'Your tested questions'}</h3><p>Latest result per question in this visit. These are separate samples, not a trend or an overall visibility score.</p>${rows.map(r=>`<div class="demo-read-line"><span class="k">${esc(r.question)}</span><span class="v">${r.mentions} / ${r.runs} answers · ${esc(r.engine||'Engine not recorded')}${r.cached?' · cached':''}</span></div>`).join('')}</section>`;
 }
 
+function answerEvidenceHtml(d) {
+  const answers=Array.isArray(d.answerEvidence)?d.answerEvidence:[];
+  if(!answers.length)return `<p class="demo-label">One saved answer excerpt</p><div class="demo-excerpt">${highlight(d.excerpt||'',d.brandName)}</div><p class="demo-hint">This older result retained only an excerpt. The full set of answers cannot be reviewed here.</p>`;
+  return `<section aria-label="Answers behind this result"><p class="demo-label">Review the ${answers.length} saved answers</p><p class="demo-hint">Text received by Cited, before shortening for display. A short or incomplete answer may not support a conclusion about competitors.</p>${answers.map((a,i)=>`<details><summary>Answer ${i+1} · ${a.mentioned===true?'Brand named':a.mentioned===false?'Brand not named':'Naming unavailable'}</summary><div class="demo-excerpt" style="white-space:pre-wrap;overflow-wrap:anywhere">${highlight(a.text||'',d.brandName)}</div></details>`).join('')}</section>`;
+}
+
 function showResult(d) {
   const v = verdict(d);
   const known=Number.isInteger(d.runs)&&d.runs>0&&Number.isInteger(d.mentions)&&d.mentions>=0&&d.mentions<=d.runs;
@@ -167,8 +173,7 @@ function showResult(d) {
 
     <p class="demo-hint">One question on one engine. Naming is not the same as citing your website. This sample does not measure overall market visibility.</p>
     ${comparisonHtml()}
-    <p class="demo-label">One answer excerpt</p>
-    <div class="demo-excerpt">${highlight(d.excerpt, d.brandName)}</div>
+    ${answerEvidenceHtml(d)}
 
     ${d.sources.length ? `<p class="demo-label">Sources cited in the sampled answers</p>
       <div class="chips">${d.sources.map((s) => `<span class="chip ${s.domain === d.domain ? 'own' : ''}">${esc(s.domain)}${s.domain === d.domain ? ' (you)' : ''}</span>`).join('')}</div>` : ''}

@@ -165,6 +165,7 @@ export async function runDemo({ domain, brandName, question, token, market, ipHa
       ordinal: mine.ordinal,
       snippet: mine.snippet,
       text: a.text,
+      model: a.model || null,
       citations: a.citations.slice(0, 6),
       fanOut: a.fanOut || []
     });
@@ -203,6 +204,7 @@ export async function runDemo({ domain, brandName, question, token, market, ipHa
     strip: answers.map((a) => Boolean(a.mentioned)),
     snippet: hits[0]?.snippet || longest.text.slice(0, 320),
     excerpt: longest.text.slice(0, 900),
+    answerEvidence: answers.map(a => ({ text: a.text, mentioned: a.mentioned, model: a.model, citations: a.citations, fanOut: a.fanOut })),
     others: others.slice(0, 5),
     sources: Object.entries(domains).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([d, n]) => ({ domain: d, n })),
     fanOut: [...new Set(answers.flatMap((a) => a.fanOut))].slice(0, 2)

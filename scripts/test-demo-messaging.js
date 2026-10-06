@@ -27,3 +27,20 @@ test('duplicate clicks cannot start concurrent requests and failure resets busy 
  release({ok:false,json:async()=>({error:'Engine unavailable'})});await first;
  assert.match(w.document.body.textContent,/Engine unavailable/);assert.equal(w.eval('demo.running'),false);assert.equal(w.document.getElementById('demoStep3').hidden,true);
 });
+test('all saved answers are inspectable, escaped and old excerpts are identified',()=>{
+ const w=page();const long='Example '+ 'detail '.repeat(200);
+ w.showResult(result({answerEvidence:[{text:long,mentioned:true},{text:'<img src=x onerror=alert(1)>',mentioned:false},{text:'Unknown',mentioned:null}]}));
+ assert.equal(w.document.querySelectorAll('#demoResult details').length,3);
+ assert.ok(w.document.body.textContent.includes(long));assert.equal(w.document.querySelectorAll('img').length,0);
+ assert.match(w.document.body.textContent,/Naming unavailable/);
+ w.showResult(result());assert.match(w.document.body.textContent,/older result retained only an excerpt/);
+});
+test('demo retains each received answer and metadata without extra calls or altered counts',async()=>{
+ const source=readFileSync(new URL('../src/lib/demo.js',import.meta.url),'utf8');
+ const fn=source.slice(source.indexOf('export async function runDemo'),source.indexOf('export const DEMO_CONFIG')).replace('export ','');
+ let saved,calls=0;const values=[{ok:true,text:'Example '+ 'detail '.repeat(200),citations:[],fanOut:[],model:'model-a',costUsd:0.01},{ok:false,costUsd:0.02},{ok:true,text:'Advice only.',citations:[],fanOut:[],model:'model-a',costUsd:0.01}];
+ const c=vm.createContext({verifyQuestion:()=>true,one:async()=>null,query:async(sql,p)=>{saved=p},CACHE_HOURS:24,DEMO_RUNS:3,DEMO_ENGINE:'chatgpt',askEngine:async()=>values[calls++],analyseRun:async({text})=>[{mentioned:text.includes('Example'),ordinal:null,snippet:null}]});vm.runInContext(fn,c);
+ const r=await c.runDemo({domain:'example.com',brandName:'Example',question:'Question',token:'t',ipHash:'test'});
+ assert.equal(calls,3);assert.equal(r.runs,2);assert.equal(r.mentions,1);assert.equal(r.failed,1);
+ assert.equal(r.answerEvidence[0].text,values[0].text);assert.equal(r.answerEvidence[1].model,'model-a');assert.equal(JSON.parse(saved[3]).answerEvidence.length,2);assert.equal(saved[4],0.04);
+});
