@@ -282,3 +282,19 @@ test('short quote hints are exact and leave evidence hashes unchanged',()=>{
  assert.equal(hints.length,2);assert.equal(analyst.packetHash(p),hash);
  for(const hint of hints)assert.ok(p.records.find(r=>r.id===hint.id).text.includes(hint.quote));
 });
+
+test('all stitched or reordered quotes are rejected together rather than one per recheck',()=>{
+ const p=analyst.analystPacket(report()),d=draft(p);
+ p.records.push({id:'answer-test',text:JSON.stringify({excerpt:'NEXA is described first. M3 Agency appears next. AdGrow appears last.'})});
+ d.findings[0].evidence=[{id:'answer-test',quote:'NEXA... M3 Agency... AdGrow'},{id:'answer-test',quote:'AdGrow... NEXA is described first.'}];
+ assert.throws(()=>analyst.validateAnalysis(d,p),e=>/2 unverified/.test(e.message)&&/finding 1: answer-test; finding 1: answer-test/.test(e.message));
+});
+test('analyst receives measured-engine facts and dated causes without treating no overview as failure',()=>{
+ const r=report();r.executive.engineCoverage=[{engine:'chatgpt',measured:20,failed:0},{engine:'gemini',measured:0,failed:12},{engine:'ai_overview',measured:13,unmeasured:7}];
+ r.methodNotes=[{at:'2026-10-06',note:'Gemini unavailable',detail:'12 rate-limit failures; 8 remaining checks skipped.'}];
+ const p=analyst.analystPacket(r),scope=JSON.parse(p.records.find(x=>x.id==='scope').text);
+ assert.deepEqual(scope.measuredEngines,['chatgpt','ai_overview']);
+ assert.match(p.records.find(x=>x.id==='collection-notes').text,/rate-limit failures/);
+ assert.match(analyst.ANALYST_SYSTEM,/Do not suggest changing question wording/);
+ assert.match(analyst.ANALYST_SYSTEM,/Never stitch fragments/);
+});
