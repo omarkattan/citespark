@@ -13,7 +13,7 @@ export function prepareBenchmarkDraft(benchmark,currentPacket,model){
   if(!notes||JSON.parse(notes.text).notes?.length!==0)throw Error('New collection notes require a fresh analysis. Nothing imported.');
   verifiedPacket.records=verifiedPacket.records.filter(r=>r.id!=='collection-notes');
   const scope=verifiedPacket.records.find(r=>r.id==='scope');
-  const data=JSON.parse(scope.text);delete data.engineCoverage;delete data.measuredEngines;scope.text=JSON.stringify(data);
+  const data=JSON.parse(scope.text);delete data.measuredEngines;scope.text=JSON.stringify(data);
   if(packetHash(verifiedPacket)!==benchmark.evidence_hash)throw Error('Evidence differs beyond the supported format update. Nothing imported.');
   provenance={type:'verified-format-update-v2-to-v5',benchmarkId:benchmark.id,originalEvidenceHash:benchmark.evidence_hash,originalVersion:'2',currentVersion:'5'};
  }

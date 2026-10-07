@@ -50,7 +50,7 @@ test('previous validation failure is rechecked without changing saved status or 
 });
 
 function compatible(){
- const old={version:'2',sourceFingerprint:'unchanged',records:[{id:'scope',text:JSON.stringify({cycle:'2026-10-01',totals:{measured:165}})}]};
+ const old={version:'2',sourceFingerprint:'unchanged',records:[{id:'scope',text:JSON.stringify({cycle:'2026-10-01',totals:{measured:165},engineCoverage:[]})}]};
  const b=benchmark();b.id=4;b.packet=old;b.evidence_hash=packetHash(old);
  const value=structuredClone(analysis);value.findings[0].evidence=[{id:'scope',quote:'"measured":165'}];b.results[0].response.raw=JSON.stringify(value);
  const current=structuredClone(old);current.version='5';current.records[0].text=JSON.stringify({cycle:'2026-10-01',totals:{measured:165},engineCoverage:[],measuredEngines:[]});current.records.push({id:'collection-notes',text:'{"notes":[]}'});
@@ -71,4 +71,11 @@ test('format reuse rejects changed data, new notes, tampering and unknown versio
   ({b})=>b.packet.records[0].text='tampered',
   ({b})=>b.evidence_hash='wrong'
  ]){const x=compatible();edit(x);assert.throws(()=>prepareBenchmarkDraft(x.b,x.current,'claude-sonnet-5-5'));}
+});
+
+test('v2 engine coverage is retained and cannot be changed during format reuse',()=>{
+ const {b,current}=compatible();
+ assert.ok(JSON.parse(b.packet.records[0].text).engineCoverage);
+ const scope=JSON.parse(current.records[0].text);scope.engineCoverage=[{engine:'chatgpt',measured:1}];current.records[0].text=JSON.stringify(scope);
+ assert.throws(()=>prepareBenchmarkDraft(b,current,'claude-sonnet-5-5'),/differs/);
 });
