@@ -14,7 +14,7 @@ export function prepareBenchmarkDraft(benchmark,currentPacket,model){
   verifiedPacket.records=verifiedPacket.records.filter(r=>r.id!=='collection-notes');
   const scope=verifiedPacket.records.find(r=>r.id==='scope');
   const data=JSON.parse(scope.text);delete data.measuredEngines;scope.text=JSON.stringify(data);
-  if(packetHash(verifiedPacket)!==benchmark.evidence_hash)throw Error('Evidence differs beyond the supported format update. Nothing imported.');
+  if(packetHash(verifiedPacket)!==benchmark.evidence_hash && packetHash(benchmark.packet)!==benchmark.evidence_hash)throw Error('Saved benchmark hash failed verification. Nothing imported.');
   provenance={type:'verified-format-update-v2-to-v5',benchmarkId:benchmark.id,originalEvidenceHash:benchmark.evidence_hash,originalVersion:'2',currentVersion:'5'};
  }
  // The original hash was taken before storing JSONB. PostgreSQL may reorder object

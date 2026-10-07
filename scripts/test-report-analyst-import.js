@@ -77,5 +77,23 @@ test('v2 engine coverage is retained and cannot be changed during format reuse',
  const {b,current}=compatible();
  assert.ok(JSON.parse(b.packet.records[0].text).engineCoverage);
  const scope=JSON.parse(current.records[0].text);scope.engineCoverage=[{engine:'chatgpt',measured:1}];current.records[0].text=JSON.stringify(scope);
- assert.throws(()=>prepareBenchmarkDraft(b,current,'claude-sonnet-5-5'),/differs/);
+ assert.throws(()=>prepareBenchmarkDraft(b,current,'claude-sonnet-5-5'),/integrity|verification/);
+});
+
+test('v2 benchmark hashed after JSONB reload survives format upgrade with exact value integrity',async()=>{
+ const {PGlite}=await import(process.env.PGLITE_MODULE);const db=new PGlite();
+ try {
+  const {b,current}=compatible();
+  await db.exec('CREATE TABLE packets(packet JSONB)');
+  await db.query('INSERT INTO packets VALUES($1)',[JSON.stringify(b.packet)]);
+  b.packet=(await db.query('SELECT packet FROM packets')).rows[0].packet;
+  b.evidence_hash=packetHash(b.packet);
+  const legacy=structuredClone(current);legacy.version='2';legacy.records=legacy.records.filter(r=>r.id!=='collection-notes');
+  const scope=JSON.parse(legacy.records[0].text);delete scope.measuredEngines;legacy.records[0].text=JSON.stringify(scope);
+  assert.notEqual(packetHash(legacy),b.evidence_hash);assert.deepEqual(legacy,b.packet);
+  const result=prepareBenchmarkDraft(b,current,'claude-sonnet-5-5');
+  assert.equal(result.evidenceHash,packetHash(current));assert.equal(result.provenance.originalEvidenceHash,b.evidence_hash);
+  b.packet.records[0].text='tampered';b.evidence_hash=packetHash(b.packet);
+  assert.throws(()=>prepareBenchmarkDraft(b,current,'claude-sonnet-5-5'),/integrity/);
+ }finally{await db.close();}
 });
