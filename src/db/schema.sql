@@ -784,3 +784,6 @@ CREATE TABLE IF NOT EXISTS demo_journeys (
  org_id INTEGER REFERENCES orgs(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS demo_journeys_started ON demo_journeys(started_at);
+
+-- Batch132: link reused benchmark responses to their original immutable evidence.
+ALTER TABLE report_analyst_drafts ADD COLUMN IF NOT EXISTS import_provenance JSONB;

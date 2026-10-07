@@ -3,18 +3,31 @@ import {isDeepStrictEqual} from 'node:util';
 // Import is a private draft operation. It never approves, generates or changes a model.
 export function prepareBenchmarkDraft(benchmark,currentPacket,model){
  if(!benchmark||!['complete','failed'].includes(benchmark.status))throw Error('Benchmark has not completed.');
- if(packetHash(currentPacket)!==benchmark.evidence_hash)throw Error('Report evidence has changed. This benchmark cannot become a current draft.');
+ let verifiedPacket=currentPacket,provenance=null;
+ if(packetHash(currentPacket)!==benchmark.evidence_hash){
+  // Only the known v2 -> v5 additive format change is eligible. Reconstruct
+  // the old packet from current data and require its ORIGINAL hash as well.
+  if(benchmark.packet?.version!=='2'||currentPacket.version!=='5'||!currentPacket.sourceFingerprint||benchmark.packet.sourceFingerprint!==currentPacket.sourceFingerprint)throw Error('Report evidence has changed. This benchmark cannot become a current draft.');
+  verifiedPacket=JSON.parse(JSON.stringify(currentPacket));verifiedPacket.version='2';
+  const notes=verifiedPacket.records.find(r=>r.id==='collection-notes');
+  if(!notes||JSON.parse(notes.text).notes?.length!==0)throw Error('New collection notes require a fresh analysis. Nothing imported.');
+  verifiedPacket.records=verifiedPacket.records.filter(r=>r.id!=='collection-notes');
+  const scope=verifiedPacket.records.find(r=>r.id==='scope');
+  const data=JSON.parse(scope.text);delete data.engineCoverage;delete data.measuredEngines;scope.text=JSON.stringify(data);
+  if(packetHash(verifiedPacket)!==benchmark.evidence_hash)throw Error('Evidence differs beyond the supported format update. Nothing imported.');
+  provenance={type:'verified-format-update-v2-to-v5',benchmarkId:benchmark.id,originalEvidenceHash:benchmark.evidence_hash,originalVersion:'2',currentVersion:'5'};
+ }
  // The original hash was taken before storing JSONB. PostgreSQL may reorder object
  // keys on retrieval. Check that hash against the freshly rebuilt packet, then
  // compare the stored JSON values without relying on object key insertion order.
  // JSON serialization matches persistence (undefined properties are omitted).
  // Arrays, source text, values and types must still match exactly.
- if(!benchmark.packet||!isDeepStrictEqual(benchmark.packet,JSON.parse(JSON.stringify(currentPacket))))throw Error('Saved benchmark evidence failed its integrity check.');
+ if(!benchmark.packet||!isDeepStrictEqual(benchmark.packet,JSON.parse(JSON.stringify(verifiedPacket))))throw Error('Saved benchmark evidence failed its integrity check.');
  const arm=benchmark.results?.find(r=>r.requestedModel===model);
  if(!['complete','failed'].includes(arm?.status)||arm.response?.stop_reason!=='end_turn'||!arm.response.provider_id)throw Error('A completed, traceable response was not found for this model.');
  const response=arm.response;
  let raw;try{raw=JSON.parse(response.raw.replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,''));}catch{throw Error('Saved response is not valid JSON.');}
  const analysis=validateAnalysis(raw,benchmark.packet);
  validateAnalysis(analysis,currentPacket);
- return {analysis,packet:benchmark.packet,evidenceHash:benchmark.evidence_hash,requestedModel:model,response,cost:arm.cost||null};
+ return {analysis,packet:currentPacket,evidenceHash:packetHash(currentPacket),provenance,requestedModel:model,response,cost:arm.cost||null};
 }

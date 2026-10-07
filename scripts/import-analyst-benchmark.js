@@ -15,7 +15,7 @@ try{
  const report=await buildReport(Number(projectId),period,{presentationOnly:true});
  if(report.executive.localeWarnings?.length)throw Error('Correct the measurement settings before importing analysis.');
  const prepared=prepareBenchmarkDraft(benchmark,await reportPacket(report),'claude-sonnet-5-5');
- if(!flags.includes('--apply'))console.log(JSON.stringify({projectId,benchmarkId,model:prepared.requestedModel,findings:prepared.analysis.findings.map(f=>f.title),message:'Add --apply to save this existing response as a private, unapproved draft. No AI request or model switch.'},null,2));
+ if(!flags.includes('--apply'))console.log(JSON.stringify({projectId,benchmarkId,model:prepared.requestedModel,formatUpdate:prepared.provenance,findings:prepared.analysis.findings.map(f=>f.title),message:'Add --apply to save this existing response as a private, unapproved draft. No AI request or model switch.'},null,2));
  else{
   const db=await pool.connect();let row,reused=false;
   try{
@@ -25,9 +25,9 @@ try{
    else{
     const r=prepared.response;
     const inserted=await db.query(`INSERT INTO report_analyst_drafts
-     (project_id,evidence_hash,packet,status,requested_model,created_by,returned_model,usage,provider_id,stop_reason,raw_response,cost_estimate,analysis,created_at)
-     VALUES($1,$2,$3,'draft',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
-     [projectId,prepared.evidenceHash,prepared.packet,prepared.requestedModel,user.id,r.model,r.usage,r.provider_id,r.stop_reason,r.raw,prepared.cost,prepared.analysis,benchmark.created_at]);
+     (project_id,evidence_hash,packet,status,requested_model,created_by,returned_model,usage,provider_id,stop_reason,raw_response,cost_estimate,analysis,created_at,import_provenance)
+     VALUES($1,$2,$3,'draft',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+     [projectId,prepared.evidenceHash,prepared.packet,prepared.requestedModel,user.id,r.model,r.usage,r.provider_id,r.stop_reason,r.raw,prepared.cost,prepared.analysis,benchmark.created_at,prepared.provenance]);
     row=inserted.rows[0];
    }
    await db.query('COMMIT');

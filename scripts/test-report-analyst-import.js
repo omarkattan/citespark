@@ -48,3 +48,27 @@ test('previous validation failure is rechecked without changing saved status or 
  const bad=structuredClone(analysis);bad.findings[0].evidence[0].quote='fabricated quotation';b.results[0].response.raw=JSON.stringify(bad);
  assert.throws(()=>prepareBenchmarkDraft(b,packet,'claude-sonnet-5-5'),/unverified/);
 });
+
+function compatible(){
+ const old={version:'2',sourceFingerprint:'unchanged',records:[{id:'scope',text:JSON.stringify({cycle:'2026-10-01',totals:{measured:165}})}]};
+ const b=benchmark();b.id=4;b.packet=old;b.evidence_hash=packetHash(old);
+ const value=structuredClone(analysis);value.findings[0].evidence=[{id:'scope',quote:'"measured":165'}];b.results[0].response.raw=JSON.stringify(value);
+ const current=structuredClone(old);current.version='5';current.records[0].text=JSON.stringify({cycle:'2026-10-01',totals:{measured:165},engineCoverage:[],measuredEngines:[]});current.records.push({id:'collection-notes',text:'{"notes":[]}'});
+ return {b,current};
+}
+test('known additive format change preserves original evidence and revalidates current references',()=>{
+ const {b,current}=compatible(),before=JSON.stringify(b);
+ const r=prepareBenchmarkDraft(b,current,'claude-sonnet-5-5');
+ assert.equal(r.evidenceHash,packetHash(current));assert.equal(r.provenance.originalEvidenceHash,b.evidence_hash);assert.equal(JSON.stringify(b),before);
+ assert.deepEqual(r.packet,current);assert.equal(r.approved_at,undefined);
+});
+test('format reuse rejects changed data, new notes, tampering and unknown versions',()=>{
+ for(const edit of [
+  ({current})=>current.sourceFingerprint='changed',
+  ({current})=>current.version='6',
+  ({current})=>current.records[1].text='{"notes":[{"note":"new issue"}]}',
+  ({current})=>current.records[0].text=current.records[0].text.replace('165','164'),
+  ({b})=>b.packet.records[0].text='tampered',
+  ({b})=>b.evidence_hash='wrong'
+ ]){const x=compatible();edit(x);assert.throws(()=>prepareBenchmarkDraft(x.b,x.current,'claude-sonnet-5-5'));}
+});
