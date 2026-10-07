@@ -361,3 +361,16 @@ test('failed raw responses are escaped and inspectable without inclusion control
  assert.match(html,/&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
  assert.doesNotMatch(html,/<script>alert|data-operation="approve"|data-open-editor/);
 });
+test('multiple passages per source retain all evidence while source and total limits stay bounded',()=>{
+ const p=analyst.analystPacket(report()),d=draft(p);
+ p.records.push(...['review-a','review-b','review-c'].map(id=>({id,text:('Saved '+id+' evidence. ').repeat(30)})));
+ d.findings[0].evidence=[{id:'review-a',passage:1},{id:'review-a',passage:2},{id:'review-b',passage:1},{id:'review-b',passage:2},{id:'review-c',passage:1}];
+ assert.equal(analyst.validateAnalysis(d,p).findings[0].evidence.length,5);
+ d.findings[0].evidence=Array.from({length:13},()=>({id:'scope',passage:1}));
+ assert.throws(()=>analyst.validateAnalysis(d,p),/1-12 supporting passages/);
+ const sources=Array.from({length:5},(_,i)=>({id:`source-${i}`,text:'A stored source passage with verified text.'}));
+ p.records.push(...sources);d.findings[0].evidence=sources.map(r=>({id:r.id,passage:1}));
+ assert.throws(()=>analyst.validateAnalysis(d,p),/four distinct/);
+ d.findings[0].evidence=[{id:'scope',passage:1},{id:'scope',passage:999}];
+ assert.throws(()=>analyst.validateAnalysis(d,p),/invalid evidence passage/);
+});
