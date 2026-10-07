@@ -344,3 +344,20 @@ test('review flags changed-cohort comparisons and historical-window outcome clai
  d.follow_up='Repeat the same date range after visibility improvements.';
  assert.ok(analyst.analysisReviewWarnings(d).some(w=>w.includes('comparison dates')));
 });
+test('projects without an eligible reviewed decision can generate investigations only',()=>{
+ const p=analyst.analystPacket(report());
+ const kinds=p=>analyst.analystOutputSchema(p).properties.findings.items.properties.kind.enum;
+ assert.deepEqual(kinds(p),['investigate']);
+ for(const text of ['{}','{"supportedChange":false}','{"supportedChange":"true"}','bad JSON']){
+  assert.deepEqual(kinds({...p,records:[...p.records,{id:'decision-1',text}]}),['investigate']);
+ }
+ assert.deepEqual(kinds({...p,records:[...p.records,{id:'decision-1',text:'{"supportedChange":true}'}]}),['investigate','proposed_change']);
+ assert.deepEqual(analyst.ANALYST_OUTPUT_SCHEMA.properties.findings.items.properties.kind.enum,['investigate','proposed_change']);
+});
+test('failed raw responses are escaped and inspectable without inclusion controls',()=>{
+ const p=analyst.analystPacket(report());p.hash=analyst.packetHash(p);
+ const html=analystPageHtml(report().project,new URLSearchParams(),p,[{id:10,status:'failed',evidence_hash:p.hash,raw_response:'<script>alert(1)</script>',error:'Rejected',stop_reason:'end_turn'}],'test');
+ assert.match(html,/Inspect failed response \(no AI charge\)/);
+ assert.match(html,/&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+ assert.doesNotMatch(html,/<script>alert|data-operation="approve"|data-open-editor/);
+});
