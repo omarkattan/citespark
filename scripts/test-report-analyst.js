@@ -271,7 +271,7 @@ test('summary recovery restores only omitted metadata and then requires an exact
  const d=draft(p);d.findings[0].evidence=[{id:record.id,quote}];
  const checked=analyst.validateAnalysis(d,p),ref=checked.findings[0].evidence[0];
  assert.equal(ref.sourceMatch,'source-excerpt-restored');assert.ok(source.includes(ref.quote));assert.equal(d.findings[0].evidence[0].quote,quote);
- assert.match(analystFindingsHtml({analysis:checked,packet:p}),/omitted source field was restored/);
+ assert.match(analystFindingsHtml({analysis:checked,packet:p},{review:true}),/omitted source field was restored/);
  for(const bad of [quote.replace('89','88'),quote.replace('"answers":0','"answers":1'),quote.replace(',"rate":0','')]){
   d.findings[0].evidence[0].quote=bad;assert.throws(()=>analyst.validateAnalysis(d,p),/unverified/);
  }
