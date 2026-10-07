@@ -322,3 +322,25 @@ test('oversized saved evidence is refused before a provider charge',async()=>{
  let called=false;const p={records:[{id:'scope',text:'x'.repeat(110001)}]};
  await assert.rejects(analyst.requestAnalysis(p,{key:'test',fetcher:async()=>{called=true;}}),/No AI request/);assert.equal(called,false);
 });
+test('provider request enforces JSON schema without changing model, spend limits or retrying',async()=>{
+ const p=analyst.analystPacket(report());let calls=0,body;
+ await analyst.requestAnalysis(p,{key:'test',model:'claude-sonnet-4-5',fetcher:async(url,opts)=>{
+  calls++;body=JSON.parse(opts.body);return {ok:true,json:async()=>({stop_reason:'end_turn',content:[{type:'text',text:'{}'}]})};
+ }});
+ assert.equal(calls,1);assert.equal(body.model,'claude-sonnet-4-5');assert.equal(body.max_tokens,6000);
+ assert.equal(body.output_config.format.type,'json_schema');
+ const schema=body.output_config.format.schema;
+ assert.deepEqual(schema.required,['findings','limitations']);
+ const evidence=schema.properties.findings.items.properties.evidence.items;
+ assert.deepEqual(evidence.required,['id','passage']);assert.equal(evidence.properties.passage.type,'integer');assert.equal(evidence.additionalProperties,false);
+ assert.doesNotMatch(JSON.stringify(schema),/"(?:maxItems|maxLength|minLength|minimum|maximum)":/);
+ assert.match(analyst.ANALYST_SYSTEM,/revised or expanded question set is NOT like-for-like/);
+ assert.match(analyst.ANALYST_SYSTEM,/Re-querying the identical historical dates checks data refresh only/);
+});
+test('review flags changed-cohort comparisons and historical-window outcome claims',()=>{
+ const d=draft(analyst.analystPacket(report())).findings[0];
+ d.follow_up='Repeat with revised questions, keeping models consistent for like-for-like comparison.';
+ assert.ok(analyst.analysisReviewWarnings(d).some(w=>w.includes('cohort comparability')));
+ d.follow_up='Repeat the same date range after visibility improvements.';
+ assert.ok(analyst.analysisReviewWarnings(d).some(w=>w.includes('comparison dates')));
+});
