@@ -1,0 +1,19 @@
+{
+  "basis": "Short regression excerpts derived from observed failures in drafts 8-10, plus safe controls. These are test fixtures, not client findings or model evaluation results.",
+  "cases": [
+    {"id":"ga4-id-equality","text":"Verify that the property ID matches the live website's GA4 measurement ID.","expected":["ga4-identifiers"]},
+    {"id":"revised-question-trend","text":"Repeat with revised questions, keeping engines consistent to allow like-for-like comparison.","expected":["changed-cohort"]},
+    {"id":"same-dates-after-change","text":"Repeat the same date range after visibility improvements.","expected":["historical-window"]},
+    {"id":"invented-engine-intersection","text":"The platform will calculate trend comparability based on the intersection of measured engines.","expected":["invented-comparability"]},
+    {"id":"favoured-features","text":"Identify content and authority patterns that engines favoured.","expected":["attributed-selection"]},
+    {"id":"zero-proves-weakness","text":"Zero naming proves insufficient authority.","expected":["zero-proves-defect"]},
+    {"id":"nonzero-setup","text":"Successful connection must return non-zero sessions.","expected":["nonzero-required"]},
+    {"id":"custom-tracking","text":"Configure manual AI UTM tagging because GA4 is disconnected.","expected":["tracking-prescription"]},
+    {"id":"internal-fields","text":"Record coveredFrom and coveredTo after supportedChange is set.","expected":["internal-fields"]},
+    {"id":"extra-failures","text":"Several other engines recorded between 1 and 2 failures.","expected":["extra-engine-failures"]},
+    {"id":"safe-ga4-association","text":"Select the property associated with the website and verify a successful sync. Zero referrals are a valid result.","expected":[]},
+    {"id":"safe-cohorts","text":"Keep the original questions unchanged for comparison. Test new questions as a separate baseline.","expected":[]},
+    {"id":"safe-periods","text":"Compare a later non-overlapping 30-day period using the same tracking definitions.","expected":[]},
+    {"id":"safe-absence","text":"No naming was recorded in this measured sample. The cause remains unverified.","expected":[]}
+  ]
+}
