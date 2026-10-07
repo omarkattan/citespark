@@ -24,3 +24,9 @@ test('answer quotations and legacy unknown records are preserved, unsafe links a
  const records=new Map([['answer-1',{id:'answer-1',label:'Answer',text:'{}',link:'javascript:alert(1)'}]]);
  const html=analystEvidenceHtml([{id:'answer-1',quote:'Saved answer <img src=x>'}],records);assert.match(html,/Saved answer &lt;img/);assert.doesNotMatch(html,/href=|<img/);
 });
+
+test('evidence dates are readable and timezone-stable',()=>{
+ const html=render('question-summary',{cycle:'2026-10-01T00:00:00.000Z',all:{}});
+ assert.match(html,/1 Oct 2026/);assert.doesNotMatch(html,/T00:00/);
+ const traffic=render('traffic',{state:'ready',from:'2026-07-05',to:'2026-10-02'});assert.match(traffic,/5 Jul 2026 to 2 Oct 2026/);
+});

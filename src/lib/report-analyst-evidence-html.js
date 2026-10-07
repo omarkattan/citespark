@@ -1,6 +1,10 @@
 import {collectionDisplayText} from './collection-display.js';
 const esc=v=>collectionDisplayText(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const number=v=>typeof v==='number'&&Number.isFinite(v)?v.toLocaleString('en-US'):'Not measured';
+const date=v=>{
+ if(typeof v!=='string'||!/^\d{4}-\d{2}-\d{2}(?:T|$)/.test(v))return v||'Unknown';
+ const d=new Date(v);return Number.isNaN(d.getTime())?v:d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
+};
 const count=(n,d)=>typeof n==='number'&&typeof d==='number'?`${number(n)} of ${number(d)} measured answers`:'Not measured';
 const line=(label,value)=>`<p><b>${esc(label)}:</b> ${esc(value)}</p>`;
 // Presentation only. Never rewrite the packet, selected quotations or approved prose.
@@ -12,7 +16,7 @@ function savedFacts(record){
  if(record.id==='traffic'){
   if(d.state!=='ready')return line('Analytics',d.state==='disconnected'?'Not connected':'Data unavailable')+(d.why?line('Detail',d.why):'');
   const q=d.quality||{},ready=q.state==='ready'&&typeof q.sessions==='number'&&Number.isFinite(q.sessions);
-  let html=line('Observed period',`${d.coveredFrom||d.from||'Unknown'} to ${d.coveredTo||d.to||'Unknown'}`)+line(ready?'AI referral sessions (period aggregate)':'AI referral sessions (detailed-row total)',number(ready?q.sessions:d.total));
+  let html=line('Observed period',`${date(d.coveredFrom||d.from)} to ${date(d.coveredTo||d.to)}`)+line(ready?'AI referral sessions (period aggregate)':'AI referral sessions (detailed-row total)',number(ready?q.sessions:d.total));
   if(ready&&d.total!=null&&d.total!==q.sessions)html+=line('Detailed-row total',`${number(d.total)} sessions. Different query totals are disclosed separately. The cause is not established.`);
   html+=line('Key events',`${number(d.conversions)}. Events are not verified leads.`);
   if(ready&&typeof q.sessionKeyEventRate==='number'&&Number.isFinite(q.sessionKeyEventRate))html+=line('Sessions with a key event',`${(100*q.sessionKeyEventRate).toFixed(1)}% of ${number(q.sessions)} sessions`);
@@ -21,12 +25,12 @@ function savedFacts(record){
  }
  if(record.id==='question-summary'){
   const a=d.all||{};
-  return line('Measurement date',d.cycle||'Unknown')+line('Questions summarised',`${number(d.questionsSummarized)} of ${number(d.questionsTotal)}`)+line('Brand naming',count(a.named?.answers,a.named?.measuredAnswerDenominator))+line('Website citation',count(a.cited?.answers,a.cited?.measuredAnswerDenominator))+'<p class="small note">Measured sample only. Naming and citation overlap. Collection sources are not intent classifications.</p>';
+  return line('Measurement date',date(d.cycle))+line('Questions summarised',`${number(d.questionsSummarized)} of ${number(d.questionsTotal)}`)+line('Brand naming',count(a.named?.answers,a.named?.measuredAnswerDenominator))+line('Website citation',count(a.cited?.answers,a.cited?.measuredAnswerDenominator))+'<p class="small note">Measured sample only. Naming and citation overlap. Collection sources are not intent classifications.</p>';
  }
  if(record.id==='competitors')return '<p class="small note">Tracked entities in this saved sample, not a market ranking.</p>'+((d.rows||[]).map(c=>line(c.name||c.domain||'Tracked entity',`Naming: ${count(c.named,c.measured)}. Citation: ${count(c.cited,c.measured)}.`)).join('')||'<p>No tracked competitor results supplied.</p>');
  if(record.id==='trend')return line('Trend',d.comparable===true?'Comparable results available':d.comparable===false?'No comparable trend available':'Comparability unknown')+line('Recorded cycles',number(d.cycles));
- if(record.id==='scope')return line('Measurement date',d.cycle||'Unknown')+((d.engineCoverage||[]).map(e=>line(e.engine,`${number(e.measured)} measured · ${number(e.failed)} failed · ${number(e.unmeasured)} unmeasured`)).join(''));
- if(record.id==='collection-notes')return (d.notes||[]).map(n=>line(n.at||'Date unknown',`${n.note||''} ${n.detail||''}`)).join('')||'<p>No collection notes supplied.</p>';
+ if(record.id==='scope')return line('Measurement date',date(d.cycle))+((d.engineCoverage||[]).map(e=>line(e.engine,`${number(e.measured)} measured · ${number(e.failed)} failed · ${number(e.unmeasured)} unmeasured`)).join(''));
+ if(record.id==='collection-notes')return (d.notes||[]).map(n=>line(date(n.at),`${n.note||''} ${n.detail||''}`)).join('')||'<p>No collection notes supplied.</p>';
  return null;
 }
 export function analystEvidenceHtml(evidence,records,{review=false}={}){

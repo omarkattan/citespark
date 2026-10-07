@@ -12,8 +12,8 @@ test('changed report evidence and tampered saved packets are rejected',()=>{
  assert.throws(()=>prepareBenchmarkDraft(benchmark(),{...packet,version:2},'claude-sonnet-5-5'),/changed/);
  const b=benchmark();b.packet.records[0].text='different';assert.throws(()=>prepareBenchmarkDraft(b,packet,'claude-sonnet-5-5'),/integrity/);
 });
-test('failed, truncated and missing responses cannot be imported',()=>{
- for(const edit of [b=>b.status='running',b=>b.results[0].status='failed',b=>b.results[0].response.stop_reason='max_tokens',b=>b.results[0].response.provider_id=null]){const b=benchmark();edit(b);assert.throws(()=>prepareBenchmarkDraft(b,packet,'claude-sonnet-5-5'));}
+test('unfinished, truncated and missing responses cannot be imported',()=>{
+ for(const edit of [b=>b.status='running',b=>b.results[0].status='running',b=>b.results[0].response.stop_reason='max_tokens',b=>b.results[0].response.provider_id=null]){const b=benchmark();edit(b);assert.throws(()=>prepareBenchmarkDraft(b,packet,'claude-sonnet-5-5'));}
  assert.throws(()=>prepareBenchmarkDraft(benchmark(),packet,'other'));
 });
 test('import revalidates raw quotes rather than trusting prior parsed analysis',()=>{
@@ -38,4 +38,13 @@ test('array order, types and embedded evidence text remain integrity-sensitive',
   const b=benchmark();b.packet=structuredClone(current);b.evidence_hash=packetHash(current);edit(b);
   assert.throws(()=>prepareBenchmarkDraft(b,current,'claude-sonnet-5-5'),/integrity/);
  }
+});
+
+test('previous validation failure is rechecked without changing saved status or skipping freshness',()=>{
+ const b=benchmark();b.status='failed';b.results[0].status='failed';
+ assert.deepEqual(prepareBenchmarkDraft(b,packet,'claude-sonnet-5-5').analysis,analysis);
+ assert.equal(b.status,'failed');assert.equal(b.results[0].status,'failed');
+ assert.throws(()=>prepareBenchmarkDraft(b,{...packet,version:9},'claude-sonnet-5-5'),/changed/);
+ const bad=structuredClone(analysis);bad.findings[0].evidence[0].quote='fabricated quotation';b.results[0].response.raw=JSON.stringify(bad);
+ assert.throws(()=>prepareBenchmarkDraft(b,packet,'claude-sonnet-5-5'),/unverified/);
 });
