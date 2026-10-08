@@ -1,6 +1,7 @@
+import {analystContext} from './report-analyst-context.js';
 import {createHash} from 'node:crypto';
 import {validateAnalysis} from './report-analyst.js';
-export const QUALITY_BENCHMARK_VERSION='2026-10-07-v1';
+export const QUALITY_BENCHMARK_VERSION='2026-10-08-v2';
 // Review signals, not semantic proof. Passing these checks never approves copy.
 export const QUALITY_RUBRIC=[
  {id:'facts',pass:'Every count, date, entity and engine outcome agrees with the cited saved record.',fail:'Any invented count, credential, cause, date or platform behaviour.'},
@@ -32,9 +33,17 @@ export function qualityReference(packet){
 }
 export function qualitySignals(analysis,packet){
  const flags=[];
+ const context=analystContext(packet);
+ const prose=[...(analysis?.findings||[]).map(f=>Object.values(f).filter(v=>typeof v==='string').join(' ')),...(analysis?.limitations||[])].join(' ');
+ if(/unmeasured[\s\S]{0,80}(?:plus|additional|another)[\s\S]{0,30}no.overview/i.test(prose))flags.push({finding:null,rule:'no-overview-double-count',message:'No-overview outcomes are included in unmeasured checks, not an additional category.'});
+ const names={ai_mode:/Google AI Mode|ai_mode/i,ai_overview:/Google AI Overview|ai_overview/i,chatgpt:/ChatGPT/i,gemini:/Gemini/i,claude:/Claude/i,perplexity:/Perplexity/i};
+ for(const e of context.coverage.enginesWithFailedRequests)if(analysis?.limitations?.length&&names[e.engine]&&!names[e.engine].test(prose))flags.push({finding:null,rule:'omitted-failing-engine',message:`Coverage review: ${e.engine} has ${e.failed} failed requests but is not named in the analysis.`});
  for(const [index,f] of (analysis?.findings||[]).entries()){
   const text=['title','observation','implication','action','done_when','follow_up'].map(k=>f[k]||'').join(' ');
   for(const [rule,re,message] of rules)if(re.test(text))flags.push({finding:index+1,rule,message});
+  if(/(?:clicks?|events?).{0,60}(?:recorded|occurred|fired).{0,20}on (?:the |a )?[^.]{0,60}page/i.test(text)&&record(packet,'traffic')?.state==='ready')flags.push({finding:index+1,rule:'landing-page-event-location',message:'Landing-page rows do not identify where an event fired. Describe events associated with sessions beginning on that page.'});
+  const denominator=context.analytics.rateDenominatorSessions;
+  if(/\d+(?:\.\d+)?%/.test(text)&&/sessions.{0,45}(?:triggering|key event)|session.key.event/i.test(text)&&denominator!==null&&!new RegExp(String.raw`\b${String(denominator)}\b`).test(text.replace(/,/g,'')))flags.push({finding:index+1,rule:'missing-session-denominator',message:'State the known session denominator beside the session key-event rate.'});
   const coverage=record(packet,'scope')?.engineCoverage;
   if(coverage?.length&&coverage.filter(r=>Number(r.failed)>0).length<=2&&/several other engines.{0,80}(?:failures|failed)/i.test(text))flags.push({finding:index+1,rule:'extra-engine-failures',message:'Check engine-by-engine counts. The supplied coverage does not support several additional failing engines.'});
  }
