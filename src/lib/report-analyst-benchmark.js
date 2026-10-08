@@ -1,8 +1,8 @@
 import {reviewSavedAnalysis,QUALITY_BENCHMARK_VERSION} from './report-analyst-quality.js';
 import {createHash} from 'node:crypto';
-import {ANALYST_MAX_OUTPUT_TOKENS,ANALYST_SYSTEM,requestAnalysis,validateAnalysis,analystCost,analysisReviewWarnings,analystOutputSchema} from './report-analyst.js';
+import {ANALYST_MAX_OUTPUT_TOKENS,ANALYST_SYSTEM,requestAnalysis,validateAnalysis,analystCost,analysisReviewWarnings,analystOutputSchema,analystModelSettings} from './report-analyst.js';
 export const BENCHMARK_MODELS=['claude-sonnet-4-5-20250929','claude-sonnet-5-5'];
-export const benchmarkSettings=model=>model==='claude-sonnet-5-5'?{output_config:{effort:'medium'}}:{};
+export const benchmarkSettings=analystModelSettings;
 export function benchmarkPlan(packet,{candidateOnly=false}={}){
  const models=candidateOnly?[BENCHMARK_MODELS[1]]:[...BENCHMARK_MODELS];
  const configuration={qualityBenchmark:QUALITY_BENCHMARK_VERSION,models,settings:models.map(benchmarkSettings),outputSchema:analystOutputSchema(packet),maxOutputTokens:ANALYST_MAX_OUTPUT_TOKENS,system:ANALYST_SYSTEM};

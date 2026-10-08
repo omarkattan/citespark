@@ -374,3 +374,18 @@ test('multiple passages per source retain all evidence while source and total li
  d.findings[0].evidence=[{id:'scope',passage:1},{id:'scope',passage:999}];
  assert.throws(()=>analyst.validateAnalysis(d,p),/invalid evidence passage/);
 });
+
+test('production candidate uses benchmark effort while keeping structured output and limits',async()=>{
+ const p=analyst.analystPacket(report());let body;
+ await analyst.requestAnalysis(p,{model:'claude-sonnet-5-5',key:'test',fetcher:async(url,opts)=>{body=JSON.parse(opts.body);return {ok:true,json:async()=>({model:'claude-sonnet-5-5',stop_reason:'end_turn',content:[]})};}});
+ assert.equal(body.output_config.effort,'medium');assert.equal(body.output_config.format.type,'json_schema');assert.equal(body.max_tokens,6000);
+ assert.deepEqual(analyst.analystModelSettings('claude-sonnet-4-5'),{});
+});
+test('candidate estimates use verified standard rates including separate cache write durations',()=>{
+ const cost=analyst.analystCost('claude-sonnet-5-5',{input_tokens:1000,output_tokens:1000,cache_read_input_tokens:1000,cache_creation_input_tokens:2000,cache_creation:{ephemeral_1h_input_tokens:1000}});
+ assert.equal(cost.usd,.0186);assert.equal(cost.verified,'2026-10-08');
+ assert.equal(analyst.analystCost('claude-sonnet-5-5',{input_tokens:50504,output_tokens:1765}).usd,.118658);
+ assert.equal(analyst.analystCost('claude-sonnet-5-5',{input_tokens:0,output_tokens:0}).usd,0);
+ assert.equal(analyst.analystCost('claude-sonnet-5-5',{output_tokens:10}),null);
+ assert.equal(analyst.analystCost('claude-sonnet-5-5-unknown',{input_tokens:10,output_tokens:10}),null);
+});

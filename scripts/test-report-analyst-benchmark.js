@@ -10,7 +10,7 @@ function mock(body,inspect=()=>{}){return async(url,options)=>{inspect(JSON.pars
 const response={model:'claude-sonnet-5-5',stop_reason:'end_turn',usage:{input_tokens:100,output_tokens:200},content:[{type:'thinking',thinking:''},{type:'text',text:JSON.stringify(value)}]};
 test('candidate uses explicit effort, identical packet and extracts only text',async()=>{
  const result=await benchmarkArm(packet,'claude-sonnet-5-5',{key:'test',fetcher:mock(response,b=>{assert.deepEqual(JSON.parse(b.messages[0].content),analysisRequestPacket(packet));assert.equal(b.output_config.effort,'medium');assert.equal(b.output_config.format.type,'json_schema');assert.equal(b.max_tokens,6000);assert.equal(b.thinking,undefined);})});
- assert.equal(result.status,'complete');assert.equal(result.cost,null);assert.equal(result.analysis.findings[0].title,finding.title);
+ assert.equal(result.status,'complete');assert.equal(result.cost.usd,0.0022);assert.equal(result.analysis.findings[0].title,finding.title);
 });
 test('baseline request has no unsupported effort configuration',async()=>{
  const r=await benchmarkArm(packet,'claude-sonnet-4-5-20250929',{key:'test',fetcher:mock({...response,model:'claude-sonnet-4-5-20250929'},b=>{assert.equal(b.output_config.effort,undefined);assert.equal(b.output_config.format.type,'json_schema');})});assert.equal(r.status,'complete');assert.ok(r.cost.usd>0);
@@ -31,7 +31,7 @@ test('review warnings catch observed interpretation failures',()=>{
 test('benchmark schema is repeatable and duplicate reservation cannot charge twice',async()=>{
  const {PGlite}=await import(process.env.PGLITE_MODULE);const db=new PGlite();
  const schema=readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8').split('-- Batch 102:')[1];
- await db.exec('CREATE TABLE orgs(id INTEGER PRIMARY KEY); CREATE TABLE projects(id INTEGER PRIMARY KEY); INSERT INTO projects VALUES(31);');
+ await db.exec('CREATE TABLE orgs(id INTEGER PRIMARY KEY); CREATE TABLE projects(id INTEGER PRIMARY KEY); CREATE TABLE report_analyst_drafts(id BIGINT PRIMARY KEY); INSERT INTO projects VALUES(31);');
  await db.exec('-- Batch 102:'+schema);await db.exec('-- Batch 102:'+schema);
  const sql="INSERT INTO report_analyst_benchmarks(project_id,source_draft_id,evidence_hash,packet,system_prompt,status) VALUES(31,4,'hash','{}','test','running') ON CONFLICT(project_id,source_draft_id,evaluation_key) DO NOTHING RETURNING id";
  assert.equal((await db.query(sql)).rows.length,1);assert.equal((await db.query(sql)).rows.length,0);
