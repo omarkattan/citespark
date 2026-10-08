@@ -18,7 +18,7 @@ test('repeated source passages group once and exact references are retained only
 });
 test('saved reviews retain dates, qualifications and escaping without modifying input',()=>{
  const data={notes:'Reviewed 1 Oct. <script>bad</script> May describe different phases.',outdated:true};const before=JSON.stringify(data);
- const html=render('decision-1',data);assert.match(html,/Reviewed 1 Oct/);assert.match(html,/Marked outdated/);assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/<script>/);assert.equal(JSON.stringify(data),before);
+ const html=render('decision-1',data,undefined,true);assert.match(html,/Reviewed 1 Oct/);assert.match(html,/Marked outdated/);assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/<script>/);assert.equal(JSON.stringify(data),before);
 });
 test('answer quotations and legacy unknown records are preserved, unsafe links are not active',()=>{
  const records=new Map([['answer-1',{id:'answer-1',label:'Answer',text:'{}',link:'javascript:alert(1)'}]]);
@@ -29,4 +29,16 @@ test('evidence dates are readable and timezone-stable',()=>{
  const html=render('question-summary',{cycle:'2026-10-01T00:00:00.000Z',all:{}});
  assert.match(html,/1 Oct 2026/);assert.doesNotMatch(html,/T00:00/);
  const traffic=render('traffic',{state:'ready',from:'2026-07-05',to:'2026-10-02'});assert.match(traffic,/5 Jul 2026 to 2 Oct 2026/);
+});
+
+test('client references omit duplicate editorial prose while review retains it',()=>{
+ const data={title:'Verify phase facts',notes:'Long saved review with all original qualifications.',outdated:true};
+ const refs=[{id:'decision-1',quote:'original qualifications'}];
+ const records=new Map([['decision-1',{id:'decision-1',text:JSON.stringify(data),label:'Selected editorial decision',link:'/api/projects/31/report#selected-action-1'}]]);
+ const before=JSON.stringify([...records]);
+ const client=analystEvidenceHtml(refs,records),review=analystEvidenceHtml(refs,records,{review:true});
+ assert.match(client,/Verify phase facts/);assert.match(client,/Marked outdated/);
+ assert.match(client,/report#selected-action-1/);assert.doesNotMatch(client,/Long saved review/);
+ assert.match(review,/Long saved review/);assert.match(review,/original qualifications/);
+ assert.equal(JSON.stringify([...records]),before);
 });

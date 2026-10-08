@@ -8,11 +8,11 @@ const date=v=>{
 const count=(n,d)=>typeof n==='number'&&typeof d==='number'?`${number(n)} of ${number(d)} measured answers`:'Not measured';
 const line=(label,value)=>`<p><b>${esc(label)}:</b> ${esc(value)}</p>`;
 // Presentation only. Never rewrite the packet, selected quotations or approved prose.
-function savedFacts(record){
+function savedFacts(record,{review=false}={}){
  let d;try{d=JSON.parse(record.text);}catch{return null;}
  if(!d||typeof d!=='object')return null;
  if(record.id.startsWith('q-'))return line('Question',d.text)+line('Brand naming',count(d.named,d.measured))+line('Website citation',count(d.cited,d.measured))+line('Failed requests',number(d.failed));
- if(record.id.startsWith('decision-'))return line('Saved review',d.title)+line('Review context',d.outdated?'Marked outdated. Historical editorial evidence.':'Saved editorial evidence, not an independently verified page inspection.')+`<p style="white-space:pre-wrap">${esc(d.notes)}</p>`+(d.notesExcerptOnly?'<p class="small note">Saved note excerpt only.</p>':'');
+ if(record.id.startsWith('decision-'))return line('Saved review',d.title)+line('Review context',d.outdated?'Marked outdated. Historical editorial evidence.':'Saved editorial evidence, not an independently verified page inspection.')+(review?`<p style="white-space:pre-wrap">${esc(d.notes)}</p>`:'<p class="small note">Full editorial notes are available in the source review.</p>')+(review&&d.notesExcerptOnly?'<p class="small note">Saved note excerpt only.</p>':'');
  if(record.id==='traffic'){
   if(d.state!=='ready')return line('Analytics',d.state==='disconnected'?'Not connected':'Data unavailable')+(d.why?line('Detail',d.why):'');
   const q=d.quality||{},ready=q.state==='ready'&&typeof q.sessions==='number'&&Number.isFinite(q.sessions);
@@ -38,10 +38,10 @@ export function analystEvidenceHtml(evidence,records,{review=false}={}){
  return [...groups].map(([id,refs])=>{
   const record=records.get(id);
   if(!record)return '<p>Saved supporting evidence unavailable.</p>';
-  const facts=savedFacts(record);
+  const facts=savedFacts(record,{review});
   const quotes=refs.map(ref=>`<blockquote dir="auto">${esc(ref.quote)}</blockquote>${ref.sourceMatch==='source-excerpt-restored'?'<p class="small note">An omitted source field was restored. The displayed quotation matches the saved evidence exactly.</p>':ref.sourceMatch==='formatting-normalised'?'<p class="small note">Quotation formatting normalised. Wording matched to the stored answer excerpt.</p>':''}`).join('');
   // Links come from the saved packet, but never allow an executable scheme.
   const href=typeof record.link==='string'&&/^\/(?!\/)/.test(record.link)?record.link:null;
-  return `<section class="analyst-evidence" style="border-left:3px solid #cad8d4;padding:4px 16px;margin:16px 0;overflow-wrap:anywhere"><p>${href?`<a href="${esc(href)}">${esc(record.label)} · View source</a>`:esc(record.label)}</p>${facts!==null?`<p class="small note">Context from the saved source. This is a readable summary, not a quotation.</p>${facts}${review?`<details class="analyst-exact-evidence"><summary>Exact selected passages</summary>${quotes}</details>`:''}`:quotes}</section>`;
+  return `<section class="analyst-evidence" style="border-left:3px solid #cad8d4;padding:4px 16px;margin:16px 0;overflow-wrap:anywhere"><p>${href?`<a href="${esc(href)}">${esc(record.label)} · View source</a>`:esc(record.label)}</p>${facts!==null?`${review?'<p class="small note">Context from the saved source. This is a readable summary, not a quotation.</p>':''}${facts}${review?`<details class="analyst-exact-evidence"><summary>Exact selected passages</summary>${quotes}</details>`:''}`:quotes}</section>`;
  }).join('');
 }
