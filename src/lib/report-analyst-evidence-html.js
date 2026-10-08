@@ -7,6 +7,14 @@ const date=v=>{
 };
 const count=(n,d)=>typeof n==='number'&&typeof d==='number'?`${number(n)} of ${number(d)} measured answers`:'Not measured';
 const line=(label,value)=>`<p><b>${esc(label)}:</b> ${esc(value)}</p>`;
+// Display a selected passage, never complete or paraphrase missing evidence.
+function answerPassageHtml(quote){
+ const text=String(quote??'')
+  .replace(/\[(\[[^\]\n]+\]|[^\]\n]+)\]\(https?:\/\/[^\s()]+\)/g,'$1')
+  .replace(/\*\*([^*\n]+)\*\*/g,'$1')
+  .replace(/__([^_\n]+)__/g,'$1');
+ return `<blockquote dir="auto">${esc(text)}</blockquote><p class="small note">Selected excerpt. It may begin or end mid-sentence. Link formatting is simplified; see the source for context.</p>`;
+}
 // Presentation only. Never rewrite the packet, selected quotations or approved prose.
 function savedFacts(record,{review=false}={}){
  let d;try{d=JSON.parse(record.text);}catch{return null;}
@@ -39,7 +47,7 @@ export function analystEvidenceHtml(evidence,records,{review=false}={}){
   const record=records.get(id);
   if(!record)return '<p>Saved supporting evidence unavailable.</p>';
   const facts=savedFacts(record,{review});
-  const quotes=refs.map(ref=>`<blockquote dir="auto">${esc(ref.quote)}</blockquote>${ref.sourceMatch==='source-excerpt-restored'?'<p class="small note">An omitted source field was restored. The displayed quotation matches the saved evidence exactly.</p>':ref.sourceMatch==='formatting-normalised'?'<p class="small note">Quotation formatting normalised. Wording matched to the stored answer excerpt.</p>':''}`).join('');
+  const quotes=refs.map(ref=>(!review&&id.startsWith('answer-')?answerPassageHtml(ref.quote):`<blockquote dir="auto">${esc(ref.quote)}</blockquote>`)+`${ref.sourceMatch==='source-excerpt-restored'?'<p class="small note">An omitted source field was restored. The displayed quotation matches the saved evidence exactly.</p>':ref.sourceMatch==='formatting-normalised'?'<p class="small note">Quotation formatting normalised. Wording matched to the stored answer excerpt.</p>':''}`).join('');
   // Links come from the saved packet, but never allow an executable scheme.
   const href=typeof record.link==='string'&&/^\/(?!\/)/.test(record.link)?record.link:null;
   return `<section class="analyst-evidence" style="border-left:3px solid #cad8d4;padding:4px 16px;margin:16px 0;overflow-wrap:anywhere"><p>${href?`<a href="${esc(href)}">${esc(record.label)} · View source</a>`:esc(record.label)}</p>${facts!==null?`${review?'<p class="small note">Context from the saved source. This is a readable summary, not a quotation.</p>':''}${facts}${review?`<details class="analyst-exact-evidence"><summary>Exact selected passages</summary>${quotes}</details>`:''}`:quotes}</section>`;

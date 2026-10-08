@@ -42,3 +42,20 @@ test('client references omit duplicate editorial prose while review retains it',
  assert.match(review,/Long saved review/);assert.match(review,/original qualifications/);
  assert.equal(JSON.stringify([...records]),before);
 });
+
+test('client answer passages simplify Markdown without inventing a sentence ending',()=>{
+ const quote='**Masaar** costs $490,000 (AED 1.8 million).[[1]](https://example.com/page) ليس مؤكداً forest-adjacent';
+ const data={id:'answer-1',label:'Stored answer excerpt',text:JSON.stringify({excerpt:quote}),link:'/api/projects/31/measurements/47#run-1'};
+ const records=new Map([[data.id,data]]),refs=[{id:data.id,quote}],before=JSON.stringify([data,refs]);
+ const client=analystEvidenceHtml(refs,records),review=analystEvidenceHtml(refs,records,{review:true});
+ assert.match(client,/Masaar costs \$490,000 \(AED 1.8 million\)\.\[1\]/);
+ assert.match(client,/ليس مؤكداً forest-adjacent<\/blockquote>/);
+ assert.match(client,/may begin or end mid-sentence/);
+ assert.doesNotMatch(client,/\*\*Masaar|https:\/\/example/);
+ assert.match(review,/\*\*Masaar\*\*/);assert.match(review,/https:\/\/example/);
+ assert.equal(JSON.stringify([data,refs]),before);
+});
+test('answer formatting never turns embedded HTML or unsafe links into executable markup',()=>{
+ const html=render('answer-1',{},[{id:'answer-1',quote:'<img onerror=alert(1)> [click](javascript:alert(1)) **not verified**'}]);
+ assert.doesNotMatch(html,/<img|href="javascript/);assert.match(html,/&lt;img/);assert.match(html,/not verified/);
+});
