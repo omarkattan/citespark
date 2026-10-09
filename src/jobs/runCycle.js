@@ -1,3 +1,4 @@
+import { assertMeasurementLocation } from '../lib/measurement-location.js';
 import { estimateEngineCosts } from '../lib/measurement-cost.js';
 import { requestCounts } from '../lib/measurement-coverage.js';
 import { lockMeasurements, measurementSettings, startMeasurement, finishMeasurement, comparableSettings, inheritMeasurement } from '../lib/measurement-batches.js';
@@ -62,6 +63,7 @@ export async function runCycleForProject(projectId, options = {}) {
 async function collectProject(projectId, { cycleDate, onProgress, only = null, force = false } = {}, registerBatch) {
   const project = await one('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!project) throw new Error(`No project ${projectId}`);
+  await assertMeasurementLocation({ ...project, engines: enginesFor(project) });
 
   const latest = (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [projectId]))?.d;
 
@@ -665,6 +667,7 @@ async function collectRetry(promptId, { engine = null } = {}, registerBatch) {
   if (engine && !configured.includes(engine)) throw new Error('Engine is not enabled for this site');
   const engines = engine ? [engine] : configured;
   if (!engines.length) throw new Error('No engines configured for this site');
+  await assertMeasurementLocation({ ...project, engines });
 
   const cycle =
     (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [project.id]))?.d ||

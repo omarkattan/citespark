@@ -163,15 +163,13 @@
       <p class="hint">The more specific this is, the better the questions. "UK ecommerce brands" beats "businesses".</p>
     </div>
     <div class="field"><label for="f_market">Market</label><select id="f_market"></select></div>
-    <details id="siteOptional" class="setup-optional"><summary>Optional: other brand names, city and competitors</summary>
-    <div class="field"><label for="f_aliases">Also known as, comma separated</label><input id="f_aliases" placeholder="Shortenings, misspellings, the legal name" /></div>
     <div class="field">
-      <label for="f_city">City</label>
-      <select id="f_city"><option value="">The whole country</option></select>
-      <p class="hint" id="f_cityHint">Google's AI answers change a lot by city. Leave this on the whole country
-        unless your buyers are concentrated somewhere. It applies to Google AI Mode and AI Overviews only:
-        ChatGPT and the other assistants cannot be asked from a city.</p>
+      <label for="f_city">Google measurement location</label>
+      <select id="f_city" aria-describedby="f_cityHint"><option value="">Choose a market first</option></select>
+      <p class="hint" id="f_cityHint" role="status">A supported Google location is required before continuing.</p>
     </div>
+    <details id="siteOptional" class="setup-optional"><summary>Optional: other brand names and competitors</summary>
+    <div class="field"><label for="f_aliases">Also known as, comma separated</label><input id="f_aliases" placeholder="Shortenings, misspellings, the legal name" /></div>
     <div class="field">
       <label for="f_rivals">Competitors (optional)</label>
       <p class="hint">Add one per line, for example: Acme, acme.com. You can change these later.</p>
@@ -182,7 +180,7 @@
     <p class="error" id="siteError" role="alert"></p>
     <div class="sheet-foot">
       <button type="button" class="ghost" id="siteCancel">Cancel</button>
-      <button type="button" id="siteSave">Continue to connect sources</button>
+      <button type="button" id="siteSave" disabled>Continue to connect sources</button>
     </div>
   </form>
 </dialog>

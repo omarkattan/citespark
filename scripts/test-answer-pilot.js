@@ -1,3 +1,4 @@
+import { assertMeasurementLocation } from '../src/lib/measurement-location.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -30,8 +31,8 @@ const body=source.slice(source.indexOf('async function collectRetry'),source.ind
 const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
 async function retryFixture({engine='gemini',ok=false,budget=true,failAnalysis=false}={}){
  const asks=[],usage=[];
- const project={id:27,org_id:1,engines:['gemini'],models:{gemini:'project-pin'}};
- const deps={measurementSettings:()=>({}),startMeasurement:async()=>({id:1,settings:{}}),inheritMeasurement:async()=>{},finishMeasurement:async()=>{},one:async sql=>sql.includes('FROM prompts')?{id:1,project_id:27,text:'Q'}:sql.includes('FROM projects')?project:sql.includes('MAX(cycle_date)')?{d:'2026-09-28'}:{id:99},
+ const project={id:27,org_id:1,market:'GB',engines:['gemini'],models:{gemini:'project-pin'}};
+ const deps={assertMeasurementLocation,measurementSettings:()=>({}),startMeasurement:async()=>({id:1,settings:{}}),inheritMeasurement:async()=>{},finishMeasurement:async()=>{},one:async sql=>sql.includes('FROM prompts')?{id:1,project_id:27,text:'Q'}:sql.includes('FROM projects')?project:sql.includes('MAX(cycle_date)')?{d:'2026-09-28'}:{id:99},
  many:async sql=>sql.includes('FROM entities')?[{id:1,kind:'owned'}]:[],
  enginesFor:p=>p.engines,budgetForCycle:async()=>({ok:budget,maxCalls:budget?1:0,reason:'budget denied'}),
  resolveModel:async(e,c,override)=>override,ENGINE_CFG:{gemini:{kind:'llm'}},

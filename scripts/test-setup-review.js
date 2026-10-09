@@ -17,8 +17,8 @@ function harness(api=async()=>({all:20,unrun:2,checksAll:120,checksUnrun:12,cost
 }
 test('setup retains all field IDs and keeps advanced options collapsed',()=>{
  const {document}=harness();assert.equal(document.getElementById('siteOptional').open,false);
- for(const id of ['f_aliases','f_city','f_rivals'])assert.ok(document.getElementById('siteOptional').contains(document.getElementById(id)));
- for(const id of ['f_domain','f_brand','f_category','f_qualifier','f_market'])assert.equal(document.getElementById('siteOptional').contains(document.getElementById(id)),false);
+ for(const id of ['f_aliases','f_rivals'])assert.ok(document.getElementById('siteOptional').contains(document.getElementById(id)));
+ for(const id of ['f_domain','f_brand','f_category','f_qualifier','f_market','f_city'])assert.equal(document.getElementById('siteOptional').contains(document.getElementById(id)),false);
 });
 test('review displays site and estimates without starting a run or offering all sites',async()=>{
  const {h,document,calls}=harness();await h.reviewProjectRun();const dialog=document.getElementById('projectRunReview');assert.ok(dialog.open);assert.match(dialog.textContent,/Sandstorm/);assert.match(dialog.textContent,/120 answer checks · estimated \$1.67/);assert.equal(calls.length,0);assert.doesNotMatch(dialog.textContent,/Run every site/);
@@ -41,7 +41,7 @@ test('late scope responses cannot reopen a cancelled review',async()=>{
 });
 test('latest country request wins when city responses arrive out of order',async()=>{
  const {document}=harness();const pending={};const h=vm.createContext({esc,cityCache:new Map(),api:url=>new Promise(resolve=>pending[url]=resolve)});
- const start=app.indexOf('async function fillCities(');const end=app.indexOf('\n}',start)+2;vm.runInContext(app.slice(start,end),h);
+ const start=app.indexOf('function syncLocationChoice(');const end=app.indexOf('const ENGINE_LABEL',start);vm.runInContext(app.slice(start,end),h);
  const select=document.getElementById('f_city');const first=h.fillCities('AE',select,null);const second=h.fillCities('GB',select,null);
  pending['/api/locations/GB']({cities:[{type:'City',name:'London',label:'London'}]});await second;
  pending['/api/locations/AE']({cities:[{type:'City',name:'Dubai',label:'Dubai'}]});await first;

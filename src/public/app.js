@@ -2322,82 +2322,73 @@ const PHASE_LABEL = {
   done: 'Finished'
 };
 
-/**
- * Fill a city dropdown from the country beside it.
- *
- * Every state is said out loud rather than shown as an empty list: an empty
- * dropdown reads as "this country has no cities", which is never what
- * happened. If the lookup is down the country still works perfectly well, so
- * the field degrades to the whole country and says why instead of blocking
- * the form.
- */
+/** Location readiness is required before setup can continue. */
 const cityCache = new Map();
+
+function syncLocationChoice(select, hint) {
+  const doc = select.ownerDocument;
+  const save = doc.getElementById(select.id === 'f_city' ? 'siteSave' : 's_save');
+  const data = select._locationData;
+  let error = '';
+  if (select._locationLoading) error = 'Checking available Google locations…';
+  else if (!data || data.error) error = data?.error || 'Location support could not be checked. Retry before continuing.';
+  else if (select.value) {
+    if (!(data.cities || []).some(c => c.name === select.value)) error = 'The saved location is not verified for this market. Choose a location from the list.';
+  } else if (!data.countryLocation) error = data.unavailable
+    ? 'Location lookup is unavailable and country-level Google collection is not configured. Retry before continuing.'
+    : 'Country-level Google collection is not configured for this market. Choose a verified location below, or ask support to enable this market.';
+  select._locationError = error;
+  select.setAttribute('aria-invalid', error && !select._locationLoading ? 'true' : 'false');
+  if (save) save.disabled = Boolean(error || save._saving);
+  if (hint) {
+    hint.classList.toggle('warn', Boolean(error));
+    hint.setAttribute('role', error ? 'alert' : 'status');
+    hint.textContent = error || `Verified Google location: ${select.value || data.countryLocation}. Applies to Google AI Mode and AI Overviews.`;
+    if (error && !select._locationLoading) {
+      const retry = doc.createElement('button'); retry.type = 'button'; retry.className = 'ghost'; retry.textContent = 'Retry location lookup';
+      retry.addEventListener('click', () => { cityCache.delete(select._locationCountry); fillCities(select._locationCountry, select, hint, select.value); });
+      hint.appendChild(retry);
+    }
+  }
+  return !error;
+}
 
 async function fillCities(iso, select, hint, selected = '') {
   if (!select) return;
-  const country = String(iso || '').toUpperCase();
+  const country = String(iso || '').trim().toUpperCase();
   const request = {};
   select._cityRequest = request;
-
+  select._locationCountry = country;
+  select._locationLoading = true;
+  select._locationData = null;
   select.disabled = true;
-  select.innerHTML = '<option value="">Loading cities</option>';
-
+  select.innerHTML = '<option value="">Checking Google locations</option>';
+  syncLocationChoice(select, hint);
   let data = cityCache.get(country);
+  if (!/^[A-Z]{2}$/.test(country)) data = { error: 'Choose a market before continuing.' };
   if (!data) {
     try {
-      data = await api(`/api/locations/${country}`);
-      cityCache.set(country, data);
-    } catch (err) {
-      data = { cities: [], unavailable: String(err.message || err) };
-    }
+      data = await api(`/api/locations/${country}`, { readTimeoutMs: 15000 });
+      if (data && !data.error && !data.unavailable) cityCache.set(country, data);
+    } catch { data = { error: 'Location support could not be checked. Retry before continuing.' }; }
   }
-
   if (select._cityRequest !== request) return;
+  data ||= { error: 'Location support could not be checked. Retry before continuing.' };
   const cities = data.cities || [];
-
-  /**
-   * The UAE alone returns roughly 280 places, most of them neighbourhoods.
-   * A flat alphabetical list buries Dubai between Al Jerf 2 and Al Muntazah,
-   * so group by size with the broadest first. Someone looking for "Dubai"
-   * finds it without scrolling; someone who genuinely wants Dubai Sports City
-   * can still type to reach it.
-   */
   const ORDER = ['Province', 'State', 'Region', 'County', 'City', 'Municipality', 'Town', 'District', 'Borough', 'Neighborhood'];
-  const PLURAL = {
-    Province: 'Emirates and provinces', State: 'States', Region: 'Regions', County: 'Counties',
-    City: 'Cities', Municipality: 'Municipalities', Town: 'Towns',
-    District: 'Districts', Borough: 'Boroughs', Neighborhood: 'Neighbourhoods'
-  };
-
+  const PLURAL = { Province: 'Emirates and provinces', State: 'States', Region: 'Regions', County: 'Counties', City: 'Cities', Municipality: 'Municipalities', Town: 'Towns', District: 'Districts', Borough: 'Boroughs', Neighborhood: 'Neighbourhoods' };
   const groups = new Map();
-  for (const c of cities) {
-    const t = String(c.type || 'Other');
-    if (!groups.has(t)) groups.set(t, []);
-    groups.get(t).push(c);
-  }
-  const ranked = [...groups].sort((a, b) => {
-    const ai = ORDER.indexOf(a[0]);
-    const bi = ORDER.indexOf(b[0]);
-    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
-  });
-
-  select.innerHTML = '<option value="">The whole country</option>' + ranked
-    .map(([type, list]) =>
-      `<optgroup label="${esc(PLURAL[type] || type)}">` +
-      list.map((c) => `<option value="${esc(c.name)}" ${c.name === selected ? 'selected' : ''}>${esc(c.label)}</option>`).join('') +
-      '</optgroup>')
-    .join('');
-  select.disabled = false;
-
-  if (hint && data.unavailable) {
-    hint.classList.add('warn');
-    hint.textContent =
-      'The city list could not be loaded just now, so this site will be measured across the whole country. ' +
-      'Nothing else is affected, and you can set a city later from Settings.';
-  } else if (hint && !cities.length) {
-    hint.classList.add('warn');
-    hint.textContent = 'Google does not offer city-level results for this country, so it will be measured nationally.';
-  }
+  for (const city of cities) { const type = city.type || 'Other'; if (!groups.has(type)) groups.set(type, []); groups.get(type).push(city); }
+  const ranked = [...groups].sort((a,b) => (ORDER.indexOf(a[0]) < 0 ? 99 : ORDER.indexOf(a[0])) - (ORDER.indexOf(b[0]) < 0 ? 99 : ORDER.indexOf(b[0])));
+  select.innerHTML = `<option value="" ${data.countryLocation ? '' : 'disabled'}>${data.countryLocation ? 'The whole country' : 'Choose a verified Google location'}</option>` + ranked.map(([type, places]) => `<optgroup label="${esc(PLURAL[type] || type)}">${places.map(c => `<option value="${esc(c.name)}">${esc(c.label)}</option>`).join('')}</optgroup>`).join('');
+  // Retain an unavailable saved choice as an explicit error, never silently widen it.
+  if (selected && !cities.some(c => c.name === selected)) select.insertAdjacentHTML('beforeend', `<option value="${esc(selected)}" disabled>${esc(selected)} (not verified)</option>`);
+  select.value = selected;
+  select.disabled = !cities.length;
+  select._locationLoading = false;
+  select._locationData = data;
+  select.onchange = () => syncLocationChoice(select, hint);
+  syncLocationChoice(select, hint);
 }
 
 const ENGINE_LABEL = {
@@ -2661,6 +2652,11 @@ async function reviewProjectRun() {
     const d = await api(`/api/projects/${projectId}/run-scope`);
     if (!dialog.isConnected || !dialog.open) return;
     if (state.projectId !== projectId) throw new Error('The selected site changed. Close and review again.');
+    if (d?.code === 'MEASUREMENT_LOCATION_REQUIRED') {
+      options.innerHTML = `<p role="alert">${esc(d.error)}</p><button data-fix-run-location>Review location</button>`;
+      options.querySelector('[data-fix-run-location]').addEventListener('click', async () => { dialog.close(); state.view = 'setup'; await render(); $('s_market')?.focus(); });
+      return;
+    }
     if (!d || d.error) throw new Error(d?.error || 'Could not load the measurement estimate. Close and try again.');
     const valid = ['all','unrun','checksAll','checksUnrun','costAll','costUnrun'].every(k => Number.isFinite(d[k]) && d[k] >= 0);
     if (!valid) throw new Error('The measurement estimate is incomplete. Close and try again.');
@@ -2774,6 +2770,11 @@ async function refreshRunScope() {
   try {
     const d=await api(`/api/projects/${projectId}/run-scope`,{readTimeoutMs:15000});
     if(request!==runScopeRequest || state.projectId!==projectId) return;
+    if(d?.code === 'MEASUREMENT_LOCATION_REQUIRED') {
+      for(const id of ['runFullCount','runUnrunCount']) if($(id)) $(id).textContent = ' (fix location in Settings)';
+      toast(d.error, 'warn');
+      return;
+    }
     if(!d || d.error || !['all','unrun','checksAll','checksUnrun','costAll','costUnrun'].every(k=>Number.isFinite(d[k])&&d[k]>=0)) throw Error('Estimate unavailable');
     const money=n=>`~$${n<10?n.toFixed(2):n.toFixed(0)}`;
     $('runFullCount').textContent=d.all?` (${d.all}, ${d.checksAll} checks, ${money(d.costAll)})`:' (no questions yet)';
@@ -5095,13 +5096,13 @@ document.addEventListener('change', async (e) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ engines: chosen })
     });
-    if (!res.ok) throw new Error('save failed');
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not save those engines.');
     const note = $('e_saved');
     if (note) { note.textContent = 'Saved'; setTimeout(() => { note.textContent = ''; }, 1800); }
-  } catch {
+  } catch (error) {
     box.checked = !box.checked;
     syncEngineUi();
-    setupErr('Could not save that. Check your connection and try again.');
+    setupErr(error.message);
   }
 });
 
@@ -5163,6 +5164,7 @@ document.addEventListener('click', async (e) => {
       ? boxes.slice(0, allowed).map((b) => b.dataset.engine)
       : ['chatgpt'];
 
+    const previous = boxes.map(b => b.checked);
     for (const b of boxes) b.checked = wanted.includes(b.dataset.engine);
     syncEngineUi();
     setupErr('');
@@ -5174,11 +5176,13 @@ document.addEventListener('click', async (e) => {
     });
     const note = $('e_saved');
     if (res.ok && note) { note.textContent = 'Saved'; setTimeout(() => { note.textContent = ''; }, 1800); }
-    if (!res.ok) setupErr('Could not save that. Try again.');
+    if (!res.ok) { boxes.forEach((b,i) => { b.checked = previous[i]; }); syncEngineUi(); setupErr((await res.json().catch(() => ({}))).error || 'Could not save those engines.'); }
     return;
   }
 
   if (t.id === 's_save') {
+    if (!syncLocationChoice($('s_city'), $('s_cityHint'))) return;
+    t._saving = true;
     t.disabled = true;
     // This reported "Saved" whatever came back, so a rejected change looked
     // exactly like an accepted one until someone reloaded.
@@ -5198,7 +5202,8 @@ document.addEventListener('click', async (e) => {
         autoCycle: $('s_auto').checked
       })
     });
-    t.disabled = false;
+    t._saving = false;
+    syncLocationChoice($('s_city'), $('s_cityHint'));
     if (!res.ok) {
       const why = (await res.json().catch(() => ({}))).error || 'Could not save those changes';
       $('s_saved').textContent = '';
@@ -5534,7 +5539,9 @@ $('siteSave').addEventListener('click', async () => {
     $('siteError').textContent='These demo questions belong to '+state.demoSetupDomain+'. Restore that domain or uncheck the demo questions before continuing.';
     return;
   }
+  if (!syncLocationChoice($('f_city'), $('f_cityHint'))) { $('siteError').textContent = $('f_city')._locationError; return; }
   const btn = $('siteSave');
+  btn._saving = true;
   $('siteError').textContent = '';
   btn.disabled = true;
   btn.textContent = 'Writing questions';
@@ -5573,7 +5580,8 @@ $('siteSave').addEventListener('click', async () => {
   } catch (err) {
     $('siteError').textContent = err.message;
   } finally {
-    btn.disabled = false;
+    btn._saving = false;
+    syncLocationChoice($('f_city'), $('f_cityHint'));
     btn.textContent = 'Continue to connect sources';
   }
 });

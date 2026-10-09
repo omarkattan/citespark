@@ -1,3 +1,4 @@
+import { measurementLocation } from './lib/measurement-location.js';
 import { estimateEngineCosts } from './lib/measurement-cost.js';
 import {demoMilestone} from './lib/demo-funnel.js';
 import {selectedDemoQuestions} from './lib/demo-setup.js';
@@ -34,7 +35,7 @@ import {
   stripeEnabled, getStripe, getEntitlements, checkCanAddSite, checkCanAddQuestions,
   createCheckoutSession, createPortalSession, handleWebhook, budgetForCycle, engineCosts
 } from './lib/billing.js';
-import { MOCK, ENGINES, ENGINE_IDS } from './lib/dataforseo.js';
+import { MOCK, ENGINES, ENGINE_IDS, LOCATIONS } from './lib/dataforseo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -1024,54 +1025,16 @@ app.get('/api/projects/:id/traffic', requireAuth, wrap(async (req, res) => {
 
 /* ---------------- setup: projects, competitors, questions ---------------- */
 
-/**
- * A city is only meaningful inside its country.
- *
- * Changing the country without clearing the city would leave a project
- * labelled UAE but asking Google from Manchester, and every number it
- * produced would be quietly about the wrong place. Checked here rather than
- * trusted from the form, because the form is not the only caller.
- *
- * If the lookup itself is unavailable we keep the submitted string rather
- * than discarding the person's choice over an outage on our side.
- */
-async function cityWithin(marketCode, locationName) {
-  const wanted = String(locationName || '').trim();
-  if (!wanted) return { name: null };
-
-  const { googleLocations } = await import('./lib/dataforseo.js');
-  try {
-    const cities = await googleLocations(marketCode);
-    if (!cities.length) return { name: wanted };
-    return cities.some((c) => c.name === wanted)
-      ? { name: wanted }
-      : { error: 'That city is not in the market you chose. Pick the country first, then the city.' };
-  } catch {
-    return { name: wanted };
-  }
-}
-
-/**
- * The cities Google will accept in one country.
- *
- * Asked of DataForSEO rather than kept as a list here, because a city string
- * Google does not recognise is rejected rather than approximated, and the
- * failure would show up as an engine returning nothing rather than as a bad
- * dropdown. Free to call and cached for a day.
- *
- * A failure returns 200 with an empty list and a reason, not an error status:
- * the country is still perfectly usable on its own, and the setup form should
- * degrade to "the whole country" rather than refuse to open.
- */
+/** The picker must distinguish a configured country from a missing mapping. */
 app.get('/api/locations/:country', requireAuth, wrap(async (req, res) => {
   const iso = String(req.params.country || '').toUpperCase();
-  if (!/^[A-Z]{2}$/.test(iso)) return res.status(400).json({ error: 'Give a two-letter country code' });
-
+  if (!/^[A-Z]{2}$/.test(iso)) return res.status(400).json({ error: 'Choose a market before continuing.' });
   const { googleLocations } = await import('./lib/dataforseo.js');
+  const countryLocation = LOCATIONS[iso] || null;
   try {
-    res.json({ country: iso, cities: await googleLocations(iso) });
-  } catch (err) {
-    res.json({ country: iso, cities: [], unavailable: String(err.message || err) });
+    res.json({ country: iso, countryLocation, cities: await googleLocations(iso) });
+  } catch {
+    res.json({ country: iso, countryLocation, cities: [], unavailable: 'Location lookup unavailable. Retry before selecting a city.' });
   }
 }));
 
@@ -1107,9 +1070,10 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
 
   const startingEngines = ENGINE_IDS.slice(0, (await getEntitlements(req.session.orgId)).plan.engines);
 
-  const marketCode = (market || 'AE').toUpperCase();
-  const city = await cityWithin(marketCode, locationName);
-  if (city.error) return res.status(400).json({ error: city.error });
+  const marketCode = String(market || '').trim().toUpperCase();
+  const city = { name: String(locationName || '').trim() || null };
+  const location = await measurementLocation({ market: marketCode, location_name: city.name, engines: startingEngines }, { requireGoogle: true });
+  if (!location.ok) return res.status(422).json(location);
 
   const project = await one(
     `INSERT INTO projects (org_id, name, domain, brand_name, aliases, market, language, category, qualifier, engines, location_name)
@@ -1176,19 +1140,20 @@ app.patch('/api/projects/:id', requireAuth, wrap(async (req, res) => {
    * checked as the pair it is. Sending an empty string clears the city back
    * to the whole country; omitting the field leaves it alone.
    */
-  const nextMarket = market?.toUpperCase() || project.market;
-  let nextCity = null;
-  if (locationName !== undefined) {
-    const city = await cityWithin(nextMarket, locationName);
-    if (city.error) return res.status(400).json({ error: city.error });
-    nextCity = city.name;
-  }
+  const nextMarket = market === undefined ? project.market : String(market || '').trim().toUpperCase();
+  const locationChanged = locationName !== undefined || (market !== undefined && nextMarket !== project.market);
+  const nextCity = locationName !== undefined ? String(locationName || '').trim() || null : locationChanged ? null : project.location_name;
 
   let engineList = null;
   if (Array.isArray(engines)) {
     const ent = await getEntitlements(req.session.orgId);
     engineList = engines.filter((e) => ENGINE_IDS.includes(e)).slice(0, ent.plan.engines);
     if (!engineList.length) engineList = ['chatgpt'];
+  }
+
+  if (market !== undefined || locationName !== undefined || engines !== undefined || autoCycle === true) {
+    const location = await measurementLocation({ ...project, market: nextMarket, location_name: nextCity, engines: engineList || project.engines });
+    if (!location.ok) return res.status(422).json(location);
   }
 
   await query(
@@ -1213,11 +1178,11 @@ app.patch('/api/projects/:id', requireAuth, wrap(async (req, res) => {
       Array.isArray(aliases) ? aliases.map((a) => String(a).trim()).filter(Boolean) : null,
       category?.trim() || null,
       qualifier?.trim() || null,
-      market?.toUpperCase() || null,
+      market === undefined ? null : nextMarket,
       Number.isInteger(runsPerCycle) ? Math.min(10, Math.max(1, runsPerCycle)) : null,
       engineList,
       typeof autoCycle === 'boolean' ? autoCycle : null,
-      locationName !== undefined,
+      locationChanged,
       nextCity
     ]
   );
@@ -1262,6 +1227,10 @@ app.post('/api/projects/:id/setup-progress', requireAuth, wrap(async (req,res) =
   const project=await assertProject(req,res);if(!project)return;
   const step=req.body?.step;
   if(!['website','sources','questions','measurement','complete'].includes(step))return res.status(400).json({error:'Choose a valid setup step.'});
+  if (step !== 'website') {
+    const location = await measurementLocation(project, { requireGoogle: true });
+    if (!location.ok) return res.status(422).json(location);
+  }
   await query('UPDATE projects SET setup_step=$2 WHERE id=$1',[project.id,step]);
   res.json({step});
 }));
@@ -1764,6 +1733,9 @@ app.get('/api/projects/:id/cycle-status', requireAuth, wrap(async (req, res) => 
 app.get('/api/projects/:id/run-scope', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
+  const location = await measurementLocation(project);
+  if (!location.ok) return res.status(422).json(location);
+
 
   const all = (await one('SELECT COUNT(*)::int AS n FROM prompts WHERE project_id = $1 AND active', [project.id])).n;
   const unrun = (
@@ -1817,6 +1789,9 @@ app.get('/api/projects/:id/run-scope', requireAuth, wrap(async (req, res) => {
 app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
+  const location = await measurementLocation(project);
+  if (!location.ok) return res.status(422).json(location);
+
 
   const only = req.body?.only === 'unrun' ? 'unrun' : null;
 
@@ -1862,7 +1837,7 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
     })
     .catch((err) => {
       console.error('cycle failed:', err);
-      cycles.set(project.id, { phase: 'failed', error: 'The cycle did not finish. Try again in a moment.' });
+      cycles.set(project.id, { phase: 'failed', error: err.code === 'MEASUREMENT_LOCATION_REQUIRED' ? err.message : 'The cycle did not finish. Try again in a moment.' });
     });
 }));
 
@@ -1889,6 +1864,8 @@ app.post('/api/run-all', requireAuth, wrap(async (req, res) => {
     }
 
     const project = await one('SELECT * FROM projects WHERE id = $1', [p.id]);
+    const location = await measurementLocation(project);
+    if (!location.ok) { skipped.push({ name: p.name, reason: location.error }); continue; }
     const budget = await budgetForCycle(req.session.orgId, {
       questions: active.n,
       engines: project.engines?.length ? project.engines : ['chatgpt'],
@@ -1911,7 +1888,7 @@ app.post('/api/run-all', requireAuth, wrap(async (req, res) => {
       .then((summary) => cycles.set(p.id, { phase: 'done', done: summary.runs, total: summary.runs, summary, finishedAt: Date.now() }))
       .catch((err) => {
         console.error('cycle failed:', err);
-        cycles.set(p.id, { phase: 'failed', error: 'The cycle did not finish.' });
+        cycles.set(p.id, { phase: 'failed', error: err.code === 'MEASUREMENT_LOCATION_REQUIRED' ? err.message : 'The cycle did not finish.' });
       });
   }
 
