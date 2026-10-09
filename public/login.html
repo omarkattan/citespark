@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sign in to Cited</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='8' fill='%2308120d'/%3E%3Cpath d='M15 8H9v24h6M25 8h6v24h-6' stroke='%23e9e3d5' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M20 11l2.6 6.4L29 20l-6.4 2.6L20 29l-2.6-6.4L11 20l6.4-2.6z' fill='%2335e08a'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/styles.css?v=2" />
+<style>
+  .auth-links { display: flex; flex-direction: column; gap: 8px; }
+  .auth-links a { display: block; padding: 8px; line-height: 1.5; border-radius: 4px; }
+  .auth-links a:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="auth-wrap">
+  <div class="auth-card">
+    <a class="wordmark" href="/" style="margin-bottom:8px"><svg width="26" height="26" viewBox="0 0 40 40" role="img" aria-hidden="true">
+        <path d="M15 8H9v24h6M25 8h6v24h-6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M20 11l2.6 6.4L29 20l-6.4 2.6L20 29l-2.6-6.4L11 20l6.4-2.6z" fill="var(--you)"/>
+      </svg><span class="wordmark-text">Cit<em>ed</em></span><span class="beta" title="Cited is in beta. Things will change, and your feedback shapes what changes.">beta</span></a>
+    <p class="eyebrow">Answer engine visibility</p>
+
+    <div class="panel" id="panel">
+      <h2 id="formTitle">Sign in</h2>
+      <p id="formDescription" class="dek" style="margin:8px 0 20px;font-size:14px">Track what ChatGPT, Gemini and Perplexity say about your brand, and what to do about it.</p>
+
+      <form id="authForm">
+      <div class="field" id="orgField" hidden>
+        <label for="orgName">Company</label>
+        <input id="orgName" autocomplete="organization" />
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="email" required />
+      </div>
+      <div class="field" id="passwordField">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" required />
+      </div>
+
+      <button type="submit" id="submit" style="width:100%">Sign in</button>
+      <p class="error" id="error" role="alert"></p>
+      </form>
+      <p class="switch auth-links">
+        <a href="#" id="toggle">Create an account instead</a>
+        <a href="/login?forgot=1" id="forgot">Forgotten your password?</a>
+      </p>
+    </div>
+  </div>
+</div>
+
+<script src="/demo-handoff.js?v=119"></script>
+<script>
+  let mode = 'login';
+  const $ = (id) => document.getElementById(id);
+
+  let busy = false;
+  const description = $('formDescription').textContent;
+  function setMode(next) {
+    if (busy) return;
+    mode = next;
+    const forgot = mode === 'forgot';
+    $('formTitle').textContent = forgot ? 'Reset your password' : mode === 'login' ? 'Sign in' : 'Create an account';
+    document.title = $('formTitle').textContent + ' | Cited';
+    $('formDescription').textContent = forgot ? 'Enter your account email and we will send you a password reset link.' : description;
+    $('submit').textContent = forgot ? 'Send reset link' : mode === 'login' ? 'Sign in' : 'Create account';
+    $('toggle').textContent = mode === 'login' ? 'Create an account instead' : 'Back to sign in';
+    $('orgField').hidden = mode !== 'register';
+    $('passwordField').hidden = forgot;
+    $('password').disabled = forgot;
+    $('password').required = !forgot;
+    $('password').value = '';
+    $('password').setAttribute('autocomplete', mode === 'register' ? 'new-password' : 'current-password');
+    $('forgot').hidden = forgot;
+    $('error').className = 'error';
+    $('error').textContent = '';
+  }
+  $('toggle').addEventListener('click', (e) => {
+    e.preventDefault();
+    setMode(mode === 'login' ? 'register' : 'login');
+  });
+  $('forgot').addEventListener('click', (e) => {
+    e.preventDefault();
+    setMode('forgot');
+    $('email').focus();
+  });
+  const params = new URLSearchParams(location.search);
+  if (params.get('forgot') === '1') setMode('forgot');
+  else if (params.get('signup') === '1') setMode('register');
+  const demoHint=window.CitedDemoHandoff?.read();
+  if(new URLSearchParams(location.search).get('demo')==='1' && demoHint){
+    $('orgName').value=demoHint.site.brandName||'';
+    const hint=document.createElement('p');hint.textContent=`Continue setting up ${demoHint.site.domain}. Your demo notes remain available in this browser for 24 hours.`;
+    $('panel').prepend(hint);
+  }
+
+  const escapeHtml = (t) =>
+    String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+  document.addEventListener('click', async (e) => {
+    if (e.target.id === 'resend') {
+      e.target.disabled = true;
+      await fetch('/api/verify/resend', { method: 'POST' });
+      document.getElementById('resendMsg').textContent = 'Sent again. Check spam if it does not arrive.';
+      return;
+    }
+
+  });
+
+  async function submit(e) {
+    e.preventDefault();
+    if (busy || !$('authForm').reportValidity()) return;
+    busy = true;
+    const submitLabel = $('submit').textContent;
+    $('error').className = 'error';
+    $('error').textContent = '';
+    $('submit').textContent = mode === 'forgot' ? 'Sending…' : 'Please wait…';
+    $('submit').disabled = true;
+    try {
+      if (mode === 'forgot') {
+        const res = await fetch('/api/password/forgot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: $('email').value.trim() }),
+          signal: AbortSignal.timeout(15000)
+        });
+        if (!res.ok) throw new Error(res.status === 429
+          ? 'Too many requests. Please wait before trying again.'
+          : 'We could not request a reset link. Please try again.');
+        $('error').className = 'note';
+        $('error').textContent = 'If an account matches that email, you will receive a reset link. Check your inbox and spam folder. The link expires after one hour.';
+        return;
+      }
+      const res = await fetch(`/api/${mode}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: $('email').value.trim(),
+          password: $('password').value,
+          orgName: $('orgName').value.trim()
+        })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Something went wrong');
+
+      /**
+       * Say the email is coming, at the moment it is sent.
+       *
+       * Dropping someone straight into the app meant the first they heard of
+       * verification was an error when they clicked Run, after they had done
+       * all the setup work.
+       */
+      if (json.verificationSent) {
+        document.getElementById('panel').innerHTML = `
+          <h2>Check your email</h2>
+          <p class="sent-to">We sent a confirmation link to <b>${escapeHtml($('email').value.trim())}</b>.</p>
+          <p class="sent-note">
+            You can look around and set your first site up now. Confirming the address is what unlocks
+            running a cycle, so it is worth doing before you get that far. The link works for two days.
+          </p>
+          <div class="sent-actions">
+            <a class="btn" href="/app">Start setting up</a>
+            <button class="ghost" id="resend">Send it again</button>
+          </div>
+          <p class="sent-hint" id="resendMsg">Not arrived in a minute or two? Check spam.</p>`;
+        return;
+      }
+
+      window.location.href = '/app';
+    } catch (err) {
+      $('error').className = 'error';
+      $('error').textContent = mode === 'forgot'
+        ? (err.name === 'TimeoutError' || err.name === 'TypeError'
+          ? 'The request could not complete. Check your connection and try again.' : err.message)
+        : err.message;
+    } finally {
+      busy = false;
+      if ($('submit')) {
+        $('submit').disabled = false;
+        $('submit').textContent = submitLabel;
+      }
+    }
+  }
+
+  $('authForm').addEventListener('submit', submit);
+</script>
+<script src="/feedback.js"></script>
+</body>
+</html>
