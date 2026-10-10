@@ -9,11 +9,24 @@ import { complete, parseJsonArray } from './anthropic.js';
  * only fall back to templates when it is not.
  */
 
+export function topicLanguage(text) {
+  return /[\u0620-\u064A\u066E-\u06D3\u06FA-\u06FC]/u.test(String(text)) ? 'ar' : 'en';
+}
+
+function languageRule(language) {
+  if (!['en', 'ar'].includes(language)) throw new Error('Choose English or Arabic for site suggestions.');
+  return `Write every question in ${language === 'ar' ? 'Arabic' : 'English'}. The market, location and brand must never override this language. Keep proper names as needed.`;
+}
+
+function matchesLanguage(text, language) {
+  return topicLanguage(text) === language;
+}
+
 const SYSTEM = `You write the question sets used to measure whether a brand appears in AI assistant answers.
 
 Rules:
-- Write Arabic directly in clear, natural Arabic appropriate to the market, not as a literal translation of English. Use correct grammar and concise customer phrasing. Do not invent dialect or force extra qualifiers. Preserve the intended question: a comparison is not automatically a request for the best product.
-- Write questions exactly as a real buyer would type them into ChatGPT, as concise, natural questions. Do not pad Arabic to meet an English word count.
+- Use clear, natural phrasing in the requested language. Preserve the intended question and do not invent dialect or force extra qualifiers.
+- Write questions exactly as a real buyer would type them into ChatGPT, as concise, natural questions. Avoid padding questions to meet a word count.
 - Never include the brand's own name. We are measuring unprompted recall.
 - Use the stated business activity and customer as the scope, not the literal meaning of its brand name. A wealth manager called The Family Office is not automatically a service for establishing or operating a family office.
 - Do not invent services, eligibility requirements or customer segments beyond the supplied context.
@@ -58,10 +71,11 @@ function templateSet({ category, market, qualifier }) {
  * sells to.
  */
 export async function questionsForTopic({ topic, brand, domain, category, market, qualifier, count = 8 }) {
-  const system = `You write the questions a real buyer types into an AI assistant.
+  const language = topicLanguage(topic);
+  const system = `${languageRule(language)}\n\nYou write the questions a real buyer types into an AI assistant.
 
 Rules:
-- Write Arabic directly in clear, natural Arabic appropriate to the market, not as a literal translation of English. Use correct grammar and concise customer phrasing. Do not invent dialect or force extra qualifiers. Preserve the intended question: a comparison is not automatically a request for the best product.
+- Use clear, natural phrasing in the requested language. Preserve the intended question and do not invent dialect or force extra qualifiers.
 - Never include the brand name. We are measuring whether the assistant volunteers it.
 - Write what a person would actually say, not a search keyword. "retirement planning" becomes "how much do I need saved before I can retire in the UAE".
 - Stay on the topic given. Do not drift into the wider category.
@@ -82,6 +96,7 @@ Write ${count} questions this buyer would ask an AI assistant about "${topic}".`
 
   return parsed
     .map((q) => String(q).trim())
+    .filter((q) => matchesLanguage(q, language))
     .filter((q) => q.length > 12 && q.length < 220)
     // A question containing the brand name measures nothing: of course the
     // answer names them when the question already did.
@@ -89,7 +104,8 @@ Write ${count} questions this buyer would ask an AI assistant about "${topic}".`
     .slice(0, count);
 }
 
-export async function generatePrompts({ brand, domain, category, market = 'the UK', qualifier = 'small business', count = 20 }) {
+export async function generatePrompts({ brand, domain, category, market = 'the UK', qualifier = 'small business', count = 20, language = 'en' }) {
+  const system = `${languageRule(language)}\n\n${SYSTEM}`;
   const ask = `Current date: ${new Date().toISOString().slice(0, 10)}
 Current year: ${new Date().getUTCFullYear()}
 Business: ${brand} (${domain})
@@ -99,12 +115,13 @@ Typical customer: ${qualifier}
 
 Write ${count} questions.`;
 
-  const raw = await complete(ask, { system: SYSTEM, maxTokens: 2000 });
+  const raw = await complete(ask, { system, maxTokens: 2000 });
   const parsed = parseJsonArray(raw);
 
   if (parsed && parsed.length) {
     const suggestions = parsed
       .filter((p) => p && typeof p.text === 'string' && p.text.length > 10)
+      .filter((p) => matchesLanguage(p.text, language))
       .filter((p) => !hasUnrequestedYear(p.text))
       .map((p) => ({
         text: p.text.trim(),
@@ -116,7 +133,11 @@ Write ${count} questions.`;
     if (suggestions.length) return suggestions;
   }
 
-  return templateSet({ category, market, qualifier }).slice(0, count);
+  if (raw || language === 'ar') {
+    throw new Error('No usable questions were returned in the selected language. Please try again.');
+  }
+  return templateSet({ category, market, qualifier })
+    .filter(p => matchesLanguage(p.text, language)).slice(0, count);
 }
 
 /** New site suggestions are current discovery questions, not historical studies.

@@ -1575,6 +1575,8 @@ app.delete('/api/prompts/:promptId', requireAuth, wrap(async (req, res) => {
 app.post('/api/projects/:id/generate-prompts', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
+  const language = req.body?.language ?? (project.language === 'ar' ? 'ar' : 'en');
+  if (!['en', 'ar'].includes(language)) return res.status(400).json({ error: 'Choose English or Arabic for site suggestions.' });
   const ent = await getEntitlements(req.session.orgId);
   const active = await one('SELECT COUNT(*)::int AS n FROM prompts WHERE project_id = $1 AND active', [project.id]);
   const room = ent.plan.questions - active.n;
@@ -1585,14 +1587,20 @@ app.post('/api/projects/:id/generate-prompts', requireAuth, wrap(async (req, res
     });
   }
 
-  const prompts = await generatePrompts({
-    brand: project.brand_name,
-    domain: project.domain,
-    category: project.category,
-    market: MARKET_NAMES[project.market] || project.market,
-    qualifier: project.qualifier,
-    count: Math.min(30, Math.max(5, Number(req.body?.count) || 10))
-  });
+  let prompts;
+  try {
+    prompts = await generatePrompts({
+      language,
+      brand: project.brand_name,
+      domain: project.domain,
+      category: project.category,
+      market: MARKET_NAMES[project.market] || project.market,
+      qualifier: project.qualifier,
+      count: Math.min(30, Math.max(5, Number(req.body?.count) || 10))
+    });
+  } catch (error) {
+    return res.status(502).json({ error: error.message || 'Could not generate questions. Please try again.' });
+  }
   let added = 0;
   for (const p of prompts) {
     if (added >= room) break;

@@ -1350,7 +1350,11 @@ function questionTools(p, scope, gsc = {}) {
   return `<details class="panel question-add" id="questionAdd"><summary>Add questions and connect sources</summary>
     <div class="panel"><h2>Add questions</h2><p class="hint">Write a buyer question, start from a topic, use suggestions from your site, or import from the sources below.</p>
       <div class="qcompose question-compose"><input id="q_text" aria-label="Question or topic" placeholder="A buyer question or topic" autocomplete="off" />
-      <button id="q_add">Add as written</button><button class="ghost" id="q_topic">Suggest from topic</button><button class="ghost" id="q_generate">Suggest from site</button></div>
+      <button id="q_add">Add as written</button><button class="ghost" id="q_topic">Suggest from topic</button></div>
+      <p class="hint">Add as written keeps your wording. Topic suggestions follow your input language: English or Arabic.</p>
+      <div class="qcompose question-compose"><label for="q_site_language">Site suggestion language</label>
+      <select id="q_site_language"><option value="en"${p.language === 'ar' ? '' : ' selected'}>English</option><option value="ar"${p.language === 'ar' ? ' selected' : ''}>Arabic</option></select>
+      <button class="ghost" id="q_generate">Suggest from site</button></div>
       <div id="qTopicPanel"></div><p class="error" id="setupError" role="alert"></p>
     </div>
     <details class="panel fold" id="personaPanel">
@@ -5387,7 +5391,7 @@ document.addEventListener('click', async (e) => {
     const res = await fetch(`/api/projects/${state.projectId}/generate-prompts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ count: 10 })
+      body: JSON.stringify({ count: 10, language: $('q_site_language').value })
     });
     const json = await res.json();
     await render();
