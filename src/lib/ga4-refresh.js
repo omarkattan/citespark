@@ -26,7 +26,14 @@ export function createGa4Refresh({ pool, sync, globalToken = false }) {
     active++;
     let client;
     try { client = await pool.connect(); } catch (error) { active--; throw error; }
-    let locked = false, property;
+    let locked = false, property, broken = false;
+    const controller = new AbortController();
+    const lost = error => {
+      broken = true;
+      controller.abort(error instanceof Error ? error : new Error('Analytics database connection was lost. Please retry.'));
+    };
+    client.on('error', lost);
+    client.on('end', lost);
     try {
       locked = (await client.query('SELECT pg_try_advisory_lock(52441,$1::integer) AS locked', [id])).rows[0].locked;
       if (!locked) return { skipped: true, reason: 'Analytics is already importing. Please wait for it to finish.' };
@@ -38,18 +45,31 @@ export function createGa4Refresh({ pool, sync, globalToken = false }) {
       if (!property) return { skipped: true, reason: 'Choose an Analytics property first.' };
       await client.query(`INSERT INTO ga4_refresh_state(project_id,property_id,state,next_attempt) VALUES($1,$2,'running',now()+interval '20 minutes')
         ON CONFLICT(project_id) DO UPDATE SET property_id=excluded.property_id,state='running',error=null,next_attempt=excluded.next_attempt`, [id,String(property)]);
-      const result = await sync(id);
+      const result = await sync(id, { signal: controller.signal });
+      controller.signal.throwIfAborted();
       if (result.skipped) throw new Error(result.reason);
       await client.query(`UPDATE ga4_refresh_state SET state='ready',error=null,next_attempt=now()+interval '24 hours'
         WHERE project_id=$1 AND property_id=$2`, [id,String(property)]);
       return result;
     } catch (error) {
-      if (locked && property) await client.query(`UPDATE ga4_refresh_state SET state='error',error=$3,next_attempt=now()+interval '1 hour'
+      if (locked && property) try { await (broken ? pool : client).query(`UPDATE ga4_refresh_state SET state='error',error=$3,next_attempt=now()+interval '1 hour'
         WHERE project_id=$1 AND property_id=$2`, [id,String(property),String(error.message || error).slice(0,500)]);
+      } catch { /* A database outage can prevent status writes. The saved lease allows a later retry. */ }
       throw error;
     } finally {
-      try { if (locked) await client.query('SELECT pg_advisory_unlock(52441,$1::integer)', [id]); }
-      finally { client.release(); active--; }
+      try {
+        if (locked && !broken) await client.query('SELECT pg_advisory_unlock(52441,$1::integer)', [id]);
+      } catch {
+        broken = true; // Never return a client with an uncertain lock to the pool.
+      } finally {
+        try { client.release(broken); }
+        finally {
+          // A destroyed connection may emit another error while its socket closes.
+          if (!broken) client.removeListener('error', lost);
+          client.removeListener('end', lost);
+          active--;
+        }
+      }
     }
   }
   async function tick() {

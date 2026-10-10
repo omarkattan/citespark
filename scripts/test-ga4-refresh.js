@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { EventEmitter } from 'node:events';
 import { createGa4Refresh } from '../src/lib/ga4-refresh.js';
 const { PGlite } = await import(process.env.PGLITE_MODULE);
 
@@ -9,15 +10,15 @@ async function fixture() {
   const db = new PGlite();
   await db.exec(`CREATE TABLE projects(id integer PRIMARY KEY,ga4_property_id text,ga4_refresh_token text,ga4_synced_at timestamptz,ga4_sync_info jsonb);
     INSERT INTO projects VALUES(1,'123','test',null,null),(2,null,'test',null,null),(3,'789',null,null,null);`);
-  const locks = new Set();
-  const pool = { query: (...args) => db.query(...args), connect: async () => ({
+  const locks = new Set(), clients = [];
+  const pool = { query: (...args) => db.query(...args), connect: async () => { const client = Object.assign(new EventEmitter(), {
     query: (sql,args) => {
       if (sql.includes('pg_try_advisory_lock')) { const locked = !locks.has(args[0]); if (locked) locks.add(args[0]); return Promise.resolve({rows:[{locked}]}); }
       if (sql.includes('pg_advisory_unlock')) { locks.delete(args[0]); return Promise.resolve({rows:[]}); }
       return db.query(sql,args);
-    }, release() {}
-  }) };
-  return { db, pool };
+    }, release(destroy) { client.destroyed = destroy; if (destroy) locks.clear(); }
+  }); clients.push(client); return client; } };
+  return { db, pool, clients };
 }
 
 test('first import, daily refresh, existing connections and restart recovery', async () => {

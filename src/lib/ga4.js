@@ -272,12 +272,14 @@ export async function listProperties(project) {
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function runReport(project, propertyId, body) {
+async function runReport(project, propertyId, body, signal) {
+  signal?.throwIfAborted();
   const token = await accessTokenFor(project);
+  signal?.throwIfAborted();
   const res = await fetch(
     `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
     {
-      signal: AbortSignal.timeout(60000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000),
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -349,7 +351,8 @@ export function validateEventResponse(json, {landingPages=false}={}) {
  if(json.dimensionHeaders?.map(h=>h.name).join(',')!==(landingPages?'date,eventName,landingPage':'date,eventName') || json.metricHeaders?.map(h=>h.name).join(',')!=='keyEvents')throw new Error('Event breakdown fields missing.');
  for(const r of json.rows||[])if(r.dimensionValues?.length!==(landingPages?3:2) || !/^\d{8}$/.test(r.dimensionValues[0].value||'') || !r.dimensionValues[1].value || r.metricValues?.length!==1 || r.metricValues[0].value==null || r.metricValues[0].value==='' || !Number.isFinite(Number(r.metricValues[0].value)) || Number(r.metricValues[0].value)<0)throw new Error('Invalid event breakdown row.');
 }
-export async function syncGa4(projectId, { days = 540 } = {}) {
+export async function syncGa4(projectId, { days = 540, signal } = {}) {
+ signal?.throwIfAborted();
  const project=await one('SELECT * FROM projects WHERE id=$1',[projectId]);
  // A deployment-wide property must never supply another project’s traffic.
  const property=project?.ga4_property_id;
@@ -364,13 +367,13 @@ export async function syncGa4(projectId, { days = 540 } = {}) {
   metrics:[{name:'sessions'},{name:'keyEvents'},{name:'totalRevenue'}],
   dimensionFilter:{orGroup:{expressions:[{filter:{fieldName:'sessionMedium',stringFilter:{matchType:'EXACT',value:'ai-assistant',caseSensitive:false}}},{filter:{fieldName:'sessionSource',inListFilter:{values:hosts,caseSensitive:false}}}]}},limit:100000
  };
- const json=await runReport(project,property,request);
+ const json=await runReport(project,property,request,signal);
  validateTrafficResponse(json);
  const rows=aggregateTrafficRows(rowsOf(json));
  const info={version:2,propertyId:String(property),from,to,currency:/^[A-Z]{3}$/.test(json.metadata?.currencyCode||'')?json.metadata.currencyCode:null,startedAt:started.toISOString(),method:'ai_referral_v2'};
  // Event counts have their own query. Never sum sessions grouped by event name.
  try {
-  const eventJson=await runReport(project,property,{...request,dimensions:[{name:'date'},{name:'eventName'}],metrics:[{name:'keyEvents'}]});
+  const eventJson=await runReport(project,property,{...request,dimensions:[{name:'date'},{name:'eventName'}],metrics:[{name:'keyEvents'}]},signal);
   validateEventResponse(eventJson);
   info.eventBreakdown={state:'ready',rows:rowsOf(eventJson).filter(r=>Number(r.keyEvents)>0).map(r=>({date:isoDate(r.date),name:r.eventName,count:Number(r.keyEvents)}))};
  } catch(error) {
@@ -379,7 +382,7 @@ export async function syncGa4(projectId, { days = 540 } = {}) {
  }
  // Separate optional context query: a failed detail request must not hide valid totals.
  try {
-  const context=await runReport(project,property,{...request,dimensions:[{name:'date'},{name:'eventName'},{name:'landingPage'}],metrics:[{name:'keyEvents'}]});
+  const context=await runReport(project,property,{...request,dimensions:[{name:'date'},{name:'eventName'},{name:'landingPage'}],metrics:[{name:'keyEvents'}]},signal);
   validateEventResponse(context,{landingPages:true});
   info.eventContext={state:'ready',rows:rowsOf(context).filter(r=>Number(r.keyEvents)>0).map(r=>({date:isoDate(r.date),name:r.eventName,page:r.landingPage||'(not set)',count:Number(r.keyEvents)}))};
  }catch(error){console.warn('GA4 event context unavailable:',error.message);info.eventContext={state:'unavailable'};}
@@ -388,17 +391,19 @@ export async function syncGa4(projectId, { days = 540 } = {}) {
  try{
   const qualityStart=new Date(end);qualityStart.setUTCDate(qualityStart.getUTCDate()-89);
   const qualityFrom=qualityStart.toISOString().slice(0,10);
-  const quality=await runReport(project,property,{dateRanges:[{startDate:qualityFrom,endDate:to}],metrics:QUALITY_METRICS.map(name=>({name})),dimensionFilter:request.dimensionFilter,limit:1});
+  const quality=await runReport(project,property,{dateRanges:[{startDate:qualityFrom,endDate:to}],metrics:QUALITY_METRICS.map(name=>({name})),dimensionFilter:request.dimensionFilter,limit:1},signal);
   info.quality=parseTrafficQuality(quality,qualityFrom,to);
  }catch(error){console.warn('GA4 quality unavailable:',error.message);info.quality={state:'unavailable'};}
+ signal?.throwIfAborted();
  const client=await pool.connect();
- try {await client.query('BEGIN');const current=(await client.query('SELECT ga4_property_id,ga4_synced_at FROM projects WHERE id=$1 FOR UPDATE',[projectId])).rows[0];
+ try {signal?.throwIfAborted();await client.query('BEGIN');const current=(await client.query('SELECT ga4_property_id,ga4_synced_at FROM projects WHERE id=$1 FOR UPDATE',[projectId])).rows[0];
  if(String(current?.ga4_property_id)!==String(property))throw new Error('Analytics property changed during sync. Retry for the selected property.');
  if(current.ga4_synced_at&&new Date(current.ga4_synced_at)>started)throw new Error('A newer Analytics sync already completed. Its data was kept.');
  await client.query("DELETE FROM ga4_daily WHERE project_id=$1 AND classification_method='ai_referral_v2'",[projectId]);
  for(const r of rows)await client.query("INSERT INTO ga4_daily (project_id,date,platform,classification_method,landing_page,sessions,conversions,revenue) VALUES($1,$2,$3,'ai_referral_v2',$4,$5,$6,$7)",[projectId,r.date,r.platform,r.page,r.sessions,r.keyEvents,r.revenue]);
  await client.query('UPDATE projects SET ga4_synced_at=now(),ga4_sync_info=$2::jsonb WHERE id=$1',[projectId,JSON.stringify(info)]);
+ signal?.throwIfAborted();
  await client.query('COMMIT');
- }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+ }catch(error){try {await client.query('ROLLBACK');} catch {} throw error;}finally{client.release();}
  return {skipped:false,written:rows.length,from,to};
 }

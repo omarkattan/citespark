@@ -15,8 +15,17 @@ const needsSsl = /render\.com|amazonaws|supabase|neon\.tech/.test(connectionStri
 export const pool = new Pool({
   connectionString,
   ssl: needsSsl ? { rejectUnauthorized: false } : false,
+  connectionTimeoutMillis: 10000,
+  keepAlive: true,
   max: 10
 });
+
+// pg emits errors outside query promises when a socket dies between queries.
+// Both checked-out clients and idle pooled clients need listeners.
+pool.on('connect', client => {
+  client.on('error', error => console.error('Database client connection lost:', error.code || 'connection_closed'));
+});
+pool.on('error', error => console.error('Database pool connection lost:', error.code || 'connection_closed'));
 
 export async function query(text, params) {
   const res = await pool.query(text, params);
