@@ -1,3 +1,4 @@
+import { createGa4Refresh } from './lib/ga4-refresh.js';
 import { measurementLocation } from './lib/measurement-location.js';
 import { estimateEngineCosts } from './lib/measurement-cost.js';
 import {demoMilestone} from './lib/demo-funnel.js';
@@ -39,6 +40,7 @@ import { MOCK, ENGINES, ENGINE_IDS, LOCATIONS } from './lib/dataforseo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+const ga4Refresh = createGa4Refresh({ pool, sync: syncGa4, globalToken: Boolean(process.env.GOOGLE_REFRESH_TOKEN) });
 
 app.set('trust proxy', 1);
 // Stripe signs the raw body, so this route is mounted before the JSON parser.
@@ -3445,7 +3447,8 @@ app.get('/api/projects/:id/ga4', requireAuth, wrap(async (req, res) => {
     propertyId: project.ga4_property_id || null,
     propertyName: project.ga4_property_name,
     connectedAt: project.ga4_connected_at,
-    syncedAt: project.ga4_synced_at
+    syncedAt: project.ga4_sync_info?.propertyId === String(project.ga4_property_id) ? project.ga4_synced_at : null,
+    refresh: await ga4Refresh.status(project.id)
   });
 }));
 
@@ -3591,12 +3594,17 @@ app.get('/api/projects/:id/ga4/properties', requireAuth, wrap(async (req, res) =
 app.post('/api/projects/:id/ga4/property', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
-  const id = String(req.body?.propertyId || '').replace(/\D/g, '');
-  if (!id) return res.status(400).json({ error: 'Choose a property' });
-  await query('UPDATE projects SET ga4_property_id = $2, ga4_property_name = $3 WHERE id = $1', [
-    project.id, id, String(req.body?.propertyName || '').slice(0, 200) || null
-  ]);
-  res.json({ ok: true });
+  const id = String(req.body?.propertyId ?? '').trim();
+  if (id && !/^\d+$/.test(id)) return res.status(400).json({ error: 'Choose a valid property' });
+  await query(`UPDATE projects SET ga4_property_id=$2,ga4_property_name=$3,
+    ga4_synced_at=CASE WHEN ga4_property_id::text IS DISTINCT FROM $2::text THEN NULL ELSE ga4_synced_at END,
+    ga4_sync_info=CASE WHEN ga4_property_id::text IS DISTINCT FROM $2::text THEN NULL ELSE ga4_sync_info END
+    WHERE id=$1`, [project.id,id || null,id ? String(req.body?.propertyName || '').slice(0,200) || null : null]);
+  if (id) {
+    await ga4Refresh.enqueue(project.id);
+    void ga4Refresh.run(project.id).catch(error => console.warn('Analytics import failed:', error.message));
+  }
+  res.json({ ok:true, importing:Boolean(id) });
 }));
 
 app.post('/api/projects/:id/ga4/disconnect', requireAuth, wrap(async (req, res) => {
@@ -3614,7 +3622,7 @@ app.post('/api/projects/:id/sync-ga4', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
   try {
-    res.json(await syncGa4(project.id));
+    res.json(await ga4Refresh.run(project.id));
   } catch (err) {
     res.status(400).json({ error: String(err.message || err) });
   }
@@ -3776,6 +3784,7 @@ process.on('unhandledRejection', (err) => console.error('unhandled rejection:', 
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
+  ga4Refresh.start();
   console.log(`Cited listening on ${port}`);
   if (MOCK) {
     console.warn('MOCK_MODE is on. Answers are simulated and no engine is being called.');

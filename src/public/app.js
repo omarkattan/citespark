@@ -1771,6 +1771,7 @@ function helpDot(text) {
   return `<button type="button" style="${HELP_BTN}" data-help="${esc(text)}" aria-label="What does this mean?">?</button>`;
 }
 
+let ga4RefreshPoll;
 async function viewTraffic() {
   const [conn, rows] = await Promise.all([
     api(`/api/projects/${state.projectId}/ga4`).catch(() => null),
@@ -1842,8 +1843,16 @@ async function viewTraffic() {
   }
 
   /* connected and configured */
-  if (!rows || rows.error) return `<div class="panel"><h2>AI referral traffic</h2><p class="notice">Traffic data could not be loaded. This does not mean there were zero visits.</p><button class="ghost" data-open-view="traffic">Try again</button></div>` + searchPanel;
-  return `<div class="panel"><div class="panel-head"><h2>Google Analytics</h2><div class="spacer"></div><button class="ghost" id="ga4Sync">Sync now</button><button class="ghost" id="ga4Reconnect">Change account</button><button class="ghost" id="ga4Disconnect">Disconnect</button></div><div class="conn-status"><span class="tag ok">Connected</span><span class="tag">${esc(conn.propertyName || `property ${conn.propertyId}`)}</span><span class="tag">${conn.syncedAt ? `Last sync ${esc(shortDate(conn.syncedAt))}` : 'Never synced'}</span><button class="ghost" id="ga4Change">Change property</button></div><p class="error" id="ga4Error" role="alert"></p></div><div class="panel">${rows.html || '<p>Traffic unavailable. Try again.</p>'}</div>` + searchPanel;
+  const busy = ['queued','running'].includes(conn.refresh?.state) || (!conn.syncedAt && !conn.refresh);
+  const failed = conn.refresh?.state === 'error';
+  const message = busy ? (conn.syncedAt ? 'Refreshing your Analytics data…' : 'Importing your Analytics data…')
+    : failed ? 'Analytics import failed. Your connection is saved. Retry now or we’ll try again automatically.'
+    : 'Analytics refreshes automatically every day.';
+  if (busy) {
+    const projectId = state.projectId;
+    ga4RefreshPoll = setTimeout(() => { if (state.view === 'traffic' && state.projectId === projectId) render(); }, 4000);
+  }
+  return `<div class="panel"><div class="panel-head"><h2>Google Analytics</h2><div class="spacer"></div><button class="ghost" id="ga4Sync" ${busy ? 'disabled' : ''}>${busy ? 'Importing…' : failed ? 'Retry' : 'Refresh now'}</button><button class="ghost" id="ga4Reconnect">Change account</button><button class="ghost" id="ga4Disconnect">Disconnect</button></div><div class="conn-status"><span class="tag ok">Connected</span><span class="tag">${esc(conn.propertyName || `property ${conn.propertyId}`)}</span><span class="tag">${conn.syncedAt ? `Last updated ${esc(shortDate(conn.syncedAt))}` : 'First import pending'}</span><button class="ghost" id="ga4Change">Change property</button></div><p role="status">${message}</p><p class="error" id="ga4Error" role="alert">${failed ? esc(conn.refresh.error || 'Please reconnect Google if access has expired.') : ''}</p></div><div class="panel">${conn.syncedAt ? rows?.html || '<p>Traffic could not be loaded. This does not mean there were zero visits.</p>' : '<p>Your traffic results will appear after the first successful import.</p>'}</div>` + searchPanel;
 }
 
 async function loadGa4Properties() {
@@ -1948,35 +1957,44 @@ document.addEventListener('click', async (e) => {
   }
 
   if (e.target.id === 'ga4Change') {
-    await fetch(`/api/projects/${state.projectId}/ga4/property`, {
+    const res = await fetch(`/api/projects/${state.projectId}/ga4/property`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ propertyId: '' })
     });
+    if (!res.ok) { err((await res.json()).error); return; }
     await render();
     loadGa4Properties();
   }
 
   const pick = e.target.closest('[data-ga4-pick]');
   if (pick) {
-    pick.disabled = true;
-    const res = await fetch(`/api/projects/${state.projectId}/ga4/property`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ propertyId: pick.dataset.ga4Pick, propertyName: pick.dataset.ga4Name })
-    });
-    if (!res.ok) { err((await res.json()).error); pick.disabled = false; return; }
-    await render();
+    const projectId = state.projectId;
+    const choices = [...document.querySelectorAll('[data-ga4-pick]')];
+    choices.forEach(button => button.disabled = true);
+    pick.textContent = 'Starting import…';
+    try {
+      const res = await fetch(`/api/projects/${projectId}/ga4/property`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ propertyId: pick.dataset.ga4Pick, propertyName: pick.dataset.ga4Name })
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'The property could not be saved. Please retry.');
+      if (state.projectId === projectId && state.view === 'traffic') await render();
+    } catch (error) {
+      if (state.projectId === projectId && state.view === 'traffic') err(error.message);
+    } finally { choices.forEach(button => button.disabled = false); pick.textContent = 'Use this'; }
   }
 
   if (e.target.id === 'ga4Sync') {
-    e.target.disabled = true;
-    e.target.textContent = 'Syncing';
-    const res = await fetch(`/api/projects/${state.projectId}/sync-ga4`, { method: 'POST' });
-    const d = await res.json();
-    e.target.disabled = false;
-    e.target.textContent = 'Sync now';
-    if (!res.ok) err(d.error);
-    else if (d.skipped) err(d.reason);
-    else await render();
+    const button = e.target, projectId = state.projectId;
+    button.disabled = true;
+    button.textContent = 'Importing…';
+    try {
+      const res = await fetch(`/api/projects/${projectId}/sync-ga4`, { method: 'POST' });
+      const d = await res.json();
+      if (!res.ok || d.skipped) throw new Error(d.error || d.reason || 'Import failed. Please retry.');
+      if (state.projectId === projectId && state.view === 'traffic') await render();
+    } catch (error) {
+      if (state.projectId === projectId && state.view === 'traffic') err(error.message);
+    } finally { button.disabled = false; button.textContent = 'Refresh now'; }
   }
 });
 
@@ -2044,6 +2062,7 @@ document.addEventListener('click', event => {
 });
 
 async function render() {
+  clearTimeout(ga4RefreshPoll);
   const view = state.view;
   const renderId = state.renderId = (state.renderId || 0) + 1;
   syncNavigation();

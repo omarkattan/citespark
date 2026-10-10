@@ -84,6 +84,7 @@ export function authUrl({ redirectUri, state, what = 'both' }) {
 
 async function tokenRequest(body) {
   const res = await fetch('https://oauth2.googleapis.com/token', {
+    signal: AbortSignal.timeout(60000),
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(body)
@@ -276,6 +277,7 @@ async function runReport(project, propertyId, body) {
   const res = await fetch(
     `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
     {
+      signal: AbortSignal.timeout(60000),
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
