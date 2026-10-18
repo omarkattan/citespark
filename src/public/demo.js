@@ -46,7 +46,7 @@ async function scan() {
     const res = await fetch('/api/demo/scan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domain })
+      body: JSON.stringify({ domain,source:demo.source })
     });
     const d = await res.json();
     if (!res.ok) {const error=new Error(d.error || 'Could not read that site');error.limited=res.status===429;throw error;}
@@ -172,6 +172,12 @@ function showResult(d) {
       </div>
     </div>
 
+    <div class="demo-cta demo-cta-primary">
+      <p><b>See your full AI visibility report.</b> Your free demo checked one question on one AI engine. Create an account to measure more buyer questions, review competitors that appear in the answers, and find your next useful action.</p>
+      <a class="btn" href="/login?demo=1&signup=1">See Your Full AI Visibility Report</a>
+      <p class="demo-hint">Start free. No card required. Your report follows project setup and a measurement. Checks and engines depend on your plan.</p>
+    </div>
+
     <p class="demo-hint">API-generated answer sample${d.requestedModel?` · ${esc(d.requestedModel)}`:''}. These answers can contain errors. Citations identify sources the engine referenced, not independently verified claims.</p>
     <p class="demo-hint">One question on one engine. Naming is not the same as citing your website. This sample does not measure overall market visibility.</p>
     ${comparisonHtml(d.collectionProfile)}
@@ -187,7 +193,7 @@ function showResult(d) {
     <div class="demo-cta">
       <p><b>Build a clearer picture across your buyer questions.</b> Create an account to set up a project, inspect supporting evidence and review next steps. Available checks and engines depend on your plan.</p>
       <p class="demo-hint">${retained?'Your demo notes are kept in this browser for 24 hours so you can refer to them during setup. They are separate from project measurements.':'This browser could not retain your demo. You can still create an account.'}</p><div class="demo-cta-row">
-        <a class="btn" href="/login?demo=1&signup=1">${retained?'Continue with my demo':'Create a free account'}</a>
+        <a class="btn" href="/login?demo=1&signup=1">Create account and keep this demo</a>
         <button class="btn ghost" id="demoAgain">Try another question</button>
       </div>
     </div>`;

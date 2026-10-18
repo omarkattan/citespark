@@ -149,15 +149,17 @@ export function notifySignup({ email, org }) {
   });
 }
 
-export function notifyPaid({ email, plan, interval, amount }) {
+export function notifyPaid({ email, plan, interval, amount, currency='usd', minorUnits=false }) {
+  const digits=new Intl.NumberFormat('en',{style:'currency',currency}).resolvedOptions().maximumFractionDigits;
+  const paid=amount==null?null:new Intl.NumberFormat('en',{style:'currency',currency}).format(minorUnits?Number(amount)/10**digits:amount);
   notify({
     kind: 'paid',
-    title: `${plan} subscription started`,
-    subject: `Payment: ${plan}${amount ? `, $${amount}` : ''}`,
+    title: plan,
+    subject: `Payment: ${plan}${paid ? `, ${paid}` : ''}`,
     rows: [
       email ? ['Customer', email] : null,
       ['Plan', `${plan}${interval ? `, billed ${interval}ly` : ''}`],
-      amount ? ['Amount', `$${amount}`] : null
+      paid ? ['Amount received', paid] : null
     ].filter(Boolean)
   });
 }

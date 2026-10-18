@@ -196,7 +196,8 @@
     <h3>Payment information</h3>
     <p>
       Payments are processed by Stripe. We never see or store card numbers. We keep a Stripe customer reference,
-      a subscription reference, your plan and its status.
+      a subscription reference, your plan and its status. We also record confirmed subscription receipts and
+      refunds, currency and payment timestamps to measure conversions and avoid counting payments twice.
     </p>
 
     <h3>Live demo on our website</h3>
@@ -209,9 +210,20 @@
     <h3>Technical logs</h3>
     <p>
       Standard server logs recording requests, errors and timings, kept for operational and security purposes.
-      Cited uses one cookie, to keep you signed in. We do not use advertising or tracking cookies, and we do not
-      run third-party analytics on cited.ae.
+      Cited uses its first-party session cookie to keep you signed in and continue your demo through signup.
+      We record product milestones and limited campaign labels to see where setup or checkout is abandoned.
+      We do not fingerprint visitors or use advertising cookies or third-party analytics on cited.ae.
     </p>
+    <h3>Demo continuity and email choices</h3>
+    <p>Demo setup notes are saved in your browser for 24 hours. If you register in the same browser within
+      30 days, we can link that demo to your account and restore its setup context. A tested domain does not
+      prove company ownership. Anonymous journey records expire after 90 days. Identified demo context is
+      cleared after 90 days, while account milestones and payment records remain until account deletion or
+      applicable retention requirements. We do not link visits using researched email addresses.</p>
+    <p>Setup and upgrade follow-up emails are optional and require an explicit opt-in and verified address.
+      You can stop them using the unsubscribe link or email preferences in Billing. We retain a one-way hash
+      of a suppressed address to respect an opt-out after account deletion. Essential account, security and
+      payment communications are separate. Resend delivers our emails and reports delivery failures and complaints.</p>
 
     <h2>Google API Services: Limited Use disclosure</h2>
     <div class="legal-callout">

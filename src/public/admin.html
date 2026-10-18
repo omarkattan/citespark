@@ -48,6 +48,13 @@
 <div class="wrap">
   <h1>Accounts</h1>
   <p class="dek">Everyone who has signed up, and what it has cost.</p>
+  <section aria-labelledby="conversionTitle" style="margin-bottom:36px">
+    <h2 id="conversionTitle">Demo to paid</h2>
+    <label>Acquisition cohort <select id="conversionDays"><option value="30">Last 30 days</option><option value="7">Last 7 days</option><option value="90">Last 90 days</option><option value="365">Last year</option></select></label>
+    <p class="hint">Prospect automation is off unless explicitly approved in the deployment settings. Previews send nothing.</p>
+    <div id="conversionDashboard" aria-live="polite"></div>
+    <section id="conversionDetail" hidden style="padding:20px;border:1px solid var(--line);margin:20px 0"></section>
+  </section>
   <div id="body"><p class="hint">Loading</p></div>
 </div>
 
@@ -141,5 +148,6 @@ document.addEventListener('click', async (e) => {
 
 load();
 </script>
+<script src="/admin-conversion.js?v=1"></script>
 </body>
 </html>
