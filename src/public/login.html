@@ -37,6 +37,10 @@
       </div>
 
       <button id="submit" style="width:100%">Sign in</button>
+      <div id="consentField" hidden style="margin:16px 0;font-size:13px;line-height:1.5">
+        <label><input id="marketingConsent" type="checkbox" style="width:auto;margin-right:8px">Email me setup help and relevant plan suggestions. Optional, unsubscribe anytime.</label>
+        <p>We keep your demo context to help you continue setup. <a href="/privacy">Privacy</a></p>
+      </div>
       <p class="error" id="error" role="alert"></p>
       <p class="switch">
         <a href="#" id="toggle">Create an account instead</a>
@@ -58,6 +62,7 @@
     $('submit').textContent = mode === 'login' ? 'Sign in' : 'Create account';
     $('toggle').textContent = mode === 'login' ? 'Create an account instead' : 'Sign in instead';
     $('orgField').hidden = mode === 'login';
+    $('consentField').hidden = mode === 'login';
     $('password').setAttribute('autocomplete', mode === 'login' ? 'current-password' : 'new-password');
     $('error').textContent = '';
   });
@@ -109,7 +114,8 @@
         body: JSON.stringify({
           email: $('email').value.trim(),
           password: $('password').value,
-          orgName: $('orgName').value.trim()
+          orgName: $('orgName').value.trim(),
+          marketingConsent: mode==='register' && $('marketingConsent').checked
         })
       });
       const json = await res.json();

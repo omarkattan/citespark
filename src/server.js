@@ -2,6 +2,9 @@ import { createGa4Refresh } from './lib/ga4-refresh.js';
 import { measurementLocation } from './lib/measurement-location.js';
 import { estimateEngineCosts } from './lib/measurement-cost.js';
 import {demoMilestone} from './lib/demo-funnel.js';
+import {createConversionStore,captureAcquisition,CONSENT_VERSION} from './lib/conversion.js';
+import {conversionRoutes} from './lib/conversion-routes.js';
+import {verifyEmailWebhook,suppressDelivery} from './lib/conversion-email-webhook.js';
 import {selectedDemoQuestions} from './lib/demo-setup.js';
 import { reportNotePreview } from './lib/report-note.js';
 import { validateDecision, decisionReportText } from './lib/recommendation-decision.js';
@@ -40,25 +43,29 @@ import { MOCK, ENGINES, ENGINE_IDS, LOCATIONS } from './lib/dataforseo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+const conversion=createConversionStore(pool);
 const ga4Refresh = createGa4Refresh({ pool, sync: syncGa4, globalToken: Boolean(process.env.GOOGLE_REFRESH_TOKEN) });
 
 app.set('trust proxy', 1);
 // Stripe signs the raw body, so this route is mounted before the JSON parser.
 app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   if (!stripeEnabled) return res.status(503).json({ error: 'Billing is not configured' });
+  let event;
   try {
     const s = await getStripe();
-    const event = s.webhooks.constructEvent(
+    event = s.webhooks.constructEvent(
       req.body,
       req.headers['stripe-signature'],
       process.env.STRIPE_WEBHOOK_SECRET
     );
-    await handleWebhook(event);
-    res.json({ received: true });
-  } catch (err) {
-    console.error('stripe webhook rejected:', err.message);
-    res.status(400).json({ error: `Webhook error: ${err.message}` });
-  }
+  } catch {return res.status(400).json({error:'Invalid webhook signature'});}
+  try {await handleWebhook(event);res.json({received:true});}
+  catch {console.error('Stripe webhook processing failed; retry required');res.status(500).json({error:'Webhook processing failed'});}
+});
+app.post('/api/resend/webhook',express.raw({type:'application/json',limit:'128kb'}),async(req,res)=>{
+  if(!process.env.RESEND_WEBHOOK_SECRET)return res.status(503).end();
+  let event;try{event=verifyEmailWebhook(req.body,req.headers,process.env.RESEND_WEBHOOK_SECRET);}catch{return res.status(400).end();}
+  try{await suppressDelivery(event,pool);res.json({received:true});}catch{res.status(500).end();}
 });
 
 /**
@@ -98,6 +105,8 @@ app.use(
 );
 
 const publicDir = path.join(__dirname, 'public');
+app.use(captureAcquisition);
+app.use(conversionRoutes({db:pool,requireAuth,requireAdmin,secret:process.env.SESSION_SECRET}));
 const STARTED_AT = new Date().toISOString();
 
 // Country codes read badly inside a generated question, so name the market.
@@ -205,8 +214,8 @@ app.post('/api/register', wrap(async (req, res) => {
   const org = await one('INSERT INTO orgs (name) VALUES ($1) RETURNING id', [orgName || address.split('@')[1]]);
   const hash = await bcrypt.hash(password, 10);
   const user = await one(
-    'INSERT INTO users (org_id, email, password_hash) VALUES ($1,$2,$3) RETURNING id, org_id',
-    [org.id, address, hash]
+    'INSERT INTO users (org_id, email, password_hash,marketing_opt_in_at,marketing_consent_version) VALUES ($1,$2,$3,$4,$5) RETURNING id, org_id',
+    [org.id, address, hash,req.body.marketingConsent===true?new Date():null,req.body.marketingConsent===true?CONSENT_VERSION:null]
   );
 
   await recordSignup(ip, address);
@@ -1633,9 +1642,9 @@ app.post('/api/demo/scan', wrap(async (req, res) => {
   const limits = await checkLimits(ipHash, {internal:await demoInternal(req)});
   if (!limits.ok) return res.status(429).json({ error: limits.reason });
 
-  await demoMilestone(req,'started',req.body?.domain);
   const result = await proposeQuestions(req.body?.domain);
   if (!result.ok) return res.status(422).json(result);
+  await demoMilestone(req,'started',result);
   res.json({ ...result, remaining: limits.remaining });
 }));
 
@@ -1655,7 +1664,7 @@ app.post('/api/demo/run', wrap(async (req, res) => {
   });
   if (!result.ok) return res.status(422).json(result);
 
-  await demoMilestone(req,'result');
+  await demoMilestone(req,'result',result);
 
   // Not for a cached repeat: the same link doing the rounds is not a new lead.
   if (!result.cached && result.status !== 'inconclusive') {
@@ -1691,7 +1700,8 @@ app.get('/api/plans', (_req, res) => {
 
 app.get('/api/billing', requireAuth, wrap(async (req, res) => {
   const e = await getEntitlements(req.session.orgId);
-  res.json({ ...e, stripeEnabled });
+  const report=await conversion.safe(()=>conversion.one("SELECT occurred_at FROM conversion_events WHERE dedupe_key=$1",[`report:${req.session.orgId}`]));
+  res.json({ ...e, stripeEnabled,firstReportAt:report?.occurred_at||null });
 }));
 
 app.post('/api/billing/checkout', requireAuth, wrap(async (req, res) => {
@@ -1706,6 +1716,8 @@ app.post('/api/billing/checkout', requireAuth, wrap(async (req, res) => {
       interval: interval === 'year' ? 'year' : 'month',
       origin: `${req.protocol}://${req.get('host')}`
     });
+    await conversion.safe(()=>conversion.event({name:'checkout_started',orgId:req.session.orgId,
+      key:`checkout:${session.id}`,detail:{plan,interval:interval==='year'?'year':'month'}}));
     res.json({ url: session.url });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -2618,6 +2630,7 @@ app.get('/api/projects/:id/report', requireAuth, wrap(async (req, res) => {
   const format = String(req.query.format || 'html');
   const started = performance.now();
   const report = await buildReport(project.id, { from: req.query.from, to: req.query.to }, {presentationOnly:format==='html' && req.query.detail!=='1'});
+  await conversion.safe(()=>conversion.report(req.session.orgId,project.id,report));
   if(format==='html' && req.query.detail!=='1'){
     const {currentAnalysis}=await import('./lib/report-analyst-store.js');
     try{const analysis=await currentAnalysis(report);if(analysis?.stale)report.analystNotice='AI analysis is withheld because its evidence has changed. Review a fresh draft in report preparation.';else report.analyst=analysis;}

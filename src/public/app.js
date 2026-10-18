@@ -98,6 +98,7 @@ window.fetch = async (...args) => {
 
 /** What is available above where they are, and what it would unlock. */
 async function showUpgrade(reason) {
+  window.CitedConversion?.pricing('upgrade');
   const existing = document.getElementById('upgradeSheet');
   if (existing) existing.remove();
 
@@ -137,7 +138,7 @@ async function showUpgrade(reason) {
                     </ul>
                     ${
                       canPay
-                        ? `<button class="btn" data-upgrade-to="${esc(p.id)}">Choose ${esc(p.name)}</button>`
+                        ? current!=='free'&&billing?.hasStripeCustomer ? '<button class="btn" data-portal="1">Change plan in billing</button>' : `<button class="btn" data-upgrade-to="${esc(p.id)}">Choose ${esc(p.name)}</button>`
                         : '<span class="hint">Contact us to switch plan</span>'
                     }
                   </div>`
@@ -354,6 +355,7 @@ async function viewOverview() {
     <p>${measured ? `Latest measurement: ${esc(shortDate(o.cycle))}. Start with one evidence review below.` : 'Review your questions and their origins, then measure how AI engines answer them.'}</p></div>
     <div class="overview-ctas"><a class="btn" href="/api/projects/${state.projectId}/report/prepare" target="_blank" rel="noopener">Prepare report</a>
     ${measured && suggested.length ? '<button class="ghost" data-overview-next>Review next task</button>' : '<button class="btn" data-open-view="questions">Review questions</button>'}</div></div>
+    ${measured && state.billing?.firstReportAt && state.billing.plan?.id==='free' && !state.billing.internal ? '<section class="panel"><h3>Ready to cover more buyer questions?</h3><p>Your first report is available. Compare plans for more questions, additional engines and a larger monthly allowance. Your existing report and actions remain available on Free.</p><button data-goto-billing="1">Compare plans</button></section>' : ''}
     <div class="overview-summary overview-focus">
       <section class="panel"><h3>What changed</h3><p>${esc(changes)}</p><p class="hint">Compare the same questions and engines before calling a difference a trend.</p><button class="ghost" data-open-view="trends">Review changes over time</button></section>
       <section class="panel"><h3>What matters</h3><p class="overview-number">${measured ? pct(o.visibility) : 'Not measured'}</p>
@@ -2243,9 +2245,15 @@ async function boot() {
    */
   state.emailVerified = me.emailVerified !== false;
 
-  await loadProjectList();
+  state.serverDemoHint=await api('/api/conversion/handoff').catch(()=>null);
   await refreshUsagePill();
+  await loadProjectList();
   showDemoHandoff();
+
+  const conversionView=new URLSearchParams(location.search);
+  if(conversionView.get('view')==='billing'||conversionView.has('checkout')){
+    state.view='billing';await render();
+  }
 
   if(!returned) {
     const destination=reportSourceDestination(requestedSourceUrl,state.projectId);
@@ -5620,9 +5628,10 @@ function renewLine(b) {
 }
 
 async function viewBilling() {
-  const [b, meta] = await Promise.all([api('/api/billing'), api('/api/plans')]);
+  const [b, meta, preferences] = await Promise.all([api('/api/billing'), api('/api/plans'),api('/api/email-preferences').catch(()=>null)]);
   if (!b) return '';
   state.billing = b;
+  window.CitedConversion?.pricing('billing');
 
   const u = b.usage;
   const barClass = u.percent >= 90 ? 'over' : u.percent >= 70 ? 'warn' : '';
@@ -5646,6 +5655,8 @@ async function viewBilling() {
         cta = `<button class="ghost" data-portal="1">Switch to ${yearly ? 'yearly' : 'monthly'}</button>`;
       } else if (p.id === 'free') {
         cta = `<button class="ghost" data-portal="1">Downgrade</button>`;
+      } else if(b.plan.id!=='free'&&b.hasStripeCustomer){
+        cta = `<button class="ghost" data-portal="1">Change plan in billing</button>`;
       } else {
         cta = `<button data-buy="${p.id}">Choose ${esc(p.name)}</button>`;
       }
@@ -5671,6 +5682,8 @@ async function viewBilling() {
 
   return `
   <div class="panel">
+    ${new URLSearchParams(location.search).has('checkout')?'<p class="notice">Check your current plan below. A return from checkout does not itself confirm payment. If payment is still processing, refresh this page shortly.</p>':''}
+    <details><summary>Email preferences</summary><label><input type="checkbox" id="conversionOptIn" style="width:auto" ${preferences?.optedIn?'checked':''}> Email me setup help and relevant plan suggestions.</label><button class="ghost" id="saveConversionPreferences">Save preference</button><p id="conversionPreferenceStatus" role="status"></p></details>
     <div class="panel-head">
       <h2>Your plan</h2>
       <div class="spacer"></div>
@@ -6204,16 +6217,24 @@ document.addEventListener('click',async event=>{
 });
 
 
+document.addEventListener('click',async event=>{
+ if(event.target.id!=='saveConversionPreferences')return;
+ const button=event.target;button.disabled=true;
+ try{const response=await fetch('/api/email-preferences',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({optedIn:$('conversionOptIn').checked})});
+ const data=await response.json();$('conversionPreferenceStatus').textContent=response.ok?'Saved.':data.error||'Could not save.';
+ }catch{$('conversionPreferenceStatus').textContent='Could not save. Please try again.';}finally{button.disabled=false;}
+});
+
 function showDemoHandoff(){
  $('demoHandoff')?.remove();
- const draft=window.CitedDemoHandoff?.read();
+ const draft=window.CitedDemoHandoff?.read()||state.serverDemoHint;
  if(!draft)return;
  const domainKey=value=>String(value||'').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/^www\./,'').replace(/\/$/,'');
  const existing=(state.projects||[]).find(p=>domainKey(p.domain)===domainKey(draft.site.domain));
  const box=document.createElement('section');box.className='panel';box.id='demoHandoff';
- box.innerHTML=`<h2>Continue your demo: ${esc(draft.site.domain)}</h2><p>Browser-local notes, retained for 24 hours. These are not verified project measurements and are not included in reports.</p><details><summary>Review tested questions and demo notes</summary>${(Array.isArray(draft.results)?draft.results:[]).slice(0,10).map(r=>`<article><h3>${esc(r.question)}</h3><p>${!r.collectionProfile?'Older demo note · score unavailable':r.status==='inconclusive'||r.mentions==null?'Inconclusive · score withheld':`${esc(r.mentions)} / ${esc(r.runs)} answers`} · ${esc(r.engine)} · ${esc(r.collectedAt||'Collection date unavailable')}</p><p>${esc(r.excerpt||'')}</p></article>`).join('')}</details><p>${existing?'This site already has a project in your account. Review its saved questions before running a measurement.':'Use these notes to choose your project questions. You can select these questions during setup.'} Demo answers are never imported as project measurements, and setup does not run new checks.</p><button type="button" id="demoUseSetup">${existing?'Open project questions':'Use this site for setup'}</button> <button type="button" class="ghost" id="demoDiscard">Discard demo notes</button>`;
+ box.innerHTML=`<h2>Continue your demo: ${esc(draft.site.domain)}</h2><p>${draft.serverSaved?"Demo context saved with your account for setup.":"Browser-local notes, retained for 24 hours."} These are not verified project measurements and are not included in reports.</p><details><summary>Review tested questions and demo notes</summary>${(Array.isArray(draft.results)?draft.results:[]).slice(0,10).map(r=>`<article><h3>${esc(r.question)}</h3><p>${!r.collectionProfile?'Older demo note · score unavailable':r.status==='inconclusive'||r.mentions==null?'Inconclusive · score withheld':`${esc(r.mentions)} / ${esc(r.runs)} answers`} · ${esc(r.engine)} · ${esc(r.collectedAt||'Collection date unavailable')}</p><p>${esc(r.excerpt||'')}</p></article>`).join('')}</details><p>${existing?'This site already has a project in your account. Review its saved questions before running a measurement.':'Use these notes to choose your project questions. You can select these questions during setup.'} Demo answers are never imported as project measurements, and setup does not run new checks.</p><button type="button" id="demoUseSetup">${existing?'Open project questions':'Use this site for setup'}</button> <button type="button" class="ghost" id="demoDiscard">Discard demo notes</button>`;
  document.querySelector('main').prepend(box);
- $('demoDiscard').onclick=()=>{window.CitedDemoHandoff.clear();box.remove();};
+ $('demoDiscard').onclick=()=>{window.CitedDemoHandoff.clear();state.serverDemoHint=null;box.remove();if(typeof fetch==='function')fetch('/api/conversion/handoff/discard',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).catch(()=>{});};
  $('demoUseSetup').onclick=async()=>{
   if(existing){
    const button=$('demoUseSetup');button.disabled=true;

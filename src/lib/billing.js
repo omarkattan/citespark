@@ -1,5 +1,7 @@
 import 'dotenv/config';
-import { one, many, query } from '../db/index.js';
+import { one, many, query, pool } from '../db/index.js';
+import {transactionalWebhook} from './conversion-billing.js';
+import {createConversionStore} from './conversion.js';
 import { PLANS, planFor, stripePriceId, WORST_CASE_CALL } from './plans.js';
 import { ENGINE_IDS } from './dataforseo.js';
 import { notifyPaid } from './notify.js';
@@ -26,7 +28,7 @@ export async function getStripe() {
   const { default: Stripe } = await import('stripe');
   // No apiVersion pin: use whatever the account is configured for, so this
   // keeps working as Stripe moves versions forward.
-  stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+  stripe = new Stripe(process.env.STRIPE_SECRET_KEY,{timeout:20000,maxNetworkRetries:1});
   return stripe;
 }
 
@@ -349,7 +351,7 @@ export async function ensureCustomer(orgId, email) {
     if (existing && !existing.deleted) return sub.stripe_customer_id;
   } catch (err) {
     if (!isMissingObject(err)) throw err;
-    console.warn(`Stripe customer ${sub.stripe_customer_id} not visible to this key, creating a new one for org ${orgId}`);
+    console.warn('Stored billing customer is unavailable in the configured Stripe mode');
   }
   return createCustomer(orgId, email);
 }
@@ -362,6 +364,10 @@ export async function createCheckoutSession({ orgId, email, planId, interval, or
   if (!priceId) throw new Error(`No Stripe price configured for ${planId} ${interval}ly`);
 
   const customerId = await ensureCustomer(orgId, email);
+  const current=await getSubscription(orgId);
+  if(current.stripe_subscription_id&&current.plan!=='free'&&['active','trialing','past_due'].includes(current.status)){
+    throw new Error('Use Manage billing to change your existing subscription.');
+  }
   return s.checkout.sessions.create({
     mode: 'subscription',
     customer: customerId,
@@ -423,7 +429,9 @@ function periodEnd(subscription) {
   );
 }
 
-async function applySubscription(subscription) {
+export async function applySubscription(subscription,db) {
+  const {one,event}=createConversionStore(db);
+  const query=(sql,args)=>db.query(sql,args);
   const orgId = Number(subscription.metadata?.org_id);
   const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id;
   const priceId = subscription.items?.data?.[0]?.price?.id;
@@ -434,29 +442,22 @@ async function applySubscription(subscription) {
     : await one('SELECT org_id FROM subscriptions WHERE stripe_customer_id = $1', [customerId]);
 
   if (!target) {
-    console.warn('Stripe event for an unknown org', { orgId, customerId });
+    console.warn('Stripe event has no matching account');
     return;
   }
 
   const cancelled = ['canceled', 'incomplete_expired', 'unpaid'].includes(subscription.status);
 
-  // Worth knowing about immediately, and only on the way in.
-  const previous = await one('SELECT plan FROM subscriptions WHERE org_id = $1', [target.org_id]);
-  if (!cancelled && mapped?.plan && previous?.plan !== mapped.plan && mapped.plan !== 'free') {
-    const owner = await one('SELECT email FROM users WHERE org_id = $1 ORDER BY id LIMIT 1', [target.org_id]);
-    notifyPaid({
-      email: owner?.email,
-      plan: PLANS[mapped.plan]?.name || mapped.plan,
-      interval: mapped.interval,
-      amount: mapped.interval === 'year' ? PLANS[mapped.plan]?.priceAnnual : PLANS[mapped.plan]?.price
-    });
-  }
+  // An obsolete subscription must not cancel a newer subscription on the same account.
+  const previous = await one('SELECT * FROM subscriptions WHERE org_id=$1',[target.org_id]);
+  if(previous.stripe_subscription_id!==subscription.id && Number(previous.stripe_subscription_created)>Number(subscription.created||0))return;
   await query(
     `UPDATE subscriptions SET
        plan = $2, status = $3, interval = $4,
        stripe_subscription_id = $5, stripe_customer_id = COALESCE(stripe_customer_id, $6),
        current_period_end = to_timestamp($7),
        cancel_at_period_end = $8,
+       stripe_subscription_created = $9,
        updated_at = now()
      WHERE org_id = $1`,
     [
@@ -467,35 +468,24 @@ async function applySubscription(subscription) {
       subscription.id,
       customerId,
       periodEnd(subscription),
-      Boolean(subscription.cancel_at_period_end)
+      Boolean(subscription.cancel_at_period_end),
+      subscription.created||0
     ]
   );
+  await event({name:'subscription_changed',orgId:target.org_id,
+    key:`subscription:${subscription.id}:${subscription.status}:${priceId}:${periodEnd(subscription)}:${Boolean(subscription.cancel_at_period_end)}`,
+    detail:{plan:cancelled?'free':mapped?.plan||'free',status:subscription.status,cancelAtPeriodEnd:Boolean(subscription.cancel_at_period_end)}});
 }
 
 /** Idempotent webhook handling. Stripe retries, so events are deduped by ID. */
 export async function handleWebhook(event) {
-  const seen = await one('SELECT id FROM billing_events WHERE id = $1', [event.id]);
-  if (seen) return { duplicate: true };
-  await query('INSERT INTO billing_events (id, type) VALUES ($1,$2) ON CONFLICT DO NOTHING', [event.id, event.type]);
-
-  switch (event.type) {
-    case 'checkout.session.completed': {
-      const session = event.data.object;
-      if (session.subscription) {
-        const s = await getStripe();
-        const subscription = await s.subscriptions.retrieve(session.subscription);
-        subscription.metadata = { ...subscription.metadata, org_id: session.metadata?.org_id };
-        await applySubscription(subscription);
-      }
-      break;
-    }
-    case 'customer.subscription.created':
-    case 'customer.subscription.updated':
-    case 'customer.subscription.deleted':
-      await applySubscription(event.data.object);
-      break;
-    default:
-      break;
+  const live=/^(sk|rk)_live_/.test(process.env.STRIPE_SECRET_KEY||'');
+  if(event.livemode!==live)throw Error('Stripe mode mismatch');
+  const result=await transactionalWebhook(event,{pool,stripe:await getStripe(),applySubscription});
+  if(result.receipt?.livemode){
+    const receipt=result.receipt;
+    const owner=await one('SELECT email FROM users WHERE org_id=$1 ORDER BY id LIMIT 1',[receipt.org_id]);
+    notifyPaid({email:owner?.email,plan:'Confirmed subscription payment',amount:receipt.amount_paid,currency:receipt.currency,minorUnits:true});
   }
-  return { handled: true };
+  return result;
 }
