@@ -5221,4 +5221,33 @@ await test('smoke-cycle.js exists and checks the right things', async () => {
   assert.ok(/DROP SCHEMA/i.test(src), 'drops the schema in teardown');
 });
 
+console.log('\nruntime pin');
+
+/**
+ * Render picks the Node version from package.json "engines" (no NODE_VERSION
+ * is set on the service). An unbounded range like ">=20" resolves to whatever
+ * release is newest at build time, which is how production sat on 26.11.1
+ * after the 21 Oct 2026 security release (TLS hostname bypass, Brotli RCE,
+ * eMudhra CA keys). Fixed in 26.12.1. Keep a floor at the patched release and
+ * an upper bound so a rebuild never jumps a major version unannounced.
+ */
+await test('engines pins Node to a patched release with an upper bound', async () => {
+  const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const range = pkg.engines?.node || '';
+  const floor = range.match(/>=\s*(\d+)\.(\d+)\.(\d+)/);
+  assert.ok(floor, `engines.node has a >= floor (got "${range}")`);
+  const [maj, min, pat] = floor.slice(1).map(Number);
+  const patched = { 22: [23, 4], 24: [22, 1], 26: [12, 1] }[maj];
+  assert.ok(patched || maj > 26, `floor major ${maj} is a supported line`);
+  if (patched) {
+    const ok = min > patched[0] || (min === patched[0] && pat >= patched[1]);
+    assert.ok(ok, `floor ${maj}.${min}.${pat} is at or above ${maj}.${patched.join('.')}`);
+  }
+  assert.ok(/<\s*\d+/.test(range), `engines.node has an upper bound (got "${range}")`);
+
+  // Render builds with `npm ci`, which needs the lockfile in step with package.json.
+  const lock = JSON.parse(fs.readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'));
+  assert.equal(lock.packages?.['']?.engines?.node, range, 'package-lock.json carries the same engines range');
+});
+
 console.log(`\n${pass} checks passed\n`);
