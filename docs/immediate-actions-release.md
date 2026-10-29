@@ -23,4 +23,13 @@ Goal: a new user can sign in, add a site, review questions, run a measurement an
 - Live testing exposed generated quotations that did not match the stored passages, then an invalid JSON response. Drafting now selects original excerpt IDs and uses a strict output schema. The server rejects truncated responses and unsupported draft prices or calculated totals.
 - A public-page excerpt check is not a full site audit. Blocked or unmatched pages produce a stated verification task rather than invented page findings.
 
-No database migration, new dependency, authentication permission change or plan change is required.
+The action feature adds no domain-data migration or new dependency. Deployment recovery adds a schema receipt table, described below.
+
+## Final live result and deployment recovery
+
+- Production `/api/version` served commit `9d623a6` at 14:57 UTC on 29 October 2026. The app loaded `app.js?v=131`.
+- Version 4 action drafting completed with `stop_reason=end_turn`. Two SkinCycles actions passed original-passage validation. The new pricing draft failed the unsupported-figures check, fell back safely, and the existing human pricing decision remained visible.
+- Review and save action opened the correct question and populated the editable decision fields. The anti-aging collection action was edited and saved as Needs investigation, with approved-product-fact checks and editorial FAQ questions. The saved copy was previewed and explicitly included in the client report. No assignment or external message was sent.
+- A supplied Render build log showed a database connection closing while applying schema.sql. The failure was not an npm installation or JavaScript syntax error. `src/db/migrate.js` now applies the schema and its hash receipt in one transaction, retries transient connection/lock failures at most three times with a fresh client, limits lock waits and skips unchanged schema work. SQL and permission errors still fail the build.
+- Four migration recovery tests pass. The complete schema applied once and skipped on repeat in PostgreSQL-compatible test storage. The transaction advisory lock was mocked in that storage test. Production subsequently deployed successfully.
+- The migration receipt table is the only new infrastructure table. No authentication permissions or account plans changed.
