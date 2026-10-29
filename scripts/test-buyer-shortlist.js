@@ -76,3 +76,8 @@ test('property shortlist includes supported strength and missing presence withou
  assert.deepEqual(reviewShortlist(rows).map(x=>x.id),[1,2]);
  assert.equal(JSON.stringify(rows),original);
 });
+
+test('consumer product selection and price questions are buyer decisions, clinical topics remain unqualified',()=>{
+ for(const text of ['What are the best science-based skincare products for anti-aging?','How much should I spend on quality anti-aging skincare?','Which brands sell skincare for dry skin?','ما افضل منتجات العناية بالبشرة؟','كم سعر منتجات العناية بالبشرة؟'])assert.equal(questionRole(text),'Buyer decision',text);
+ for(const text of ['What is skincare?','How do I reduce pigmentation on my face?','What ingredients actually work for wrinkles and fine lines?','ما هي العناية بالبشرة؟'])assert.equal(questionRole(text),'Topic to qualify',text);
+});

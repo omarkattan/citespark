@@ -79,3 +79,14 @@ test('opening analyst page immediately shows progress without making a paid requ
  w.dispatchEvent(new w.Event('pageshow'));assert.equal(link.textContent,'AI report analysis');assert.equal(w.document.querySelector('#analyst-opening-status'),null);
  dom.window.close();
 });
+
+test('saved decision and confirmed report updates refresh counts without discarding another draft',async()=>{
+ const {JSDOM}=await import(process.env.JSDOM_MODULE);const dom=new JSDOM(reportPreparationHtml({id:28,name:'Bank'},[row,{...row,id:2,selected_at:null}]),{runScripts:'outside-only',url:'https://cited.test/report/prepare'});const w=dom.window;
+ w.fetch=async(url,options)=>({ok:true,json:async()=>options?{}:{current:{title:'Old',notes:'Old copy'},proposed:{title:'New',notes:'New copy'},canInclude:true,changed:true,version:'v1'}});
+ w.eval(readFileSync(new URL('../src/public/report-preparation.js',import.meta.url),'utf8'));
+ const first=w.document.querySelector('[data-rec="1"]'),other=w.document.querySelector('[data-rec="2"]');other.querySelector('[name=change]').value='Keep this unsaved draft';other.querySelector('[name=change]').dispatchEvent(new w.Event('input',{bubbles:true}));
+ for(const field of first.querySelectorAll('textarea'))field.value='Recorded delivery detail';first.querySelector('form').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await new Promise(r=>setTimeout(r,0));
+ assert.match(w.document.querySelector('[data-preparation-counts]').textContent,/1 selected · 1 changed copies · 0/);assert.equal(first.querySelector('[data-preview]').textContent,'Preview report update');
+ first.querySelector('[data-preview]').click();await new Promise(r=>setTimeout(r,0));first.querySelector('[data-preview-panel] button').click();await new Promise(r=>setTimeout(r,0));assert.match(w.document.querySelector('[data-preparation-counts]').textContent,/1 selected · 0 changed copies · 0/);assert.equal(other.querySelector('[name=change]').value,'Keep this unsaved draft');
+ first.querySelector('[data-remove]').click();await new Promise(r=>setTimeout(r,0));assert.match(w.document.querySelector('[data-preparation-counts]').textContent,/0 selected/);assert.equal(first.querySelector('[data-preview]').textContent,'Preview report update');dom.window.close();
+});

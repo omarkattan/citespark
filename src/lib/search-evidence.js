@@ -33,12 +33,14 @@ export function questionRole(text) {
   // Property selection is a buyer decision too. Keep this separate from brand
   // detection and retain a wording signal so definitions are not treated as purchase intent.
   const property = /\b(real estate|properties|property|apartments?|villas?|homes?|houses?|residences?|residential (?:communities|developments?)|developers?)\b|عقار|شقق|شقة|فلل|فيلا|مساكن|سكن|المطور|مطورين/.test(wording);
+  const consumer = /\b(products?|brands?|skincare|skin care|serums?|moisturi[sz]ers?|cosmetics?)\b|منتجات|علامات تجارية|العناية بالبشرة|سيروم|مرطب/.test(wording);
+  const consumerPrice = /\b(prices?|pricing|spend|budget|afford|worth|buy|buying|purchase)\b|سعر|اسعار|ميزانية|انفق|اشتري|شراء/.test(wording);
   const selection = /\b(which|who|where|best|top|choose|choosing|compare|comparison|versus|vs)\b|افضل|اختار|اختيار|مقارنة|اي بنك|اي البنوك|اي شركات|من يقدم|اين/.test(wording);
   const terms = /\b(fees?|costs?|minimum|eligible|eligibility|requirements?|interest rates?)\b|رسوم|تكلف|الحد الادنى|شروط|متطلبات|الفائدة/.test(wording);
   const action = /\b(open|apply|switch|transfer|hire)\b|افتح|فتح|اتقدم|التقدم|احول|تحويل/.test(wording);
   const propertyDecision = selection || terms
     || /\b(buy|buying|purchase|purchasing|rent|renting|payment plans?|handover|worth|trade-offs?|available)\b|شراء|للبيع|للايجار|استئجار|خطط سداد|خطط السداد|خطط دفع|خطط الدفع|تستحق|مقارنة|اقارن|الفروق|تختلف|الخيارات المتاحة|ما (?:المشاريع|المجمعات|المطورون|المطورين)/.test(wording);
-  return (offering && (selection || terms || action)) || (property && propertyDecision)
+  return (offering && (selection || terms || action)) || (property && propertyDecision) || (consumer && (selection || terms || consumerPrice))
     ? 'Buyer decision' : 'Topic to qualify';
 }
 export function reviewShortlist(questions) {

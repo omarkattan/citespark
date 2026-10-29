@@ -39,6 +39,9 @@ Baseline: Cited main commit c19d7e5c1b3341af932942a0befa98b9fd277088. That relea
 | UX-014 | Open a recommendation | A question with exactly one saved check requires opening the question group, then opening its only task. Reproduced on the pricing question. | A redundant disclosure delays access to evidence. | Open the single inner task automatically when its question is opened. | Follow-up implemented and covered by interaction tests. Live verification pending. |
 | UX-015 | Answer to report decision | Record your review conclusion opens freeform notes, while a separate Record or update decision form stores the structured report recommendation. After saving that decision, the report preview sits below the long answer. | Two overlapping recording paths and a distant next step obscure the delivery flow. | Route the answer CTA to the structured decision, call the older route Review notes, and show Preview for client report beside the saved-decision confirmation. | Follow-up implemented and covered by interaction tests. Live verification pending. |
 
+| UX-016 | Edit a report decision | Saving a decision and updating its report copy leaves the header counts and row labels stale until manual reload. Reproduced while adding delivery details to the pricing review. | The page can still say fields are missing or a report copy is current after it changes. | Refresh local row state and summary counts after confirmed saves and selections, preserving unsaved forms elsewhere. | Implemented and tested. Live verification pending. |
+| UX-017 | Consumer report shortlist | The full SkinCycles report says no obvious buyer-decision wording was identified, despite a best-products question and a pricing question. The heuristic recognises financial services and property but omits consumer products. | A consumer brand's most relevant buying questions disappear from the report shortlist. | Recognise explicit consumer product/brand selection and price wording, retaining topic-only questions and the inference label. | Implemented and tested in English and Arabic. Live verification pending. |
+
 ## Test constraints, separate from product issues
 
 | ID | Constraint | Effect |
@@ -50,7 +53,7 @@ Baseline: Cited main commit c19d7e5c1b3341af932942a0befa98b9fd277088. That relea
 
 UX-001 through UX-013 have local implementations. Earlier statuses in the observation table describe the baseline; live release validation is recorded below.
 
-Implemented in the application, generation rules and report preparation. Initial local validation: 57 focused checks pass, covering the real app boot and resumed project screens, tour persistence, saved progress, failed saves, first-run choices, email refresh, question filtering, preliminary reviews and report preparation. Tests use mocked provider responses and local PostgreSQL-compatible storage, not paid live requests.
+Implemented in the application, generation rules and report preparation. Initial local validation: 71 focused checks pass, covering the real app boot and resumed project screens, tour persistence, saved progress, failed saves, first-run choices, email refresh, question filtering, preliminary reviews and report preparation. Tests use mocked provider responses and local PostgreSQL-compatible storage, not paid live requests.
 
 The broad suite remains at 288 passing checks and six pre-existing failures reproduced before this task. Additional legacy browser unit tests have stale/missing harness dependencies reproduced against the unchanged baseline. These are not described as passing. Local runtime is Node 24.22.1; the repository requests Node 26.12.1 or later within 26.x.
 
@@ -87,3 +90,5 @@ Maintain a short record of the measurements actually run and their limits. Do no
 ## Live release check
 
 Commit 1591f76ce6387275dc827b6b2c70b125fc331c9c is live. Reloading project 39 resumes Step 5 of 6. Prepare reviews from saved answers created ten preliminary question reviews, retaining the one-answer limitation and leaving the account at 10/40 checks. The pricing question’s answer was opened and a structured investigation decision was saved with three explicit editorial FAQ suggestions. These suggestions are not labelled as observed search demand. Report inclusion and fixed-version checks continue below.
+
+The full report preview successfully included the selected pricing review, all eight delivery fields, all ten literal measured questions and the 0/10 naming and citation denominators. The readout labels site-suggested questions as hypotheses. The review-to-report copy update was confirmed explicitly. No assignment or external message was sent.
