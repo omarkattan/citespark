@@ -746,6 +746,7 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
        CASE WHEN due_date <= CURRENT_DATE AND status IN ('open','doing') THEN due_date END NULLS LAST,
        CASE WHEN status='doing' THEN 0 ELSE 1 END,
        CASE WHEN review_decision->>'stage'='ready' THEN 0 WHEN review_decision->>'stage'='no_change' THEN 2 ELSE 1 END,
+       CASE WHEN evidence ? 'action_plan' THEN 0 ELSE 1 END,
        CASE WHEN (${kindSql})='questions' THEN 0 WHEN (${kindSql})='competitors' THEN 1 WHEN (${kindSql})='sources' THEN 3 ELSE 2 END,
        CASE WHEN type='content_gap' THEN 0 ELSE 1 END,
        id ASC

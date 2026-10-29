@@ -6,11 +6,12 @@ const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5';
 export const hasAnthropic = Boolean(KEY);
 
 /** Single-shot call. Returns plain text, or null if unavailable. */
-export async function complete(prompt, { maxTokens = 1500, system } = {}) {
+export async function complete(prompt, { maxTokens = 1500, system, timeoutMs = 0 } = {}) {
   if (!KEY) return null;
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
+      ...(timeoutMs > 0 ? {signal: AbortSignal.timeout(timeoutMs)} : {}),
       headers: {
         'content-type': 'application/json',
         'x-api-key': KEY,

@@ -1,6 +1,7 @@
 import { comparableSettings } from './measurement-batches.js';
 import { many, query } from '../db/index.js';
 import { classifySource } from './teardown.js';
+import { attachImmediateActions } from './immediate-actions.js';
 
 /**
  * The recommendations engine.
@@ -233,7 +234,8 @@ export async function buildRecommendations(projectId) {
   const verifiedTraffic=await aiTraffic(projectId,30);
   const ga4=verifiedTraffic.state==='ready'?verifiedTraffic.pages:[];
 
-  return evaluateRules({ project, stats, sourceRows, ownCitedByPrompt, citedByPrompt, priorRates, ga4, fanOutByPrompt });
+  const recs=evaluateRules({ project, stats, sourceRows, ownCitedByPrompt, citedByPrompt, priorRates, ga4, fanOutByPrompt });
+  return attachImmediateActions(project,recs,cycle);
 }
 
 /**

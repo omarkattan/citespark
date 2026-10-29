@@ -19,135 +19,37 @@
       </svg><span class="wordmark-text">Cit<em>ed</em></span><span class="beta" title="Cited is in beta. Things will change, and your feedback shapes what changes.">beta</span></a>
     <p class="eyebrow">Answer engine visibility</p>
 
-    <div class="panel" id="panel">
+    <form class="panel" id="panel">
       <h2 id="formTitle">Sign in</h2>
       <p class="dek" style="margin:8px 0 20px;font-size:14px">Track what ChatGPT, Gemini and Perplexity say about your brand, and what to do about it.</p>
 
       <div class="field" id="orgField" hidden>
-        <label for="orgName">Company</label>
+        <label for="orgName">Company (optional)</label>
         <input id="orgName" autocomplete="organization" />
       </div>
       <div class="field">
         <label for="email">Email</label>
-        <input id="email" type="email" autocomplete="email" />
+        <input id="email" type="email" autocomplete="email" inputmode="email" required autofocus />
       </div>
       <div class="field">
         <label for="password">Password</label>
-        <input id="password" type="password" autocomplete="current-password" />
+        <input id="password" type="password" autocomplete="current-password" required />
+        <button type="button" class="ghost" id="showPassword" aria-controls="password" aria-pressed="false">Show password</button>
+        <p class="hint" id="passwordHint" hidden>Use at least 8 characters.</p>
       </div>
 
-      <button id="submit" style="width:100%">Sign in</button>
+      <button type="submit" id="submit" style="width:100%">Sign in</button>
       <p class="error" id="error" role="alert"></p>
       <p class="switch">
         <a href="#" id="toggle">Create an account instead</a>
         <a href="#" id="forgot">Forgotten your password?</a>
       </p>
-    </div>
+    </form>
   </div>
 </div>
 
 <script src="/demo-handoff.js?v=119"></script>
-<script>
-  let mode = 'login';
-  const $ = (id) => document.getElementById(id);
-
-  $('toggle').addEventListener('click', (e) => {
-    e.preventDefault();
-    mode = mode === 'login' ? 'register' : 'login';
-    $('formTitle').textContent = mode === 'login' ? 'Sign in' : 'Create an account';
-    $('submit').textContent = mode === 'login' ? 'Sign in' : 'Create account';
-    $('toggle').textContent = mode === 'login' ? 'Create an account instead' : 'Sign in instead';
-    $('orgField').hidden = mode === 'login';
-    $('password').setAttribute('autocomplete', mode === 'login' ? 'current-password' : 'new-password');
-    $('error').textContent = '';
-  });
-
-  if(new URLSearchParams(location.search).get('signup')==='1')$('toggle').click();
-  const demoHint=window.CitedDemoHandoff?.read();
-  if(new URLSearchParams(location.search).get('demo')==='1' && demoHint){
-    $('orgName').value=demoHint.site.brandName||'';
-    const hint=document.createElement('p');hint.textContent=`Continue setting up ${demoHint.site.domain}. Your demo notes remain available in this browser for 24 hours.`;
-    $('panel').prepend(hint);
-  }
-
-  const escapeHtml = (t) =>
-    String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-
-  document.addEventListener('click', async (e) => {
-    if (e.target.id === 'resend') {
-      e.target.disabled = true;
-      await fetch('/api/verify/resend', { method: 'POST' });
-      document.getElementById('resendMsg').textContent = 'Sent again. Check spam if it does not arrive.';
-      return;
-    }
-
-    if (e.target.id === 'forgot') {
-      e.preventDefault();
-      const email = $('email').value.trim();
-      if (!email) {
-        $('error').textContent = 'Enter your email above first, then click this again.';
-        return;
-      }
-      await fetch('/api/password/forgot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      });
-      // Same message whether or not the address exists.
-      $('error').className = 'note';
-      $('error').textContent = `If ${email} has an account, a reset link is on its way. It works for one hour.`;
-    }
-  });
-
-  async function submit() {
-    $('error').textContent = '';
-    $('submit').disabled = true;
-    try {
-      const res = await fetch(`/api/${mode}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: $('email').value.trim(),
-          password: $('password').value,
-          orgName: $('orgName').value.trim()
-        })
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Something went wrong');
-
-      /**
-       * Say the email is coming, at the moment it is sent.
-       *
-       * Dropping someone straight into the app meant the first they heard of
-       * verification was an error when they clicked Run, after they had done
-       * all the setup work.
-       */
-      if (json.verificationSent) {
-        document.getElementById('panel').innerHTML = `
-          <h2>Check your email</h2>
-          <p class="sent-to">We sent a confirmation link to <b>${escapeHtml($('email').value.trim())}</b>.</p>
-          <p class="sent-note">
-            You can look around and set your first site up now. Confirming the address is what unlocks
-            running a cycle, so it is worth doing before you get that far. The link works for two days.
-          </p>
-          <div class="sent-actions">
-            <a class="btn" href="/app">Start setting up</a>
-            <button class="ghost" id="resend">Send it again</button>
-          </div>
-          <p class="sent-hint" id="resendMsg">Not arrived in a minute or two? Check spam.</p>`;
-        return;
-      }
-
-      window.location.href = '/app';
-    } catch (err) {
-      $('error').textContent = err.message;
-      $('submit').disabled = false;
-    }
-  }
-
-  $('submit').addEventListener('click', submit);
-  document.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
-</script>
+<script src="/login.js?v=1"></script>
 <script src="/feedback.js"></script>
 </body>
 </html>

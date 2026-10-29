@@ -4951,7 +4951,9 @@ console.log('\nsignup and passwords');
 
 await test('signing up says an email is coming', async () => {
   const { readFileSync } = await import('node:fs');
-  const login = readFileSync(new URL('../src/public/login.html', import.meta.url), 'utf8');
+  const markup = readFileSync(new URL('../src/public/login.html', import.meta.url), 'utf8');
+  assert.ok(/src="\/login.js\?v=1"/.test(markup), 'the login behaviour is loaded');
+  const login = markup + readFileSync(new URL('../src/public/login.js', import.meta.url), 'utf8');
 
   // Dropping someone straight into the app meant the first they heard of
   // verification was an error when they clicked Run, after all the setup.
@@ -4960,7 +4962,7 @@ await test('signing up says an email is coming', async () => {
   assert.ok(/works for two days/.test(login), 'with how long they have');
   // Collapsed first, since the copy wraps across lines in the markup.
   const flat = login.replace(/\s+/g, ' ');
-  assert.ok(/unlocks running a cycle/.test(flat), 'and what it unlocks');
+  assert.ok(/Confirm your email before running your first measurement/.test(flat), 'and what confirmation enables');
 
   // A resend has to be reachable from here, not only from inside the app.
   assert.ok(/id="resend"/.test(login));

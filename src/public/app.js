@@ -354,6 +354,7 @@ async function viewOverview() {
     <p>${measured ? `Latest measurement: ${esc(shortDate(o.cycle))}. Start with one evidence review below.` : 'Review your questions and their origins, then measure how AI engines answer them.'}</p></div>
     <div class="overview-ctas"><a class="btn" href="/api/projects/${state.projectId}/report/prepare" target="_blank" rel="noopener">Prepare report</a>
     ${measured && suggested.length ? '<button class="ghost" data-overview-next>Review next task</button>' : '<button class="btn" data-open-view="questions">Review questions</button>'}</div></div>
+    ${immediateActionSection(tasks,{offerPrepare:measured})}
     <div class="overview-summary overview-focus">
       <section class="panel"><h3>What changed</h3><p>${esc(changes)}</p><p class="hint">Compare the same questions and engines before calling a difference a trend.</p><button class="ghost" data-open-view="trends">Review changes over time</button></section>
       <section class="panel"><h3>What matters</h3><p class="overview-number">${measured ? pct(o.visibility) : 'Not measured'}</p>
@@ -382,7 +383,7 @@ function setupJourney() {
   const measured=Boolean(state.overview?.cycle && state.overview?.runs>0);
   const active=({setup:'website',connections:'sources',searchDemand:'sources',traffic:'sources',questions:'questions',firstMeasurement:'measurement',actions:'recommendations',reportGuide:'report'})[state.view]||saved;
   const steps=[['website','Website'],['sources','Sources (optional)'],['questions','Questions'],['measurement','Measurement'],['recommendations','Recommendations'],['report','Report']];
-  const copy={website:'Check the saved business details, then continue.',sources:'Connect Google data if you have it. You can continue with website suggestions and connect sources later.',questions:'Read each suggested question. Edit the wording or pause anything your customers would not ask. These suggestions are not measured AI search demand.',measurement:state.measurementRunning?'Your measurement is running. We will take you to the results when it finishes. You can return later and resume here.':'Check the short summary below, then review the cost before starting.',recommendations:'Open one question review below. Read its saved answer, record a decision, then preview and include that decision in your report. One answer is an early observation, not proof that a page needs changing.',report:'Prepare your report, check the preview, then save a fixed version. Open the saved version and use Print / save PDF to give it to your client.'};
+  const copy={website:'Check the saved business details, then continue.',sources:'Connect Google data if you have it. You can continue with website suggestions and connect sources later.',questions:'Read each suggested question. Edit the wording or pause anything your customers would not ask. These suggestions are not measured AI search demand.',measurement:state.measurementRunning?'Your measurement is running. We will take you to the results when it finishes. You can return later and resume here.':'Check the short summary below, then review the cost before starting.',recommendations:'Start with your suggested actions below. Open one, check the page and proposed change, then save your decision. Preview it before including it in your report.',report:'Prepare your report, check the preview, then save a fixed version. Open the saved version and use Print / save PDF to give it to your client.'};
   const next=active==='website'?'<button data-setup-step="sources">Next: optional sources</button>':active==='sources'?'<button data-setup-step="questions">Continue to questions</button>':active==='questions'?'<button data-setup-step="measurement">Next: review measurement</button>':active==='measurement'?(state.measurementRunning?'<button disabled>Measurement in progress</button>':measured?'<button data-setup-step="recommendations">Next: review recommendations</button>':'<button data-start-first-cycle>Review cost and run</button>'):active==='recommendations'?'<button data-setup-step="report">Next: prepare your report</button>':'';
   return `<section class="panel setup-journey" aria-label="Project setup"><p class="eyebrow">Your first report · Step ${steps.findIndex(([s])=>s===active)+1} of 6</p><nav aria-label="Setup steps">${steps.map(([step,label],i)=>`<button class="ghost" data-setup-step="${step}" ${active===step?'aria-current="step"':''} ${!measured&&['recommendations','report'].includes(step)?'disabled':''}>${i+1}. ${label}</button>`).join('')}</nav><p>${copy[active]||copy[saved]||''}</p><p class="hint">Your place is saved. You can leave and return at any time.</p><p id="setupProgressError" class="error" role="alert"></p>${next}</section>`;
 }
@@ -451,6 +452,43 @@ function opportunityKind(task) {
 }
 
 // Presentation grouping only. Persisted task IDs and their work history stay separate.
+function immediateActionSection(tasks, {offerPrepare=false}={}) {
+  const current=state.overview?.cycle ? new Date(state.overview.cycle).toISOString() : null;
+  const selected=(tasks||[]).filter(t=>t.evidence?.action_plan?.version===1 && (!t.status||['open','doing'].includes(t.status)) && t.review_decision?.stage!=='no_change' && (!current || new Date(t.evidence.action_plan.cycle).toISOString()===current)).slice(0,3);
+  state.immediateActions=new Map(selected.map(t=>[String(t.id),t]));
+  if(!selected.length)return offerPrepare&&state.overview?.runs?`<section class="panel"><h2>Get specific next actions</h2><p>Use your saved answers and relevant website pages to prepare up to three suggested actions. This does not repeat your AI answer checks.</p><button data-rebuild-actions>Prepare my actions</button><p class="hint">Page checks and drafting can take about a minute. Suggestions remain editable before you save or include them in a report.</p></section>`:'';
+  const safeLink=(url,label)=>{try{const u=new URL(url,location.origin);if(!['https:','http:'].includes(u.protocol)||u.username||u.password)return esc(label);return `<a href="${esc(u.href)}" target="_blank" rel="noopener">${esc(label)}</a>`;}catch{return esc(label);}};
+  return `<section class="immediate-actions" aria-label="Specific next actions"><header><div><p class="eyebrow">Start here</p><h2>Your next ${selected.length===1?'action':selected.length+' actions'}</h2><p>Check the suggested change, then save your action. Buying questions are prioritised as an editorial starting point, not a forecast of demand or results.</p></div></header><div class="action-plan-grid">${selected.map((task,i)=>{
+    const plan=task.evidence.action_plan,decision=savedDecisionPreview(task)?task.review_decision:null;
+    const label=decision?decisionLabel(decision.stage):plan.mode==='retain'?'Keep and check':plan.mode==='improve'?'Suggested edit':'Specific check';
+    return `<article class="action-plan" data-plan-id="${task.id}" dir="auto"><span class="plan-badge">${i+1}. ${esc(label)}</span><p class="plan-question">Question: ${esc(plan.question)}</p><h3>${esc(decision?.title||plan.title)}</h3><p class="plan-change">${esc(decision?.change||plan.change)}</p><p class="plan-page"><b>Page</b><br>${(decision?.page||plan.page)?safeLink(decision?.page||plan.page,decision?.page||plan.page):'Choose the relevant existing page. A matching page could not be verified.'}</p><p><b>Why this action</b><br>${esc(decision?.purpose||plan.rationale)}</p>${!decision&&plan.suggested_questions?.length?`<details><summary>Suggested questions for this page</summary><ul>${plan.suggested_questions.map(q=>`<li>${esc(q)}</li>`).join('')}</ul><p class="hint">Editorial suggestions, not measured question demand.</p></details>`:''}<details><summary>View supporting evidence</summary><p>${esc(plan.evidence.observation)}</p>${plan.evidence.answer_url?safeLink(plan.evidence.answer_url,'Open the measured answer'):''}<blockquote>${esc(plan.evidence.answer_quote)}</blockquote>${plan.evidence.page_quote?`<p>Read from the page on ${esc(shortDate(plan.evidence.page_read_at))}:</p><blockquote>${esc(plan.evidence.page_quote)}</blockquote>`:`<p>${plan.page_status==='candidate'?'A possible page was found. Its answer coverage still needs checking.':'No matching page content was verified. Check the website before editing.'}</p>`}<p>Page excerpts are a limited check, not a full site audit. Suggested edits need factual approval.</p></details><div class="plan-use"><button data-use-action-plan="${task.id}">${decision?'Open saved action':'Review and save action'}</button></div></article>`;
+  }).join('')}</div></section>`;
+}
+function actionPlanDecision(plan) {
+  return {stage:'investigate',title:plan.title,page:plan.page||'',evidence:[plan.evidence.observation,plan.evidence.answer_url?new URL(plan.evidence.answer_url,location.origin).href:'',`Answer excerpt: ${plan.evidence.answer_quote}`,plan.evidence.page_quote?`Page excerpt (${plan.page}): ${plan.evidence.page_quote}`:'Page coverage still needs checking.'].filter(Boolean).join('\n'),change:plan.change+(plan.suggested_questions?.length?'\n\nSuggested questions (editorial, not measured demand):\n'+plan.suggested_questions.map(q=>'• '+q).join('\n'):''),purpose:plan.rationale,suggested_owner:'Website content owner (suggested, unassigned)',completion:plan.completion,follow_up:plan.follow_up};
+}
+document.addEventListener('click',async event=>{
+  const button=event.target.closest('[data-use-action-plan]');if(!button)return;
+  const task=state.immediateActions?.get(button.dataset.useActionPlan);if(!task)return;
+  button.disabled=true;
+  try{
+    if(state.view!=='actions'){state.view='actions';state.taskFilter='active';state.opportunityKind='all';state.opportunityDecision='all';await render();}
+    const card=document.querySelector(`[data-task="${task.id}"]`);if(!card)throw Error('Open Opportunities to find this action.');
+    for(let parent=card.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
+    card.querySelector('details.queue-task')?.setAttribute('open','');
+    const form=card.querySelector('.task-decision > details');form.open=true;
+    const keys=['title','page','evidence','change','purpose','suggested_owner','completion','follow_up'];
+    const inputs=keys.map(key=>$(`decision-${key}-${task.id}`));
+    const edited=inputs.some(input=>input&&input.value!==input.defaultValue);
+    if(!task.review_decision?.reviewed_at && !keys.some(key=>task.review_decision?.[key]) && !edited){
+      const draft=actionPlanDecision(task.evidence.action_plan);
+      for(const key of ['stage',...keys]){const input=$(`decision-${key}-${task.id}`);if(input)input.value=draft[key]||'';}
+      form.querySelector('[data-decision-feedback]').textContent='Suggested draft loaded. Check the page and facts, choose your decision, then save. Nothing has been published or added to your report.';
+    }else form.querySelector('[data-decision-feedback]').textContent='Your saved decision or unsaved edits have been kept. Review them below.';
+    form.scrollIntoView({block:'start',behavior:'smooth'});$(`decision-stage-${task.id}`).focus({preventScroll:true});
+  }catch(error){toast(error.message,'bad');}finally{button.disabled=false;}
+});
+
 function savedDecisionPreview(task) {
   const d=task.review_decision;
   if(!['ready','investigate','no_change'].includes(d?.stage) || !d.change?.trim()) return null;
@@ -599,7 +637,9 @@ async function viewActions() {
   const intro = `<div class="panel queue-intro"><h2>Your work queue</h2><p>Start with one buyer question. Related checks are grouped so you can review its answers once. Due work and work in progress come first, then ready actions, further investigation and no-change decisions.</p><p class="hint">The status tabs and Focus counts refer to saved checks. Each keeps its notes and owner. Completion records work done, not a visibility improvement.</p>${opportunityFilters(data.tasks, kind, data.focusCounts)}<label class="queue-filter">Review decision <select id="opportunityDecision">${[['all','All decisions'],['ready','Ready to implement'],['investigate','Needs investigation'],['no_change','No change needed']].map(([value,label])=>`<option value="${value}"${value===(state.opportunityDecision || 'all')?' selected':''}>${label}</option>`).join('')}</select></label><p class="hint">Decision and completion are separate. Ready means reviewed, not implemented. Counts follow the selected decision filter.</p></div>`;
   const total = filter === 'active' ? c.open + c.doing : filter === 'all' ? c.total : c[filter];
   const resultCount = `<p class="hint" id="queueCount">${queueCountText(tasks,total)}</p>`;
-  return reportBar + intro + bar + resultCount + `<div id="opportunityQueue">${tasks.length ? reviewGroups(tasks).map(group=>reviewGroupCard(group)).join('') : c.total || filter!=='active' || kind!=='all' || (state.opportunityDecision||'all')!=='all' ? '<div class="empty"><h2>No tasks match this focus</h2><p>Choose another review decision, focus or status above.</p></div>' : `<div class="empty"><h2>No evidence reviews yet</h2><p>${state.overview?.runs?'Prepare reviews using your saved answers. This does not run more AI checks. If no rule applies, inspect the answers and record only conclusions the evidence supports.':'Run your first measurement to collect answers for review.'}</p>${state.overview?.runs?'<button data-rebuild-actions>Prepare reviews from saved answers</button> <button class="ghost" data-open-view="answers">Inspect saved answers</button>':'<button data-setup-step="measurement">Review first measurement</button>'}</div>`}</div>` + suppressedPanel;
+  const quick=(filter==='active'&&kind==='all'&&(state.opportunityDecision||'all')==='all')?immediateActionSection(data.tasks,{offerPrepare:true}):'';
+  const fold=Boolean(quick&&state.immediateActions?.size);
+  return quick + reportBar + (fold?'<details class="panel fold"><summary>All evidence reviews and work status</summary>':'') + intro + bar + resultCount + `<div id="opportunityQueue">${tasks.length ? reviewGroups(tasks).map(group=>reviewGroupCard(group)).join('') : c.total || filter!=='active' || kind!=='all' || (state.opportunityDecision||'all')!=='all' ? '<div class="empty"><h2>No tasks match this focus</h2><p>Choose another review decision, focus or status above.</p></div>' : `<div class="empty"><h2>No evidence reviews yet</h2><p>${state.overview?.runs?'Prepare reviews using your saved answers. This does not run more AI checks. If no rule applies, inspect the answers and record only conclusions the evidence supports.':'Run your first measurement to collect answers for review.'}</p>${state.overview?.runs?'<button data-rebuild-actions>Prepare reviews from saved answers</button> <button class="ghost" data-open-view="answers">Inspect saved answers</button>':'<button data-setup-step="measurement">Review first measurement</button>'}</div>`}</div>` + suppressedPanel + (fold?'</details>':'');
 }
 
 const STATUS_LABEL = { open: 'To do', doing: 'In progress', done: 'Done', dismissed: 'Dismissed' };
@@ -2394,7 +2434,7 @@ function resetRunLabel() {
 const PHASE_LABEL = {
   starting: 'Starting up',
   asking: 'Asking the engines',
-  thinking: 'Reading answers and writing your actions',
+  thinking: 'Checking website pages and preparing your next actions',
   done: 'Finished'
 };
 
@@ -5876,9 +5916,9 @@ document.addEventListener('click',async event=>{
   const add=event.target.closest('[data-add-first-site]');if(add){$('addSiteBtn').click();return;}
   const check=event.target.closest('#checkVerify');if(check){check.disabled=true;const verified=await refreshVerification();if(!verified){check.disabled=false;toast('Email confirmation is not recorded yet. Use the link in your email, then check again.','bad');}return;}
   const rebuild=event.target.closest('[data-rebuild-actions]');if(!rebuild)return;
-  rebuild.disabled=true;rebuild.textContent='Preparing reviews…';
-  try { const result=await api(`/api/projects/${state.projectId}/rebuild`,{method:'POST'});if(!result?.ok)throw new Error(result?.error||'Could not prepare reviews.');await render();toast(`${result.count} evidence reviews prepared from saved answers.`); }
-  catch(error){toast(error.message,'bad');rebuild.disabled=false;rebuild.textContent='Prepare reviews from saved answers';}
+  rebuild.disabled=true;const previousLabel=rebuild.textContent;rebuild.textContent='Checking pages and preparing actions…';
+  try { const result=await api(`/api/projects/${state.projectId}/rebuild`,{method:'POST'});if(!result?.ok)throw new Error(result?.error||'Could not prepare reviews.');await render();toast(`Your actions are ready. Open a suggested action to review and save it.`); }
+  catch(error){toast(error.message,'bad');rebuild.disabled=false;rebuild.textContent=previousLabel;}
 });
 
 async function refreshUsagePill() {
