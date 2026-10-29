@@ -83,3 +83,28 @@ for(const [measured,step,expected] of [[false,'measurement','Ready for your firs
  for(let i=0;i<20&&!w.document.getElementById('view').textContent.includes(expected);i++)await settle();
  assert.match(w.document.getElementById('view').textContent,new RegExp(expected));assert.ok(w.document.querySelector('.setup-journey'));assert.ok(requests.every(([,method])=>method==='GET'));dom.window.close();
 });
+test('one-check question opens its task and decision save leads directly to a confirmed report preview',async()=>{
+ const dom=new JSDOM(readFileSync(new URL('../src/public/index.html',import.meta.url),'utf8'),{url:'https://cited.test/app?site=39',runScripts:'outside-only',pretendToBeVisual:true});const w=dom.window,requests=[];
+ w.scrollTo=()=>{};w.HTMLElement.prototype.scrollIntoView=()=>{};
+ const project={id:39,name:'SkinCycles',brand_name:'SkinCycles',domain:'skincycles.com',market:'GB',engines:['chatgpt']};
+ const task={id:99,type:'content_gap',status:'open',title:'Review first answer',evidence:{prompt_id:1,prompt:'How much should skincare cost?',runs:1,own_rate:0,preliminary:true},review_decision:{}};
+ w.fetch=async(path,options={})=>{requests.push([path,options.method||'GET']);let data;
+ if(path==='/api/me')data={signedIn:true,userId:7,emailVerified:true};else if(path==='/api/projects')data=[project];else if(path==='/api/billing')data=null;
+ else if(path.endsWith('/overview'))data={project,cycle:'2026-10-29',runs:1,engines:[]};else if(path.endsWith('/setup-progress'))data={step:'recommendations'};
+ else if(path.endsWith('/run-scope'))data={all:1,unrun:0,checksAll:1,checksUnrun:0,costAll:.03,costUnrun:0};else if(path.endsWith('/cycle-status'))data={phase:'idle'};
+ else if(path.includes('/recommendations?'))data={tasks:[task],counts:{open:1,doing:0,done:0,dismissed:0,total:1},people:[]};
+ else if(path.endsWith('/review-decision'))data={...JSON.parse(options.body),reviewed_at:'2026-10-29'};
+ else if(path.endsWith('/report-note-preview'))data={current:null,proposed:{title:'Investigate pricing',notes:'Check the existing page first'},canInclude:true,version:'v1'};
+ else throw new Error('Unexpected request: '+path);
+ return {ok:true,status:200,json:async()=>data};};
+ w.eval(readFileSync(new URL('../src/public/countries.js',import.meta.url),'utf8'));w.eval(app);
+ for(let i=0;i<20&&!w.document.querySelector('[data-task="99"]');i++)await settle();
+ const card=w.document.querySelector('[data-task="99"]');assert.ok(card);assert.equal(card.querySelector('details.queue-task').open,true);
+ // Exercise the same decision CTA used after an answer is read, without fabricating an answer response.
+ const cta=w.document.createElement('button');cta.dataset.decisionOpen='99';card.append(cta);cta.click();assert.equal(card.querySelector('.task-decision > details').open,true);assert.equal(w.document.activeElement.id,'decision-stage-99');
+ w.document.getElementById('decision-title-99').value='Investigate pricing';w.document.getElementById('decision-change-99').value='Check the existing page first';card.querySelector('[data-decision-save]').click();
+ for(let i=0;i<20&&!card.querySelector('[data-decision-feedback] [data-report-preview]');i++)await settle();
+ const next=card.querySelector('[data-decision-feedback] [data-report-preview]');assert.ok(next);next.click();
+ for(let i=0;i<20&&!card.querySelector('[data-report-note]');i++)await settle();
+ assert.equal(card.querySelector('[data-report-preview-panel]').hidden,false);assert.equal(card.querySelector('[data-report-note]').textContent,'Include in client report');assert.ok(!requests.some(([path,method])=>path.endsWith('/report-note')&&method==='POST'));dom.window.close();
+});

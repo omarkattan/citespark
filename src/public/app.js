@@ -526,7 +526,7 @@ function questionGroupSummary(group, reason='') {
 }
 function reviewGroupCard(group,reason='') {
   if(!group.questionId) return taskCard(group.tasks[0],true,reason || reviewReason(group.tasks[0]));
-  return `<section class="panel question-review-group" data-question-group="${esc(group.key)}"><details class="queue-task question-review"><summary>${questionGroupSummary(group,reason)}</summary><div class="queue-body"><p class="hint" data-group-guidance>${esc(groupReviewGuidance(group))}</p>${group.tasks.map(t=>taskCard(t,true,'',true)).join('')}</div></details></section>`;
+  return `<section class="panel question-review-group" data-question-group="${esc(group.key)}"><details class="queue-task question-review"><summary>${questionGroupSummary(group,reason)}</summary><div class="queue-body"><p class="hint" data-group-guidance>${esc(groupReviewGuidance(group))}</p>${group.tasks.map(t=>taskCard(t,true,'',true,group.tasks.length===1)).join('')}</div></details></section>`;
 }
 function queueCountText(tasks,total) {
   const reviews=reviewGroups(tasks).length;
@@ -599,7 +599,7 @@ async function viewActions() {
   const intro = `<div class="panel queue-intro"><h2>Your work queue</h2><p>Start with one buyer question. Related checks are grouped so you can review its answers once. Due work and work in progress come first, then ready actions, further investigation and no-change decisions.</p><p class="hint">The status tabs and Focus counts refer to saved checks. Each keeps its notes and owner. Completion records work done, not a visibility improvement.</p>${opportunityFilters(data.tasks, kind, data.focusCounts)}<label class="queue-filter">Review decision <select id="opportunityDecision">${[['all','All decisions'],['ready','Ready to implement'],['investigate','Needs investigation'],['no_change','No change needed']].map(([value,label])=>`<option value="${value}"${value===(state.opportunityDecision || 'all')?' selected':''}>${label}</option>`).join('')}</select></label><p class="hint">Decision and completion are separate. Ready means reviewed, not implemented. Counts follow the selected decision filter.</p></div>`;
   const total = filter === 'active' ? c.open + c.doing : filter === 'all' ? c.total : c[filter];
   const resultCount = `<p class="hint" id="queueCount">${queueCountText(tasks,total)}</p>`;
-  return reportBar + intro + bar + resultCount + `<div id="opportunityQueue">${tasks.length ? reviewGroups(tasks).map(group=>reviewGroupCard(group)).join('') : c.total ? '<div class="empty"><h2>No tasks match this focus</h2><p>Choose another review decision, focus or status above.</p></div>' : `<div class="empty"><h2>No evidence reviews yet</h2><p>${state.overview?.runs?'Prepare reviews using your saved answers. This does not run more AI checks. If no rule applies, inspect the answers and record only conclusions the evidence supports.':'Run your first measurement to collect answers for review.'}</p>${state.overview?.runs?'<button data-rebuild-actions>Prepare reviews from saved answers</button> <button class="ghost" data-open-view="answers">Inspect saved answers</button>':'<button data-setup-step="measurement">Review first measurement</button>'}</div>`}</div>` + suppressedPanel;
+  return reportBar + intro + bar + resultCount + `<div id="opportunityQueue">${tasks.length ? reviewGroups(tasks).map(group=>reviewGroupCard(group)).join('') : c.total || filter!=='active' || kind!=='all' || (state.opportunityDecision||'all')!=='all' ? '<div class="empty"><h2>No tasks match this focus</h2><p>Choose another review decision, focus or status above.</p></div>' : `<div class="empty"><h2>No evidence reviews yet</h2><p>${state.overview?.runs?'Prepare reviews using your saved answers. This does not run more AI checks. If no rule applies, inspect the answers and record only conclusions the evidence supports.':'Run your first measurement to collect answers for review.'}</p>${state.overview?.runs?'<button data-rebuild-actions>Prepare reviews from saved answers</button> <button class="ghost" data-open-view="answers">Inspect saved answers</button>':'<button data-setup-step="measurement">Review first measurement</button>'}</div>`}</div>` + suppressedPanel;
 }
 
 const STATUS_LABEL = { open: 'To do', doing: 'In progress', done: 'Done', dismissed: 'Dismissed' };
@@ -845,13 +845,13 @@ const REVIEW_GUIDANCE = {
   ]
 };
 
-function taskCard(t, compact = false, selectionReason = '', grouped = false) {
+function taskCard(t, compact = false, selectionReason = '', grouped = false, open = false) {
   const ev = t.evidence || {};
   const saved = savedDecisionPreview(t);
   const review = REVIEW_GUIDANCE[t.type];
   const sourceReview = ['source_gap', 'competitor_page'].includes(t.type);
   const questionReview = t.type === 'content_gap';
-  const questionTitle = `${ev.preliminary?'Review first answer':'Review visibility'} for: ${ev.prompt || 'this buyer question'}`;
+  const questionTitle = `${ev.preliminary?'Review first answer':'Review visibility for'}: ${ev.prompt || 'this buyer question'}`;
   const knownRuns = Number.isInteger(ev.runs) && ev.runs > 0;
   const questionObservation = knownRuns && ev.own_rate === 0
     ? ev.runs===1 ? 'Your brand was not named in the one measured answer. This first sample does not establish a reliable absence rate or prove that content is missing.' : `You were not named in ${ev.runs} measured answers stored with this task.`
@@ -886,7 +886,7 @@ function taskCard(t, compact = false, selectionReason = '', grouped = false) {
 
   return `
   <article class="rec ${t.status}" data-type="${esc(t.type)}" data-task="${t.id}" data-owner="${esc(t.assignee || '')}" data-reviewed="${Boolean(saved)}">
-    ${compact ? `<details class="queue-task"${grouped && saved ? ' open' : ''}><summary><span class="queue-heading"><span class="rec-title" data-review-title data-original-title="${esc(title)}">${esc(savedDecisionPreview(t)?.text || title)}</span><span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span></span><span class="queue-summary" data-review-context data-original-context="${esc(summary)}">${esc(savedDecisionPreview(t) ? `Original check: ${title}` : summary)}</span><span class="tag" data-decision-badge>${esc(decisionLabel(t.review_decision?.stage))}</span>${selectionReason && !savedDecisionPreview(t) ? `<span class="queue-summary" data-selection-reason><b>Why this task:</b> ${esc(selectionReason)}</span>` : ''}${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}${dueLabel(t)}<span class="queue-open">Review task</span><span class="queue-close">Close task</span></summary><div class="queue-body">` : ''}
+    ${compact ? `<details class="queue-task"${open || grouped && saved ? ' open' : ''}><summary><span class="queue-heading"><span class="rec-title" data-review-title data-original-title="${esc(title)}">${esc(savedDecisionPreview(t)?.text || title)}</span><span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span></span><span class="queue-summary" data-review-context data-original-context="${esc(summary)}">${esc(savedDecisionPreview(t) ? `Original check: ${title}` : summary)}</span><span class="tag" data-decision-badge>${esc(decisionLabel(t.review_decision?.stage))}</span>${selectionReason && !savedDecisionPreview(t) ? `<span class="queue-summary" data-selection-reason><b>Why this task:</b> ${esc(selectionReason)}</span>` : ''}${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}${dueLabel(t)}<span class="queue-open">Review task</span><span class="queue-close">Close task</span></summary><div class="queue-body">` : ''}
     <div class="rec-top"${compact ? ' hidden' : ''}>
       <div class="rec-title" data-review-title data-original-title="${esc(title)}">${esc(savedDecisionPreview(t)?.text || title)}</div>
       <div class="rec-pri" data-review-context data-original-context="${esc(reviewReason(t))}">${esc(savedDecisionPreview(t) ? `Original check: ${title}` : reviewReason(t))}</div>
@@ -938,7 +938,7 @@ function taskCard(t, compact = false, selectionReason = '', grouped = false) {
              <button class="ghost" data-reask="${ev.prompt_id}">Ask again now</button>`
           : ''
       }
-      <button class="ghost" data-next-open="${t.id}">${t.notes ? 'Edit next step' : 'Record next step'}</button>
+      <button class="ghost" data-next-open="${t.id}">${t.notes ? 'Edit review notes' : 'Add review notes'}</button>
       <button class="ghost" data-task-edit="${t.id}">${t.assignee || t.due_date || t.notes ? 'Edit' : 'Assign'}</button>
       ${buttons.map(([st, label]) => `<button class="ghost" data-rec="${t.id}" data-status="${st}">${label}</button>`).join('')}
       ${canDelete ? `<button class="ghost danger" data-delete-rec="${t.id}" title="Remove it and stop it coming back">Delete</button>` : ''}
@@ -3632,7 +3632,7 @@ document.addEventListener('click', async (e) => {
       .join('');
     if (!d.runs?.length) box.innerHTML += '<p class="hint">Nothing stored for this question yet.</p>';
     const taskId=see.closest('.rec')?.dataset.task;
-    if (taskId) box.innerHTML += `<p><button class="btn" data-next-open="${esc(taskId)}">Record your review conclusion</button></p>`;
+    if (taskId) box.innerHTML += `<p><button class="btn" data-decision-open="${esc(taskId)}">Record your review conclusion</button></p>`;
     return;
   }
 
@@ -4409,7 +4409,7 @@ async function handleNextStep(event) {
     const existing = $(`n-${id}`);
     if (existing) existing.value = existing.defaultValue = notes;
     const opener = document.querySelector(`[data-next-open="${id}"]`);
-    if (opener) opener.textContent = notes ? 'Edit next step' : 'Record next step';
+    if (opener) opener.textContent = notes ? 'Edit review notes' : 'Add review notes';
     const card = editor.closest('[data-task]');
     const notesFold=card?.querySelector('[data-saved-notes]');
     if(notesFold) notesFold.hidden=!notes;
@@ -4434,6 +4434,13 @@ async function handleNextStep(event) {
   }
 }
 document.addEventListener('click', handleNextStep);
+document.addEventListener('click', event=>{
+ const button=event.target.closest('[data-decision-open]');if(!button)return;
+ const card=button.closest('[data-task]');
+ const details=card?.querySelector('.task-decision > details');if(!details)return;
+ details.open=true;details.scrollIntoView({block:'start',behavior:'smooth'});
+ $(`decision-stage-${button.dataset.decisionOpen}`)?.focus({preventScroll:true});
+});
 document.addEventListener('click', async event=>{
  const button=event.target.closest('[data-decision-save]'); if(!button || button.disabled) return;
  const id=button.dataset.decisionSave, panel=button.closest('.task-decision');
@@ -4466,6 +4473,7 @@ document.addEventListener('click', async event=>{
   const freshness=$(`report-controls-${id}`).querySelector('[data-report-freshness]');
   if(freshness)freshness.textContent='Saved action changed. Preview the report copy before sharing.';
   feedback.textContent='Decision saved. Any existing client-report copy stays unchanged until you explicitly update it.';
+  const next=document.createElement('button');next.type='button';next.className='btn';next.dataset.reportPreview=id;next.textContent='Next: preview for client report';feedback.appendChild(document.createElement('br'));feedback.appendChild(next);
   const moved=state.view==='actions' && state.opportunityDecision && state.opportunityDecision!=='all' && state.opportunityDecision!==result.stage;
   if(moved) panel.closest('[data-task]').remove();
   await refreshTaskCounts();
@@ -6256,7 +6264,8 @@ document.addEventListener('click',async event=>{
  if(cancel){cancel.closest('[data-report-preview-panel]').hidden=true;return;}
  const button=event.target.closest('[data-report-preview]');if(!button)return;
  const projectId=state.projectId;
- const panel=button.closest('[id^="report-controls-"]').querySelector('[data-report-preview-panel]');
+ const panel=button.closest('[data-task]')?.querySelector('[data-report-preview-panel]');
+ if(!panel)return;
  button.disabled=true;
  try {
   const response=await fetch(`/api/recommendations/${button.dataset.reportPreview}/report-note-preview`);
@@ -6265,6 +6274,7 @@ document.addEventListener('click',async event=>{
   const copy=(label,value)=>`<section><h4>${label}</h4>${value?`<strong>${esc(value.title)}</strong><p style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(value.notes)}</p>`:'<p>Not included yet.</p>'}</section>`;
   panel.innerHTML=`<h3>Review client report copy</h3><p class="hint">Only saved content appears here. A reviewed decision replaces older working notes in the report. Your task notes are kept.</p>${copy('Currently in the report',data.current)}${copy('Proposed report copy',data.proposed)}<p class="hint">${data.current&&!data.changed?'The report copy is current.':data.canInclude?'Updating changes the report copy only. It does not mark the action complete.':'Save a decision or note of 12,000 characters or fewer before including it.'}</p>${data.canInclude&&(!data.current||data.changed)?`<button data-report-note="${button.dataset.reportPreview}" data-include="true" data-version="${esc(data.version)}">${data.current?'Update report copy':'Include in client report'}</button>`:''} <button class="ghost" data-report-preview-cancel>Close preview</button>`;
   panel.hidden=false;
+  panel.scrollIntoView({block:'start',behavior:'smooth'});
  }catch(error){toast(error.message,'bad');}finally{button.disabled=false;}
 });
 

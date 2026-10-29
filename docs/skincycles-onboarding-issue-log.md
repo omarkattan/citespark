@@ -36,6 +36,9 @@ Baseline: Cited main commit c19d7e5c1b3341af932942a0befa98b9fd277088. That relea
 | UX-012 | Report preparation | The first report page starts with dates and optional AI analysis, then saving, Google-source warnings and finally two empty recommendation sections. | The user encounters optional work before the report's core content, without a direct route to a recommendation. | Put Choose recommendations, Preview, Save and download in order. Collapse optional evidence and analysis. Link empty states directly to this project's Opportunities. | Implemented locally. DOM order, empty-state links and existing preview/save protections pass. |
 | UX-013 | Running state | The guide still offers Review cost and run while the top run control says Running. | Competing states suggest a second run is possible. | Replace the guide action with Measurement in progress and block duplicate modal launch. | Implemented locally. Running-state test passes. |
 
+| UX-014 | Open a recommendation | A question with exactly one saved check requires opening the question group, then opening its only task. Reproduced on the pricing question. | A redundant disclosure delays access to evidence. | Open the single inner task automatically when its question is opened. | Follow-up implemented and covered by interaction tests. Live verification pending. |
+| UX-015 | Answer to report decision | Record your review conclusion opens freeform notes, while a separate Record or update decision form stores the structured report recommendation. After saving that decision, the report preview sits below the long answer. | Two overlapping recording paths and a distant next step obscure the delivery flow. | Route the answer CTA to the structured decision, call the older route Review notes, and show Preview for client report beside the saved-decision confirmation. | Follow-up implemented and covered by interaction tests. Live verification pending. |
+
 ## Test constraints, separate from product issues
 
 | ID | Constraint | Effect |
@@ -47,7 +50,7 @@ Baseline: Cited main commit c19d7e5c1b3341af932942a0befa98b9fd277088. That relea
 
 UX-001 through UX-013 have local implementations. Earlier statuses in the observation table describe the baseline; live release validation is recorded below.
 
-Implemented in the application, generation rules and report preparation. Initial local validation: 56 focused checks pass, covering the real app boot and resumed project screens, tour persistence, saved progress, failed saves, first-run choices, email refresh, question filtering, preliminary reviews and report preparation. Tests use mocked provider responses and local PostgreSQL-compatible storage, not paid live requests.
+Implemented in the application, generation rules and report preparation. Initial local validation: 57 focused checks pass, covering the real app boot and resumed project screens, tour persistence, saved progress, failed saves, first-run choices, email refresh, question filtering, preliminary reviews and report preparation. Tests use mocked provider responses and local PostgreSQL-compatible storage, not paid live requests.
 
 The broad suite remains at 288 passing checks and six pre-existing failures reproduced before this task. Additional legacy browser unit tests have stale/missing harness dependencies reproduced against the unchanged baseline. These are not described as passing. Local runtime is Node 24.22.1; the repository requests Node 26.12.1 or later within 26.x.
 
@@ -80,3 +83,7 @@ The broad suite remains at 288 passing checks and six pre-existing failures repr
 Record each observed problem before changing it. Add the exact step, reproduction, expected behaviour, actual behaviour, severity, proposed fix, affected files or commit, and retest evidence as available. Label code-review concerns separately until reproduced. Do not treat an untested stage as a pass.
 
 Maintain a short record of the measurements actually run and their limits. Do not fabricate successful runs, recommendations or report outputs. Retest the completed journey after fixes and distinguish remaining blockers from resolved issues.
+
+## Live release check
+
+Commit 1591f76ce6387275dc827b6b2c70b125fc331c9c is live. Reloading project 39 resumes Step 5 of 6. Prepare reviews from saved answers created ten preliminary question reviews, retaining the one-answer limitation and leaving the account at 10/40 checks. The pricing question’s answer was opened and a structured investigation decision was saved with three explicit editorial FAQ suggestions. These suggestions are not labelled as observed search demand. Report inclusion and fixed-version checks continue below.
