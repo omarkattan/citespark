@@ -6,7 +6,7 @@ const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5';
 export const hasAnthropic = Boolean(KEY);
 
 /** Single-shot call. Returns plain text, or null if unavailable. */
-export async function complete(prompt, { maxTokens = 1500, system, timeoutMs = 0, onFailure } = {}) {
+export async function complete(prompt, { maxTokens = 1500, system, timeoutMs = 0, onFailure, outputSchema, onResponse } = {}) {
   if (!KEY) { onFailure?.('not_configured'); return null; }
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -20,12 +20,15 @@ export async function complete(prompt, { maxTokens = 1500, system, timeoutMs = 0
       body: JSON.stringify({
         model: MODEL,
         max_tokens: maxTokens,
+        ...(outputSchema ? {output_config:{format:{type:'json_schema',schema:outputSchema}}} : {}),
         system,
         messages: [{ role: 'user', content: prompt }]
       })
     });
     if (!res.ok) { onFailure?.(`http_${res.status}`); return null; }
     const json = await res.json();
+    onResponse?.({model:json.model||MODEL,stop_reason:json.stop_reason,usage:json.usage||null});
+    if(outputSchema && json.stop_reason!=='end_turn') { onFailure?.(json.stop_reason||'incomplete_response'); return null; }
     return (json.content || [])
       .filter((block) => block.type === 'text')
       .map((block) => block.text)

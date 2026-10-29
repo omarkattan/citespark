@@ -52,6 +52,19 @@ test('same answer evidence is cached, a new measurement produces new action draf
 test('model failure falls back to concrete checks and retains the measurement evidence',async()=>{
  const out=await prepareActionPlans(project,[rec(1,'Which skincare brand is best?')],answers,{cycle,pages,generate:async()=>{throw Error('Unavailable');}});assert.equal(out[0].evidence.action_plan.generation,'guided-check');assert.equal(out[0].evidence.action_plan.evidence.answer_id,100);
 });
+test('requests a strict schema and resolves exact passages from structured action output',async()=>{
+ const out=await prepareActionPlans(project,[rec(1,'How much should skincare cost?')],answers,{cycle,pages,generate:async(prompt,options)=>{
+  assert.equal(options.outputSchema.additionalProperties,false);assert.deepEqual(options.outputSchema.required,['actions']);assert.ok(options.maxTokens>=4000);
+  options.onResponse({model:'test-model',stop_reason:'end_turn',usage:{output_tokens:500}});return JSON.stringify({actions:[valid]});
+ }});
+ assert.equal(out[0].evidence.action_plan.generation,'page-grounded');assert.equal(out[0].evidence.action_plan.provider.stop_reason,'end_turn');
+});
+test('an incomplete provider response is rejected even if a partial action array parses',async()=>{
+ const out=await prepareActionPlans(project,[rec(1,'How much should skincare cost?')],answers,{cycle,pages,generate:async(prompt,options)=>{
+  options.onResponse({model:'test-model',stop_reason:'max_tokens',usage:{output_tokens:5000}});return JSON.stringify({actions:[valid]});
+ }});
+ assert.equal(out[0].evidence.action_plan.generation,'guided-check');assert.equal(out[0].evidence.action_plan.draft_status,'max_tokens');assert.equal(out[0].evidence.action_plan.evidence.answer_id,100);
+});
 test('page URLs stay on the public owned HTTPS site and exclude account or asset paths',()=>{
  for(const url of ['http://skincycles.com/','https://other.com/','https://u:p@skincycles.com/','https://skincycles.com:444/','/checkout','/account/settings','/image.png',null])assert.equal(ownPageUrl(url,project.domain),null);
  assert.equal(ownPageUrl('/products/serum?ref=x#faq',project.domain),'https://skincycles.com/products/serum');
