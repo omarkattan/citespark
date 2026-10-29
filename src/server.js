@@ -740,6 +740,8 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
     status === 'active' ? "AND status IN ('open','doing')" :
     'AND status = $2';
   const params = ['all', 'active'].includes(status) ? [project.id] : [project.id, status];
+  const offset = Number(req.query.offset || 0);
+  if (!Number.isSafeInteger(offset) || offset < 0) return res.status(400).json({error:'Unknown action page'});
 
   const rows = await many(
     `SELECT * FROM recommendations
@@ -753,8 +755,8 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
        CASE WHEN (${kindSql})='questions' THEN 0 WHEN (${kindSql})='competitors' THEN 1 WHEN (${kindSql})='sources' THEN 3 ELSE 2 END,
        CASE WHEN type='content_gap' THEN 0 ELSE 1 END,
        id ASC
-     LIMIT 100`,
-    params
+     LIMIT 100 OFFSET $${params.length+1}`,
+    [...params, offset]
   );
 
   const counts = await one(
@@ -789,6 +791,8 @@ app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) 
     counts,
     focusCounts,
     limit: 100,
+    offset,
+    nextOffset: offset + rows.length < (status === 'active' ? counts.open + counts.doing : status === 'all' ? counts.total : counts[status]) ? offset + rows.length : null,
     people: [...new Set([...members.map((m) => m.email), ...people.map((p) => p.assignee)])]
   });
 }));

@@ -10,7 +10,7 @@ const tasks=[{...base,id:1,type:'source_gap',sourceReview:{status:'irrelevant',r
 function harness(){
  const document=new JSDOM('<div id="view"></div>').window.document;
  const state={projectId:26,opportunityProject:26,view:'actions'};
- const h=vm.createContext({URL,document,state,esc,$:id=>document.getElementById(id),dueLabel:()=>'',highlight:esc,evidenceDetails:()=>'',api:async()=>({tasks,counts:{open:4,doing:0,done:0,dismissed:0,total:4}})});
+ const h=vm.createContext({URL,URLSearchParams,window:document.defaultView,document,state,esc,$:id=>document.getElementById(id),dueLabel:()=>'',highlight:esc,evidenceDetails:()=>'',api:async()=>({tasks,counts:{open:4,doing:0,done:0,dismissed:0,total:4}})});
  vm.runInContext(app.slice(app.indexOf('function opportunityKind('),app.indexOf('function renderTeardown(')),h);
  vm.runInContext(app.slice(app.indexOf('const TYPE_LABEL'),app.indexOf('/**\n * Who is doing')),h);
  return {h,document,state};
@@ -18,7 +18,7 @@ function harness(){
 test('complete queue groups tasks with accurate counts and native collapsed cards',async()=>{
  const {h,document}=harness();document.body.innerHTML=await h.viewActions();
  assert.equal(document.querySelectorAll('#opportunityQueue > article, #opportunityQueue > section').length,4);
- assert.equal(document.querySelectorAll('#opportunityQueue .queue-task[open]').length,0);
+ assert.equal(document.querySelectorAll('#opportunityQueue > article > .queue-task[open], #opportunityQueue .question-review[open]').length,0);
  const labels=[...document.querySelectorAll('#opportunityKind option')].map(o=>o.textContent);
  assert.deepEqual(labels,['All opportunities (4 checks)','Question reviews (1 check)','Source reviews (1 check)','Competitor reviews (1 check)','Other actions (1 check)']);
  const source=document.querySelector('[data-task="1"] summary');assert.match(source.textContent,/Source appears unrelated/);

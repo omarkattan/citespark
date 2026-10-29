@@ -7,13 +7,13 @@ const server=readFileSync(new URL('../src/server.js',import.meta.url),'utf8');
 const app=readFileSync(new URL('../src/public/app.js',import.meta.url),'utf8');
 const db=new PGlite();
 await db.exec(`CREATE TABLE recommendations (id int, project_id int,type text,status text,evidence jsonb,priority numeric,due_date date,assignee text);
-CREATE TABLE report_review_notes(project_id int,recommendation_id int); CREATE TABLE projects(id int,org_id int); CREATE TABLE users(email text,org_id int);
+CREATE TABLE report_review_notes(project_id int,recommendation_id int,title text,notes text); CREATE TABLE projects(id int,org_id int); CREATE TABLE users(email text,org_id int);
 INSERT INTO projects VALUES (1,1),(2,2);
 INSERT INTO recommendations SELECT n,1,'content_gap',CASE WHEN n<=105 THEN 'open' ELSE 'done' END,'{"prompt_id":7}',1000-n,NULL,NULL FROM generate_series(1,110) n;
 INSERT INTO recommendations VALUES (200,1,'source_gap','open','{}',1,NULL,NULL),(201,1,'source_gap','doing','{}',1,NULL,NULL),(202,1,'competitor_comparison','dismissed','{"prompt_id":9}',1,NULL,NULL),(203,1,'entity_authority','open','{}',1,NULL,NULL),(204,1,'engine_gap','doing','{"prompt_id":12}',1,NULL,NULL),(300,2,'content_gap','open','{}',1,NULL,NULL);`);
 await db.exec(`ALTER TABLE recommendations ADD COLUMN review_decision jsonb NOT NULL DEFAULT '{}';`);
 let handler;
-const h=vm.createContext({app:{get:(_path,_auth,fn)=>handler=fn},requireAuth:()=>{},wrap:f=>f,assertProject:async()=>({id:1}),attachSourceReviews:async(_p,rows)=>rows,many:async(sql,args)=>(await db.query(sql,args)).rows,one:async(sql,args)=>(await db.query(sql,args)).rows[0]});
+const h=vm.createContext({app:{get:(_path,_auth,fn)=>handler=fn},requireAuth:()=>{},wrap:f=>f,assertProject:async()=>({id:1}),attachSourceReviews:async(_p,rows)=>rows,reportNotePreview:()=>({changed:false}),many:async(sql,args)=>(await db.query(sql,args)).rows,one:async(sql,args)=>(await db.query(sql,args)).rows[0]});
 const start=server.indexOf("app.get('/api/projects/:id/recommendations'");vm.runInContext(server.slice(start,server.indexOf('\n/**',start)),h);
 async function request(query){let result,code=200;await handler({query,session:{orgId:1}},{status:n=>{code=n;return {json:d=>result=d};},json:d=>result=d});return {result,code};}
 test('server filters before the 100-card limit and counts the full selected focus',async()=>{
@@ -35,7 +35,8 @@ test('invalid status or focus is rejected',async()=>{
 test('full queue uses server focus counts, scoped tabs and a limit notice',async()=>{
  const {result:data}=await request({status:'active',kind:'questions'});
  const {JSDOM}=await import(process.env.JSDOM_MODULE || 'jsdom');
- const v=vm.createContext({state:{projectId:1,opportunityProject:1,opportunityKind:'questions'},esc:s=>String(s??''),api:async url=>{assert.match(url,/status=active&kind=questions/);return data;},STATUS_LABEL:{open:'To do',doing:'In progress'},dueLabel:()=>'',taskCard:t=>`<article>${t.id}</article>`});
+ const dom=new JSDOM('<div></div>');
+ const v=vm.createContext({URLSearchParams,window:dom.window,document:dom.window.document,state:{projectId:1,opportunityProject:1,opportunityKind:'questions'},esc:s=>String(s??''),api:async url=>{assert.match(url,/status=active&kind=questions/);return data;},STATUS_LABEL:{open:'To do',doing:'In progress'},dueLabel:()=>'',taskCard:t=>`<article>${t.id}</article>`});
  vm.runInContext(app.slice(app.indexOf('function opportunityKind('),app.indexOf('const STATUS_LABEL')),v);
  const document=new JSDOM(await v.viewActions()).window.document;
  assert.match(document.querySelector('[data-task-filter="active"]').textContent,/Open work\s+106/);
@@ -51,4 +52,10 @@ test('ready filter reaches beyond the preview cap with accurate scoped counts',a
   const {result:all}=await request({status:'active'});assert.equal(all.tasks[2].id,105);
   assert.equal((await request({status:'active',decision:"ready' OR true"})).code,400);
  } finally {await db.exec(`UPDATE recommendations SET review_decision='{}';`);}
+});
+
+test('pagination reaches every matching row without duplicates or crossing projects',async()=>{
+ const first=(await request({status:'active'})).result,second=(await request({status:'active',offset:first.nextOffset})).result;
+ assert.equal(first.nextOffset,100);assert.equal(second.nextOffset,null);assert.equal(second.tasks.length,9);const rows=[...first.tasks,...second.tasks];assert.equal(new Set(rows.map(t=>t.id)).size,109);assert.ok(rows.every(t=>t.project_id===1));
+ assert.equal((await request({status:'active',offset:-1})).code,400);assert.equal((await request({status:'active',offset:'1 OR true'})).code,400);
 });

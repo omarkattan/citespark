@@ -5,22 +5,23 @@ const {JSDOM}=await import(process.env.JSDOM_MODULE);
 const read=p=>readFileSync(new URL(p,import.meta.url),'utf8');
 const settle=()=>new Promise(r=>setImmediate(r));
 const plan={version:1,cycle:'2026-10-29T00:00:00.000Z',title:'Explain the routine price',question:'How much should skincare cost?',mode:'improve',page:'https://skincycles.com/products/serum',page_status:'inspected',rationale:'Help buyers see what the price includes.',change:'Add the approved pack size and usage calculation beside the current price.',suggested_questions:['What is included in the serum price?'],completion:'Check the figures and record the URL.',follow_up:'Repeat the same question and settings later.',evidence:{answer_id:100,answer_url:'/api/projects/39/measurements/60#run-100',observation:'One saved answer did not name the brand.',answer_quote:'The best choice depends on price and needs.',page_quote:'Pack size 30 ml. Use two drops.',page_read_at:'2026-10-29T00:00:00.000Z'}};
-async function appFixture(decision={}){
+async function appFixture(decision={},options={}){
  const dom=new JSDOM(read('../src/public/index.html'),{url:'https://cited.test/app?site=39',runScripts:'outside-only',pretendToBeVisual:true}),w=dom.window,requests=[];
  w.scrollTo=()=>{};w.HTMLElement.prototype.scrollIntoView=()=>{};
  const project={id:39,name:'SkinCycles',brand_name:'SkinCycles',domain:'skincycles.com',market:'GB',engines:['chatgpt']};
  const task={id:99,type:'content_gap',status:'open',title:'Review first answer',evidence:{prompt_id:1,prompt:plan.question,runs:1,own_rate:0,action_plan:plan},review_decision:decision};
+ const tasks=options.tasks||[task];
  w.fetch=async(path,options={})=>{requests.push({path,method:options.method||'GET',body:options.body});let data;
  if(path==='/api/me')data={signedIn:true,userId:7,emailVerified:true};else if(path==='/api/projects')data=[project];else if(path==='/api/billing')data=null;
  else if(path.endsWith('/overview'))data={project,cycle:'2026-10-29',runs:1,engines:[]};else if(path.endsWith('/setup-progress'))data={step:'recommendations'};
  else if(path.endsWith('/run-scope'))data={all:1,unrun:0,checksAll:1,checksUnrun:0,costAll:.03,costUnrun:0};else if(path.endsWith('/cycle-status'))data={phase:'idle'};
- else if(path.includes('/recommendations?'))data={tasks:[task],counts:{open:1,doing:0,done:0,dismissed:0,total:1},people:[]};
+ else if(path.includes('/recommendations?')){const offset=Number(new URL(path,'https://cited.test').searchParams.get('offset')||0);data={tasks:tasks.slice(offset,offset+100),nextOffset:offset+100<tasks.length?offset+100:null,counts:{open:tasks.length,doing:0,done:0,dismissed:0,total:tasks.length},people:[]};}
  else if(path.endsWith('/review-decision'))data={...JSON.parse(options.body),reviewed_at:'2026-10-29'};
  else if(path.endsWith('/report-note-preview'))data={current:null,proposed:{title:plan.title,notes:plan.change},canInclude:true,version:'v1'};
  else throw Error('Unexpected request '+path);return {ok:true,status:200,json:async()=>data};};
  w.eval(read('../src/public/countries.js'));w.eval(read('../src/public/app.js'));
  for(let i=0;i<25&&!w.document.querySelector('[data-use-action-plan]');i++)await settle();
- return {dom,w,requests,task};
+ return {dom,w,requests,task,tasks};
 }
 test('first results show concrete actions before the collapsed evidence queue, with no extra requests',async()=>{
  const f=await appFixture(),d=f.w.document;assert.match(d.querySelector('.action-plan h3').textContent,/Explain the routine price/);assert.ok(d.querySelector('.plan-page a').href.endsWith('/products/serum'));assert.equal(d.querySelector('#opportunityQueue').closest('details').open,false);assert.ok(f.requests.every(r=>r.method==='GET'));f.dom.window.close();
@@ -68,4 +69,23 @@ test('FAQ report handoff loads exact copy and original measurement evidence with
  assert.match(f.w.document.getElementById('decision-evidence-99').value,/measurements\/60#run-100/);
  assert.match(f.w.document.getElementById('decision-change-99').value,/An approved answer/);
  assert.ok(f.requests.every(r=>r.method==='GET'));f.dom.window.close();
+});
+
+function actionList(count=10){return Array.from({length:count},(_,i)=>({id:i+1,type:'content_gap',status:'open',title:'Check question '+(i+1),action:'Review the answer and the relevant page.',evidence:{prompt_id:i+1,prompt:'Buyer question '+(i+1)+'?',runs:1,own_rate:0,...(i<3?{action_plan:{...plan,title:'Suggested action '+(i+1),question:'Buyer question '+(i+1)+'?',position:i+1}}:{})},review_decision:{}}));}
+async function expandedFixture(count=10){const f=await appFixture({}, {tasks:actionList(count)});f.w.document.querySelector('[data-action-cards-toggle]').click();for(let i=0;i<50&&f.w.document.querySelectorAll('.action-plan').length!==count;i++)await settle();return f;}
+test('view all exposes every action as a card and preserves editors through collapse without spending',async()=>{
+ const f=await expandedFixture(),d=f.w.document;
+ assert.equal(d.querySelectorAll('.action-plan').length,10);assert.match(d.querySelector('.immediate-actions h2').textContent,/All 10 open actions/);assert.equal(d.querySelectorAll('.action-plan [data-draft-faq]').length,3);
+ assert.match(d.querySelector('[data-plan-id="4"] .plan-badge').textContent,/Needs investigation/);
+ d.getElementById('decision-change-4').value='Keep my unsaved wording';d.querySelector('[data-use-action-plan="4"]').click();await settle();assert.equal(d.getElementById('decision-change-4').value,'Keep my unsaved wording');
+ d.querySelector('[data-action-cards-toggle]').click();for(let i=0;i<20&&d.querySelectorAll('.action-plan').length!==3;i++)await settle();
+ assert.equal(d.querySelectorAll('.action-plan').length,3);assert.equal(d.getElementById('decision-change-4').value,'Keep my unsaved wording');assert.ok(f.requests.every(r=>r.method==='GET'));f.dom.window.close();
+});
+test('all cards reach past the 100-row API page and an extra card opens a complete editor',async()=>{
+ const f=await expandedFixture(106),d=f.w.document;
+ assert.equal(d.querySelectorAll('.action-plan').length,106);assert.ok(f.requests.some(r=>r.path.endsWith('offset=100')));assert.equal(new Set([...d.querySelectorAll('.action-plan')].map(el=>el.dataset.planId)).size,106);
+ d.querySelector('[data-use-action-plan="106"]').click();await settle();assert.match(d.getElementById('decision-change-106').value,/Read the saved answer/);assert.equal(d.getElementById('decision-stage-106').value,'investigate');assert.ok(f.requests.every(r=>r.method==='GET'));f.dom.window.close();
+});
+test('expansion failure leaves the shortlist and unsaved decisions available for retry',async()=>{
+ const f=await appFixture({}, {tasks:actionList()}),d=f.w.document;f.w.fetch=async()=>{throw Error('Connection lost');};d.getElementById('decision-change-4').value='Keep my work';d.querySelector('[data-action-cards-toggle]').click();await settle();await settle();assert.equal(d.querySelectorAll('.action-plan').length,3);assert.equal(d.querySelector('[data-action-cards-toggle]').disabled,false);assert.equal(d.getElementById('decision-change-4').value,'Keep my work');assert.match(d.body.textContent,/Connection lost/);f.dom.window.close();
 });
