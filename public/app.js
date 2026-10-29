@@ -1,0 +1,6250 @@
+const $ = (id) => document.getElementById(id);
+const state = { projectId: null, view: 'overview', overview: null, interval: null };
+
+const esc = (s) =>
+  String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
+  );
+
+const pct = (n) => `${Math.round((n || 0) * 100)}%`;
+
+/**
+ * Every call goes through here.
+ *
+ * A plain object passed as `body` serialises to "[object Object]" and the
+ * server sees an empty request, which fails silently rather than loudly.
+ * Accepting an object and encoding it here removes the trap.
+ */
+/**
+ * Say what just happened, briefly, then get out of the way.
+ *
+ * Adding a competitor, a question or a persona all worked silently: the row
+ * appeared somewhere in a list and the person was left to go and check. A
+ * confirmation that disappears on its own is the smallest honest way to close
+ * the loop without another thing to dismiss.
+ */
+function toast(message, kind = 'ok') {
+  let tray = document.getElementById('toasts');
+  if (!tray) {
+    tray = document.createElement('div');
+    tray.id = 'toasts';
+    tray.setAttribute('role', 'status');
+    // Polite, so a screen reader finishes its sentence before announcing it.
+    tray.setAttribute('aria-live', 'polite');
+    document.body.appendChild(tray);
+  }
+
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.textContent = message;
+  tray.appendChild(el);
+
+  // A failure is worth reading twice; a success is not.
+  const life = kind === 'bad' ? 5200 : 2600;
+  setTimeout(() => {
+    el.classList.add('going');
+    setTimeout(() => el.remove(), 260);
+  }, life);
+}
+
+async function api(path, options = {}) {
+  const { readTimeoutMs = 0, ...opts } = options;
+  if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
+    opts.body = JSON.stringify(opts.body);
+    opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  }
+  // Opt-in read deadline only. Never time out or automatically retry a mutation.
+  const bounded = readTimeoutMs > 0 && (opts.method || 'GET').toUpperCase() === 'GET';
+  const controller = bounded ? new AbortController() : null;
+  if (controller) opts.signal = controller.signal;
+  let timer;
+  const request = async () => {
+    const res = await fetch(path, opts);
+    if (res.status === 401) { window.location.href = '/login'; return null; }
+    return res.json();
+  };
+  try {
+    return bounded ? await Promise.race([request(), new Promise((_, reject) => {
+      timer = setTimeout(() => { controller.abort(); reject(new Error('This section took too long to load. Try again.')); }, readTimeoutMs);
+    })]) : await request();
+  } finally { clearTimeout(timer); }
+}
+
+/**
+ * Catch a refusal wherever it happens.
+ *
+ * Thirty-three calls in this file use fetch directly rather than the helper
+ * above, so handling this in the helper would have covered some paths and
+ * missed others silently. Wrapping fetch itself means a limit hit from
+ * anywhere, including code written later, shows a way forward.
+ */
+const rawFetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const res = await rawFetch(...args);
+
+  if (res.status === 402) {
+    // The body is read from a clone so the caller still gets an unread one.
+    res
+      .clone()
+      .json()
+      .then((body) => {
+        if (body?.upgrade) showUpgrade(body.error);
+      })
+      .catch(() => {});
+  }
+
+  return res;
+};
+
+/** What is available above where they are, and what it would unlock. */
+async function showUpgrade(reason) {
+  const existing = document.getElementById('upgradeSheet');
+  if (existing) existing.remove();
+
+  // Two calls: what exists, and where they are now. Only what sits above
+  // them is worth showing.
+  const [plans, billing] = await Promise.all([
+    fetch('/api/plans').then((r) => r.json()).catch(() => null),
+    fetch('/api/billing').then((r) => r.json()).catch(() => null)
+  ]);
+
+  const order = (plans?.plans || []).map((p) => p.id);
+  const current = billing?.plan?.id || 'free';
+  const above = (plans?.plans || []).filter((p) => order.indexOf(p.id) > order.indexOf(current));
+  const canPay = plans?.stripeEnabled !== false;
+
+  const sheet = document.createElement('div');
+  sheet.id = 'upgradeSheet';
+  sheet.className = 'upsell';
+  sheet.innerHTML = `
+    <div class="upsell-box" role="dialog" aria-modal="true" aria-label="Upgrade">
+      <button class="upsell-close" data-upsell-close aria-label="Close">&times;</button>
+      <p class="upsell-reason">${esc(reason || 'That is beyond what this plan allows.')}</p>
+      ${
+        above.length
+          ? `<div class="upsell-plans">
+              ${above
+                .slice(0, 2)
+                .map(
+                  (p) => `<div class="upsell-plan">
+                    <div class="upsell-name">${esc(p.name)}</div>
+                    <div class="upsell-price">$${p.price}<span>/month</span></div>
+                    <ul>
+                      <li>${p.sites} ${p.sites === 1 ? 'site' : 'sites'}</li>
+                      <li>${p.questions} questions each</li>
+                      <li>${p.engines} engines</li>
+                      <li>${p.monthlyCalls.toLocaleString()} answer checks a month</li>
+                    </ul>
+                    ${
+                      canPay
+                        ? `<button class="btn" data-upgrade-to="${esc(p.id)}">Choose ${esc(p.name)}</button>`
+                        : '<span class="hint">Contact us to switch plan</span>'
+                    }
+                  </div>`
+                )
+                .join('')}
+            </div>`
+          : '<p class="hint">You are already on the largest plan. Email omar@sandstormdigital.com and we will sort something out.</p>'
+      }
+      <button class="ghost" data-upsell-close>Not now</button>
+    </div>`;
+  document.body.appendChild(sheet);
+}
+
+document.addEventListener('click', async (e) => {
+  if (e.target.closest('[data-upsell-close]')) {
+    document.getElementById('upgradeSheet')?.remove();
+    return;
+  }
+
+  const pick = e.target.closest('[data-upgrade-to]');
+  if (pick) {
+    pick.disabled = true;
+    pick.textContent = 'Opening checkout';
+    const d = await fetch('/api/billing/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan: pick.dataset.upgradeTo, interval: 'month' })
+    }).then((r) => r.json());
+
+    if (d?.url) window.location.href = d.url;
+    else {
+      pick.disabled = false;
+      pick.textContent = 'Could not open checkout';
+    }
+  }
+});
+
+/* ---------- signature element ---------- */
+
+/**
+ * A tick means named. A ring means linked as a source but not named.
+ *
+ * These were collapsed into one mark, so being cited first in an AI Overview
+ * without being named in the sentence showed as nothing at all. The link is
+ * usually the more valuable outcome of the two.
+ */
+function runStrip(runs) {
+  const byEngine = new Map();
+  for (const r of runs) {
+    if (!byEngine.has(r.engine)) byEngine.set(r.engine, []);
+    byEngine.get(r.engine).push(r);
+  }
+  const groups = [...byEngine.entries()]
+    .map(([engine, list]) => {
+      const ticks = list
+        .map((r) => {
+          // Three states, not two: named, linked but not named, neither.
+          const state = r.mentioned == null ? 'unrun' : r.mentioned ? 'hit' : r.cited ? 'cited' : 'miss';
+          const label = r.mentioned == null ? 'not measured: no brand verdict available' : r.mentioned
+            ? `named at position ${r.ordinal}`
+            : r.cited
+              ? 'linked as a source, but not named in the answer'
+              : 'neither named nor linked';
+          return `<span class="tick ${state}" title="${label}"></span>`;
+        })
+        .join('');
+      return `<div class="runstrip-group"><div class="ticks">${ticks}</div><div class="runstrip-label">${esc(engine)}</div></div>`;
+    })
+    .join('');
+  return `<div class="runstrip">${groups}</div>`;
+}
+
+function highlight(text, brand) {
+  if (!text) return '';
+  const safe = esc(text);
+  if (!brand) return safe;
+  const re = new RegExp(`(${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  return safe.replace(re, '<mark>$1</mark>');
+}
+
+// A deliberately small display formatter. Never execute answer HTML, load
+// images, or infer facts. Unsupported Markdown remains text in the reader.
+function answerUrl(value) {
+  try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? value : null; }
+  catch { return null; }
+}
+function collectionDisplayText(value) {
+  return String(value ?? '')
+    .replace(/!\[[^\]\n]*\]\(https?:\/\/(?:[a-z0-9-]+\.)*dataforseo\.com(?:[/:][^\s)]*)?\)/gi, '[Image omitted]')
+    .replace(/https?:\/\/(?:[a-z0-9-]+\.)*dataforseo\.com(?=[/:\s)"<>]|$)[^\s)"<>]*/gi, '[Collection asset omitted]')
+    .replace(/\b(?:[a-z0-9-]+\.)*dataforseo\.com\b/gi, '[Collection service]')
+    .replace(/\bDataForSEO\b/gi, 'collection provider');
+}
+function collectionAsset(value) {
+  try {const host=new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`).hostname.toLowerCase(); return host==='dataforseo.com'||host.endsWith('.dataforseo.com');} catch {return false;}
+}
+function answerInline(text) {
+  const tokens = /`([^`\n]+)`|\*\*([^*\n]+)\*\*|\[([^\n]+?)\]\(([^\s)]+)\)/g;
+  let out = '', end = 0;
+  for (const m of text.matchAll(tokens)) {
+    out += esc(text.slice(end,m.index));
+    if (m[1] !== undefined) out += `<code>${esc(m[1])}</code>`;
+    else if (m[2] !== undefined) out += `<strong>${esc(m[2])}</strong>`;
+    else out += answerUrl(m[4]) ? `<a href="${esc(m[4])}" target="_blank" rel="noopener noreferrer">${esc(m[3])}</a>` : esc(m[0]);
+    end = m.index + m[0].length;
+  }
+  return out + esc(text.slice(end));
+}
+function formatAnswer(text) {
+  const lines = collectionDisplayText(text).replace(/\r\n?/g,'\n').split('\n');
+  const out = []; let paragraph = [], list = null, code = null;
+  const flush = () => { if (paragraph.length) {out.push(`<p>${paragraph.map(answerInline).join('<br>')}</p>`); paragraph=[];} };
+  const closeList = () => {if (list) {out.push(`</${list}>`); list=null;}};
+  for (const line of lines) {
+    if (/^\s*```/.test(line)) {
+      flush(); closeList();
+      if (code !== null) {out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`); code=null;} else code=[];
+      continue;
+    }
+    if (code !== null) {code.push(line);continue;}
+    if (!line.trim()) {flush();closeList();continue;}
+    const heading = line.match(/^#{1,6}\s+(.+)$/);
+    const item = line.match(/^\s*(?:([-+*])\s+|(\d+)[.)]\s+)(.+)$/);
+    if (heading) {flush();closeList();out.push(`<h4>${answerInline(heading[1])}</h4>`);}
+    else if (/^\s*(?:---+|\*\*\*+)\s*$/.test(line)) {flush();closeList();out.push('<hr>');}
+    else if (item) {
+      flush();const kind=item[1] ? 'ul' : 'ol';
+      if (kind !== list) {closeList();list=kind;out.push(`<${kind}>`);}
+      out.push(`<li${item[2] ? ` value="${Number(item[2])}"` : ''}>${answerInline(item[3])}</li>`);
+    } else {closeList();paragraph.push(line);}
+  }
+  flush();closeList();if (code !== null) out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`);
+  return out.join('');
+}
+
+/* ---------- views ---------- */
+
+function rateClass(rate) {
+  if (rate === 0) return 'zero';
+  if (rate < 0.35) return 'low';
+  return 'good';
+}
+
+const VIEW_SECTION = {overview:'overview', questions:'questions', actions:'opportunities', assigned:'opportunities',
+  searchDemand:'evidence', competitorReview:'evidence', answers:'evidence', connections:'settings', trends:'evidence', rivals:'evidence', sources:'evidence', pages:'evidence', landscape:'evidence', traffic:'evidence', setup:'settings', billing:'settings'};
+const SECTION_DEFAULT = {overview:'overview',questions:'questions',opportunities:'actions',evidence:'searchDemand',settings:'setup'};
+
+function syncNavigation() {
+  const section = VIEW_SECTION[state.view] || 'overview';
+  for (const button of document.querySelectorAll('[data-section]')) {
+    if (button.dataset.section === section) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  }
+  for (const group of document.querySelectorAll('[data-nav-group]')) {
+    group.hidden = group.dataset.navGroup !== section || ['overview','questions'].includes(section);
+  }
+  for (const button of document.querySelectorAll('[data-view]')) {
+    if (button.dataset.view === state.view) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  }
+  $('measurementDetails').hidden = section !== 'evidence';
+}
+
+async function viewOverview() {
+  const o = state.overview || {};
+  const [data, scope, history] = await Promise.all([
+    api(`/api/projects/${state.projectId}/recommendations?status=active`, {readTimeoutMs:12000}).catch(() => null),
+    api(`/api/projects/${state.projectId}/run-scope`, {readTimeoutMs:12000}).catch(() => null),
+    api(`/api/projects/${state.projectId}/history?summary=1`, {readTimeoutMs:12000}).catch(() => null)
+  ]);
+  state.people = data?.people || [];
+  const tasks = Array.isArray(data?.tasks) ? data.tasks : null;
+  const unrelated = tasks?.filter(t => ['source_gap','competitor_page'].includes(t.type) && t.sourceReview?.status === 'irrelevant') || [];
+  const eligible = (tasks || []).filter(t => !unrelated.includes(t) && (!t.status || ['open', 'doing'].includes(t.status)));
+  // This is a review order, not a model of expected visibility gains.
+  // Use local calendar dates, matching the task due-date display.
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  const due = t => /^\d{4}-\d{2}-\d{2}/.test(t.due_date || '') ? t.due_date.slice(0,10) : null;
+  const suggested = [];
+  const add = (task, reason) => {
+    if (suggested.length < 3 && !suggested.some(item => item.task.id === task.id || (task.evidence?.prompt_id && item.task.evidence?.prompt_id===task.evidence.prompt_id))) suggested.push({task, reason});
+  };
+  eligible.filter(t => due(t) && due(t) <= today)
+    .sort((a,b) => due(a).localeCompare(due(b)))
+    .forEach(t => add(t, due(t) < today ? 'Overdue. Review your scheduled work first.' : 'Due today. Review your scheduled work first.'));
+  eligible.filter(t => t.status === 'doing').forEach(t => add(t, 'Already in progress. Continue the work you started.'));
+  const group = t => ['source_gap','competitor_page'].includes(t.type) ? 'sources'
+    : t.type === 'competitor_comparison' ? 'competitors'
+    : t.type === 'content_gap' || t.evidence?.prompt_id ? 'questions' : 'other';
+  eligible.filter(t=>t.review_decision?.stage==='ready').forEach(t=>add(t,'Ready to implement. A reviewed page, evidence and specific change are recorded.'));
+  const groups = ['questions','competitors','sources','other'].map(kind => eligible.filter(t => group(t) === kind && t.review_decision?.stage!=='no_change'));
+  const sourceOrder = t => ({relevant:0,uncertain:2}[t.sourceReview?.status] ?? 1);
+  groups[0].sort((a,b)=>(a.type==='content_gap'?0:1)-(b.type==='content_gap'?0:1) || Number(a.id)-Number(b.id));
+  groups[2].sort((a,b) => sourceOrder(a)-sourceOrder(b));
+  const reasons = ['Review a buyer question and its stored answer evidence.', 'Compare the evidence for a tracked competitor.', 'Check a cited source against the buyer question.', 'Review another type of opportunity.'];
+  // One per available category before repeating. Preserve queue order within
+  // each category, except sources with a relevant check come first.
+  for (let round=0; round < eligible.length && suggested.length < 3; round++) {
+    groups.forEach((items,index) => {
+      const task=items[round];
+      if (task) add(task, index === 2 && task.sourceReview?.status === 'relevant'
+        ? 'A relevance check is available for this page and question. Review it before acting.' : reasons[index]);
+    });
+  }
+  const measured = Boolean(o.cycle && o.runs > 0 && o.visibility != null);
+  const next = scope && Number.isFinite(scope.all) ? `${scope.all} active questions · ${scope.checksAll} answer checks · estimated $${Number(scope.costAll || 0).toFixed(2)}` : 'Review the question count and estimated cost before running.';
+  const openCount = data?.counts && Number.isFinite(data.counts.open) && Number.isFinite(data.counts.doing) ? data.counts.open + data.counts.doing : tasks?.length;
+  const cycles = history?.cycles || [];
+  const changes = !history || history.error ? 'Trend history could not be loaded.' : cycles.length < 2
+    ? (cycles.length ? 'One day of results is available. Daily charts use its latest completed measurement. Earlier same-day runs remain in Measurement archive.' : 'No completed measurements yet.')
+    : `${cycles.length} days of results available. Open the trend view for the comparable question-and-engine cohort and any measurement-method changes.`;
+  return `${!data || data.error || !scope || scope.error || !history || history.error ? '<div class="notice" role="status">Some sections could not be loaded. Available results are shown below. <button class="ghost" data-retry-view>Try again</button></div>' : ''}<div class="overview-intro"><div><p class="eyebrow">Your next move</p><h2>${measured ? 'What needs your attention' : 'Start with the questions your buyers ask'}</h2>
+    <p>${measured ? `Latest measurement: ${esc(shortDate(o.cycle))}. Start with one evidence review below.` : 'Review your questions and their origins, then measure how AI engines answer them.'}</p></div>
+    <div class="overview-ctas"><a class="btn" href="/api/projects/${state.projectId}/report/prepare" target="_blank" rel="noopener">Prepare report</a>
+    ${measured && suggested.length ? '<button class="ghost" data-overview-next>Review next task</button>' : '<button class="btn" data-open-view="questions">Review questions</button>'}</div></div>
+    <div class="overview-summary overview-focus">
+      <section class="panel"><h3>What changed</h3><p>${esc(changes)}</p><p class="hint">Compare the same questions and engines before calling a difference a trend.</p><button class="ghost" data-open-view="trends">Review changes over time</button></section>
+      <section class="panel"><h3>What matters</h3><p class="overview-number">${measured ? pct(o.visibility) : 'Not measured'}</p>
+        <p class="hint">${measured ? `Named in ${pct(o.visibility)} of ${o.runs} successfully measured answers in the latest cycle. This is your tracked question set, not the whole market.` : 'No measured visibility is available yet.'}</p>
+        <button class="ghost" data-open-view="answers">Inspect measured answers</button></section>
+    </div>
+    ${measured ? '<section class="panel"><h3>Who else appeared?</h3><p>Review potential competitors from stored answers. Track relevant businesses, ignore other sources, or add your own.</p><button class="btn" data-open-view="competitorReview">Review competitors</button></section>' : ''}
+    <section aria-label="Next actions" id="overviewNext">
+    <div class="panel-head"><div><h2>What to do next</h2><p class="hint">${openCount != null ? `${openCount} open task${openCount === 1 ? '' : 's'}. ` : ''}Review one task at a time. Due or overdue work comes first, then work in progress, then ready actions before further investigation. This order does not predict improvement.</p></div>
+      <button class="ghost" data-open-view="actions">All opportunities${openCount != null ? ` (${openCount})` : ''}</button></div>
+    ${openCount > (tasks?.length || 0) && tasks ? `<p class="hint">This shortlist considers the first ${tasks.length} tasks returned by the work queue. Open Opportunities to review the full list by category.</p>` : ''}
+    <p class="hint">A completed task records work done. A later measurement is needed to assess visibility changes.</p>
+    ${tasks === null ? '<div class="notice">The task list could not be loaded. Open Opportunities to try again.</div>' : suggested.length ? suggested.map(({task, reason}) => reviewGroupCard(reviewGroups(eligible).find(g=>g.tasks.some(t=>t.id===task.id)), task.evidence?.prompt_id?`${reason} ${reviewReason(task)}`:reason)).join('') : `<div class="panel"><h3>${unrelated.length ? 'No other tasks to prioritise' : eligible.length ? 'No further investigation selected' : measured ? 'No open tasks' : 'Review questions before your first run'}</h3><p>${unrelated.length ? 'The remaining source reviews were judged unrelated to their checked questions. They remain available in Opportunities.' : eligible.length ? 'The remaining reviewed checks have no change needed. They remain in Opportunities with their notes and status.' : measured ? 'Check completed work in Opportunities, or review your questions before the next measurement.' : 'Add questions manually, use suggestions or connect Google Search Console.'}</p><button class="ghost" data-open-view="${measured ? 'actions' : 'questions'}">${measured ? 'Open opportunities' : 'Open questions'}</button></div>`}
+    ${unrelated.length ? `<p class="hint">${unrelated.length} source review${unrelated.length === 1 ? ' was' : 's were'} left out of this shortlist because the checked page and question appeared unrelated. Nothing was dismissed or deleted. <button class="ghost" data-open-view="actions">View all opportunities</button></p>` : ''}
+    </section>
+    <details class="panel fold overview-measurement"><summary>Plan the next measurement</summary><p>${esc(next)}</p><p class="hint">Paused questions are excluded. Running again uses answer checks.</p><button class="ghost" data-open-view="questions">Review questions</button> <button class="ghost" data-start-first-cycle>Review cost and run</button></details>
+    <div class="overview-footer"><button class="ghost" data-open-view="assigned">See assigned work</button>
+      <a class="ghost" href="/api/projects/${state.projectId}/measurements" target="_blank" rel="noopener">Measurement archive</a>
+      <span class="hint">Prepare an executive brief or a full report using the button above.</span></div>`;
+}
+
+const SETUP_VIEWS={website:'setup',sources:'connections',questions:'questions',measurement:'setup',complete:'overview'};
+function setupJourney() {
+  const saved=state.setupStep;
+  if(saved==='complete')return '';
+  const active=state.view==='connections'||['searchDemand','traffic'].includes(state.view)?'sources':state.view==='questions'?'questions':saved==='measurement'?'measurement':'website';
+  return `<section class="panel setup-journey" aria-label="Project setup"><p class="eyebrow">Project setup</p><nav aria-label="Setup steps">${[['website','1. Website'],['sources','2. Connect sources'],['questions','3. Review questions'],['measurement','4. First measurement']].map(([step,label])=>`<button class="ghost" data-setup-step="${step}" ${active===step?'aria-current="step"':''}>${label}</button>`).join('')}</nav><p class="hint">Your place is saved for this project. Connections are optional.</p><p id="setupProgressError" class="error" role="alert"></p>${active==='website'?'<button data-setup-step="sources">Next: connect sources</button>':active==='sources'?'<button data-setup-step="questions">Continue to questions</button> <button class="ghost" data-setup-step="questions">Connect later</button>':active==='questions'?'<button data-setup-step="measurement">Next: review first measurement</button>':'<p>Confirm your questions, market and engines below. Review the estimated cost before starting. Completing setup does not run any checks.</p><button data-start-first-cycle>Review cost and run</button> <button class="ghost" data-setup-step="complete">Finish setup without running</button>'}</section>`;
+}
+async function saveSetupStep(step) {
+ const result=await api(`/api/projects/${state.projectId}/setup-progress`,{method:'POST',body:{step}});
+ if(!result||result.error||result.step!==step)throw new Error(result?.error||'Could not save your place. Please try again.');
+ state.setupStep=step;
+}
+document.addEventListener('click',async event=>{
+ const button=event.target.closest('[data-setup-step]');if(!button)return;
+ button.disabled=true;
+ try{await saveSetupStep(button.dataset.setupStep);state.view=SETUP_VIEWS[button.dataset.setupStep];await render();window.scrollTo({top:0});}
+ catch(error){const el=$('setupProgressError');if(el)el.textContent=error.message;button.disabled=false;}
+});
+
+async function viewConnections() {
+  const [gsc,ga4]=await Promise.all([
+    api(`/api/projects/${state.projectId}/gsc`).catch(()=>null),
+    api(`/api/projects/${state.projectId}/ga4`).catch(()=>null)
+  ]);
+  const status=(data,property)=>!data||data.error?'Status unavailable':property?`Property selected: ${esc(property)}`:data.connected?'Account connected. Choose a property.':'Not connected. Optional.';
+  return `<div class="panel"><h2>Connect your data</h2><p>Start with Search Console to inform your question list. You can connect either source now or later.</p></div>
+    <div class="panel"><h2>1. Google Search Console</h2><p>Find questions and opportunities from your actual Google search data.</p><p role="status">${status(gsc,gsc?.siteUrl)}</p><button data-open-view="searchDemand">${gsc?.siteUrl?'Review search demand':'Set up Search Console'}</button><p class="hint">Google search demand is not AI question volume. Review suggested wording before adding questions.</p></div>
+    <div class="panel"><h2>2. Google Analytics 4</h2><p>See identifiable visits and recorded actions from AI referrals.</p><p role="status">${status(ga4,ga4?.propertyName||ga4?.propertyId)}</p><button class="ghost" data-open-view="traffic">${ga4?.propertyId?'Review AI referral traffic':'Set up Analytics'}</button><p class="hint">Search Console and Analytics can use different Google accounts.</p></div>
+    <div class="panel"><h2>${state.setupStep==='complete'?'Keep your questions relevant':'Next: review your questions'}</h2><p>${state.setupStep==='complete'?'Review new Search Console suggestions and update your question list before your next measurement.':'Website suggestions are already available. Add relevant Search Console suggestions, then review wording, market and engines before starting a measurement.'}</p><button ${state.setupStep==='complete'?'data-open-view="questions"':'data-setup-step="questions"'}>Review questions</button></div>`;
+}
+
+async function viewSearchDemand() {
+  const [gsc,demand]=await Promise.all([
+    api(`/api/projects/${state.projectId}/gsc`).catch(()=>({error:true})),
+    api(`/api/projects/${state.projectId}/demand`).catch(()=>null)
+  ]);
+  return `<div class="panel"><h2>Search demand</h2><p>Use actual Google queries to find questions worth measuring. Search demand and AI visibility remain separate.</p><button class="ghost" data-open-view="connections">All connections</button> <button class="ghost" data-open-view="questions">Review tracked questions</button></div>${gscQuestionPanel(gsc||{error:true},true)}${demandSection(demand)}`;
+}
+
+async function viewAnswerEvidence() {
+  const questions = await api(`/api/projects/${state.projectId}/prompts`);
+  if (!Array.isArray(questions)) return '<div class="notice">Answers could not be loaded. Try opening this view again.</div>';
+  const measured = questions.filter(q => q.measured);
+  return `<div class="panel"><h2>AI answers</h2><p>Read the stored responses and source links from the latest cycle. Opening an answer does not run a new check.</p>
+    <p class="hint">${measured.length} questions with measured answers. Earlier question wording stays attached to its own results.</p>
+    ${measured.length ? measured.map(q => `<article class="prompt"><div><p class="prompt-q">${esc(q.text)}</p><button class="ghost" data-see-answer="${q.id}">Read what each engine said</button><div class="answers" data-answers hidden></div></div></article>`).join('') : '<p>No measured answers in the latest cycle yet. Review Questions before running a measurement.</p>'}</div>`;
+}
+
+document.addEventListener('change', async event => {
+  if (!['opportunityKind','opportunityDecision'].includes(event.target.id)) return;
+  if(event.target.id==='opportunityDecision') state.opportunityDecision=event.target.value;
+  else state.opportunityKind = event.target.value;
+  await render();
+});
+
+function opportunityKind(task) {
+  if (['source_gap', 'competitor_page'].includes(task.type)) return 'sources';
+  if (task.type === 'competitor_comparison') return 'competitors';
+  if (task.evidence?.prompt_id || task.type === 'content_gap') return 'questions';
+  return 'other';
+}
+
+// Presentation grouping only. Persisted task IDs and their work history stay separate.
+function savedDecisionPreview(task) {
+  const d=task.review_decision;
+  if(!['ready','investigate','no_change'].includes(d?.stage) || !d.change?.trim()) return null;
+  const text=(d.title?.trim() || d.change.trim()).replace(/\s+/g,' ');
+  return {text:text.length>120?text.slice(0,117)+'…':text,label:decisionLabel(d.stage)};
+}
+function savedDecisionBrief(t) {
+  if(!savedDecisionPreview(t)) return '';
+  const d=t.review_decision;
+  let page=esc(d.page || 'No page recorded');
+  try { const u=new URL(d.page); if(['https:','http:'].includes(u.protocol) && !u.username && !u.password) page=`<a href="${esc(u.href)}" target="_blank" rel="noopener">${esc(d.page)}</a>`; } catch {}
+  const label=d.stage==='ready'?'What to change':d.stage==='no_change'?'Decision':'What to investigate';
+  return `<section class="decision-brief" aria-label="Saved action and evidence"><h3>${esc(decisionLabel(d.stage))}</h3><dl><dt>${label}</dt><dd>${esc(d.change)}</dd><dt>Page</dt><dd>${page}</dd><dt>Supporting evidence</dt><dd>${esc(d.evidence || 'No supporting evidence recorded')}</dd><dt>Owner</dt><dd>${esc(t.assignee || 'Unassigned')}</dd>${[['purpose','Purpose'],['suggested_owner','Suggested owner (not an assignment)'],['completion','Completion checks'],['follow_up','Follow-up measurement']].filter(([key])=>d[key]).map(([key,label])=>`<dt>${label}</dt><dd style="white-space:pre-wrap">${esc(d[key])}</dd>`).join('')}</dl><p class="hint">${d.stage==='ready'?'Readiness records the review decision, not completion.':d.stage==='no_change'?'No change is justified by this finding. Other checks may still need review.':'A next step is recorded. A page change is not yet approved.'} Work status is tracked separately.</p></section>`;
+}
+function groupReviewGuidance(group) {
+  return group.tasks.some(t=>savedDecisionPreview(t))
+    ? 'Saved decisions are shown below. Each check keeps its own owner, notes and work status. Any remaining investigations stay separate.'
+    : 'Read the answers once, then use the checks below to record findings. Each check keeps its own notes, owner and status. Completing one does not complete the others.';
+}
+function decisionLabel(stage) {
+  return ({ready:'Ready to implement',no_change:'No change needed',investigate:'Needs investigation'})[stage] || 'Needs investigation';
+}
+function decisionPanel(t) {
+  const d=t.review_decision || {};
+  return `<section class="task-decision" aria-label="Review decision">
+    <p data-decision-summary><b>${esc(decisionLabel(d.stage))}</b>${d.reviewed_at ? ` · Recorded ${esc(d.reviewed_at.slice(0,10))}` : ' · No decision recorded yet'}</p>
+    <details><summary>Record or update decision</summary>
+      <p class="hint">This is your editorial assessment. It does not approve product claims, mark work complete or prove a visibility improvement. Recheck it when the evidence changes.</p>
+      <div class="field"><label for="decision-stage-${t.id}">Decision</label><select id="decision-stage-${t.id}">${['investigate','ready','no_change'].map(v=>`<option value="${v}" ${v===(d.stage || 'investigate')?'selected':''}>${decisionLabel(v)}</option>`).join('')}</select></div>
+      <div class="field"><label for="decision-title-${t.id}">Short action title (optional)</label><input id="decision-title-${t.id}" maxlength="120" placeholder="For example: Link the app page to transfer options" value="${esc(d.title || '')}"></div>
+      <div class="field"><label for="decision-page-${t.id}">Page to change or review</label><input id="decision-page-${t.id}" type="url" maxlength="4000" placeholder="https://your-site.com/relevant-page" value="${esc(d.page || '')}"></div>
+      <div class="field"><label for="decision-evidence-${t.id}">Supporting evidence</label><textarea id="decision-evidence-${t.id}" maxlength="4000" rows="3" placeholder="Answer or source link, measurement date and the specific finding">${esc(d.evidence || '')}</textarea></div>
+      <div class="field"><label for="decision-change-${t.id}">Specific change, next investigation or reason for no change</label><textarea id="decision-change-${t.id}" maxlength="4000" rows="3">${esc(d.change || '')}</textarea></div>
+      <details><summary>Delivery details (optional)</summary><p class="hint">Keep the change above focused on the edit. Record its purpose and delivery checks here. A suggested owner does not assign the task or send a notification.</p>
+      ${[['purpose','Purpose'],['suggested_owner','Suggested owner (not an assignment)'],['completion','Completion checks'],['follow_up','Follow-up measurement']].map(([key,label])=>`<div class="field"><label for="decision-${key}-${t.id}">${label}</label><textarea id="decision-${key}-${t.id}" maxlength="1500" rows="2">${esc(d[key] || '')}</textarea></div>`).join('')}</details>
+      <p class="hint">Ready to implement requires a page, evidence and a specific change. No change needed requires evidence and a reason. Saving leaves your existing notes and report copy intact.</p>
+      <button class="btn" data-decision-save="${t.id}">Save decision</button><p role="status" data-decision-feedback></p>
+    </details></section>`;
+}
+function reviewReason(task) {
+  const e=task.evidence || {};
+  if(task.type==='content_gap' && Number.isInteger(e.runs) && e.runs>0 && e.own_rate===0) return `The brand was not named in ${e.runs} measured answers. Check the question and cited pages before proposing a change.`;
+  if(task.type==='entity_authority') return 'Your website was cited, but brand naming was limited. Check whether naming the brand is relevant to this answer.';
+  if(task.type==='engine_gap') return 'Engines gave different results. Compare their answers before deciding whether there is a content issue.';
+  if(task.type==='competitor_comparison') return 'A tracked competitor appeared more often on some questions. Review those specific comparisons.';
+  if(['source_gap','competitor_page'].includes(task.type)) return 'Supporting research: check this source against a buyer question before deciding on any action.';
+  if(task.type==='citable_asset' || task.type==='named_not_cited') return 'The brand was named without a recorded website citation. Check whether a source link was needed.';
+  if(task.type==='decline_alert') return 'Check that the samples are comparable before treating the difference as a decline.';
+  return 'Review the stored evidence and record a specific next step, or why no change is needed.';
+}
+function reviewGroups(tasks) {
+  const map=new Map();
+  for(const task of tasks) {
+    const id=task.evidence?.prompt_id;
+    const key=id && opportunityKind(task)==='questions' ? `question:${id}` : `task:${task.id}`;
+    if(!map.has(key)) map.set(key,{key,questionId:id && opportunityKind(task)==='questions'?id:null,tasks:[]});
+    map.get(key).tasks.push(task);
+  }
+  const today=new Date();today.setHours(0,0,0,0);
+  const date=t=>/^\d{4}-\d{2}-\d{2}/.test(t.due_date||'')?t.due_date.slice(0,10):null;
+  const due=t=>['open','doing'].includes(t.status) && date(t) && new Date(date(t)+'T00:00:00')<=today;
+  const rank=t=>due(t)?0:t.status==='doing'?1:t.review_decision?.stage==='ready'?2:t.review_decision?.stage==='no_change'?9:opportunityKind(t)==='questions'?(t.type==='content_gap'?3:4):opportunityKind(t)==='competitors'?5:opportunityKind(t)==='sources'?7:6;
+  const compare=(a,b)=>rank(a)-rank(b) || (rank(a)===0?date(a).localeCompare(date(b)):0) || Number(a.id)-Number(b.id);
+  for(const group of map.values()) group.tasks.sort(compare);
+  return [...map.values()].sort((a,b)=>compare(a.tasks[0],b.tasks[0]));
+}
+function questionGroupSummary(group, reason='') {
+  const first=group.tasks[0];
+  const saved=savedDecisionPreview(first);
+  const statuses=Object.entries(STATUS_LABEL).map(([key,label])=>{const n=group.tasks.filter(t=>t.status===key).length;return n?`${n} ${label.toLowerCase()}`:null;}).filter(Boolean).join(' · ');
+  const owners=[...new Set(group.tasks.map(t=>t.assignee).filter(Boolean))];
+  return `<span class="rec-title">${esc(saved?.text || first.evidence?.prompt || first.title)}</span><span class="queue-summary">${esc(saved ? `${saved.label} · Question: ${first.evidence?.prompt || first.title}` : reason || reviewReason(first))}</span><span class="queue-summary">${group.tasks.length} saved check${group.tasks.length===1?'':'s'} · ${esc(statuses)}</span>${owners.length?`<span class="queue-summary">Assigned to: ${esc(owners.join(', '))}</span>`:''}${['ready','no_change'].map(stage=>{const n=group.tasks.filter(t=>t.review_decision?.stage===stage).length;return n?`<span class="tag">${n} ${esc(decisionLabel(stage).toLowerCase())}</span>`:''}).join(' ')} ${group.tasks.some(t=>t.notes)?'<span class="tag">Saved review notes</span>':''}${group.tasks.map(dueLabel).filter(Boolean).join('')}<span class="queue-open">Open question review</span><span class="queue-close">Close question review</span>`;
+}
+function reviewGroupCard(group,reason='') {
+  if(!group.questionId) return taskCard(group.tasks[0],true,reason || reviewReason(group.tasks[0]));
+  return `<section class="panel question-review-group" data-question-group="${esc(group.key)}"><details class="queue-task question-review"><summary>${questionGroupSummary(group,reason)}</summary><div class="queue-body"><p class="hint" data-group-guidance>${esc(groupReviewGuidance(group))}</p>${group.tasks.map(t=>taskCard(t,true,'',true)).join('')}</div></details></section>`;
+}
+function queueCountText(tasks,total) {
+  const reviews=reviewGroups(tasks).length;
+  return `${reviews} review${reviews===1?'':'s'} shown, containing ${tasks.length} of ${total} matching saved check${total===1?'':'s'}.${total>tasks.length?' This is a limited preview. Use Focus to see more of each category.':''}`;
+}
+
+function opportunityFilters(tasks, selected = 'all', counts = null) {
+  const labels = {all: 'All opportunities', questions: 'Question reviews', sources: 'Source reviews', competitors: 'Competitor reviews', other: 'Other actions'};
+  return `<label class="queue-filter">Focus <select id="opportunityKind">${Object.entries(labels).map(([key, label]) => {
+    const count = counts?.[key] ?? (key === 'all' ? tasks.length : tasks.filter(task => opportunityKind(task) === key).length);
+    return `<option value="${key}"${selected === key ? ' selected' : ''}>${label} (${count} check${count===1?'':'s'})</option>`;
+  }).join('')}</select></label>`;
+}
+
+async function viewActions() {
+  const filter = state.taskFilter || 'active';
+  if (state.opportunityProject !== state.projectId) { state.opportunityKind = 'all'; state.opportunityDecision = 'all'; state.opportunityProject = state.projectId; }
+  const kind = state.opportunityKind || 'all';
+  const data = await api(`/api/projects/${state.projectId}/recommendations?status=${filter}&kind=${kind}&decision=${state.opportunityDecision || 'all'}`);
+  if (!data) return '';
+  state.people = data.people || [];
+
+  const c = data.counts;
+  const tab = (id, label, n) =>
+    `<button class="tfilter ${filter === id ? 'is-on' : ''}" data-task-filter="${id}">${label}${n !== null ? ` <span>${n}</span>` : ''}</button>`;
+
+  /**
+   * The report is the deliverable, so it should look like one.
+   *
+   * A ghost link at the end of a right-aligned row reads as a minor control,
+   * and it sat below an early return, so filtering to an empty view removed
+   * it altogether.
+   */
+  const reportBar = `<details class="panel fold" open><summary>Reports and downloads</summary><div class="reportbar">
+    <div class="reportbar-text">
+      <b>Client report</b>
+      <span>Leave the dates empty for everything measured so far, or set a period to report on one month.</span>
+    </div>
+    <span class="reportdates">
+      <input type="date" id="repFrom" value="${esc(state.repFrom || '')}" aria-label="From" />
+      <span>to</span>
+      <input type="date" id="repTo" value="${esc(state.repTo || '')}" aria-label="To" />
+    </span>
+    <a class="btn" id="repPrepare" href="/api/projects/${state.projectId}/report/prepare?${new URLSearchParams({...(state.repFrom?{from:state.repFrom}:{}),...(state.repTo?{to:state.repTo}:{})})}" target="_blank" rel="noopener">Prepare report</a>
+    <a class="ghost" id="repOpen" href="/api/projects/${state.projectId}/report/open?${new URLSearchParams({...(state.repFrom?{from:state.repFrom}:{}),...(state.repTo?{to:state.repTo}:{})})}" target="_blank" rel="noopener">Open client report</a>
+    <a class="ghost" id="repCsv" href="/api/projects/${state.projectId}/report?${new URLSearchParams({format:'csv',...(state.repFrom?{from:state.repFrom}:{}),...(state.repTo?{to:state.repTo}:{})})}" download>Download data</a>
+  </div></details>`;
+
+  const bar = `<div class="taskbar">
+      ${tab('active', 'Open work', c.open + c.doing)}
+      ${tab('doing', 'In progress', c.doing)}
+      ${tab('done', 'Done', c.done)}
+      ${tab('dismissed', 'Dismissed', c.dismissed)}
+      ${tab('all', 'Everything', c.total)}
+      <span class="spacer"></span>
+      ${c.overdue ? `<span class="tag overdue">${c.overdue} overdue</span>` : ''}
+    </div>`;
+
+  const suppressedPanel =
+    filter === 'dismissed'
+      ? `<div class="panel" id="suppressedPanel" style="margin-top:18px">
+          <div class="panel-head"><h2>Deleted actions</h2><div class="spacer"></div>
+            <button class="ghost" id="loadSuppressed">Show</button></div>
+          <p class="hint" style="margin:0">Deleted actions are not regenerated by future cycles. Restoring one lets it come back.</p>
+          <div id="suppressedList"></div>
+        </div>`
+      : '';
+
+  const tasks = data.tasks.filter(task => kind === 'all' || opportunityKind(task) === kind);
+  const intro = `<div class="panel queue-intro"><h2>Your work queue</h2><p>Start with one buyer question. Related checks are grouped so you can review its answers once. Due work and work in progress come first, then ready actions, further investigation and no-change decisions.</p><p class="hint">The status tabs and Focus counts refer to saved checks. Each keeps its notes and owner. Completion records work done, not a visibility improvement.</p>${opportunityFilters(data.tasks, kind, data.focusCounts)}<label class="queue-filter">Review decision <select id="opportunityDecision">${[['all','All decisions'],['ready','Ready to implement'],['investigate','Needs investigation'],['no_change','No change needed']].map(([value,label])=>`<option value="${value}"${value===(state.opportunityDecision || 'all')?' selected':''}>${label}</option>`).join('')}</select></label><p class="hint">Decision and completion are separate. Ready means reviewed, not implemented. Counts follow the selected decision filter.</p></div>`;
+  const total = filter === 'active' ? c.open + c.doing : filter === 'all' ? c.total : c[filter];
+  const resultCount = `<p class="hint" id="queueCount">${queueCountText(tasks,total)}</p>`;
+  return reportBar + intro + bar + resultCount + `<div id="opportunityQueue">${tasks.length ? reviewGroups(tasks).map(group=>reviewGroupCard(group)).join('') : '<div class="empty"><h2>No tasks match this focus</h2><p>Choose another review decision, focus or status above.</p></div>'}</div>` + suppressedPanel;
+}
+
+const STATUS_LABEL = { open: 'To do', doing: 'In progress', done: 'Done', dismissed: 'Dismissed' };
+
+function renderTeardown(d) {
+  const st = d.structure || {};
+  const signals = [
+    st.headingsMatchingQuestion?.length ? `${st.headingsMatchingQuestion.length} heading${st.headingsMatchingQuestion.length === 1 ? '' : 's'} mirror the question` : null,
+    st.hasFaqSchema ? 'FAQ schema' : null,
+    st.hasReviewSchema ? 'Review schema' : null,
+    st.hasOrganisationSchema ? 'Organisation schema' : null,
+    st.hasAuthor ? 'named author' : null,
+    st.tables ? `${st.tables} table${st.tables === 1 ? '' : 's'}` : null,
+    st.statMentions ? `${st.statMentions} figures or prices` : null,
+    st.publishedOrUpdated ? `updated ${String(st.publishedOrUpdated).slice(0, 10)}` : null,
+    st.wordCount ? `${st.wordCount.toLocaleString()} words` : null
+  ].filter(Boolean);
+
+  const ex = d.explanation;
+  const relevance = ex?.relevance;
+  const canSuggest = relevance?.status === 'relevant';
+  // Older cached analyses stored the classifier object instead of its label.
+  const sourceKind = typeof d.kind === 'string' ? d.kind : d.kind?.kind || 'unknown';
+  return `
+    <div class="teardown-head">
+      <span class="tag">${esc(sourceKind)}</span>
+      ${d.cached ? '<span class="tag">from cache</span>' : ''}
+      <span class="tag">interpretation, not a proven cause</span>
+      <a class="tag" href="${esc(d.url)}" target="_blank" rel="noopener">open page</a>
+    </div>
+    <p class="hint">These are observations and suggestions to check. A citation does not tell us why the engine selected this page. Your own page has not been compared here.</p>
+
+    ${!canSuggest ? `<div class="notice"><b>${relevance?.status === 'irrelevant' ? 'Review this question: source appears unrelated' : 'Review this question: relevance is uncertain'}</b>
+      <p>${esc(relevance?.reason || 'This analysis does not establish whether the page answers the buyer question.')}</p>
+      <p>Check the question and the original answer. If the question is right, the citation may be wrong. Suggested page changes and outreach are withheld.</p>
+      <button class="ghost" data-review-question>Review questions</button></div>` : '<p class="hint">The analysis found a relevant passage. Check its interpretation before acting.</p>'}
+    ${canSuggest ? `<p class="hint">${esc(relevance.reason)}</p><blockquote>${esc(relevance.evidence)}</blockquote>` : ''}
+    ${signals.length ? `<p class="teardown-label">What the page has</p><div class="chips">${signals.map((s) => `<span class="chip">${esc(s)}</span>`).join('')}</div>` : ''}
+    ${st.headingsMatchingQuestion?.length ? `<p class="teardown-label">Headings that answer the question</p>
+      <div class="chips">${st.headingsMatchingQuestion.map((h) => `<span class="chip dashed">${esc(h)}</span>`).join('')}</div>` : ''}
+
+    ${canSuggest && ex?.why?.length ? `<p class="teardown-label">Page observations and possible explanations</p>
+      <ul class="teardown-list">${ex.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+
+    ${canSuggest && ex?.actions?.length ? `<p class="teardown-label">Changes to consider after checking relevance</p>
+      <ul class="teardown-list actions">${ex.actions.map((a) => `<li><b>${esc(a.do)}</b><span>${esc(a.because)}</span></li>`).join('')}</ul>` : ''}
+
+    ${st.partial ? '<p class="hint">Read through our renderer because the page blocks direct requests, so schema and table detection were unavailable.</p>' : ''}
+    ${ex?.source === 'structural' ? '<p class="hint">Derived from the page structure directly.</p>' : ''}`;
+}
+
+function dueLabel(t) {
+  if (!t.due_date) return '';
+  const d = new Date(t.due_date);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((d - today) / 86400000);
+  const when = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  const live = t.status === 'open' || t.status === 'doing';
+
+  if (!live) return `<span class="tag">due ${when}</span>`;
+  if (days < 0) return `<span class="tag overdue">${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} overdue</span>`;
+  if (days === 0) return `<span class="tag soon">due today</span>`;
+  if (days <= 3) return `<span class="tag soon">due in ${days} day${days === 1 ? '' : 's'}</span>`;
+  return `<span class="tag">due ${when}</span>`;
+}
+
+/**
+ * Every number on a card should open into the thing it counts. A figure a
+ * reader cannot check is a claim, not evidence, and the whole product rests
+ * on the difference.
+ */
+/** Summaries use the stored verdicts only. No detection is repeated in the browser. */
+function answerReviewSummary(d) {
+  const runs=d.runs || [], measured=runs.filter(r=>r.measured);
+  const named=measured.filter(r=>r.mentioned).length;
+  const citationKnown=measured.every(r=>typeof r.cited==='boolean');
+  const cited=measured.filter(r=>r.cited===true).length;
+  const both=measured.filter(r=>r.mentioned && r.cited===true).length;
+  const count=n=>measured.length?`${n} / ${measured.length}`:'Not measured';
+  return `<section class="answer-review-summary"><h3 dir="auto">${esc(d.prompt || 'Stored question')}</h3>
+    <p class="hint">Latest stored cycle for this question: ${esc(d.cycle?shortDate(d.cycle):'No stored cycle')}${d.measurement?.id?` · Measurement ${esc(d.measurement.id)}`:''}. These answers may be newer than the recommendation. They do not recreate its original sample.</p>
+    <div class="answer-review-counts"><span><b>${count(named)}</b> named your brand</span><span><b>${citationKnown?count(cited):'Unavailable'}</b> cited your website</span><span><b>${runs.length-measured.length}</b> stored answers unmeasured</span></div>
+    <p class="hint">Named means a saved brand-name match. Cited means a recorded link to your tracked domain. The outcomes can overlap.</p>
+    ${measured.length&&citationKnown?`<p class="hint">Of ${measured.length} measured answers: ${both} both · ${named-both} named only · ${cited-both} cited only · ${measured.length-named-cited+both} neither.</p>`:''}
+    <p class="hint">Unmeasured answers are excluded, not scored zero. Planned checks without stored answers are not counted here. Possible length issues are shown per answer.</p></section>`;
+}
+function storedMatchEvidence(r) {
+  if(!r.measured) return '<p class="hint">No measured brand verdict. Do not interpret this as a brand absence.</p>';
+  if(!r.mentioned) return '<p class="hint">No brand-name match was recorded. Review the full answer and the citation verdict separately.</p>';
+  return `<div class="stored-match"><b>Saved brand-match excerpt</b>${r.snippet?`<blockquote dir="auto">${esc(r.snippet)}</blockquote>`:'<p class="hint">No excerpt was retained for this answer.</p>'}<p class="hint">Stored alongside the naming verdict. No detection has been rerun with today’s aliases. Check the full answer before relying on the result.</p></div>`;
+}
+function detailPanel(id, label, rows) {
+  if (!rows?.length) return '';
+  return `<details class="qlist" id="d-${id}">
+    <summary>${esc(label)}</summary>
+    <div class="qlist-body">
+      ${rows
+        .map(
+          (r) => `<div class="qrow">
+            <span class="qhits"${r.hint ? ` title="${esc(r.hint)}"` : ''}>${esc(r.lead)}</span>
+            <span class="qtext">${esc(r.text)}</span>
+            ${r.url ? `<a class="qlink" href="${esc(r.url)}" target="_blank" rel="noopener" title="${esc(r.url)}">open</a>` : ''}
+          </div>`
+        )
+        .join('')}
+    </div>
+  </details>`;
+}
+
+/** Turn whatever a rule recorded into rows the panel can show. */
+function evidenceDetails(t) {
+  const ev = t.evidence || {};
+  const out = [];
+
+  // A source shaping N questions: which N, and where it was cited.
+  if (ev.questions?.length && typeof ev.questions[0] === 'object' && 'hits' in ev.questions[0]) {
+    out.push([
+      `Which ${ev.questions.length} question${ev.questions.length === 1 ? '' : 's'}`,
+      ev.questions.map((q) => ({ lead: `${q.hits}\u00d7`, text: q.question, url: q.url, hint: 'Times cited for this question' }))
+    ]);
+  }
+
+  // A competitor beating you: on which questions, and by how much.
+  if (ev.questions?.length && typeof ev.questions[0] === 'object' && 'competitor_rate' in ev.questions[0]) {
+    out.push([
+      `Where ${ev.competitor || 'they'} beat you (${ev.questions.length})`,
+      ev.questions.map((q) => ({
+        lead: `${q.competitor_rate}%`,
+        text: `${q.question} · you ${q.own_rate}% · ${Number.isFinite(q.own_runs) && Number.isFinite(q.competitor_runs) ? `measured answers: you ${q.own_runs}, competitor ${q.competitor_runs}` : 'answer counts were not recorded on this older task; inspect the stored answers'}`,
+        hint: `${ev.competitor}: ${q.competitor_rate}%, you: ${q.own_rate}%`
+      }))
+    ]);
+  }
+
+  // Older evidence stored questions as plain strings.
+  if (ev.questions?.length && typeof ev.questions[0] === 'string') {
+    out.push([`Which ${ev.questions.length} questions`, ev.questions.map((q) => ({ lead: '', text: q }))]);
+  }
+
+  // Who took the citation you did not get.
+  if (ev.took_the_citation?.length) {
+    out.push([
+      `Who got the citation (${ev.took_the_citation.length})`,
+      ev.took_the_citation.map((c) => ({ lead: c.kind || '', text: c.domain, url: c.url }))
+    ]);
+  }
+
+  // The search the engine ran before answering.
+  if (ev.queries?.length) {
+    out.push(['The searches it ran first', ev.queries.map((q) => ({ lead: '', text: q }))]);
+  }
+
+  return out.map(([label, rows], i) => detailPanel(`${t.id}-${i}`, label, rows)).join('');
+}
+
+/**
+ * What each kind of action is, in words rather than in our field names.
+ *
+ * "decline alert" is our type identifier, and shown raw it reads as a broken
+ * button: jargon, styled like the controls beside it, doing nothing when
+ * clicked. These say what the action is about instead.
+ */
+const TYPE_LABEL = {
+  decline_alert: "Review a possible measurement change",
+  source_gap: 'a cited source to review',
+  content_gap: 'question visibility to review',
+  engine_gap: "Compare answers across engines",
+  competitor_comparison: 'competitor evidence to review',
+  ordinal_push: "Review where the brand appears",
+  citable_asset: "Review mentions and source links",
+  entity_authority: "Review citations and brand naming",
+  fanout_target: "Review recorded search queries",
+  replicate_winner: "Review a page's AI referral outcomes",
+  sentiment_correction: "Review a flagged brand description",
+  named_not_cited: "Review mentions and source links"
+};
+
+function renderSourceReview(review) {
+  const labels = {relevant: 'Source appears relevant', irrelevant: 'Source appears unrelated', uncertain: 'Source relevance is uncertain'};
+  if (!labels[review?.status]) return '<p class="hint">Source relevance has not been checked for this page and question.</p>';
+  return `<div class="notice"><b>${esc(labels[review.status])}</b>
+    <p>${esc(review.reason)}</p>
+    <p>Checked question: ${esc(review.question)}</p>
+    ${review.status !== 'relevant' ? '<p>Page changes and outreach are withheld. Review the question and original answer first.</p><button class="ghost" data-review-question>Review questions</button>' : '<p>This is an analysis of one page and question, not proof of why it was cited.</p>'}
+  </div>`;
+}
+
+const REVIEW_GUIDANCE = {
+  "citable_asset": [
+    "Review mentions and source links",
+    "This task records brand mentions without a recorded citation to your site in its sample.",
+    "Read the stored answers and source links. Check whether a citation was expected for this question and whether your relevant page supplies the needed facts.",
+    "Update a page or correct a listing only if you identify missing or inaccurate information. A citation gap does not prove that engines distrust your site or that clicks went elsewhere."
+  ],
+  "entity_authority": [
+    "Review citations and brand naming",
+    "This task records citations alongside a low rate of brand naming.",
+    "Compare the cited page with the answer. Check whether the brand identity is accurate and whether naming it is relevant to the question.",
+    "Correct a specific identity error if found. A citation without a name does not diagnose a schema problem."
+  ],
+  "ordinal_push": [
+    "Review where the brand appears",
+    "This task flagged the brand's recorded position in answers.",
+    "Read the original list and check whether its order expresses a ranking. An extracted position is not a measure of attention or preference.",
+    "Record any factual omission or misleading comparison you can substantiate. Do not commission extra references solely to change this position."
+  ],
+  "engine_gap": [
+    "Compare answers across engines",
+    "This task flagged different brand-naming rates across engines in its stored sample.",
+    "Read each engine's answers and check sample sizes, question wording, dates and model settings. Different engines may answer the same question differently.",
+    "Investigate a specific content or access issue only if the evidence supports it. An engine gap alone does not prove a crawling, indexing or profile problem."
+  ],
+  "sentiment_correction": [
+    "Review a flagged brand description",
+    "An automated check flagged negative language. Its interpretation needs review.",
+    "Read the full answer to confirm that the language refers to your brand and is inaccurate or misleading. Check any linked source independently.",
+    "Correct a verified error in material you control, or request a correction with evidence. Do not assume a cited page caused the wording or publish a response before checking."
+  ],
+  "fanout_target": [
+    "Review recorded search queries",
+    "This task includes search queries recorded during answer collection.",
+    "Compare the recorded queries with the buyer question and sources. A trace does not establish your search rank or explain source selection.",
+    "Use a relevant query as a research lead. Validate buyer intent and any missing information before choosing a page change. Page-one ranking is not established here as a requirement for AI inclusion."
+  ],
+  "decline_alert": [
+    "Review a possible measurement change",
+    "Stored cycle summaries differ. This card alone does not establish a like-for-like decline.",
+    "Open the trend view and compare the same questions and engines, including sample sizes and measurement-method changes.",
+    "Only investigate a decline after confirming a comparable cohort. Record a supported finding rather than assuming competitors or indexing caused the difference."
+  ],
+  "replicate_winner": [
+    "Review a page's AI referral outcomes",
+    "This task flagged a page from the available GA4 referral data.",
+    "Inspect the reporting dates, attribution, session count and configured conversion events. Event counts may exceed the number of sessions and are not necessarily converted sessions.",
+    "Check what users did before proposing a change. A high events-per-session ratio does not prove a page format caused conversions or will improve AI visibility elsewhere."
+  ],
+  "named_not_cited": [
+    "Review mentions and source links",
+    "This task flags a difference between brand mentions and recorded source links.",
+    "Read the answer and sources to verify the distinction and whether a citation was relevant to this question.",
+    "Record a specific supported action. A mention without a link does not establish why the engine chose its sources."
+  ]
+};
+
+function taskCard(t, compact = false, selectionReason = '', grouped = false) {
+  const ev = t.evidence || {};
+  const saved = savedDecisionPreview(t);
+  const review = REVIEW_GUIDANCE[t.type];
+  const sourceReview = ['source_gap', 'competitor_page'].includes(t.type);
+  const questionReview = t.type === 'content_gap';
+  const questionTitle = `Review visibility for: ${ev.prompt || 'this buyer question'}`;
+  const knownRuns = Number.isInteger(ev.runs) && ev.runs > 0;
+  const questionObservation = knownRuns && ev.own_rate === 0
+    ? `You were not named in ${ev.runs} measured answers stored with this task.`
+    : 'Review the stored answers. A complete answer count was not recorded with this task.';
+  const competitorReview = t.type === 'competitor_comparison';
+  const competitorTitle = `Review where ${ev.competitor || 'a tracked competitor'} appears more often`;
+  const reviewTitle = `Review whether ${ev.domain || 'this source'} answers your buyers' questions`;
+  let title = review ? `${review[0]}${ev.prompt ? `: ${ev.prompt}` : ''}` : sourceReview ? reviewTitle : competitorReview ? competitorTitle : questionReview ? questionTitle : t.title;
+  if(grouped && ev.prompt) title=title.replace(`: ${ev.prompt}`,'');
+  const summary = review ? review[1] : sourceReview
+    ? ({relevant:'Source appears relevant', irrelevant:'Source appears unrelated. Review before acting.', uncertain:'Relevance uncertain. Review before acting.'}[t.sourceReview?.status] || 'Source relevance not checked')
+    : questionReview ? questionObservation : TYPE_LABEL[t.type] || 'Review evidence and next step';
+  const bits = [];
+  // A tag with detail behind it opens that detail rather than being inert.
+  const opens = evidenceDetails(t) ? ' data-open-detail' : '';
+  if (!review && !competitorReview && !questionReview && ev.own_rate !== undefined) bits.push(`<span class="tag">you ${ev.own_rate}%</span>`);
+  if (!review && !competitorReview && ev.competitor_rate !== undefined) bits.push(`<span class="tag${opens ? ' clickable' : ''}"${opens}>${esc(ev.competitor)} ${ev.competitor_rate}%</span>`);
+  if (ev.citations !== undefined) bits.push(`<span class="tag${opens ? ' clickable' : ''}"${opens}>${ev.citations} citations</span>`);
+  if (ev.prompts !== undefined) bits.push(`<span class="tag${opens ? ' clickable' : ''}"${opens}>${ev.prompts} questions</span>`);
+  if (ev.sessions !== undefined) bits.push(`<span class="tag">${ev.sessions} sessions</span>`);
+
+  const buttons = {
+    open: [['doing', 'Start'], ['done', 'Done'], ['dismissed', 'Dismiss']],
+    doing: [['done', 'Mark done'], ['open', 'Back to to-do']],
+    done: [['open', 'Reopen']],
+    dismissed: [['open', 'Restore']]
+  }[t.status] || [];
+
+  // Deleting is offered once something is dismissed, where the intent is
+  // clearly "not this, ever" rather than "not now".
+  const canDelete = t.status === 'dismissed';
+
+  return `
+  <article class="rec ${t.status}" data-type="${esc(t.type)}" data-task="${t.id}" data-owner="${esc(t.assignee || '')}" data-reviewed="${Boolean(saved)}">
+    ${compact ? `<details class="queue-task"${grouped && saved ? ' open' : ''}><summary><span class="queue-heading"><span class="rec-title" data-review-title data-original-title="${esc(title)}">${esc(savedDecisionPreview(t)?.text || title)}</span><span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span></span><span class="queue-summary" data-review-context data-original-context="${esc(summary)}">${esc(savedDecisionPreview(t) ? `Original check: ${title}` : summary)}</span><span class="tag" data-decision-badge>${esc(decisionLabel(t.review_decision?.stage))}</span>${selectionReason && !savedDecisionPreview(t) ? `<span class="queue-summary" data-selection-reason><b>Why this task:</b> ${esc(selectionReason)}</span>` : ''}${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}${dueLabel(t)}<span class="queue-open">Review task</span><span class="queue-close">Close task</span></summary><div class="queue-body">` : ''}
+    <div class="rec-top"${compact ? ' hidden' : ''}>
+      <div class="rec-title" data-review-title data-original-title="${esc(title)}">${esc(savedDecisionPreview(t)?.text || title)}</div>
+      <div class="rec-pri" data-review-context data-original-context="${esc(reviewReason(t))}">${esc(savedDecisionPreview(t) ? `Original check: ${title}` : reviewReason(t))}</div>
+    </div>
+
+    <div data-decision-brief>${savedDecisionBrief(t)}</div>
+    <div class="task-meta">
+      <span class="status-chip ${t.status}">${STATUS_LABEL[t.status]}</span>
+      ${t.assignee ? `<span class="tag person">${esc(t.assignee)}</span>` : ''}
+      ${dueLabel(t)}
+      <span class="tag" data-task-notes-badge${t.notes ? '' : ' hidden'}>has notes</span>
+    </div>
+
+    <details data-original-guidance${saved ? '' : ' open'}><summary${saved ? '' : ' hidden'}>Original investigation guidance</summary>
+    ${review ? `<div class="task-guidance"><p><b>Observed</b><br>${esc(review[1])}</p><p><b>Check next</b><br>${esc(review[2])}</p><p><b>Action supported now</b><br>${esc(review[3])}</p>
+      ${t.type === 'decline_alert' ? '<button class="ghost" data-open-view="trends">Check comparable measurements</button>' : t.type === 'replicate_winner' ? '<button class="ghost" data-open-view="traffic">Review referral data</button>' : !ev.prompt_id ? '<button class="ghost" data-open-view="answers">Inspect stored answers</button>' : ''}</div>` : questionReview ? `<div class="task-guidance">
+      <p><b>Observed</b><br>${esc(questionObservation)} This result does not establish why you were absent.</p>
+      <p><b>Check next</b><br>Read the answers and cited pages. Confirm the question concerns a buyer you serve, then compare the information those sources provide with your relevant page.</p>
+      <p><b>Action supported now</b><br>If you find a specific missing answer or supporting evidence, record the gap and update the relevant page. If the question does not fit your business, pause it in Questions. Search rank and answer formatting alone do not explain selection.</p>
+      ${compact ? '' : '<p class="hint">Mark this task done when the review and any chosen change are complete. Completion does not mean visibility has improved; a later measurement checks that.</p>'}
+      ${!ev.prompt_id ? '<button class="ghost" data-open-view="answers">Inspect stored answers</button>' : ''}
+    </div>` : sourceReview || competitorReview ? `<div class="task-guidance">
+      <p><b>Observed</b><br>${sourceReview ? 'This page was cited in the stored answers associated with this task. Relevance is specific to the checked page and question.' : `${esc(ev.competitor || 'A tracked competitor')} was named more often on the questions listed below. This does not establish why it appeared.`}</p>
+      <p><b>Check next</b><br>${sourceReview ? 'Read the buyer question and original answer, then check whether the cited page addresses the same need.' : 'Read the question-level evidence, the original answers and their cited pages. Confirm they concern the same buyer need and market.'}</p>
+      <p><b>Action supported now</b><br>${sourceReview ? 'Review relevance before deciding on page changes or outreach.' : 'Investigate the gap. A comparison page is an option only if that review reveals a relevant buyer comparison your content does not answer. No content change is established by this task alone.'}</p>
+      ${competitorReview ? '<button class="ghost" data-open-view="answers">Inspect stored answers</button>' : ''}
+    </div>` : `<p class="rec-action">${esc(t.action)}</p>`}
+    ${sourceReview ? `<div id="source-review-${t.id}">${renderSourceReview(t.sourceReview)}</div>` : ''}
+    ${ev.snippet ? `<div class="excerpt">${highlight(ev.snippet, state.overview?.project?.brand_name)}</div>` : ''}
+
+    </details>
+    <div class="rec-foot">
+      <span class="tag kind">${esc(review ? review[0] : TYPE_LABEL[t.type] || t.type.replace(/_/g, ' '))}</span>
+      ${bits.join('')}
+      ${t.target_url ? `<a class="tag" href="${esc(t.target_url)}" target="_blank" rel="noopener">open source</a>` : ''}
+      <span style="flex:1"></span>
+      ${ev.analysable && ev.url && ev.question
+        ? `<button class="ghost" data-teardown="${t.id}" data-url="${esc(ev.url)}" data-question="${esc(ev.question)}">${t.sourceReview ? 'View relevance details' : 'Check source relevance'}</button>`
+        : ''}
+      ${
+        /**
+         * An action about one question should open that question's answers.
+         * A decline alert had no button at all: it said visibility fell and
+         * then left the reader to go and find out where, which is the part
+         * that needed doing.
+         */
+        ev.prompt_id
+          ? `<button class="${questionReview ? 'btn' : 'ghost'}" data-see-answer="${ev.prompt_id}">Read the answers</button>
+             <button class="ghost" data-reask="${ev.prompt_id}">Ask again now</button>`
+          : ''
+      }
+      <button class="ghost" data-next-open="${t.id}">${t.notes ? 'Edit next step' : 'Record next step'}</button>
+      <button class="ghost" data-task-edit="${t.id}">${t.assignee || t.due_date || t.notes ? 'Edit' : 'Assign'}</button>
+      ${buttons.map(([st, label]) => `<button class="ghost" data-rec="${t.id}" data-status="${st}">${label}</button>`).join('')}
+      ${canDelete ? `<button class="ghost danger" data-delete-rec="${t.id}" title="Remove it and stop it coming back">Delete</button>` : ''}
+    </div>
+
+    ${decisionPanel(t)}
+    ${evidenceDetails(t)}
+
+    <div class="teardown" id="teardown-${t.id}" hidden></div>
+    ${ev.prompt_id ? '<div class="answers" data-answers hidden></div>' : ''}
+
+    <section class="task-next" aria-label="Next step and review notes">
+      <details data-saved-notes${saved ? '' : ' open'}${t.notes ? '' : ' hidden'}><summary${saved ? '' : ' hidden'}>Saved notes and earlier context</summary><p id="next-summary-${t.id}" style="white-space:pre-wrap"${t.notes ? '' : ' hidden'}>${esc(t.notes || '')}</p></details>
+      <div id="next-editor-${t.id}" hidden>
+        <div class="field"><label for="next-note-${t.id}">Next step and review notes</label>
+          <p class="hint" id="next-help-${t.id}">What did you find in the answer? Which page or source supports it? What will you change or check next? If no change is justified, record that too.</p>
+          <textarea id="next-note-${t.id}" rows="5" aria-describedby="next-help-${t.id}" placeholder="Finding and evidence link&#10;Page to review or update&#10;Specific next step">${esc(t.notes || '')}</textarea>
+        </div>
+        <p class="hint">Saved in this task's notes. Saving does not mark it done or send an assignment email.</p>
+        <button class="btn" data-next-save="${t.id}">Save next step</button>
+        <button class="ghost" data-next-cancel="${t.id}">Cancel</button>
+      </div>
+      <p class="hint" id="next-feedback-${t.id}" role="status" aria-live="polite"></p>
+      <div id="report-controls-${t.id}" ${t.notes||t.reportIncluded||t.review_decision?.stage?'':'hidden'}><p><button class="ghost" data-report-preview="${t.id}">${t.reportIncluded?'Review report copy':'Preview for client report'}</button> ${t.reportIncluded?`<button class="ghost" data-report-note="${t.id}" data-include="false">Remove from client report</button>`:''}</p><p class="hint" data-report-freshness>${t.reportOutdated?'Report copy differs from the latest saved action. Review it before sharing.':t.reportIncluded?'A saved copy is included in the report.':'Preview the saved text before including it in the report.'}</p><div data-report-preview-panel hidden></div></div>
+    </section>
+    <div class="task-edit" id="edit-${t.id}" hidden>
+      <div class="task-edit-row">
+        <div class="field">
+          <label for="a-${t.id}">Who is doing it</label>
+          <input id="a-${t.id}" list="people-list" value="${esc(t.assignee || '')}" placeholder="Email address" />
+          <span class="hint" style="margin:5px 0 0;display:block">
+            An email address gets a note with the action and its due date. A name is just a label.
+          </span>
+        </div>
+        <div class="field">
+          <label for="d-${t.id}">Due by</label>
+          <input id="d-${t.id}" type="date" value="${t.due_date ? String(t.due_date).slice(0, 10) : ''}" />
+        </div>
+      </div>
+      <div class="field">
+        <label for="n-${t.id}">Notes</label>
+        <textarea id="n-${t.id}" rows="3" placeholder="What was changed, what is blocking it, links to the work">${esc(t.notes || '')}</textarea>
+      </div>
+      <div class="task-edit-foot">
+        <button data-task-save="${t.id}">Save</button>
+        <button class="ghost" data-task-cancel="${t.id}">Cancel</button>
+        <span class="hint" id="saved-${t.id}"></span>
+      </div>
+    </div>
+    ${compact ? '</div></details>' : ''}
+  </article>`;
+}
+
+/**
+ * Who is doing what, across every site on the account. A task board per site
+ * cannot answer "what has Sara got on", which is the question an agency
+ * actually asks on a Monday.
+ */
+/**
+ * Buyer personas in Setup.
+ *
+ * Each persona multiplies the question count and therefore the bill, so
+ * nothing is applied automatically: the customer picks, and sees the cost
+ * before agreeing to it.
+ */
+function personaCard(p) {
+  const conf = p.evidence?.confidence || 'inferred';
+  const qs = p.questions || [];
+
+  return `<div class="persona ${p.active ? '' : 'off'}" data-persona="${p.id}">
+    <div class="persona-top">
+      <span class="pname">${esc(p.name)}</span>
+      <span class="tag ${conf === 'evidence' ? 'ok' : ''}" title="${
+        conf === 'evidence' ? 'Derived from real search queries' : 'Inferred, not evidenced'
+      }">${conf === 'evidence' ? 'from your search data' : 'inferred'}</span>
+      ${qs.length ? `<span class="tag">${qs.length} question${qs.length === 1 ? '' : 's'}</span>` : ''}
+      <span class="spacer"></span>
+      <button class="ghost" data-apply-persona="${p.id}">${qs.length ? 'Add more questions' : 'Add their questions'}</button>
+      <button class="ghost danger" data-drop-persona="${p.id}">Remove</button>
+    </div>
+    <p class="pdesc">&ldquo;${esc(p.descriptor)}&rdquo;</p>
+    ${p.context ? `<p class="hint" style="margin:6px 0 0">${esc(p.context)}</p>` : ''}
+
+    ${
+      qs.length
+        ? `<details class="qlist" style="margin-top:10px">
+            <summary>The ${qs.length} question${qs.length === 1 ? '' : 's'} they are asking</summary>
+            <div class="qlist-body">
+              ${qs
+                .map(
+                  (q) => `<div class="qrow">
+                    <span class="qhits"></span>
+                    <span class="qtext">${esc(q.text)}${q.active ? '' : ' <i class="paused">paused</i>'}</span>
+                    <button class="qlink" data-drop-pq="${q.id}" data-of-persona="${p.id}">remove</button>
+                  </div>`
+                )
+                .join('')}
+            </div>
+          </details>`
+        : '<p class="hint" style="margin:8px 0 0">No questions yet for this buyer type.</p>'
+    }
+  </div>`;
+}
+
+/**
+ * Somebody who knows their own buyers better than a model does should be
+ * able to say so, and there needs to be a way forward when suggestion fails.
+ */
+/** Keep the cost of the choice in front of the person making it. */
+function updatePqCount(id) {
+  if (!id) return;
+  const el = $(`pqCount-${id}`);
+  if (!el) return;
+  const n = document.querySelectorAll(`[data-preview="${id}"] [data-pq]:checked`).length;
+  el.textContent = n
+    ? `${n} more answer check${n === 1 ? '' : 's'} on every cycle`
+    : 'nothing selected';
+}
+
+function manualPersonaForm() {
+  return `<details class="qlist" style="margin-top:14px">
+    <summary>Add one yourself</summary>
+    <div class="field" style="margin-top:10px">
+      <label for="pm_name">What to call them</label>
+      <input id="pm_name" placeholder="Price-led SME" />
+    </div>
+    <div class="field">
+      <label for="pm_desc">How they would describe themselves</label>
+      <input id="pm_desc" placeholder="I run a five-person agency and I am watching every dirham" />
+      <span class="hint" style="display:block;margin-top:5px">
+        First person, as they would say it. This gets put in front of your questions.
+      </span>
+    </div>
+    <button class="ghost" id="addPersonaManual">Add buyer type</button>
+  </details>`;
+}
+
+/**
+ * A Setup panel that can be folded away.
+ *
+ * Setup grew to a dozen blocks on one page - buyer types, engines, brands,
+ * connections, danger zone - and reading it meant scrolling past everything
+ * irrelevant to the task at hand. Each block now collapses, and the ones
+ * people touch rarely start closed, so the page opens on what is usually
+ * needed rather than on everything at once.
+ *
+ * Uses <details>, which the browser handles: keyboard, find-in-page and
+ * screen readers all work without a line of our own state management.
+ */
+function panelFold(title, body, { open = true, help = null, sub = null } = {}) {
+  return `<details class="panel fold" ${open ? 'open' : ''}>
+    <summary class="panel-head" style="cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none">
+      <h2 style="margin:0;flex:1">${title}${help ? helpDot(help) : ''}</h2>
+      ${sub ? `<span class="hint" style="font-size:11px">${esc(sub)}</span>` : ''}
+      <span class="fold-mark" aria-hidden="true" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">&#9662;</span>
+    </summary>
+    <div style="padding-top:4px">${body}</div>
+  </details>`;
+}
+
+async function loadPersonas() {
+  const box = $('personaList');
+  if (!box) return;
+  const d = await api(`/api/projects/${state.projectId}/personas`);
+  const rows = d?.personas || [];
+
+  const lift = await api(`/api/projects/${state.projectId}/personas/lift`).catch(() => null);
+  const byId = new Map((lift?.lift || []).map((l) => [l.personaId, l]));
+
+  box.innerHTML = (rows.length
+    ? rows
+        .map((p) => {
+          const l = byId.get(p.id);
+          // Whether it is earning its cost, said plainly.
+          const verdict = l
+            ? `<p class="plift ${l.differentBrands.length || l.missingBrands.length ? 'good' : 'flat'}">${esc(l.verdict)}${
+                l.differentBrands.length ? `. They see: ${l.differentBrands.slice(0, 4).map(esc).join(', ')}` : ''
+              }${l.missingBrands.length ? `. They do not see: ${l.missingBrands.slice(0, 4).map(esc).join(', ')}` : ''}</p>`
+            : '';
+          return personaCard(p) + verdict;
+        })
+        .join('')
+    : '<p class="hint" style="margin:0">No buyer types yet. Suggest some, and we will use your Search Console data if it is connected.</p>') +
+    manualPersonaForm();
+}
+
+async function viewAssigned() {
+  const data = await api('/api/assigned');
+  if (!data) return '<div class="empty"><h2>Could not load assignments</h2></div>';
+
+  if (!data.people.length) {
+    return `<div class="empty">
+      <h2>Nothing is assigned yet</h2>
+      <p>Assign an action to an email address in Opportunities. They get the task by email, and a link to their own list that works without a login.</p>
+    </div>`;
+  }
+
+  const person = (p) => {
+    const live = p.tasks.filter((t) => t.status !== 'done' && t.status !== 'dismissed');
+    const rows = live
+      .map(
+        (t) => `<div class="arow${t.overdue ? ' is-overdue' : ''}">
+          <span class="asite">${esc(t.site)}</span>
+          <span class="atitle">${esc(t.title)}</span>
+          <span class="adue">${
+            t.due_date
+              ? `${t.overdue ? '<b>' : ''}${new Date(t.due_date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}${t.overdue ? '</b>' : ''}`
+              : '&mdash;'
+          }</span>
+          <span class="astatus ${t.status}">${t.status === 'doing' ? 'in progress' : t.status}</span>
+        </div>`
+      )
+      .join('');
+
+    return `<div class="panel person">
+      <div class="panel-head">
+        <h2>${esc(p.assignee)}</h2>
+        <div class="spacer"></div>
+        ${p.overdue ? `<span class="tag overdue">${p.overdue} overdue</span>` : ''}
+        <span class="tag">${p.open + p.doing} live</span>
+        ${p.done ? `<span class="tag">${p.done} done</span>` : ''}
+        ${/@/.test(p.assignee) ? `<button class="ghost" data-copy-link="${esc(p.assignee)}">Copy their link</button>` : ''}
+      </div>
+      ${live.length ? `<div class="atable">${rows}</div>` : '<p class="hint" style="margin:0">Nothing open.</p>'}
+    </div>`;
+  };
+
+  return `<p class="dek">Everyone with work on this account, across every site.${
+    data.unassigned ? ` <b>${data.unassigned}</b> open action${data.unassigned === 1 ? ' is' : 's are'} assigned to nobody.` : ''
+  }</p>
+  ${data.people.map(person).join('')}`;
+}
+
+/**
+ * Search Console says which pages earn which searches. This says whether the
+ * AI Overview above those searches cites them.
+ *
+ * Three outcomes are kept apart throughout, because they are three different
+ * problems: no overview shown at all, one shown without you, and one citing
+ * your site but through a different page than the one that earns the search.
+ */
+/**
+ * What to pull from Search Console before anything is chosen.
+ *
+ * A path is how someone asks about one section of a site, which is usually
+ * how content is actually organised and reviewed.
+ */
+function pcScope() {
+  return `<div class="pcscope">
+    <div class="field">
+      <label for="pcPath">Only pages containing</label>
+      <input id="pcPath" placeholder="a folder, or one full URL" autocomplete="off" />
+      <span class="hint" style="display:block;margin-top:5px">
+        Any part of a URL works: a folder such as <code>/insights</code>, or a single page pasted in full.
+      </span>
+    </div>
+    <div class="field">
+      <label for="pcDays">Last</label>
+      <select id="pcDays">
+        <option value="28">28 days</option>
+        <option value="90" selected>90 days</option>
+        <option value="180">6 months</option>
+        <option value="480">16 months</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="pcMin">Minimum impressions</label>
+      <input id="pcMin" type="number" min="1" value="1" />
+    </div>
+  </div>`;
+}
+
+/** Keep the count and the cost in front of the person choosing. */
+function updatePcCount() {
+  const el = document.getElementById('pcCount');
+  if (!el) return;
+
+  // Each group box reflects its children, so the state is readable at a glance.
+  for (const g of document.querySelectorAll('.pcp-group')) {
+    const kids = [...g.querySelectorAll('[data-pcq]')];
+    const head = g.querySelector('[data-pcgroup]');
+    if (!head || !kids.length) continue;
+    const on = kids.filter((b) => b.checked).length;
+    head.checked = on === kids.length;
+    head.indeterminate = on > 0 && on < kids.length;
+  }
+
+  const n = document.querySelectorAll('[data-pcq]:checked').length;
+  el.textContent = n ? `${n} searches, about $${(n * 0.0025).toFixed(2)}` : 'nothing selected';
+  const btn = document.getElementById('pcRun');
+  if (btn) btn.disabled = n === 0;
+}
+
+async function viewPages() {
+  const d = await api(`/api/projects/${state.projectId}/page-checks`);
+
+  if (!d || !d.total) {
+    return `<div class="empty">
+      <h2>Check your pages against the AI Overview</h2>
+      <p>
+        Search Console knows which of your pages earns which searches. This asks Google those same searches and
+        records whether an AI Overview appears above the results, and whether it cites you.
+        Ranking third and being absent from the answer above the third result are different problems.
+      </p>
+      ${pcScope()}
+      <div class="inline-form" style="justify-content:center;margin-top:14px">
+        <button class="btn" id="pcPreview">See what it would check</button>
+      </div>
+      <div id="pcPanel" style="margin-top:18px"></div>
+    </div>`;
+  }
+
+  const rate = (n) => (d.withOverview ? Math.round((n / d.withOverview) * 100) : 0);
+
+  const row = (r) => {
+    const verdict = !r.overview
+      ? '<span class="tag">no overview</span>'
+      : r.page_cited
+        ? '<span class="tag ok">this page cited</span>'
+        : r.domain_cited
+          ? '<span class="tag warn" title="Your site was cited, but through a different page">another page cited</span>'
+          : '<span class="tag bad">not cited</span>';
+
+    const rivals = (r.competitors || []).filter((c) => c.tracked);
+
+    return `<div class="pcrow" data-filter-text="${esc(`${r.query} ${r.page || ''}`.toLowerCase())}">
+      <div>
+        <div class="pcq">${esc(r.query)}</div>
+        ${r.page ? `<a class="pcp" href="${esc(r.page)}" target="_blank" rel="noopener">${esc(r.page.replace(/^https?:\/\/(www\.)?/, ''))}</a>` : ''}
+        ${rivals.length ? `<div class="pcrivals">tracked competitor cited: ${rivals.map((c) => esc(c.domain)).join(', ')}</div>` : ''}
+      </div>
+      <div class="pcnum">${r.impressions.toLocaleString()}</div>
+      <div class="pcnum">${r.position ?? '-'}</div>
+      <div>${verdict}</div>
+    </div>`;
+  };
+
+  return `<div class="figures">
+      <div class="figure">
+        <div class="label">Searches checked</div>
+        <div class="value">${d.total}</div>
+        <div class="sub">from Search Console, by impressions</div>
+      </div>
+      <div class="figure">
+        <div class="label">Show an AI Overview</div>
+        <div class="value">${d.withOverview}</div>
+        <div class="sub">${d.noOverview} showed none, which is Google's choice rather than yours</div>
+      </div>
+      <div class="figure">
+        <div class="label">Cite you</div>
+        <div class="value ${rate(d.cited) < 25 ? 'down' : ''}">${rate(d.cited)}%</div>
+        <div class="sub">${d.cited} of ${d.withOverview} overviews</div>
+      </div>
+      <div class="figure">
+        <div class="label">Impressions with no mention</div>
+        <div class="value ${d.missedImpressions ? 'down' : ''}">${d.missedImpressions.toLocaleString()}</div>
+        <div class="sub">searches you already rank for, answered above you without you</div>
+      </div>
+    </div>
+
+    ${d.wrongPage ? `<p class="warn-band" style="margin:18px 0 0">
+      <b>${d.wrongPage} ${d.wrongPage === 1 ? 'search cites' : 'searches cite'} your site through a different page</b>
+      than the one earning the search. The site is trusted for those questions; the page doing the ranking is not the
+      one being quoted.
+    </p>` : ''}
+
+    <div class="panel" style="margin-top:18px">
+      <div class="panel-head">
+        <h2>Every search checked</h2>
+        <div class="spacer"></div>
+        <span class="meta" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">checked ${esc(new Date(d.checkedOn).toLocaleDateString())}</span>
+        <button class="ghost" id="pcPreview">Run again</button>
+      </div>
+      ${pcScope()}
+      <div id="pcPanel"></div>
+      <div class="searchrow" style="max-width:420px;margin-bottom:10px">
+        <input type="search" id="pcFilter" placeholder="Filter searches or pages" autocomplete="off" />
+      </div>
+      <div class="pchead">
+        <div>Search and the page that earns it</div>
+        <div class="pcnum">Impressions</div>
+        <div class="pcnum">Position</div>
+        <div>In the overview</div>
+      </div>
+      ${d.rows.map(row).join('')}
+    </div>`;
+}
+
+function questionSourceLabel(source) {
+  return ({generated:'Site suggestions',custom:'Manual',topic:'Topic suggestions',persona:'Buyer variant',
+    gsc:'GSC import', 'gsc+model':'GSC-derived, AI rephrased', 'gsc-query':'GSC query'})[source] || source || 'Origin not recorded';
+}
+
+function gscQuestionPanel(gsc = {}, expanded = false) {
+  return `    <details class="panel fold" id="gscPanel" ${expanded?'open':''}><summary>Import from Google Search Console ${gsc.siteUrl ? `&middot; ${esc(gsc.siteUrl)}` : gsc.connected ? '&middot; choose a property' : gsc.error ? '&middot; status unavailable' : '&middot; connect an account'}</summary>
+      <div class="panel-head">
+        <h2>From Search Console</h2>
+        <div class="spacer"></div>
+        ${
+          gsc.siteUrl
+            ? `<button class="ghost" id="gscSwitch" title="Choose a different property">Change property</button>
+               <button class="ghost danger" id="gscDisconnect">Disconnect</button>`
+            : ''
+        }
+        ${gsc.error ? '<button class="ghost" data-open-view="searchDemand">Retry connection status</button>' : !gsc.connected ? '<button id="gscGrant">Connect Search Console</button>' : !gsc.siteUrl ? '<button id="gscSwitch">Choose Search Console property</button>' : '<button id="gscLoad">Find questions people already ask</button>'}
+      </div>
+      <p class="hint" style="margin:0">
+        Search Console supplies real Google search queries. We group them and may rephrase them into buyer questions for you to review before importing. Google search impressions are not AI question counts.
+        ${
+          gsc.siteUrl
+            ? `<br />Reading <b>${esc(gsc.siteUrl)}</b>${
+                gsc.email ? ` as ${esc(gsc.email)}` : ''
+              }. Analytics and Search Console can use different Google accounts.`
+            : ''
+        }
+      </p>
+      <p id="gscReturnError" class="error" role="alert"></p><div id="gscBody"></div>
+    </details>`;
+}
+
+function questionTools(p, scope, gsc = {}) {
+  return `<details class="panel question-add" id="questionAdd"><summary>Add questions and connect sources</summary>
+    <div class="panel"><h2>Add questions</h2><p class="hint">Write a buyer question, start from a topic, use suggestions from your site, or import from the sources below.</p>
+      <div class="qcompose question-compose"><input id="q_text" aria-label="Question or topic" placeholder="A buyer question or topic" autocomplete="off" />
+      <button id="q_add">Add as written</button><button class="ghost" id="q_topic">Suggest from topic</button></div>
+      <p class="hint">Add as written keeps your wording. Topic suggestions follow your input language: English or Arabic.</p>
+      <div class="qcompose question-compose"><label for="q_site_language">Site suggestion language</label>
+      <select id="q_site_language"><option value="en"${p.language === 'ar' ? '' : ' selected'}>English</option><option value="ar"${p.language === 'ar' ? ' selected' : ''}>Arabic</option></select>
+      <button class="ghost" id="q_generate">Suggest from site</button></div>
+      <div id="qTopicPanel"></div><p class="error" id="setupError" role="alert"></p>
+    </div>
+    <details class="panel fold" id="personaPanel">
+      <summary class="panel-head" style="cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none">
+        <h2 style="margin:0">Who is asking${helpDot('Buyer types. The same question gets a different answer depending on who is asking it, so each buyer type is asked separately and measured separately.')}</h2>
+        <div class="spacer"></div>
+        <span class="fold-mark" aria-hidden="true" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">&#9662;</span>
+      </summary>
+      <div style="display:flex;justify-content:flex-end;margin:-4px 0 8px">
+        <button class="ghost" id="suggestPersonas">Suggest buyer types</button>
+      </div>
+      <p class="hint">
+        The same question gets a different answer depending on who asks it. A price-led buyer and an enterprise
+        buyer are shown different companies. One number for both hides which of them cannot see you.
+      </p>
+      <div id="personaList"></div>
+    </details>
+
+    ${gscQuestionPanel(gsc)}
+    </details>
+
+`;
+}
+
+// Search demand belongs to the saved Google queries and their own dated window.
+// Never present an older import count under refreshed snapshot dates.
+function questionSearchEvidence(origin = {}) {
+  const g = origin.gscSnapshot;
+  if (!g) return '<p class="hint">No dated search snapshot is stored. Refresh Search Console evidence before using demand figures.</p>';
+  const count = value => Number.isFinite(value) && value >= 0 ? value.toLocaleString('en-GB') : 'Not matched';
+  return `<p class="hint"><b>Google search evidence:</b> ${count(g.impressions)} impressions · ${count(g.clicks)} clicks. Period: ${esc(g.startDate || 'not recorded')} to ${esc(g.endDate || 'not recorded')}.</p><p class="hint">${esc(g.property || origin.property || 'Property not recorded')} · ${esc(g.scope || 'Stored query evidence')}. ${count(g.matchedQueries)} of ${count(g.storedQueries)} stored queries matched. These figures describe Google searches, not the number of people asking this AI question.</p>`;
+}
+
+async function viewQuestions() {
+  const prompts = (await api(`/api/projects/${state.projectId}/prompts`)) || [];
+  state.questionRows = new Map(prompts.map(p => [String(p.id), p]));
+  const scope = await api(`/api/projects/${state.projectId}/run-scope`).catch(() => null);
+  const gsc = await api(`/api/projects/${state.projectId}/gsc`).catch(() => ({error: true}));
+  const tools = questionTools(state.overview?.project || {}, scope, gsc || {error: true});
+  const brand = state.overview?.project?.brand_name;
+  const rows = prompts
+    .map((p) => {
+      const chips = p.citations
+        .map((c) => `<span class="chip ${c.domain === state.overview?.project?.domain?.replace(/^www\./, '') ? 'own' : ''}">${esc(c.domain)}</span>`)
+        .join('');
+      // A persona question carries its descriptor as a prefix, which makes
+      // the list unreadable. Show the question, and the buyer type beside it.
+      const asked = p.persona && p.personaDescriptor && p.text.startsWith(p.personaDescriptor.replace(/[.]+$/, ''))
+        ? p.text.slice(p.personaDescriptor.replace(/[.]+$/, '').length + 2)
+        : p.text;
+
+      return `
+      <div class="prompt ${p.measured ? '' : 'unmeasured'}"
+        data-prompt="${p.id}"
+        data-active="${p.active}" data-source="${esc(p.source?.startsWith('gsc') ? 'gsc' : p.source || 'unknown')}"
+        data-persona="${p.personaId || ''}"
+        data-cluster="${esc(p.cluster || '')}"
+        data-intent="${esc(p.intent || '')}"
+        data-state="${p.measured ? (p.rate === 0 ? 'invisible' : p.rate < 0.5 ? 'weak' : 'strong') : 'unrun'}"
+        data-rate="${p.measured ? p.rate : -1}"
+        data-volume="${p.volume || 0}"
+        data-title="${esc((p.persona ? p.text.slice(-80) : p.text).toLowerCase())}"
+        data-filter-text="${esc(`${p.text} ${p.cluster} ${p.intent} ${p.persona || ''} ${p.citations.map((c) => c.domain).join(' ')}`.toLowerCase())}">
+        <div style="min-width:0">
+          <p class="prompt-q">${esc(asked)}</p>
+          ${p.persona ? `<div class="asked-as" title="${esc(p.personaDescriptor || '')}"><span>asked as</span> ${esc(p.persona)}</div>` : ''}
+          <div class="prompt-tags">Origin: ${esc(questionSourceLabel(p.source))}${p.revisesPromptId ? ' &middot; revised wording' : ''}${p.originDetails?.baseSource ? ` &middot; based on ${esc(questionSourceLabel(p.originDetails.baseSource))}` : ''}</div>
+          ${p.originDetails?.wordingEdited ? `<details><summary>Wording reviewed before import</summary><p class="hint">Initial suggestion:</p><p dir="auto">${esc(p.originDetails.proposedText)}</p><p class="hint">The current question uses your edited wording. Search evidence belongs to the original queries, not a validated equivalent AI question.</p></details>` : ''}
+          ${p.originDetails?.queryExamples?.length ? `<details><summary>Original GSC query examples</summary><p class="hint" dir="auto">${esc(p.originDetails.queryExamples.join(' · '))}</p>${questionSearchEvidence(p.originDetails)}</details>` : ''}
+          <div class="prompt-tags">
+            ${esc(p.cluster?.replace(/[_-]/g, ' '))} &middot; ${esc(p.intent)} &middot; <span title="AI question volume is not measured. Original Google query evidence, where available, is shown separately above.">AI question volume not measured</span>
+            ${p.active ? '' : ' &middot; <span class="paused">paused</span>'}
+          </div>
+          ${p.measured ? runStrip(p.runs) : `<div class="notrun">${p.active ? 'Not asked yet. Included in the next cycle.' : 'Not asked yet. Paused and excluded from the next cycle.'}</div>`}
+          <div class="q-actions">
+            ${p.measured ? `<button class="btn" data-see-answer="${p.id}">Read answers</button>` : ''}
+            <button class="ghost" data-brief="${p.id}">Review content brief</button>
+            <button class="ghost" data-question-edit="${p.id}">Edit wording</button><details class="question-more"><summary>More actions</summary><div class="q-actions">
+              ${p.measured ? `<button class="ghost" data-reask="${p.id}">Ask again now</button><span class="hint">Starts immediately and uses answer checks.</span>` : ''}
+              ${p.replacedBy ? '<span class="tag">Superseded by a newer revision</span>' : `<button class="ghost" data-question-toggle="${p.id}">${p.active ? 'Pause' : 'Resume'}</button>`}
+            </div></details>
+            <label class="qpick"><input type="checkbox" data-qsel="${p.id}" /> Select</label>
+          </div>
+          <div class="question-editor" id="question-edit-${p.id}" hidden></div>
+          <div class="answers" data-answers hidden></div>
+          ${p.snippet ? `<div class="excerpt">${highlight(p.snippet, brand)}</div>` : ''}
+          ${chips ? `<div class="chips">${chips}</div>` : ''}
+          ${p.fanOut?.length ? `<div class="fanout"><span class="fanout-label">searched for</span>${p.fanOut.map((q) => `<span class="chip">${esc(q)}</span>`).join('')}</div>` : ''}
+        </div>
+        <div class="rates">
+          <div class="ratesplit">Named or cited</div>
+          <div class="rate ${p.measured ? rateClass(p.seenRate ?? p.rate) : 'none'}">${p.measured ? pct(p.seenRate ?? p.rate) : '&mdash;'}</div>
+          ${
+            p.measured
+              ? `<div class="ratesplit" title="Named means the answer said your name. Cited means it linked to your site as a source.">
+                  named ${pct(p.rate)} &middot; cited ${pct(p.citedRate || 0)}
+                </div>`
+              : ''
+          }
+        </div>
+      </div>`;
+    })
+    .join('');
+  // Let someone read the list one buyer type at a time, which is the point
+  // of having them.
+  /**
+   * Every buyer type on the site, not only those already in use.
+   *
+   * This was derived from questions that already had a persona, so a persona
+   * with no questions yet could never be picked from the bulk assigner, which
+   * is precisely when you would want to.
+   */
+  const known = new Map(prompts.filter((p) => p.persona).map((p) => [p.personaId, p.persona]));
+  const all = (await api(`/api/projects/${state.projectId}/personas`).catch(() => null))?.personas || [];
+  for (const pe of all) if (!known.has(pe.id)) known.set(pe.id, pe.name);
+  const personas = [...known.entries()];
+  const waiting = prompts.filter((p) => p.active && !p.replacedBy && !p.measured).length;
+
+  // Two buyer types asking the same thing costs twice and measures once.
+  const dupes = await api(`/api/projects/${state.projectId}/duplicate-questions`).catch(() => null);
+
+  /**
+   * The whole premise of buyer types is that the answer changes with who
+   * asks. A per-question list cannot show that; a comparison can, and it was
+   * the one view the feature was missing.
+   */
+  const byPersona = await api(`/api/projects/${state.projectId}/by-persona`).catch(() => null);
+
+  /**
+   * The list is long and every question is one of several kinds. Sorting and
+   * grouping are the difference between a list and something you can work
+   * through, and everything needed is already on each row.
+   */
+  const clusters = [...new Set(prompts.map((p) => p.cluster).filter(Boolean))].sort();
+  const intents = [...new Set(prompts.map((p) => p.intent).filter(Boolean))].sort();
+
+  const count = (fn) => prompts.filter(fn).length;
+  const chip = (group, value, label, n) =>
+    `<button class="tfilter${value === 'all' ? ' is-on' : ''}" data-group="${group}" data-value="${esc(value)}">${esc(label)}${
+      n === undefined ? '' : ` ${n}`
+    }</button>`;
+
+  /**
+   * Tagging in bulk.
+   *
+   * Buyer type and topic could only be set when a question was created, so a
+   * site with a hundred imported questions had no way to organise them. One at
+   * a time would be technically possible and practically untouchable.
+   */
+  const bulkBar = `
+    <div class="qbulk" id="qBulk" hidden>
+      <span class="qbulk-count" id="qBulkCount"></span>
+      <div class="qtool">
+        <span class="qtool-k">Select</span>
+        <div class="taskbar">
+          <button class="tfilter" id="qSelShown">All shown</button>
+          <button class="tfilter" id="qSelUntagged">Untagged only</button>
+          <button class="tfilter" id="qSelNone">None</button>
+        </div>
+      </div>
+
+
+      <select id="qBulkPersona">
+        <option value="">Set buyer type…</option>
+        <option value="none">Asked plainly</option>
+        ${personas.map(([id, name]) => `<option value="${id}">${esc(name)}</option>`).join('')}
+      </select>
+      <input id="qBulkCluster" placeholder="Set topic, e.g. asset classes" />
+      <button class="btn" id="qBulkApply">Apply</button>
+      <button class="ghost" id="qBulkClear">Clear selection</button>
+    </div>`;
+
+  const filters = `
+    <div class="qtools">
+      <div class="qtool">
+        <span class="qtool-k">Show</span>
+        <div class="taskbar">
+          ${chip('state', 'all', 'All', prompts.length)}
+          ${chip('state', 'invisible', 'Never named', 0)}
+          ${chip('state', 'weak', 'Named sometimes', 0)}
+          ${chip('state', 'strong', 'Named often', 0)}
+          ${chip('state', 'unrun', 'Not asked yet', 0)}
+        </div>
+      </div>
+
+      ${
+        personas.length
+          ? `<div class="qtool">
+              <span class="qtool-k">Buyer</span>
+              <div class="taskbar">
+                ${chip('persona', 'all', 'Anyone')}
+                ${chip('persona', 'none', 'Asked plainly', count((p) => !p.persona))}
+                ${personas.map(([id, name]) => chip('persona', String(id), name, count((p) => p.personaId === id))).join('')}
+              </div>
+            </div>`
+          : ''
+      }
+
+      <div class="qtool qtool-row">
+        ${
+          clusters.length > 1
+            ? `<span class="qpick">
+                <label for="qcluster">Topic</label>
+                <select id="qcluster" data-select-group="cluster">
+                  <option value="all">Everything</option>
+                  ${clusters
+                    .map((c) => `<option value="${esc(c)}">${esc(c.replace(/[_-]/g, ' '))} (${count((p) => p.cluster === c)})</option>`)
+                    .join('')}
+                </select>
+              </span>`
+            : ''
+        }
+        ${
+          intents.length > 1
+            ? `<span class="qpick">
+                <label for="qintent">Intent</label>
+                <select id="qintent" data-select-group="intent">
+                  <option value="all">Any</option>
+                  ${intents
+                    .map((i) => `<option value="${esc(i)}">${esc(i)} (${count((p) => p.intent === i)})</option>`)
+                    .join('')}
+                </select>
+              </span>`
+            : ''
+        }
+        <span class="qpick">
+          <label for="qsort">Sort</label>
+          <select id="qsort">
+            <option value="opportunity">Suggested priority</option>
+            <option value="rate-asc">Least visible first</option>
+            <option value="rate-desc">Most visible first</option>
+            <option value="volume">Stored demand estimate (unverified)</option>
+            <option value="az">A to Z</option>
+          </select>
+        </span>
+      </div>
+    </div>`;
+
+  const advancedActive = typeof qState !== 'undefined' && (['state','persona','cluster','intent'].some(k => qState[k] && qState[k] !== 'all') || (qState.sort && qState.sort !== 'opportunity'));
+  return `<div class="panel question-list-panel">
+    <div class="panel-head">
+      <h2>Your questions</h2><button class="btn" data-question-add>Add questions</button><button class="ghost" data-start-first-cycle>Review cost and run</button>
+      <div class="spacer"></div>
+      <span class="meta" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">filled tick = you were named</span>
+    </div>
+    <p class="hint">${scope && Number.isFinite(scope.all) ? `${scope.all} active questions &middot; ${scope.checksAll} answer checks &middot; estimated $${Number(scope.costAll).toFixed(2)}` : 'Review the current question count and cost before running.'}</p>
+    ${waiting ? `<p class="hint" style="margin:0 0 12px">${waiting} question${waiting === 1 ? ' has' : 's have'} not been asked yet. Review the questions for relevance before starting a measurement. Use Edit wording or Pause on a question below.</p>` : ''}
+
+    ${
+      byPersona?.rows?.length > 1
+        ? `<div class="panel" style="margin-bottom:16px">
+            <div class="panel-head"><h2>Who can see you</h2></div>
+            <p class="hint" style="margin:0 0 12px">
+              The same question gets a different answer depending on who asks. One number for everyone hides which
+              buyers cannot see you.
+            </p>
+            ${byPersona.rows
+              .map(
+                (p) => `<div class="pcrow">
+                  <div><b>${esc(p.persona)}</b><br /><span class="dupewho">${p.questions} question${p.questions === 1 ? '' : 's'}</span></div>
+                  <div class="pcnum">${pct(p.rate)}</div>
+                  <div class="barcell" style="width:150px"><span class="bar ${(p.rate || 0) < 0.2 ? 'hot' : ''}"><i style="width:${Math.round((p.rate || 0) * 100)}%"></i></span></div>
+                  <div class="pcnum">${p.avg_position ? `pos ${p.avg_position.toFixed(1)}` : ''}</div>
+                  <div><button class="seeanswer" data-persona-gap="${p.persona_id || 'none'}">Why</button></div>
+                </div>
+                <div class="answers" id="gap-${p.persona_id || 'none'}" hidden></div>`
+              )
+              .join('')}
+          </div>`
+        : ''
+    }
+    ${
+      dupes?.wasted
+        ? `<div class="callout warn" style="margin:0 0 14px">
+            <b>${dupes.wasted} question${dupes.wasted === 1 ? ' is' : 's are'} being asked more than once</b>
+            under different buyer types. Each copy costs an answer check every cycle, and near-identical buyer types
+            usually get near-identical answers.
+            <details class="qlist" style="margin-top:8px">
+              <summary>Show them</summary>
+              <div class="qlist-body">
+                ${dupes.duplicates
+                  .map(
+                    (d) => `<div class="qrow">
+                      <span class="qhits">${d.copies.length}&times;</span>
+                      <span class="qtext">${esc(d.base.slice(0, 90))}<br />
+                        <i class="dupewho">${d.copies.map((c) => esc(c.persona)).join(' &middot; ')}</i>
+                      </span>
+                      <span class="qlink"></span>
+                    </div>`
+                  )
+                  .join('')}
+              </div>
+            </details>
+          </div>`
+        : ''
+    }
+    <div class="qtools"><label>Status <select data-select-group="activity"><option value="active">Active for next run</option><option value="all">All, including history</option><option value="paused">Paused or superseded</option></select></label>
+      <label>Origin <select data-select-group="origin"><option value="all">All origins</option>${[...new Set(prompts.map(p => p.source?.startsWith('gsc') ? 'gsc' : p.source || 'unknown'))].map(source => `<option value="${esc(source)}">${esc(source === 'gsc' ? 'Google Search Console' : questionSourceLabel(source))}</option>`).join('')}</select></label></div>
+    ${searchBox('promptFilter', 'Search questions, topics or cited domains', 'promptFilterCount')}
+    <details class="question-filters"${advancedActive ? ' open' : ''}><summary>Advanced filters and sorting</summary>
+    <p class="hint">Suggested priority uses visibility and stored demand estimates. Those estimates may be generated or imported; their source is not verified here. They are not measured monthly AI question counts.</p>
+    ${filters}</details>
+    <p class="hint">Select a question to organise several at once.</p>
+    ${bulkBar}
+    <div id="promptList">
+      ${rows}
+      <p class="hint" data-filter-empty hidden>No question matches that.</p>
+    </div>
+  </div>${tools}`;
+}
+
+async function viewRivals() {
+  const o = state.overview;
+  if (!o?.competitors?.length) return `<div class="empty"><h2>Nothing measured yet</h2><p>Run a cycle first.</p></div>`;
+  const max = Math.max(...o.competitors.map((c) => c.rate), 0.01);
+  const rows = o.competitors
+    .map(
+      (c) => `
+      <div class="sov-row">
+        <div class="sov-name ${c.kind === 'owned' ? 'own' : ''}">${esc(c.name)}</div>
+        <div class="sov-track"><div class="sov-fill ${c.kind === 'owned' ? 'own' : ''}" style="width:${(c.rate / max) * 100}%"></div></div>
+        <div class="sov-val">${pct(c.rate)}</div>
+      </div>`
+    )
+    .join('');
+  return `<div class="panel"><div class="panel-head"><h2>Who gets named</h2></div>${rows}<p class="dek" style="margin:18px 0 0;font-size:13px">Share of answers in which each brand is named, across every tracked question and engine this cycle.</p></div>`;
+}
+
+async function viewSources() {
+  const sources = await api(`/api/projects/${state.projectId}/sources`);
+  if (!sources?.length) return `<div class="empty"><h2>No citations captured</h2><p>Run a cycle first.</p></div>`;
+  const max = Math.max(...sources.map((s) => s.citations), 1);
+  const rows = sources
+    .map(
+      (s) => `
+      <div class="sov-row">
+        <div class="sov-name ${s.owned ? 'own' : ''}">${esc(s.domain)}${s.owned ? ' (you)' : ''}</div>
+        <div class="sov-track"><div class="sov-fill ${s.owned ? 'own' : ''}" style="width:${(s.citations / max) * 100}%"></div></div>
+        <div class="sov-val">${s.citations}</div>
+      </div>`
+    )
+    .join('');
+  return `<div class="panel"><div class="panel-head"><h2>What the engines read</h2></div>${rows}<p class="dek" style="margin:18px 0 0;font-size:13px">These domains shape the answers in your category. Every one you are absent from is an outreach target with a measurable payoff.</p></div>`;
+}
+
+/**
+ * Render rows for the demand table. Extracted so the sort handler can
+ * re-render without rebuilding the whole section.
+ */
+function renderDemandRows(rows) {
+  return rows
+    .map((r) => {
+      const rateVal = r.rate;
+      const rateTxt = rateVal != null ? `${(rateVal * 100).toFixed(0)}%` : 'Not measured';
+      const isGap = r.measurable && r.impressions > 0 && rateVal != null && rateVal < 0.2;
+      return `<tr data-cluster="${esc(r.cluster)}" data-impressions="${r.impressions ?? 0}" data-clicks="${r.clicks ?? 0}" data-rate="${rateVal ?? -1}">
+        <td>${esc(r.cluster)}${!r.measurable ? ` <span class="tag muted" title="No matching queries in the retrieved search data">no matching queries</span>` : ''}${isGap ? ` <span class="tag warn">review match</span>` : ''}${r.measurable ? `<div class="hint">from ${r.matchedQueries} quer${r.matchedQueries === 1 ? 'y' : 'ies'} · candidate matches</div>` : ''}${r.queryExamples?.length ? `<details><summary>Inspect query examples</summary><p class="hint">${r.queryExamples.map(esc).join(' · ')}</p><p class="hint">Up to five examples. A text match does not establish the same buyer intent.</p></details>` : ''}</td>
+        <td style="text-align:right">${r.measurable ? (r.impressions ?? 0).toLocaleString() : '-'}</td>
+        <td style="text-align:right">${r.measurable ? (r.clicks ?? 0).toLocaleString() : '-'}</td>
+        <td style="text-align:right">${rateTxt}<div class="hint">${r.measured ? `${r.named} of ${r.measured} measured answers` : 'No measured answers in the latest cycle'}</div></td>
+      </tr>`;
+    })
+    .join('');
+}
+
+/**
+ * The demand table: impressions and clicks from the search consoles beside
+ * the AI named rate, gaps first. Lives under Traffic because both answer
+ * "what is actually happening in the market", but they are never mixed -
+ * sessions are arrivals, impressions are demand, and the note says so.
+ */
+function demandSection(d) {
+  if (!d || d.error) return `<div class="panel"><h2>Search queries beside AI visibility</h2><p class="notice">Search data could not be loaded. This does not mean there were zero impressions.</p><button class="ghost" data-open-view="searchDemand">Try again</button><button class="ghost" data-open-view="searchDemand" data-open-gsc>Open Search Console connection</button></div>`;
+  const failed = (d.sources || []).filter((s) => !s.ok);
+  if (!d.rows?.length) {
+    return `<div class="panel">
+      <div class="panel-head"><h2>Search demand against AI visibility</h2></div>
+      <p class="hint">${failed.length
+        ? `No console is reporting yet. ${failed.map((f) => `${esc(f.name)}: ${esc(f.error)}`).join('. ')}.
+           <button class="ghost" data-open-view="searchDemand" data-open-gsc style="margin-left:6px">Open Search Console connection</button>
+           <span style="display:block;margin-top:6px">Impressions and clicks exist nowhere else: they come from the search consoles, not from us and not from Analytics.</span>`
+        : 'No topic matched any search query, so there is nothing to show yet. This happens when topic names are internal vocabulary rather than words people type.'}</p>
+    </div>`;
+  }
+  const panelId = 'demandPanel';
+  const tableId = 'demandTbl';
+  const bodyId  = 'demandBody';
+
+  // Sortable demand table - rendered client-side after paint via a data attribute.
+  // Rows are embedded as JSON so the sort function can re-render without a round trip.
+  const rowData = JSON.stringify(d.rows);
+
+  const unmatchedCount = d.rows.filter((r) => !r.measurable).length;
+  return `<div class="panel" id="${panelId}">
+    <div class="panel-head panel-head--collapsible" data-collapse-target="${panelId}-body">
+      <h2>Search queries beside AI visibility${helpDot('Two independent sources side by side: real search demand from the search consoles, and AI visibility from the measurement cycles. Query-to-topic matches are broad text matches. Review their intent before using them to prioritise work.')}</h2>
+      <button class="panel-collapse-btn" aria-expanded="true" aria-controls="${panelId}-body" title="Collapse section">&#8211;</button>
+    </div>
+    <div id="${panelId}-body">
+      <p class="hint">${esc(d.method)}</p>
+      <table class="tbl sortable-tbl" id="${tableId}" style="width:100%" data-rows='${rowData.replace(/'/g, "&#39;")}'>
+        <thead><tr>
+          <th data-sort="cluster" data-sort-type="str" class="sort-asc">Topic${helpDot('A group of measured questions on one subject. Search queries are matched using text from the topic and its questions. An unmatched topic can still have measured AI answers.')}</th>
+          <th style="text-align:right" data-sort="impressions" data-sort-type="num">Search impressions${helpDot('How often pages appeared in classic search results for queries on this topic, over the last 90 days, from the connected search consoles. This is the total across EVERY query matching the topic, so looking up one of those queries in Search Console on its own will show a smaller number.')}</th>
+          <th style="text-align:right" data-sort="clicks" data-sort-type="num">Clicks${helpDot('Clicks those impressions produced, over the same 90 days. Zero clicks means no clicks were recorded for these matching queries. It does not establish why.')}</th>
+          <th style="text-align:right" data-sort="rate" data-sort-type="num">Named in AI answers${helpDot('How often the brand appeared in AI answers to this topic during the most recent measurement cycle. Different window and different denominator from the search columns: one counts searches over 90 days, the other counts answers in one cycle. Never divide one into the other.')}</th>
+        </tr></thead>
+        <tbody id="${bodyId}">${renderDemandRows(d.rows)}</tbody>
+      </table>
+      <p class="hint">Rows marked <span class="tag warn">review match</span> combine search impressions with low measured AI visibility. Inspect the query examples before treating this as an opportunity. Queries can appear in more than one topic, so do not sum topic totals.
+      ${unmatchedCount ? `${unmatchedCount} cluster${unmatchedCount === 1 ? '' : 's'} could not be matched to any search query, usually because the cluster name is internal vocabulary rather than words anyone types. AI visibility is shown independently wherever answers have been measured. Unmatched search data is unknown, not zero.` : ''}
+      ${failed.length ? `Not counted: ${failed.map((f) => `${esc(f.name)} (${esc(f.error)})`).join(', ')}.` : ''}</p>
+    </div>
+  </div>`;
+}
+
+/**
+ * A "?" beside anything that needs a sentence of explanation.
+ *
+ * One mechanism for the whole portal: the bubble itself is a single floating
+ * element handled centrally, so adding an explanation anywhere costs one
+ * call. Every figure a client might screenshot should be able to explain
+ * itself without us in the room - especially the ones whose denominators
+ * differ, which is most of them here.
+ */
+const HELP_BTN = 'flex:0 0 auto;width:16px;height:16px;border-radius:50%;border:1px solid var(--line);background:none;color:var(--ink-3);font-size:10px;line-height:1;cursor:help;padding:0;vertical-align:middle;margin-left:5px;';
+function helpDot(text) {
+  return `<button type="button" style="${HELP_BTN}" data-help="${esc(text)}" aria-label="What does this mean?">?</button>`;
+}
+
+let ga4RefreshPoll;
+async function viewTraffic() {
+  const [conn, rows] = await Promise.all([
+    api(`/api/projects/${state.projectId}/ga4`).catch(() => null),
+    api(`/api/projects/${state.projectId}/traffic`).catch(() => null)
+  ]);
+  const searchPanel = '<p class="hint">Looking for Google search queries? <button class="ghost" data-open-view="searchDemand">Open Search demand</button> <button class="ghost" data-open-view="questions">Review questions</button></p>';
+  if (!conn || conn.error) return `<div class="panel"><h2>Google Analytics</h2><p class="notice">Analytics connection status could not be loaded. Your Search Console section is independent.</p><button class="ghost" data-open-view="traffic">Try again</button></div>` + searchPanel;
+
+  /* not connected */
+  if (!conn.connected) {
+    const others = (await api('/api/ga4/connections').catch(() => null))?.connections || [];
+    const reuse = others.length
+      ? `<div class="reuse">
+          <p class="reuse-label">Already connected on this account</p>
+          ${others
+            .map(
+              (o) => `<div class="row">
+                <div class="grow"><div class="name">${esc(o.email)}</div><div class="sub">used on ${o.sites} site${o.sites === 1 ? '' : 's'}</div></div>
+                <button class="ghost" data-ga4-reuse="${esc(o.email)}">Use here too</button>
+              </div>`
+            )
+            .join('')}
+          <p class="hint" style="margin-top:10px">Or connect a different Google account below.</p>
+        </div>`
+      : '';
+
+    return `<div class="panel connect-card">
+      <div class="connect-mark">
+        <svg width="34" height="34" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="15" y="3" width="5" height="18" rx="2.5" fill="var(--you)"/>
+          <rect x="9.5" y="8" width="5" height="13" rx="2.5" fill="var(--you)" opacity="0.65"/>
+          <rect x="4" y="13" width="5" height="8" rx="2.5" fill="var(--you)" opacity="0.4"/>
+        </svg>
+      </div>
+      <h2>Connect Google Analytics</h2>
+      <p class="dek" style="max-width:56ch">
+        See recorded sessions and conversions attributed to AI referrals. Search Console works separately and does not require an Analytics connection.
+      </p>
+      <ul class="connect-list">
+        <li>Sessions and conversions from ChatGPT, Perplexity, Gemini, Claude and Copilot</li>
+        <li>Which landing pages AI traffic actually converts on</li>
+        <li>Read-only access, and you can disconnect at any time</li>
+      </ul>
+      ${reuse}
+      ${conn.configured
+        ? `<button id="ga4Connect">${others.length ? 'Connect a different Google account' : 'Connect Google Analytics'}</button>`
+        : `<p class="notice" style="margin:0">Google sign-in is not configured on this deployment. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</p>`}
+      <p class="error" id="ga4Error" role="alert"></p>
+    </div>` + searchPanel;
+  }
+
+  /* connected but no property chosen yet */
+  if (!conn.propertyId) {
+    return `<div class="panel">
+      <div class="panel-head">
+        <h2>Choose a property</h2>
+        <div class="spacer"></div>
+        <button class="ghost" id="ga4Disconnect">Disconnect</button>
+      </div>
+      <p class="dek" style="margin-bottom:16px">
+        Connected as <b>${esc(conn.email || 'your Google account')}</b>. Pick the property that measures ${esc(state.overview?.project?.domain || 'this site')}.
+      </p>
+      <div id="ga4Props"><p class="hint">Loading your properties</p></div>
+      <p class="hint" style="margin-top:14px">
+        Wrong account? <button type="button" class="ghost" id="ga4Reconnect" style="padding:4px 9px;font-size:10px">Connect a different one</button>
+      </p>
+      <p class="error" id="ga4Error" role="alert"></p>
+    </div>` + searchPanel;
+  }
+
+  /* connected and configured */
+  const busy = ['queued','running'].includes(conn.refresh?.state) || (!conn.syncedAt && !conn.refresh);
+  const failed = conn.refresh?.state === 'error';
+  const message = busy ? (conn.syncedAt ? 'Refreshing your Analytics data…' : 'Importing your Analytics data…')
+    : failed ? 'Analytics import failed. Your connection is saved. Retry now or we’ll try again automatically.'
+    : 'Analytics refreshes automatically every day.';
+  if (busy) {
+    const projectId = state.projectId;
+    ga4RefreshPoll = setTimeout(() => { if (state.view === 'traffic' && state.projectId === projectId) render(); }, 4000);
+  }
+  return `<div class="panel"><div class="panel-head"><h2>Google Analytics</h2><div class="spacer"></div><button class="ghost" id="ga4Sync" ${busy ? 'disabled' : ''}>${busy ? 'Importing…' : failed ? 'Retry' : 'Refresh now'}</button><button class="ghost" id="ga4Reconnect">Change account</button><button class="ghost" id="ga4Disconnect">Disconnect</button></div><div class="conn-status"><span class="tag ok">Connected</span><span class="tag">${esc(conn.propertyName || `property ${conn.propertyId}`)}</span><span class="tag">${conn.syncedAt ? `Last updated ${esc(shortDate(conn.syncedAt))}` : 'First import pending'}</span><button class="ghost" id="ga4Change">Change property</button></div><p role="status">${message}</p><p class="error" id="ga4Error" role="alert">${failed ? esc(conn.refresh.error || 'Please reconnect Google if access has expired.') : ''}</p></div><div class="panel">${conn.syncedAt ? rows?.html || '<p>Traffic could not be loaded. This does not mean there were zero visits.</p>' : '<p>Your traffic results will appear after the first successful import.</p>'}</div>` + searchPanel;
+}
+
+async function loadGa4Properties() {
+  const box = $('ga4Props');
+  if (!box) return;
+  const res = await fetch(`/api/projects/${state.projectId}/ga4/properties`);
+  const d = await res.json();
+  if (!res.ok) { box.innerHTML = `<p class="error">${esc(d.error)}</p>`; return; }
+  if (!d.properties.length) {
+    box.innerHTML = `<p class="hint">That Google account cannot see any GA4 properties. Connect a different account, or ask for read access.</p>`;
+    return;
+  }
+  box.innerHTML =
+    (d.properties.length > 6 ? searchBox('ga4Filter', 'Filter by property or account name', 'ga4FilterCount') : '') +
+    `<div id="ga4List">` +
+    d.properties
+      .map(
+        (p) => `<div class="row" data-filter-text="${esc(`${p.name} ${p.account} ${p.id}`.toLowerCase())}">
+          <div class="grow"><div class="name">${esc(p.name)}</div><div class="sub">${esc(p.account)} &middot; ${esc(p.id)}</div></div>
+          <button class="ghost" data-ga4-pick="${esc(p.id)}" data-ga4-name="${esc(p.name)}">Use this</button>
+        </div>`
+      )
+      .join('') +
+    `<p class="hint" data-filter-empty hidden>No property matches that.</p></div>`;
+}
+
+document.addEventListener('click', async (e) => {
+  const err = (m) => { const el = $('ga4Error'); if (el) el.textContent = m || ''; };
+
+  if (e.target.id === 'ga4Connect') {
+    e.target.disabled = true;
+    // Analytics only. Search Console is asked for separately, when it is
+    // actually wanted, rather than bundled into this consent screen.
+    const res = await fetch(`/api/projects/${state.projectId}/ga4/connect?what=ga4`);
+    const d = await res.json();
+    if (!res.ok) { err(d.error); e.target.disabled = false; return; }
+    window.location.href = d.url;
+  }
+
+  if (e.target.id === 'gscGrant') {
+    const button=e.target;
+    button.disabled = true;
+    try {
+      const res = await fetch(`/api/projects/${state.projectId}/ga4/connect?what=gsc`);
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Could not connect Search Console.');
+      window.location.href = d.url;
+    } catch(error) {
+      const message=$('gscReturnError');
+      if(message) message.textContent=error.message || 'Could not connect Search Console. Try again.';
+      button.disabled=false;
+    }
+  }
+
+  /**
+   * Two different things, deliberately separate.
+   *
+   * Changing property is common and should not cost someone their Google
+   * connection. Disconnecting is rare and should actually disconnect, which
+   * it did not: the token went and the property choice stayed, leaving a site
+   * pointing at something it could no longer read.
+   */
+  if (e.target.id === 'gscSwitch') {
+    e.target.disabled = true;
+    try { await loadGscSites(); } finally { e.target.disabled = false; }
+    return;
+  }
+
+  if (e.target.id === 'gscDisconnect') {
+    if (!confirm('Disconnect Search Console from this site? Imported questions are kept. Google Analytics stays connected.')) return;
+    e.target.disabled = true;
+    await api(`/api/projects/${state.projectId}/ga4/disconnect`, { method: 'POST', body: { what: 'gsc' } });
+    await render();
+    return;
+  }
+
+  if (e.target.id === 'ga4Disconnect') {
+    if (!confirm('Disconnect Google Analytics from this site? Traffic data already pulled is kept.')) return;
+    await fetch(`/api/projects/${state.projectId}/ga4/disconnect`, { method: 'POST' });
+    await render();
+  }
+
+  if (e.target.id === 'ga4Reconnect') {
+    e.target.disabled = true;
+    const res = await fetch(`/api/projects/${state.projectId}/ga4/connect?what=both`);
+    const d = await res.json();
+    if (!res.ok) { err(d.error); e.target.disabled = false; return; }
+    window.location.href = d.url;
+  }
+
+  const reuse = e.target.closest('[data-ga4-reuse]');
+  if (reuse) {
+    reuse.disabled = true;
+    const res = await fetch(`/api/projects/${state.projectId}/ga4/reuse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: reuse.dataset.ga4Reuse })
+    });
+    if (!res.ok) { err((await res.json()).error); reuse.disabled = false; return; }
+    await render();
+    loadGa4Properties();
+  }
+
+  if (e.target.id === 'ga4Change') {
+    const res = await fetch(`/api/projects/${state.projectId}/ga4/property`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ propertyId: '' })
+    });
+    if (!res.ok) { err((await res.json()).error); return; }
+    await render();
+    loadGa4Properties();
+  }
+
+  const pick = e.target.closest('[data-ga4-pick]');
+  if (pick) {
+    const projectId = state.projectId;
+    const choices = [...document.querySelectorAll('[data-ga4-pick]')];
+    choices.forEach(button => button.disabled = true);
+    pick.textContent = 'Starting import…';
+    try {
+      const res = await fetch(`/api/projects/${projectId}/ga4/property`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ propertyId: pick.dataset.ga4Pick, propertyName: pick.dataset.ga4Name })
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'The property could not be saved. Please retry.');
+      if (state.projectId === projectId && state.view === 'traffic') await render();
+    } catch (error) {
+      if (state.projectId === projectId && state.view === 'traffic') err(error.message);
+    } finally { choices.forEach(button => button.disabled = false); pick.textContent = 'Use this'; }
+  }
+
+  if (e.target.id === 'ga4Sync') {
+    const button = e.target, projectId = state.projectId;
+    button.disabled = true;
+    button.textContent = 'Importing…';
+    try {
+      const res = await fetch(`/api/projects/${projectId}/sync-ga4`, { method: 'POST' });
+      const d = await res.json();
+      if (!res.ok || d.skipped) throw new Error(d.error || d.reason || 'Import failed. Please retry.');
+      if (state.projectId === projectId && state.view === 'traffic') await render();
+    } catch (error) {
+      if (state.projectId === projectId && state.view === 'traffic') err(error.message);
+    } finally { button.disabled = false; button.textContent = 'Refresh now'; }
+  }
+});
+
+/* ---------- render ---------- */
+
+async function renderFigures() {
+  const o = state.overview;
+  if (!o || !o.cycle) {
+    if (state.measurementRunning) {
+      $('figures').innerHTML = `<div class="figure" style="flex:1"><div class="label">Status</div><div class="value dim">Measurement in progress</div><div class="sub">Answers and actions will appear when this measurement finishes.</div></div>`;
+      return;
+    }
+    /**
+     * An instruction to press something should be the thing, or at least say
+     * where it is. "Press run cycle" sent a first-time user hunting the
+     * screen for a control they had not learned the name of yet.
+     */
+    $('figures').innerHTML = `<div class="figure" style="flex:1">
+      <div class="label">Status</div>
+      <div class="value dim">Not measured yet</div>
+      <div class="sub">Nothing has been asked for this site.</div>
+      <button class="ghost" data-start-first-cycle style="margin-top:10px">Start the first measurement</button>
+      <div class="sub" style="margin-top:6px">Opens the run menu at the top right, where you can price the cycle before it runs.</div>
+    </div>`;
+    return;
+  }
+  const engineCells = o.engines
+    .map((e) => {
+      // A tenth of the usual answers is a broken engine, not a bad score, and
+      // showing its rate as a peer of the others invites the wrong conclusion.
+      const typical = Math.max(...o.engines.map((x) => x.runs || 0));
+      const thin = typical >= 20 && e.runs < typical * 0.25;
+      return `<div class="figure">
+        <div class="label">${esc(ENGINE_LABEL[e.engine] || e.engine)}</div>
+        <div class="value ${thin ? 'dim' : ''}" ${thin ? `title="Only ${e.runs} answers came back from this engine against ${typical} from the busiest. Too few to compare."` : ''}>${thin ? '&mdash;' : pct(e.rate)}</div>
+        <div class="sub">${thin ? `only ${e.runs} of ${typical} answers` : `${e.runs} runs`}</div>
+      </div>`;
+    })
+    .join('');
+  $('figures').innerHTML = `
+    <div class="figure">
+      <div class="label">Visibility</div>
+      <div class="value">${pct(o.visibility)}</div>
+      <div class="sub">${o.runs} answers read</div>
+    </div>
+    <div class="figure">
+      <!-- Ranks only the brands this project tracks that appeared, so being
+           the only tracked name present reads 1.0 however many untracked
+           firms were listed above. -->
+      <div class="label">Position among tracked brands${helpDot('Where the brand ranks against the competitors set up on this project, by how often each is named in the same set of answers. It is not a position in the market, and not a place within the text of an answer - only a rank among the brands being tracked here.')}</div>
+      <div class="value ${o.avgOrdinal ? '' : 'dim'}">${o.avgOrdinal ? o.avgOrdinal.toFixed(1) : '-'}</div>
+      <div class="sub">1 is first of the brands you track</div>
+    </div>
+    ${engineCells}
+    <button class="figure figure-btn" data-spend title="Where this went, and what turning each part off would save">
+      <div class="label">Last cycle cost</div>
+      <div class="value">$${(o.spend || 0).toFixed(2)}</div>
+      <div class="sub" data-spend-sub>${esc(shortDate(o.cycle))} &middot; tap to break down</div>
+    </button>
+    <button type="button" style="position:absolute;transform:translate(-22px,6px);width:16px;height:16px;border-radius:50%;border:1px solid var(--line);background:var(--paper);color:var(--ink-3);font-size:10px;line-height:1;cursor:help;padding:0" data-help="What the last completed cycle actually cost. This figure is history and never changes. Tap the card to open the breakdown, where engines, question intents and models can be switched for the NEXT cycle, with the saving shown before anything runs.">?</button>`;
+}
+
+document.addEventListener('click', event => {
+  if (event.target.closest('[data-retry-view]')) render();
+});
+
+async function render() {
+  clearTimeout(ga4RefreshPoll);
+  const view = state.view;
+  const renderId = state.renderId = (state.renderId || 0) + 1;
+  syncNavigation();
+  $('view').innerHTML = '<div class="empty">Loading</div>';
+  const fn = {
+    competitorReview: viewCompetitorReview, overview: viewOverview, connections: viewConnections, answers: viewAnswerEvidence, actions: viewActions, assigned: viewAssigned, pages: viewPages, questions: viewQuestions, rivals: viewRivals,
+    searchDemand: viewSearchDemand, sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling,
+    trends: viewTrends, landscape: viewLandscape
+  }[view];
+  let html;
+  try { html = await fn(); }
+  catch (error) {
+    if (renderId !== state.renderId) return;
+    $('view').innerHTML = '<div class="notice" role="status"><h2>This view could not be loaded</h2><p>Your stored results are unchanged.</p><button class="ghost" data-retry-view>Try again</button></div>';
+    return;
+  }
+  if (renderId !== state.renderId) return;
+  $('view').innerHTML = (['setup','connections','questions','searchDemand','traffic'].includes(view)?setupJourney():'') + html;
+  if (view === 'setup') {
+    recalcEstimate();
+    // The select is rendered empty but for the country option, then filled
+    // from the country beside it, so the stored city survives a reload.
+    const city = $('s_city');
+    if (city) fillCities($('s_market').value, city, $('s_cityHint'), city.dataset.selected || '');
+  }
+  if (view === 'questions') {
+    // Preserve filters on edits, reset when switching projects.
+    if (state.questionFilterProject !== state.projectId) Object.assign(qState, { state: 'all', persona: 'all', cluster: 'all', intent: 'all', sort: 'opportunity', text: '', activity: 'active', origin: 'all' });
+    state.questionFilterProject = state.projectId;
+    loadPersonas();
+    for (const el of document.querySelectorAll('[data-select-group]')) {
+      const key = el.dataset.selectGroup;
+      el.value = qState[key] || 'all';
+      if (!el.value) { el.value = 'all'; qState[key] = 'all'; }
+    }
+    if ($('promptFilter')) $('promptFilter').value = qState.text;
+    if ($('qsort')) $('qsort').value = qState.sort;
+    applyQuestionView();
+  }
+  if (view === 'traffic' && $('ga4Props')) loadGa4Properties();
+  if (['overview', 'actions'].includes(view) && state.people?.length) {
+    const dl = document.createElement('datalist');
+    dl.id = 'people-list';
+    dl.innerHTML = state.people.map((p) => `<option value="${esc(p)}"></option>`).join('');
+    $('view').appendChild(dl);
+  }
+}
+
+async function loadProject(id) {
+  const finishingSetup=state.projectId===id && state.setupStep && state.setupStep!=='complete';
+  state.projectId = id;
+  state.overview = await api(`/api/projects/${id}/overview`);
+  const progress=await api(`/api/projects/${id}/setup-progress`).catch(()=>null);
+  const measured=Boolean(state.overview.cycle && state.overview.runs>0);
+  state.setupStep=measured?'complete':progress?.step||'sources';
+  if(!measured)state.view=SETUP_VIEWS[state.setupStep]||'connections';
+  else if(finishingSetup && ['setup','connections','questions','searchDemand','traffic'].includes(state.view))state.view='overview';
+  const p = state.overview.project;
+  $('brandTitle').textContent = p.brand_name;
+  $('brandDek').textContent = state.overview.cycle
+    ? `Measured across ${state.overview.runs} answers on ${shortDate(state.overview.cycle)}. Results cover the questions and engines in that measurement.`
+    : 'Start by connecting your sources and reviewing the questions. Nothing has been measured yet.';
+  $('cycleMeta').textContent = state.overview.cycle ? `cycle ${shortDate(state.overview.cycle)}` : 'no data';
+  const cap = window.innerWidth < 760 ? 12 : 18;
+  const short = p.name.length > cap ? p.name.slice(0, cap - 1) + '\u2026' : p.name;
+  $('runBtn').innerHTML = `Run ${esc(short)} <span class="caret">&#9662;</span>`;
+  $('runBtn').title =
+    state.emailVerified === false
+      ? 'Confirm your email address before running a cycle'
+      : `Choose what to run for ${esc(p.name)}`;
+  if (state.emailVerified === false) $('runBtn').classList.add('needs-verify');
+  refreshRunScope();
+  await renderFigures();
+  await render();
+}
+
+/**
+ * Which site is open lives in the URL, so it survives a reload, the back
+ * button, and the round trip out to Google and back. Previously it lived
+ * only in memory and any refresh of the list silently reset it to the first
+ * project, which quietly moved you off whatever you were working on.
+ */
+function rememberProject(id) {
+  const url = new URL(location.href);
+  url.searchParams.set('site', String(id));
+  history.replaceState({}, '', url);
+}
+
+function projectFromUrl() {
+  const n = Number(new URLSearchParams(location.search).get('site'));
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+async function loadProjectList(selectId) {
+  const projects = await api('/api/projects');
+  state.projects = projects || [];
+  showDemoHandoff();
+  if (!projects?.length) {
+    $('projectPicker').innerHTML = '';
+    $('brandTitle').textContent = 'No sites yet';
+    $('brandDek').textContent = 'Add your first site to start measuring what the answer engines say about it.';
+    $('figures').innerHTML = '';
+    $('view').innerHTML = `<div class="empty"><h2>Nothing tracked yet</h2><p>Press <b>Add site</b> in the top bar. Give us the domain, what the business does and who it sells to, and we will write the question set for you.</p></div>`;
+    return false;
+  }
+  // Prefer, in order: an explicit choice, whatever is already open, the URL,
+  // then the first project. Falling straight to the first was the bug.
+  const wanted = [selectId, state.projectId, projectFromUrl()].find(
+    (id) => id && projects.some((p) => p.id === Number(id))
+  );
+  const chosen = Number(wanted) || projects[0].id;
+  $('projectPicker').innerHTML = projects
+    .map((p) => `<option value="${p.id}" ${p.id === chosen ? 'selected' : ''}>${esc(p.name)}</option>`)
+    .join('');
+  rememberProject(chosen);
+  await loadProject(chosen);
+  return true;
+}
+
+/**
+ * Where a Google connection should land when it comes back.
+ *
+ * It used to assume Analytics whatever had been asked for, so connecting
+ * Search Console from Setup landed on Traffic and then failed listing
+ * Analytics properties.
+ */
+function handleGoogleReturn() {
+  const params = new URLSearchParams(location.search);
+  // "ga4" is the older parameter; still read so a link in flight during a
+  // deploy does not land nowhere.
+  const what = params.get('connected') || (params.get('ga4') ? 'ga4' : null);
+  if (!what) return null;
+
+  const failed = params.get('error') === '1' || params.get('ga4') === 'error';
+  const site = params.get('site');
+  history.replaceState({}, '', site ? `/app?site=${encodeURIComponent(site)}` : '/app');
+
+  return {
+    what: what === 'gsc' ? 'gsc' : 'ga4',
+    ok: !failed,
+    message:
+      params.get('message') ||
+      (what === 'gsc' ? 'Could not connect Search Console' : 'Could not connect Google Analytics')
+  };
+}
+
+function reportSourceDestination(url,projectId) {
+ const params=new URL(url).searchParams;
+ const site=Number(params.get('site'));
+ if(!Number.isInteger(site)||site<=0||site!==Number(projectId))return null;
+ const source=params.get('source');
+ return source==='gsc'?'searchDemand':source==='analytics'?'traffic':null;
+}
+
+async function boot() {
+  const requestedSourceUrl=location.href;
+  const returned = handleGoogleReturn();
+  const me = await api('/api/me');
+  if (!me?.signedIn) { window.location.href = '/login'; return; }
+  if (me.mock) $('mockNotice').hidden = false;
+
+  // Both come from the /api/me already fetched above, so no second call.
+  // The link is shown only where it works; the route enforces access itself.
+  const adminLink = $('adminLink');
+  if (adminLink) adminLink.hidden = !me.admin;
+  showVerifyBar(me);
+
+  /**
+   * Say it on the control, not only in a banner.
+   *
+   * Someone can miss a bar at the top of the page, do the whole setup, click
+   * Run and only then learn they cannot. Disabling the button says it before
+   * the work rather than after.
+   */
+  state.emailVerified = me.emailVerified !== false;
+
+  await loadProjectList();
+  await refreshUsagePill();
+  showDemoHandoff();
+
+  if(!returned) {
+    const destination=reportSourceDestination(requestedSourceUrl,state.projectId);
+    if(destination){state.view=destination;await render();}
+  }
+
+  if (returned) {
+    // Wait for the destination before restoring the requested connection workflow.
+    const tab = returned.what === 'gsc' ? 'searchDemand' : 'traffic';
+    state.view = tab;
+    await render();
+    if (returned.what === 'gsc' && $('questionAdd')) $('questionAdd').open = true;
+    if (!returned.ok) {
+      const el = returned.what === 'gsc' ? $('gscReturnError') : $('ga4Error');
+      if (el) el.textContent = returned.message;
+    } else if (returned.what === 'gsc') {
+      $('gscPanel').open = true;
+      $('gscPanel').scrollIntoView({block:'start'});
+      const connection=await api(`/api/projects/${state.projectId}/gsc`).catch(()=>null);
+      if(connection?.siteUrl) await loadGscCandidates();
+      else if(connection?.connected) await loadGscSites();
+    }
+  }
+
+  // Someone may have started a cycle then refreshed or switched device.
+  const running = await api(`/api/projects/${state.projectId}/cycle-status`);
+  if (running && ['starting', 'asking', 'thinking'].includes(running.phase)) {
+    $('runBtn').disabled = true;
+    $('runBtn').textContent = 'Running';
+    const tick = async () => {
+      const finished = await pollCycle();
+      if (finished) { $('runBtn').disabled = false; resetRunLabel(); }
+      else setTimeout(tick, 1500);
+    };
+    tick();
+  }
+}
+
+document.querySelectorAll('.tab[data-view]').forEach((tab) => {
+  tab.addEventListener('click', async () => {
+    state.view = tab.dataset.view==='setup'&&state.setupStep&&state.setupStep!=='complete'?(SETUP_VIEWS[state.setupStep]||'connections'):tab.dataset.view;
+    await render();
+  });
+});
+
+document.querySelectorAll('[data-section]').forEach(button => {
+  button.addEventListener('click', async () => {
+    state.view = button.dataset.section==='settings'&&state.setupStep&&state.setupStep!=='complete'?(SETUP_VIEWS[state.setupStep]||'connections'):SECTION_DEFAULT[button.dataset.section];
+    await render();
+  });
+});
+document.addEventListener('click', async event => {
+  if (event.target.closest('[data-question-add]')) {
+    const panel = $('questionAdd');
+    if (panel) { panel.open = true; $('q_text')?.focus(); panel.scrollIntoView({block:'start', behavior:'smooth'}); }
+    return;
+  }
+  if (event.target.closest('[data-overview-next]')) {
+    const task = $('overviewNext')?.querySelector('.queue-task');
+    if (task) { task.open = true; task.querySelector('summary')?.focus(); task.scrollIntoView({block: 'start', behavior: 'smooth'}); }
+    return;
+  }
+  const button = event.target.closest('[data-open-view]');
+  if (!button || !VIEW_SECTION[button.dataset.openView]) return;
+  state.view = button.dataset.openView;
+  if (state.view === 'actions') state.taskFilter = 'active';
+  await render();
+  if (button.hasAttribute('data-open-gsc') && $('gscPanel')) { if ($('questionAdd')) $('questionAdd').open = true; $('gscPanel').open = true; $('gscPanel').scrollIntoView({block:'start'}); }
+});
+
+$('projectPicker').addEventListener('change', (e) => {
+  const id = Number(e.target.value);
+  rememberProject(id);
+  loadProject(id);
+});
+
+$('signOut').addEventListener('click', async () => {
+  await fetch('/api/logout', { method: 'POST' });
+  window.location.href = '/login';
+});
+
+/* ---------- running a cycle ---------- */
+
+function resetRunLabel() {
+  const name = state.overview?.project?.name || 'cycle';
+  const cap = window.innerWidth < 760 ? 12 : 18;
+  const short = name.length > cap ? name.slice(0, cap - 1) + '\u2026' : name;
+  // The caret has to come back with the label, or the control stops looking
+  // like the menu it is.
+  $('runBtn').innerHTML = `Run ${esc(short)} <span class="caret">&#9662;</span>`;
+}
+
+const PHASE_LABEL = {
+  starting: 'Starting up',
+  asking: 'Asking the engines',
+  thinking: 'Reading answers and writing your actions',
+  done: 'Finished'
+};
+
+/** Location readiness is required before setup can continue. */
+const cityCache = new Map();
+
+function syncLocationChoice(select, hint) {
+  const doc = select.ownerDocument;
+  const save = doc.getElementById(select.id === 'f_city' ? 'siteSave' : 's_save');
+  const data = select._locationData;
+  let error = '';
+  if (select._locationLoading) error = 'Checking available Google locations…';
+  else if (!data || data.error) error = data?.error || 'Location support could not be checked. Retry before continuing.';
+  else if (select.value) {
+    if (!(data.cities || []).some(c => c.name === select.value)) error = 'The saved location is not verified for this market. Choose a location from the list.';
+  } else if (!data.countryLocation) error = data.unavailable
+    ? 'Location lookup is unavailable and country-level Google collection is not configured. Retry before continuing.'
+    : 'Country-level Google collection is not configured for this market. Choose a verified location below, or ask support to enable this market.';
+  select._locationError = error;
+  select.setAttribute('aria-invalid', error && !select._locationLoading ? 'true' : 'false');
+  if (save) save.disabled = Boolean(error || save._saving);
+  if (hint) {
+    hint.classList.toggle('warn', Boolean(error));
+    hint.setAttribute('role', error ? 'alert' : 'status');
+    hint.textContent = error || `Verified Google location: ${select.value || data.countryLocation}. Applies to Google AI Mode and AI Overviews.`;
+    if (error && !select._locationLoading) {
+      const retry = doc.createElement('button'); retry.type = 'button'; retry.className = 'ghost'; retry.textContent = 'Retry location lookup';
+      retry.addEventListener('click', () => { cityCache.delete(select._locationCountry); fillCities(select._locationCountry, select, hint, select.value); });
+      hint.appendChild(retry);
+    }
+  }
+  return !error;
+}
+
+async function fillCities(iso, select, hint, selected = '') {
+  if (!select) return;
+  const country = String(iso || '').trim().toUpperCase();
+  const request = {};
+  select._cityRequest = request;
+  select._locationCountry = country;
+  select._locationLoading = true;
+  select._locationData = null;
+  select.disabled = true;
+  select.innerHTML = '<option value="">Checking Google locations</option>';
+  syncLocationChoice(select, hint);
+  let data = cityCache.get(country);
+  if (!/^[A-Z]{2}$/.test(country)) data = { error: 'Choose a market before continuing.' };
+  if (!data) {
+    try {
+      data = await api(`/api/locations/${country}`, { readTimeoutMs: 15000 });
+      if (data && !data.error && !data.unavailable) cityCache.set(country, data);
+    } catch { data = { error: 'Location support could not be checked. Retry before continuing.' }; }
+  }
+  if (select._cityRequest !== request) return;
+  data ||= { error: 'Location support could not be checked. Retry before continuing.' };
+  const cities = data.cities || [];
+  const ORDER = ['Province', 'State', 'Region', 'County', 'City', 'Municipality', 'Town', 'District', 'Borough', 'Neighborhood'];
+  const PLURAL = { Province: 'Emirates and provinces', State: 'States', Region: 'Regions', County: 'Counties', City: 'Cities', Municipality: 'Municipalities', Town: 'Towns', District: 'Districts', Borough: 'Boroughs', Neighborhood: 'Neighbourhoods' };
+  const groups = new Map();
+  for (const city of cities) { const type = city.type || 'Other'; if (!groups.has(type)) groups.set(type, []); groups.get(type).push(city); }
+  const ranked = [...groups].sort((a,b) => (ORDER.indexOf(a[0]) < 0 ? 99 : ORDER.indexOf(a[0])) - (ORDER.indexOf(b[0]) < 0 ? 99 : ORDER.indexOf(b[0])));
+  select.innerHTML = `<option value="" ${data.countryLocation ? '' : 'disabled'}>${data.countryLocation ? 'The whole country' : 'Choose a verified Google location'}</option>` + ranked.map(([type, places]) => `<optgroup label="${esc(PLURAL[type] || type)}">${places.map(c => `<option value="${esc(c.name)}">${esc(c.label)}</option>`).join('')}</optgroup>`).join('');
+  // Retain an unavailable saved choice as an explicit error, never silently widen it.
+  if (selected && !cities.some(c => c.name === selected)) select.insertAdjacentHTML('beforeend', `<option value="${esc(selected)}" disabled>${esc(selected)} (not verified)</option>`);
+  select.value = selected;
+  select.disabled = !cities.length;
+  select._locationLoading = false;
+  select._locationData = data;
+  select.onchange = () => syncLocationChoice(select, hint);
+  syncLocationChoice(select, hint);
+}
+
+const ENGINE_LABEL = {
+  chatgpt: 'ChatGPT',
+  gemini: 'Gemini',
+  claude: 'Claude',
+  perplexity: 'Perplexity',
+  ai_overview: 'Google AI Overview',
+  ai_mode: 'Google AI Mode'
+};
+
+/**
+ * A cycle takes minutes, and a bar that only counts gives no reason to
+ * believe anything is happening. Showing the actual questions going out, and
+ * whether the brand came back named, turns the wait into the product.
+ */
+function showProgress(phase, done, total, recent = []) {
+  state.measurementRunning = true;
+  if (!state.overview?.cycle) {
+    $('brandDek').textContent = 'Your first measurement is in progress. The status above shows what is happening.';
+    renderFigures();
+  }
+  $('cycleBar').hidden = false;
+  $('cycleLabel').textContent = PHASE_LABEL[phase] || 'Working';
+  $('cycleCount').textContent = total ? `${done} of ${total} answers` : '';
+  const pct = phase === 'thinking' ? 100 : total ? Math.round((done / total) * 100) : 5;
+  $('cycleFill').style.width = `${Math.max(3, pct)}%`;
+
+  const feed = $('cycleFeed');
+  if (!feed) return;
+
+  if (!recent.length) {
+    feed.hidden = true;
+    return;
+  }
+  feed.hidden = false;
+  feed.innerHTML = recent
+    .map((r) => {
+      const mark =
+        r.state === 'answered'
+          ? r.named == null
+            ? '<span class="fmark" title="No brand measurement was established. Review the saved answer.">unmeasured</span>'
+            : r.named
+            ? '<span class="fmark named" title="You were named in this answer">named</span>'
+            : '<span class="fmark missed" title="You were not named">not named</span>'
+          : r.state === 'failed'
+            ? '<span class="fmark failed">no answer</span>'
+            : '<span class="fmark asking">asking</span>';
+      return `<div class="frow ${r.state}">
+        <span class="fengine">${esc(ENGINE_LABEL[r.engine] || r.engine)}</span>
+        <span class="fq">${esc(r.question)}</span>
+        ${mark}
+      </div>`;
+    })
+    .join('');
+}
+
+function hideProgress() {
+  state.measurementRunning = false;
+  if (!state.overview?.cycle) {
+    $('brandDek').textContent = 'No completed measurement yet. Review your questions, then start a measurement.';
+    renderFigures();
+  }
+  $('cycleBar').hidden = true;
+  $('cycleFill').style.width = '0%';
+  if ($('cycleFeed')) {
+    $('cycleFeed').hidden = true;
+    $('cycleFeed').innerHTML = '';
+  }
+}
+
+function deltaFig(s) {
+  if (s.delta === null || s.delta === undefined) {
+    return `<div class="report-fig"><div class="k">Change</div><div class="v">-</div><div class="n">${esc(s.comparisonReason || 'No comparable change available for this measurement.')}</div></div>`;
+  }
+  const pts = Math.round(s.delta * 100);
+  const dir = pts > 0 ? 'up' : pts < 0 ? 'down' : '';
+  return `<div class="report-fig">
+    <div class="k">Change</div>
+    <div class="v ${dir}">${pts > 0 ? '+' : ''}${pts}<span style="font-size:15px"> pts</span></div>
+    <div class="n">was ${Math.round(s.visibilityBefore * 100)}%</div>
+  </div>`;
+}
+
+function answerSampleLabel(s) {
+  return Number.isInteger(s.measuredAnswers) && s.measuredAnswers >= 0
+    ? `${s.measuredAnswers} successful answers in this cycle's visibility sample`
+    : 'Successful-answer sample size unavailable';
+}
+
+function headline(s) {
+  if (s.visibility === null || s.visibility === undefined) return 'Visibility is unmeasured because no successful matched answers are available.';
+  if (s.visibility === 0) {
+    return `No engine named you in any of the ${answerSampleLabel(s)}. Every action below exists to change that.`;
+  }
+  if (s.delta !== null && Math.round(s.delta * 100) <= -10) {
+    return `You slipped ${Math.abs(Math.round(s.delta * 100))} points since the last cycle. The decline actions below are worth reading first.`;
+  }
+  if (s.delta !== null && Math.round(s.delta * 100) >= 10) {
+    return `Up ${Math.round(s.delta * 100)} points since the last cycle. Whatever you shipped is working, so the actions below are about widening the lead.`;
+  }
+  if (s.topRival && s.topRival.rate > (s.visibility || 0) + 0.2) {
+    return `${esc(s.topRival.name)} is named in ${Math.round(s.topRival.rate * 100)}% of answers against your ${Math.round((s.visibility || 0) * 100)}%. Closing that gap is what the top actions are for.`;
+  }
+  return `You were named in ${Math.round((s.visibility || 0) * 100)}% of the ${answerSampleLabel(s)}. Here is what to do about the rest.`;
+}
+
+function failureNote(s) {
+  if (!s.failed?.length && !s.skipped) return '';
+  const total = (s.failed || []).reduce((n, f) => n + f.count, 0);
+  const broken = (s.failed || []).filter((f) => f.mostlyBroken);
+
+  const list = (s.failed || [])
+    .map((f) => {
+      const pct = f.rate ? ` (${Math.round(f.rate * 100)}% of its attempted checks)` : '';
+      return `<b>${esc(f.engine)}</b> failed ${f.count} time${f.count === 1 ? '' : 's'}${pct}${f.error ? `, ${esc(f.error)}` : ''}`;
+    })
+    .join('; ');
+
+  /**
+   * "Invalid Field" is the provider rejecting our request, not the provider
+   * being unreliable. Telling a customer to switch an engine off because of
+   * it blames their configuration for our bug, and they lose a working
+   * surface until someone notices.
+   */
+  const ourFault = s.failed.filter((f) => /invalid field/i.test(f.error || ''));
+  const theirs = broken.filter((f) => !/invalid field/i.test(f.error || ''));
+
+  const ourNote = ourFault.length
+    ? `<br /><br /><b>${ourFault.map((f) => esc(f.engine)).join(' and ')}</b> ${ourFault.length === 1 ? 'was' : 'were'} rejected because
+       we sent something the provider does not accept. That is a fault on our side, not yours, and not a reason to switch
+       ${ourFault.length === 1 ? 'it' : 'them'} off. It is already logged for us to fix; the surface will start reporting again once it is.`
+    : '';
+
+  /**
+   * A rate limit is a pace problem, not an outage.
+   *
+   * Every failure that was not our fault was treated as a broken provider and
+   * the advice was to switch the engine off. Being rate limited means we asked
+   * too fast, which we can fix by slowing down, and telling someone to abandon
+   * a working surface over it costs them a whole engine's worth of data.
+   */
+  const limited = theirs.filter((b) => /rate.?limit/i.test(b.error || ''));
+  const failing = theirs.filter((b) => !/rate.?limit/i.test(b.error || ''));
+
+  const limitNote = limited.length
+    ? `<br /><br /><b>${limited.map((b) => esc(b.engine)).join(' and ')}</b> hit the provider's rate limit rather than failing.
+       We now wait and retry when that happens, so this should settle on the next cycle. If it keeps happening, the
+       account is being asked for more than its quota allows and the fix is a slower cadence or a higher quota, not
+       switching the surface off.`
+    : '';
+
+  const brokenNote = failing.length
+    ? `<br /><br /><b>${failing.map((b) => esc(b.engine)).join(' and ')}</b> ${failing.length === 1 ? 'is' : 'are'} failing most of the time, so ${failing.length === 1 ? 'it is' : 'they are'} adding nothing to your numbers.
+       Switch ${failing.length === 1 ? 'it' : 'them'} off under <b>Where we look</b> until the provider is reliable again, and your remaining surfaces will run faster.
+       <button class="ghost" data-goto-setup="1" style="margin-left:6px;padding:4px 9px;font-size:10px">Open measurement settings</button>`
+    : '';
+
+  const theirNote = limitNote + brokenNote;
+
+  const advice = ourNote + theirNote;
+
+  return `<p class="report-warn">${s.planned ?? s.attempted} checks planned, ${s.attempted} attempted, ${s.skipped || 0} skipped. ${total} attempted checks failed. Provider retries can add underlying requests. ${list}. Failed answers are excluded from visibility. Allowance usage is shown with the cycle cost.${advice}</p>`;
+}
+
+function showReport(s) {
+  const sources = s.topSources?.length
+    ? `<p class="report-lede" style="margin-top:14px;font-size:13.5px;color:var(--ink-3)">
+         Most cited sources this cycle: ${s.topSources.map((x) => `<b>${esc(x.domain)}</b>`).join(', ')}.
+       </p>`
+    : '';
+
+  $('cycleReport').innerHTML = `
+    <div class="report">
+      <button class="report-close" aria-label="Dismiss" data-close-report>&times;</button>
+      <div class="report-top"><h2>Cycle finished</h2></div>
+      <p class="report-lede">${headline(s)}</p>
+      ${failureNote(s)}
+
+      <div class="report-figures">
+        <div class="report-fig">
+          <div class="k">Visibility</div>
+          <div class="v">${s.visibility === null || s.visibility === undefined ? '—' : Math.round(s.visibility * 100) + '%'}</div>
+          <div class="n">${answerSampleLabel(s)}</div>
+        </div>
+        ${deltaFig(s)}
+        <div class="report-fig">
+          <div class="k">Open actions</div>
+          <div class="v">${s.openActions}</div>
+          <div class="n">${s.recommendations} refreshed this cycle</div>
+        </div>
+        <div class="report-fig">
+          <div class="k">Cost</div>
+          <div class="v">$${(s.spend || 0).toFixed(2)}</div>
+          <div class="n">${
+            s.estimated && s.spend !== null && s.estimated > s.spend * 1.15
+              ? `estimated $${s.estimated.toFixed(2)}, came in under`
+              : s.trimmed ? 'trimmed to your allowance' : 'actual, this cycle'
+          }${s.billable !== undefined ? ` &middot; ${s.billable} checks used` : ''}</div>
+        </div>
+      </div>
+
+      ${s.topActions?.length ? `<ul class="report-list">${s.topActions.map((a) => `<li>${esc(a.title)}</li>`).join('')}</ul>` : ''}
+      ${sources}
+
+      <div class="report-actions" style="margin-top:16px">
+        <button data-report-goto="actions">See all ${s.openActions} actions</button>
+        <button class="ghost" data-report-goto="questions">Question by question</button>
+        <button class="ghost" data-report-goto="sources">Who gets cited</button>
+      </div>
+    </div>`;
+  $('cycleReport').hidden = false;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function pollCycle() {
+  const status = await api(`/api/projects/${state.projectId}/cycle-status`);
+  if (!status) return true;
+
+  if (status.phase === 'failed') {
+    hideProgress();
+    setupErr(status.error);
+    return true;
+  }
+  if (status.phase === 'done') {
+    hideProgress();
+    await loadProject(state.projectId);
+    await refreshUsagePill();
+    if (status.summary) showReport(status.summary);
+    return true;
+  }
+  if (status.phase === 'idle') {
+    hideProgress();
+    await loadProject(state.projectId);
+    return true;
+  }
+  showProgress(status.phase, status.done || 0, status.total || 0, status.recent || []);
+  return false;
+}
+
+/**
+ * Start a cycle, optionally only over questions never asked.
+ *
+ * A partial run joins the most recent cycle rather than opening a new one,
+ * so the trend keeps comparing like with like.
+ */
+async function reviewProjectRun() {
+  if (!state.projectId || document.getElementById('projectRunReview')) return;
+  const projectId = state.projectId;
+  const dialog = document.createElement('dialog');
+  dialog.id = 'projectRunReview';
+  dialog.className = 'sheet';
+  dialog.setAttribute('aria-label', 'Review measurement');
+  dialog.innerHTML = `<h2>Review measurement</h2><p>${esc($('brandTitle').textContent)}</p><div data-run-options><p role="status">Loading question counts and cost…</p></div><div class="sheet-foot"><button class="ghost" data-run-cancel>Cancel</button></div>`;
+  document.body.appendChild(dialog);
+  dialog.addEventListener('close', () => dialog.remove());
+  dialog.querySelector('[data-run-cancel]').addEventListener('click', () => dialog.close());
+  dialog.showModal();
+  const options = dialog.querySelector('[data-run-options]');
+  try {
+    const d = await api(`/api/projects/${projectId}/run-scope`);
+    if (!dialog.isConnected || !dialog.open) return;
+    if (state.projectId !== projectId) throw new Error('The selected site changed. Close and review again.');
+    if (d?.code === 'MEASUREMENT_LOCATION_REQUIRED') {
+      options.innerHTML = `<p role="alert">${esc(d.error)}</p><button data-fix-run-location>Review location</button>`;
+      options.querySelector('[data-fix-run-location]').addEventListener('click', async () => { dialog.close(); state.view = 'setup'; await render(); $('s_market')?.focus(); });
+      return;
+    }
+    if (!d || d.error) throw new Error(d?.error || 'Could not load the measurement estimate. Close and try again.');
+    const valid = ['all','unrun','checksAll','checksUnrun','costAll','costUnrun'].every(k => Number.isFinite(d[k]) && d[k] >= 0);
+    if (!valid) throw new Error('The measurement estimate is incomplete. Close and try again.');
+    options.innerHTML = `<p>Only this site will run. Paused questions are excluded.</p>
+      <p>${d.all} active questions · ${d.checksAll} answer checks · estimated $${d.costAll.toFixed(2)}</p>
+      <button class="btn" data-run-confirm="all" ${!d.all ? 'disabled' : ''}>Run active questions</button>
+      <p>${d.unrun} questions never asked · ${d.checksUnrun} answer checks · estimated $${d.costUnrun.toFixed(2)}</p>
+      <button class="ghost" data-run-confirm="unrun" ${!d.unrun ? 'disabled' : ''}>Run only questions never asked</button>
+      <p class="hint">Starting uses answer checks and may incur provider costs. Estimates are not a guaranteed final cost.</p><p role="alert" data-run-error></p>`;
+    for (const button of options.querySelectorAll('[data-run-confirm]')) button.addEventListener('click', async () => {
+      if (state.projectId !== projectId) {options.querySelector('[data-run-error]').textContent = 'The selected site changed. Close and review again.'; return;}
+      if ($('runBtn').disabled) {options.querySelector('[data-run-error]').textContent = 'A measurement is already starting or running.'; return;}
+      for (const b of options.querySelectorAll('button')) b.disabled = true;
+      dialog.close();
+      await startCycle(button.dataset.runConfirm === 'unrun' ? 'unrun' : null);
+    });
+  } catch (error) {
+    if (dialog.isConnected) options.innerHTML = `<p role="alert">${esc(error.message || 'Could not load the estimate.')}</p>`;
+  }
+}
+
+async function startCycle(only = null) {
+  const btn = $('runBtn');
+  btn.disabled = true;
+  btn.textContent = 'Starting';
+  $('cycleReport').hidden = true;
+
+  const res = await fetch(`/api/projects/${state.projectId}/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ only })
+  });
+  const json = await res.json();
+
+  if (!res.ok) {
+    btn.disabled = false;
+    resetRunLabel();
+    if (res.status === 402) {
+      alert(json.error);
+      document.querySelector('.tab[data-view="billing"]').click();
+    } else {
+      alert(json.error || 'Could not start the cycle.');
+    }
+    return;
+  }
+
+  btn.textContent = 'Running';
+  showProgress('starting', 0, json.calls);
+
+  const tick = async () => {
+    const finished = await pollCycle();
+    if (finished) {
+      btn.disabled = false;
+      resetRunLabel();
+    } else {
+      setTimeout(tick, 1500);
+    }
+  };
+  setTimeout(tick, 1200);
+}
+
+$('runBtn').addEventListener('click', (e) => {
+  // The caret is a child span, so a tap landing on it bubbles to the
+  // document handler that closes the menu, and the control appears dead.
+  e.stopPropagation();
+  e.preventDefault();
+
+  /**
+   * Point at the reason before opening a menu that cannot be used.
+   *
+   * The block is enforced server side, but discovering it only after
+   * choosing what to run means learning about it at the worst moment.
+   */
+  if (state.emailVerified === false) {
+    const bar = $('verifyBar');
+    if (bar) {
+      bar.hidden = false;
+      bar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      bar.classList.add('nudge');
+      setTimeout(() => bar.classList.remove('nudge'), 1200);
+    }
+    return;
+  }
+
+  // Opens the menu. Nothing spends money until an item is chosen.
+  const open = !$('runMenu').hidden;
+  $('runMenu').hidden = open;
+  $('runBtn').setAttribute('aria-expanded', String(!open));
+  if (!open) refreshRunScope();
+});
+
+$('runFullBtn').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  $('runMenu').hidden = true;
+  await startCycle(null);
+});
+
+$('runUnrunBtn').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  $('runMenu').hidden = true;
+  await startCycle('unrun');
+});
+
+/** Say how many are waiting, so the menu item is a decision rather than a guess. */
+let runScopeRequest=0;
+async function refreshRunScope() {
+  if (!state.projectId) return;
+  const projectId=state.projectId, request=++runScopeRequest;
+  for(const id of ['runFullBtn','runUnrunBtn']) if($(id)) $(id).disabled=true;
+  for(const id of ['runFullCount','runUnrunCount']) if($(id)) $(id).textContent=' (checking current questions…)';
+  try {
+    const d=await api(`/api/projects/${projectId}/run-scope`,{readTimeoutMs:15000});
+    if(request!==runScopeRequest || state.projectId!==projectId) return;
+    if(d?.code === 'MEASUREMENT_LOCATION_REQUIRED') {
+      for(const id of ['runFullCount','runUnrunCount']) if($(id)) $(id).textContent = ' (fix location in Settings)';
+      toast(d.error, 'warn');
+      return;
+    }
+    if(!d || d.error || !['all','unrun','checksAll','checksUnrun','costAll','costUnrun'].every(k=>Number.isFinite(d[k])&&d[k]>=0)) throw Error('Estimate unavailable');
+    const money=n=>`~$${n<10?n.toFixed(2):n.toFixed(0)}`;
+    $('runFullCount').textContent=d.all?` (${d.all}, ${d.checksAll} checks, ${money(d.costAll)})`:' (no questions yet)';
+    $('runUnrunCount').textContent=d.unrun?` (${d.unrun}, ${d.checksUnrun} checks, ${money(d.costUnrun)})`:' (none waiting)';
+    $('runFullBtn').disabled=d.all===0;
+    $('runUnrunBtn').disabled=d.unrun===0;
+  } catch(error) {
+    if(request!==runScopeRequest || state.projectId!==projectId) return;
+    for(const id of ['runFullCount','runUnrunCount']) if($(id)) $(id).textContent=' (estimate unavailable, reopen to retry)';
+  }
+}
+
+document.addEventListener('click', () => {
+  $('runMenu').hidden = true;
+  $('runBtn').setAttribute('aria-expanded', 'false');
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('runMenu').hidden) {
+    $('runMenu').hidden = true;
+    $('runBtn').setAttribute('aria-expanded', 'false');
+    $('runBtn').focus();
+  }
+});
+
+$('runAllBtn').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  $('runMenu').hidden = true;
+  const res = await fetch('/api/run-all', { method: 'POST' });
+  const json = await res.json();
+  if (!res.ok) { alert(json.error || 'Could not start.'); return; }
+
+  const lines = [];
+  if (json.started.length) {
+    lines.push(`Started ${json.started.length} site${json.started.length === 1 ? '' : 's'}: ${json.started.map((s) => s.name).join(', ')}.`);
+  }
+  if (json.skipped.length) {
+    lines.push(`Skipped ${json.skipped.map((s) => `${s.name} (${s.reason})`).join(', ')}.`);
+  }
+  alert(lines.join('\n\n') || 'Nothing to run.');
+
+  if (json.started.some((s) => s.id === state.projectId)) {
+    $('runBtn').disabled = true;
+    $('runBtn').textContent = 'Running';
+    const tick = async () => {
+      const finished = await pollCycle();
+      if (finished) { $('runBtn').disabled = false; resetRunLabel(); }
+      else setTimeout(tick, 1500);
+    };
+    setTimeout(tick, 1200);
+  }
+});
+
+document.addEventListener('click', async (e) => {
+  const lp = e.target.closest('[data-landscape]');
+  if (lp) { state.landscapePlatform = lp.dataset.landscape; await render(); return; }
+});
+
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-close-report]')) $('cycleReport').hidden = true;
+  if (e.target.closest('[data-goto-setup]')) document.querySelector('.tab[data-view="setup"]').click();
+  const goto = e.target.closest('[data-report-goto]');
+  if (goto) {
+    document.querySelector(`.tab[data-view="${goto.dataset.reportGoto}"]`).click();
+    document.querySelector('.tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+});
+
+/**
+ * Filters combine rather than replace each other, so "never named" and
+ * "pricing" and "enterprise buyer" narrow to the intersection. Picking one
+ * filter and having it silently clear another is the usual way these become
+ * untrustworthy.
+ */
+const qState = { activity: 'active', origin: 'all', state: 'all', persona: 'all', cluster: 'all', intent: 'all', sort: 'opportunity', text: '' };
+
+function applyQuestionView() {
+  const list = document.getElementById('promptList');
+  if (!list) return;
+
+  const rows = [...list.querySelectorAll('.prompt')];
+  let shown = 0;
+  const counts = {all: 0, invisible: 0, weak: 0, strong: 0, unrun: 0};
+
+  for (const r of rows) {
+    const d = r.dataset;
+    const ok =
+      (qState.activity === 'all' || (qState.activity === 'active' ? d.active === 'true' : d.active !== 'true')) &&
+      (qState.origin === 'all' || d.source === qState.origin) &&
+      (qState.persona === 'all' ||
+        (qState.persona === 'none' ? !d.persona : d.persona === qState.persona)) &&
+      (qState.cluster === 'all' || d.cluster === qState.cluster) &&
+      (qState.intent === 'all' || d.intent === qState.intent) &&
+      (!qState.text || d.filterText.includes(qState.text));
+    if (ok) { counts.all++; counts[d.state]++; }
+    const visible = ok && (qState.state === 'all' || d.state === qState.state);
+    r.hidden = !visible;
+    if (visible) shown++;
+  }
+
+  const labels = {all: 'All', invisible: 'Never named', weak: 'Named sometimes', strong: 'Named often', unrun: 'Not asked yet'};
+  for (const chip of document.querySelectorAll('[data-group="state"]')) {
+    const key = chip.dataset.value;
+    chip.textContent = `${labels[key]} ${counts[key]}`;
+    chip.classList.toggle('is-on', key === qState.state);
+    chip.setAttribute('aria-pressed', String(key === qState.state));
+    chip.hidden = key !== 'all' && counts[key] === 0 && key !== qState.state;
+  }
+
+  const num = (r, k) => Number(r.dataset[k]);
+  const sorted = rows.slice().sort((a, b) => {
+    switch (qState.sort) {
+      case 'rate-asc':
+        // Unmeasured questions carry -1 so they sort last rather than
+        // appearing as the worst performers.
+        return (num(a, 'rate') < 0 ? 2 : num(a, 'rate')) - (num(b, 'rate') < 0 ? 2 : num(b, 'rate'));
+      case 'rate-desc':
+        return num(b, 'rate') - num(a, 'rate');
+      case 'volume':
+        return num(b, 'volume') - num(a, 'volume');
+      case 'az':
+        return a.dataset.title.localeCompare(b.dataset.title);
+      default: {
+        // Most asked and least visible first, which is where the work is.
+        const score = (r) => (num(r, 'rate') < 0 ? 0 : (1 - num(r, 'rate')) * Math.log10((num(r, 'volume') || 10) + 10));
+        return score(b) - score(a);
+      }
+    }
+  });
+  for (const r of sorted) list.appendChild(r);
+
+  const empty = list.querySelector('[data-filter-empty]');
+  if (empty) {
+    empty.hidden = shown > 0;
+    list.appendChild(empty);
+  }
+  const counter = document.getElementById('promptFilterCount');
+  if (counter) counter.textContent = `${shown} shown · ${counts.all} match filters · ${rows.length} total including history`;
+}
+
+document.addEventListener('click', async (e) => {
+  /** Swap the truncated text for the whole thing, and back. */
+  const more = e.target.closest('[data-more]');
+  if (more) {
+    const holder = more.parentElement;
+    const showing = holder.dataset.expanded === '1';
+    const full = more.dataset.more;
+    const short = `${full.slice(0, 90).trimEnd()}…`;
+
+    holder.dataset.expanded = showing ? '0' : '1';
+    holder.innerHTML = `${esc(showing ? short : full)} <button class="moretext" data-more="${esc(full)}">${
+      showing ? 'read more' : 'less'
+    }</button>`;
+    return;
+  }
+
+  const gap = e.target.closest('[data-persona-gap]');
+  if (gap) {
+    const id = gap.dataset.personaGap;
+    const box = document.getElementById(`gap-${id}`);
+    if (!box.hidden) { box.hidden = true; gap.textContent = 'Why'; return; }
+
+    gap.textContent = 'Reading';
+    const d = await api(`/api/projects/${state.projectId}/persona-gap/${id}`);
+    gap.textContent = 'Hide';
+    box.hidden = false;
+
+    box.innerHTML = `<div class="gapbox">
+      <p class="gapbrief">${esc(d.brief || '')}</p>
+      ${
+        d.sources?.length
+          ? `<div class="gapcol">
+              <h4>Sources shaping their answers</h4>
+              ${d.sources
+                .slice(0, 6)
+                .map(
+                  (s) => `<div class="gaprow"><span>${esc(s.domain)}</span><span class="pcnum">${s.questions} questions</span></div>`
+                )
+                .join('')}
+            </div>`
+          : ''
+      }
+      ${
+        d.ahead?.length
+          ? `<div class="gapcol">
+              <h4>Named to them more than you</h4>
+              ${d.ahead
+                .map((a) => `<div class="gaprow"><span>${esc(a.name)}</span><span class="pcnum">${pct(a.rate)}</span></div>`)
+                .join('')}
+            </div>`
+          : ''
+      }
+      ${
+        d.lost?.length
+          ? `<div class="gapcol">
+              <h4>Their questions you never appear in</h4>
+              ${d.lost
+                .slice(0, 6)
+                /**
+                 * Truncated so the list stays scannable, expandable so the
+                 * question can be read in full. Cutting a question at ninety
+                 * characters loses the part that says what it is actually
+                 * asking, which is the part someone needs to write against.
+                 */
+                .map((q) => {
+                  const full = String(q.asked || q.text);
+                  const short = full.length > 90 ? `${full.slice(0, 90).trimEnd()}…` : full;
+                  return `<div class="gaprow">
+                    <span>${esc(short)}${
+                      full.length > 90
+                        ? ` <button class="moretext" data-more="${esc(full)}">read more</button>`
+                        : ''
+                    }</span>
+                    <span class="pcnum">${q.volume || ''}</span>
+                  </div>`;
+                })
+                .join('')}
+            </div>`
+          : ''
+      }
+    </div>`;
+    return;
+  }
+
+  /**
+   * The brief is the recommendation made actionable: the exact prompt to
+   * paste into an assistant, pre-filled with this question's measured
+   * evidence. Copied rather than downloaded because the next step is always
+   * pasting it somewhere. If the clipboard refuses, the text opens in a tab
+   * instead of failing silently.
+   */
+  /**
+   * Show the content, then offer the copy. Copy-to-clipboard as the only
+   * action asked for trust in something never seen: the person had to paste
+   * into another tool just to find out what they had. The brief now opens
+   * inline under its own question, readable in place, with Copy beside it.
+   */
+  const brief = e.target.closest('[data-brief]');
+  if (brief) {
+    const pid = brief.dataset.brief;
+    const open = document.getElementById(`bf-${pid}`);
+    if (open) { open.remove(); brief.textContent = 'See brief for suggested content'; return; }
+    brief.disabled = true;
+    try {
+      const res = await fetch(`/api/prompts/${pid}/brief`);
+      if (!res.ok) throw new Error('Could not build the brief');
+      const text = await res.text();
+      const box = document.createElement('div');
+      box.id = `bf-${pid}`;
+      box.setAttribute('style', 'margin-top:10px;border:1px solid var(--line);border-radius:6px;background:var(--paper);');
+      box.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line)">
+          <span style="font-weight:600;font-size:12px;flex:1">Suggested content brief</span>
+          <button data-bf-copy="${esc(pid)}">Copy the whole brief</button>
+          <button class="ghost" data-bf-close="${esc(pid)}">Close</button>
+        </div>
+        <pre style="margin:0;padding:12px 14px;max-height:420px;overflow:auto;white-space:pre-wrap;font-size:11.5px;line-height:1.6;font-family:var(--mono)">${esc(text)}</pre>
+        <div style="padding:8px 12px;border-top:1px solid var(--line);font-size:11px;color:var(--ink-3)">
+          Review the question and cited pages first. Complete the [fill] fields and any [EDIT: ...] markers
+          with verified business information before using this brief in Claude or ChatGPT.
+        </div>`;
+      brief.closest('.q-actions')?.after(box);
+      brief.textContent = 'Hide brief';
+      box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    } catch (err) {
+      toast(String(err.message || err), 'warn');
+    } finally {
+      brief.disabled = false;
+    }
+    return;
+  }
+  const bfCopy = e.target.closest('[data-bf-copy]');
+  if (bfCopy) {
+    const pre = document.querySelector(`#bf-${bfCopy.dataset.bfCopy} pre`);
+    try {
+      await navigator.clipboard.writeText(pre.textContent);
+      toast('Brief copied. Paste it into Claude or ChatGPT to draft the article.');
+    } catch {
+      // The text is on screen, so the fallback is the honest one: select it
+      // for a manual copy rather than opening tabs.
+      const r = document.createRange(); r.selectNodeContents(pre);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      toast('Clipboard was blocked. The brief is selected - press Ctrl+C (Cmd+C on Mac).');
+    }
+    return;
+  }
+  if (e.target.closest('[data-bf-close]')) {
+    const pid = e.target.closest('[data-bf-close]').dataset.bfClose;
+    document.getElementById(`bf-${pid}`)?.remove();
+    const btn = document.querySelector(`[data-brief="${pid}"]`);
+    if (btn) btn.textContent = 'See brief for suggested content';
+    return;
+  }
+
+  /**
+   * The cost figure, opened up.
+   *
+   * The header showed one total after the money was gone. Every lever that
+   * moves it already existed - engines, questions, runs - but lived screens
+   * away from the number, so the figure was information without control.
+   * Here each row carries its cost NEXT TO what that cost bought (its named
+   * rate), and its own switch. The projection updates as switches flip, and
+   * nothing here spends anything: it only changes what the next cycle asks.
+   */
+  /**
+   * Collapsible panels: clicking the collapse button toggles the panel body.
+   */
+  const collapseBtn = e.target.closest('.panel-collapse-btn');
+  if (collapseBtn) {
+    const targetId = collapseBtn.getAttribute('aria-controls');
+    const body = document.getElementById(targetId);
+    if (body) {
+      const isExpanded = collapseBtn.getAttribute('aria-expanded') === 'true';
+      collapseBtn.setAttribute('aria-expanded', isExpanded ? 'false' : 'true');
+      collapseBtn.innerHTML = isExpanded ? '&#43;' : '&#8211;';
+      collapseBtn.title = isExpanded ? 'Expand section' : 'Collapse section';
+      body.hidden = isExpanded;
+    }
+    return;
+  }
+
+  /**
+   * Sortable tables: clicking a sortable <th> re-sorts the tbody rows.
+   * Rows must carry data-* attributes matching the column's data-sort value.
+   */
+  const sortTh = e.target.closest('th[data-sort]');
+  if (sortTh && !e.target.closest('[data-help]')) {
+    const table = sortTh.closest('table');
+    if (!table) return;
+    const key = sortTh.dataset.sort;
+    const type = sortTh.dataset.sortType || 'str';
+    const wasAsc = sortTh.classList.contains('sort-asc');
+    const asc = !wasAsc;
+
+    // Clear sort indicators on all ths in this table
+    table.querySelectorAll('th[data-sort]').forEach((th) => {
+      th.classList.remove('sort-asc', 'sort-desc');
+    });
+    sortTh.classList.add(asc ? 'sort-asc' : 'sort-desc');
+
+    const tbody = table.querySelector('tbody');
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort((a, b) => {
+      const av = a.dataset[key] ?? '';
+      const bv = b.dataset[key] ?? '';
+      let cmp;
+      if (type === 'num') {
+        cmp = parseFloat(av) - parseFloat(bv);
+      } else {
+        cmp = av.localeCompare(bv);
+      }
+      return asc ? cmp : -cmp;
+    });
+    rows.forEach((r) => tbody.appendChild(r));
+    return;
+  }
+
+  /**
+   * The "?" beside a control. Hover titles exist but nobody hovers on a
+   * phone and nobody discovers them on desktop, so each key control gets a
+   * visible way to ask what it does. One floating bubble serves the whole
+   * site; it closes on the next click anywhere.
+   */
+  const help = e.target.closest('[data-help]');
+  const oldBubble = document.getElementById('helpBubble');
+  if (oldBubble) oldBubble.remove();
+  if (help) {
+    const b = document.createElement('div');
+    b.id = 'helpBubble';
+    b.setAttribute('style',
+      'position:fixed;z-index:60;max-width:300px;background:var(--ink);color:var(--paper);' +
+      'padding:10px 12px;border-radius:6px;font-size:12px;line-height:1.55;box-shadow:0 4px 18px rgba(0,0,0,.25);');
+    b.textContent = help.dataset.help;
+    document.body.appendChild(b);
+    const r = help.getBoundingClientRect();
+    const top = r.bottom + 8 + b.offsetHeight > innerHeight ? r.top - b.offsetHeight - 8 : r.bottom + 8;
+    b.style.top = `${Math.max(8, top)}px`;
+    b.style.left = `${Math.max(8, Math.min(r.left, innerWidth - b.offsetWidth - 8))}px`;
+    return;
+  }
+
+  if (e.target.closest('[data-start-first-cycle]')) {
+    await reviewProjectRun();
+    return;
+  }
+
+  const spendBtn = e.target.closest('[data-spend]');
+  if (spendBtn) {
+    const existing = document.getElementById('spendPanel');
+    if (existing) { existing.remove(); return; }
+    const d = await api(`/api/projects/${state.projectId}/spend`);
+    if (!d || !d.cycle) { toast('No cycle has run yet, so there is nothing to break down.'); return; }
+
+    const money = (n) => `$${(n || 0).toFixed(2)}`;
+    const rate = (named, measured) => measured ? `${Math.round((named / measured) * 100)}% named` : 'not measured';
+
+    /**
+     * Layout carried inline, deliberately.
+     *
+     * Two stylesheet versions of these rows rendered broken in production
+     * while parsing clean here: first a borrowed class collapsed the name
+     * column, then the flex rules were visibly not applied at all - names
+     * and rates printed on top of each other, which flex cannot do. Whatever
+     * is winning that cascade (a cached stylesheet, an override we have not
+     * found), this panel is generated markup, so its layout can travel WITH
+     * the markup and be immune to both. app.js and styles.css can no longer
+     * disagree about a component that lives entirely in app.js.
+     */
+    const ROW = 'display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);cursor:pointer;text-align:left;font-size:13px;';
+    const NAME = 'flex:1 1 auto;min-width:0;text-align:left;';
+    const RATE = 'flex:0 0 auto;white-space:nowrap;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);';
+    const AMT = 'flex:0 0 auto;white-space:nowrap;font-family:var(--mono);font-size:12px;min-width:56px;text-align:right;';
+    const BOX = 'flex:0 0 auto;margin:0;width:15px;height:15px;position:static;float:none;';
+    const SUB = 'display:block;font-size:11px;color:var(--ink-3);margin-top:1px;';
+
+    /**
+     * The engine's model is the biggest price lever it has - the same 109
+     * questions cost $0.87 on one Claude model and $13.60 on another - so
+     * the choice sits in the cost panel with the price on every option.
+     * "auto" is the default resolution (the fleet pin, then scoring), and a
+     * price is only shown where it has been measured at least five times;
+     * an unpriced model says so, and the cycle cost cap is the backstop.
+     */
+    const perCallChosen = new Map(Object.entries(d.perCall || {}));
+    for (const [eng, m] of Object.entries(d.models || {})) {
+      const active = m.options.find((o) => o.name === (m.chosen || m.current));
+      if (active?.perCall != null) perCallChosen.set(eng, active.perCall);
+    }
+    const priceLabel = (o) => o.perCall != null ? `~$${o.perCall.toFixed(4)}/call measured` : 'unpriced until first measured cycle';
+
+    const modelPicker = (eng) => {
+      const m = d.models?.[eng];
+      if (!m || !m.options.length) return '';
+      return `<select data-model-engine="${esc(eng)}" style="flex:0 0 auto;max-width:46%;font-size:11px;padding:2px 4px;" title="Which ${esc(ENGINE_LABEL[eng] || eng)} model answers. Cheaper models cost less per call; the price shown is measured from real cycles.">
+        <option value="" ${!m.chosen ? 'selected' : ''}>auto (${esc(m.current || 'default')})</option>
+        ${m.options.map((o) => `<option value="${esc(o.name)}" ${m.chosen === o.name ? 'selected' : ''}>${esc(o.name)} &middot; ${priceLabel(o)}</option>`).join('')}
+      </select>`;
+    };
+
+    const engineRows = d.engines.map((en) => `
+      <label class="spend-row" style="${ROW};flex-wrap:wrap">
+        <input type="checkbox" style="${BOX}" data-spend-engine="${esc(en.engine)}" ${en.enabled ? 'checked' : ''} />
+        <span class="spend-name" style="${NAME}">${esc(ENGINE_LABEL[en.engine] || en.engine)}</span>
+        <span class="spend-rate" style="${RATE}">${rate(en.named, en.measured)}</span>
+        <span class="spend-amt" style="${AMT}">${money(en.spend)}</span>
+        ${modelPicker(en.engine)}
+      </label>`).join('');
+
+    const intentRows = d.intents.map((it) => `
+      <label class="spend-row" style="${ROW}">
+        <input type="checkbox" style="${BOX}" data-spend-intent="${esc(it.intent)}" ${it.active_questions > 0 ? 'checked' : ''} />
+        <span class="spend-name" style="${NAME}">${esc(it.intent)} <span class="spend-sub" style="${SUB}">${it.active_questions} of ${it.questions} questions on</span></span>
+        <span class="spend-rate" style="${RATE}">${rate(it.named, it.measured)}</span>
+        <span class="spend-amt" style="${AMT}">${money(it.spend)}</span>
+      </label>`).join('');
+
+    const panel = document.createElement('div');
+    panel.id = 'spendPanel';
+    panel.className = 'panel';
+    panel.innerHTML = `
+      <div class="panel-head"><h2>Where the money goes</h2>
+        <button class="ghost" data-spend-close>Close</button></div>
+      <p class="hint">Last cycle, ${esc(shortDate(d.cycle))}. Each row shows what it cost beside what it bought.
+      Unticking changes what the NEXT cycle asks; it never deletes anything, and paused questions keep
+      their history and can be turned back on. Nothing on this panel spends money.</p>
+      <div class="spend-cols" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:28px;">
+        <div style="min-width:0"><div style="font-weight:600;margin-bottom:6px">By engine</div>${engineRows}</div>
+        <div style="min-width:0"><div style="font-weight:600;margin-bottom:6px">By question intent</div>${intentRows}</div>
+      </div>
+      <p class="hint" id="spendProjection"></p>`;
+    document.getElementById('figures').after(panel);
+
+    const project = () => {
+      const engines = [...panel.querySelectorAll('[data-spend-engine]:checked')].map((b) => b.dataset.spendEngine);
+      const questions = d.intents
+        .filter((it) => panel.querySelector(`[data-spend-intent="${it.intent}"]`)?.checked)
+        .reduce((n, it) => n + it.questions, 0);
+      const est = questions * d.runsPerCycle * engines.reduce((sum, en) => sum + (perCallChosen.get(en) || 0), 0);
+      const over = est > d.cap;
+      /**
+       * The person who just turned something off looks at the header figure
+       * for confirmation, and a historical figure rightly does not move. So
+       * the confirmation goes to where they look: the card's own sub-line
+       * carries the next-cycle estimate, updating as switches flip.
+       */
+      const sub = document.querySelector('[data-spend-sub]');
+      if (sub) sub.innerHTML = `${esc(shortDate(d.cycle))} &middot; next about ${money(est)}`;
+      $('spendProjection').innerHTML =
+        `Next cycle as configured: <b>${questions}</b> questions x <b>${engines.length}</b> engines x <b>${d.runsPerCycle}</b> run${d.runsPerCycle === 1 ? '' : 's'} `
+        + `= about <b>${money(est)}</b>, against a $${d.cap.toFixed(2)} cap.`
+        + (over ? ' <span class="warn-text">Above the cap: the cycle will refuse to start until something here is turned off or the cap is raised.</span>' : '');
+      return { engines, questions };
+    };
+    project();
+
+    panel.addEventListener('change', async (ev) => {
+      const pick = ev.target.closest('[data-model-engine]');
+      if (pick) {
+        const eng = pick.dataset.modelEngine;
+        const chosen = pick.value || null;
+        const before = perCallChosen.get(eng);
+        pick.disabled = true;
+        try {
+          const res = await fetch(`/api/projects/${state.projectId}/models`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ engine: eng, model: chosen })
+          });
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not save');
+          const opt = d.models[eng].options.find((o) => o.name === chosen);
+          d.models[eng].chosen = chosen;
+          if (opt?.perCall != null) perCallChosen.set(eng, opt.perCall);
+          else if (!chosen) perCallChosen.set(eng, d.perCall[eng] || 0);
+          const { questions } = project();
+          const after = perCallChosen.get(eng);
+          const delta = before != null && after != null && before !== after
+            ? ` About ${after < before ? '-' : '+'}$${Math.abs((after - before) * questions * d.runsPerCycle).toFixed(2)} per cycle at the current question count.`
+            : (chosen && opt?.perCall == null ? ' Unpriced until its first measured cycle; the cost cap still applies.' : '');
+          toast(`${ENGINE_LABEL[eng] || eng} will use ${chosen || `the default (${d.models[eng].current})`} from the next cycle.${delta}`);
+        } catch (err) {
+          pick.value = d.models[eng].chosen || '';
+          toast(String(err.message || err), 'warn');
+        } finally {
+          pick.disabled = false;
+        }
+        return;
+      }
+      const eng = ev.target.closest('[data-spend-engine]');
+      const int = ev.target.closest('[data-spend-intent]');
+      if (!eng && !int) return;
+      ev.target.disabled = true;
+      try {
+        if (eng) {
+          const { engines } = project();
+          if (!engines.length) throw new Error('Keep at least one engine on.');
+          const res = await fetch(`/api/projects/${state.projectId}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ engines })
+          });
+          if (!res.ok) throw new Error('Could not save');
+          toast(`${ENGINE_LABEL[eng.dataset.spendEngine] || eng.dataset.spendEngine} ${eng.checked ? 'back on' : 'off'} from the next cycle.`);
+        } else {
+          const res = await fetch(`/api/projects/${state.projectId}/intents`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ intent: int.dataset.spendIntent, active: int.checked })
+          });
+          if (!res.ok) throw new Error('Could not save');
+          const out = await res.json();
+          toast(`${out.changed} ${int.dataset.spendIntent} question${out.changed === 1 ? '' : 's'} ${int.checked ? 'resumed' : 'paused'}. History kept either way.`);
+        }
+        project();
+      } catch (err) {
+        ev.target.checked = !ev.target.checked;
+        project();
+        toast(String(err.message || err), 'warn');
+      } finally {
+        ev.target.disabled = false;
+      }
+    });
+    return;
+  }
+  if (e.target.closest('[data-spend-close]')) {
+    document.getElementById('spendPanel')?.remove();
+    return;
+  }
+
+  const again = e.target.closest('[data-reask]');
+  if (again) {
+    const id = again.dataset.reask;
+    const engine = again.dataset.reaskEngine || null;
+    again.disabled = true;
+
+    /**
+     * A modal, not a toast. The wait is 30 paid seconds and the outcome is
+     * a per-engine verdict: a message that dismisses itself in four seconds
+     * answered neither "is it still working?" nor "what came back?", and
+     * the person was left refreshing. This stays until closed, shows what
+     * is happening while it happens, and puts the way to the fresh answers
+     * one press away.
+     */
+    const ov = document.createElement('div');
+    ov.id = 'reaskOverlay';
+    ov.setAttribute('style', 'position:fixed;inset:0;z-index:70;background:rgba(20,20,18,.55);display:flex;align-items:center;justify-content:center;padding:20px;');
+    ov.innerHTML = `<div style="background:var(--paper);border-radius:8px;max-width:460px;width:100%;padding:22px 24px;box-shadow:0 10px 40px rgba(0,0,0,.35);">
+      <div style="font-weight:600;font-size:15px;margin-bottom:6px">${engine ? `Asking ${esc(ENGINE_LABEL[engine] || engine)} only` : 'Asking every engine again'}</div>
+      <div data-reask-body style="font-size:13px;line-height:1.6;color:var(--ink-2)">
+        ${engine ? 'Only this engine is being asked.' : 'All configured engines are being asked.'}
+        This uses provider/API measurement and answer checks. Cost depends on the selected model and returned answer. Leave this open.
+      </div>
+      <div data-reask-actions style="margin-top:16px;display:none;gap:8px;justify-content:flex-end"></div>
+    </div>`;
+    document.body.appendChild(ov);
+    const body = ov.querySelector('[data-reask-body]');
+    const acts = ov.querySelector('[data-reask-actions]');
+
+    /**
+     * Raw fetch with its own failure reporting, after a hang where the
+     * button froze on "Asking" with no request in the log and nothing said.
+     * Whatever fails - the network, a blocking policy, a thrown wrapper -
+     * the button must come back and the failure must be named. A paid
+     * action that can end in silence is worse than one that errors loudly.
+     */
+    let d;
+    try {
+      const res = await fetch(`/api/prompts/${id}/reask`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(engine ? { engine } : {})
+      });
+      d = await res.json().catch(() => ({ error: `The server replied ${res.status} without a readable body.` }));
+      if (!res.ok && !d.error) d.error = `The server replied ${res.status}.`;
+    } catch (err) {
+      d = { error: `The request never completed: ${err.message}. If the console shows a blocked request, a security policy or extension between the browser and cited.ae is stopping it.` };
+    } finally {
+      again.disabled = false;
+      again.textContent = engine ? `Ask ${ENGINE_LABEL[engine] || engine} only` : 'Ask again now';
+    }
+
+    const finish = (html, showRead) => {
+      body.innerHTML = html;
+      acts.style.display = 'flex';
+      acts.innerHTML = `${showRead ? '<button data-reask-read>Read the full answers</button>' : ''}
+        <button class="ghost" data-reask-close>Close</button>`;
+      acts.querySelector('[data-reask-close]').onclick = () => ov.remove();
+      const read = acts.querySelector('[data-reask-read]');
+      if (read) read.onclick = async () => {
+        ov.remove();
+        await render();
+        /**
+         * Open the evidence AND bring it into view. The first version
+         * clicked the opener and left the person at the top of 260
+         * questions: the answers were open, three screens down, and it
+         * read as "it just sent me to all questions". Opening something
+         * the eye cannot see is not opening it.
+         */
+        const btn = document.querySelector(`[data-see-answer="${id}"]`);
+        if (!btn) {
+          toast('The question is hidden by the current filter. Clear the filter to read the fresh answers.');
+          return;
+        }
+        btn.click();
+        const row = btn.closest('.prompt') || btn;
+        row.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        row.style.outline = '2px solid var(--you)';
+        setTimeout(() => { row.style.outline = ''; }, 2500);
+      };
+    };
+
+    if (d?.error) {
+      finish(`<span style="color:var(--bad,#b3402a)">${esc(d.error)}</span>`, false);
+      return;
+    }
+
+    /**
+     * The outcome used to be written onto the button, and the next line
+     * re-rendered the whole view, destroying that button. The work happened,
+     * the money was spent, the answers were stored - and the person watched
+     * their click apparently do nothing. The outcome now goes to a toast,
+     * which survives the redraw, and says where the fresh answers are.
+     */
+    const results = d.results || [];
+    const successful = results.filter(r => r.ok === true);
+    const failed = results.filter(r => r.ok !== true);
+    const replaced = successful.reduce((n,r) => n + (r.replaced || 0),0);
+    const rows = results.map(r =>
+      `<div style="padding:8px 0;border-bottom:1px solid var(--line)">
+        <b>${esc(ENGINE_LABEL[r.engine] || r.engine)}</b>: ${r.ok !== true ? 'request failed' : r.named == null ? 'collected, but not measured' : r.named ? 'named you' : 'did not name you'}
+        ${r.ok !== true ? `<p class="hint">${esc(r.error || 'The provider did not return a usable result.')}</p>` : ''}
+      </div>`).join('');
+    const heading = !results.length ? 'No result was returned.'
+      : !successful.length ? 'No new answer was collected.'
+      : failed.length ? `${successful.length} engine answered, ${failed.length} failed.`
+      : successful.length === 1 ? 'One engine answered.' : `${successful.length} engines answered.`;
+    const outcome = !successful.length ? 'Your completed measurement is unchanged.'
+      : replaced ? `${replaced} failed earlier sample${replaced === 1 ? ' was' : 's were'} replaced in the new measurement. Sound ones were kept as extra samples. Earlier measurements remain in the archive.`
+      : 'New answers were stored in a separate measurement alongside earlier samples. Earlier measurements remain in the archive.';
+    finish(`<div style="margin-bottom:8px">${heading}</div>${rows}
+      <p class="hint">${outcome}</p>${Number.isFinite(d.spend) ? `<p class="hint">Recorded provider cost: $${Number(d.spend).toFixed(4)}</p>` : ''}`,
+      successful.length > 0);
+
+    return;
+  }
+
+  const see = e.target.closest('[data-see-answer]');
+  if (see) {
+    const id = see.dataset.seeAnswer;
+    /**
+     * Found relative to the button, not by id. The same question can appear
+     * on the Questions tab and on an action card, and a shared id meant
+     * clicking one filled the other.
+     */
+    const box = see.closest('.rec, .prompt')?.querySelector('[data-answers]');
+    if (!box) return;
+    if (!box.hidden) { box.hidden = true; see.textContent = 'Read what each engine said'; return; }
+
+    if (see.disabled) return;
+    see.disabled = true;
+    see.textContent = 'Loading';
+    let d;
+    try { d = await api(`/api/prompts/${id}/answers`, {}, {readTimeoutMs:15000}); }
+    catch (error) { d = {error:'Answers could not be loaded. Close and reopen to try again.'}; }
+    finally { see.disabled = false; }
+    see.textContent = 'Hide the answers';
+    box.hidden = false;
+    if (!d || d.error) { box.innerHTML = `<p class="notice">${esc(d?.error || 'Answers could not be loaded. Close and reopen to try again.')}</p>`; return; }
+    /**
+     * Everyone checks a surprising result by asking the engine themselves,
+     * and then finds a different answer. That is not usually a fault in the
+     * measurement, and saying so here saves the same conversation every time.
+     */
+    /**
+     * Name the place we actually asked from. "Your market" was vague enough
+     * that a disagreement about a verdict turned into a disagreement about
+     * where it was measured, which is not a question the reader should have
+     * to ask.
+     */
+    const proj = state.overview?.project || {};
+    const askedFrom = proj.location_name
+      ? proj.location_name.split(',')[0]
+      : (window.COUNTRIES.find(([c]) => c === proj.market)?.[1] || proj.market || 'your market');
+
+    const preamble = `<p class="hint">Open an engine to read its stored answer. These are provider-collected samples, not every buyer’s experience.</p><details class="answer-method"><summary>How these answers were collected</summary><p class="hint">
+      These are provider-collected answers. Assistant results use API measurements; Google AI results use search-result collection.
+      This project's configured market/location is ${esc(askedFrom)}; location support varies by engine.
+      These are not recordings of a signed-out consumer chat session. Your own results can differ with the model,
+      collection time, history, saved memories and location. Treat this as a defined sample, not every buyer's experience.
+    </p></details>`;
+
+    box.innerHTML = answerReviewSummary(d) + preamble + (d?.runs || [])
+      .map((r) => {
+        r={...r,citations:(r.citations || []).filter(c=>!collectionAsset(c.url || c.domain))};
+        /**
+         * Three outcomes, not two. A call that failed, or an answer stored
+         * before the brand was tracked, was never read for a name, and
+         * showing that as "not named" invents a miss that never happened.
+         */
+        const verdict = !r.measured
+          ? `<span class="tag" title="${esc(r.unmeasuredReason || 'No brand measurement is available for this answer.')}">not measured</span>`
+          : r.mentioned
+            ? `<span class="tag ok">named${r.ordinal ? `, ${r.ordinal}${r.ordinal === 1 ? 'st' : r.ordinal === 2 ? 'nd' : r.ordinal === 3 ? 'rd' : 'th'}` : ''}</span>`
+            : '<span class="tag">not named</span>';
+        /**
+         * Two blocks for one engine used to mean a bug. Now it only ever
+         * means the question was asked more than once, and those samples can
+         * legitimately disagree. Saying which sample this is keeps a real
+         * difference from reading as the product contradicting itself.
+         */
+        const sample = r.samples > 1
+          ? `<span class="ans-sample" title="This question was asked ${r.samples} times on this engine. Engines vary between asks, so samples can differ.">sample ${r.sample} of ${r.samples}</span>`
+          : '';
+        return `<details class="ans answer-reader">
+          <summary class="ans-head">
+            <span class="ans-engine">${esc(ENGINE_LABEL[r.engine] || r.engine)}</span>
+            ${r.model ? `<span class="ans-model">${esc(r.model)}</span>` : ''}
+            ${sample}
+            ${verdict}
+            <span class="tag ${r.measured && r.cited===true?'ok':''}">${!r.measured?'citation not measured':r.cited===true?'website cited':r.cited===false?'website not cited':'citation verdict unavailable'}</span>
+            ${r.truncated ? '<span class="tag warn" title="Possible truncation based on text length and ending. The provider has not confirmed this. The stored answer is retained.">possibly cut short</span>' : ''}
+            <span class="ans-sample">${(r.citations || []).length} source${(r.citations || []).length === 1 ? '' : 's'} recorded</span>
+          </summary><div class="answer-content">
+          ${storedMatchEvidence(r)}
+          ${d.projectId && d.measurement?.id ? `<p><a href="/api/projects/${encodeURIComponent(d.projectId)}/measurements/${encodeURIComponent(d.measurement.id)}#run-${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Open this stored answer in the measurement archive</a></p>`:''}
+          ${
+            r.response_text
+              ? `<div class="ans-body formatted-answer" style="overflow-wrap:anywhere;min-width:0">${formatAnswer(r.response_text)}</div><details class="answer-original"><summary>Stored text (collection assets omitted)</summary><pre>${esc(collectionDisplayText(r.response_text))}</pre></details>`
+              : `<p class="hint" style="margin:0">${esc(collectionDisplayText(r.error || r.unmeasuredReason || 'No answer was returned.'))}</p>`
+          }
+          ${(() => {
+            /**
+             * The full address, not the domain. This panel exists so a
+             * verdict can be checked, and a domain cannot be opened to the
+             * page that shaped the answer. A citation stored without a url
+             * (some come from a text scan) shows its domain and says the
+             * address was not recorded, rather than pretending.
+             */
+            const cs = r.citations || [];
+            if (!cs.length) {
+              return r.response_text
+                ? '<p class="hint" style="margin:8px 0 0">No sources came back with this answer.</p>'
+                : '';
+            }
+            return `<details class="ans-sources" open><summary>Sources cited (${cs.length})</summary>
+              ${cs.map((c) => answerUrl(c.url)
+                ? `<a href="${esc(c.url)}" target="_blank" rel="noopener" class="ans-source" style="display:block;word-break:break-all;font-size:11px;line-height:1.7">${esc(c.url)}${c.owned?' <strong>(your website)</strong>':''}</a>`
+                : `<span class="ans-source dim" style="display:block;word-break:break-all;font-size:11px;line-height:1.7">${esc(c.url || c.domain)} (${c.url ? 'link unavailable' : 'address not recorded'})${c.owned?' <strong>(your website)</strong>':''}</span>`
+              ).join('')}
+            </details>`;
+          })()}
+          <details class="answer-method"><summary>Collect a new answer (uses allowance)</summary><p><button class="ghost" data-reask="${esc(id)}" data-reask-engine="${esc(r.engine)}">Ask ${esc(ENGINE_LABEL[r.engine] || r.engine)} only</button> <span class="hint">Starts immediately and uses one answer check. Provider retries may add requests. A new answer does not validate or replace this stored answer.</span></p></details>
+        </div></details>`;
+      })
+      .join('');
+    if (!d.runs?.length) box.innerHTML += '<p class="hint">Nothing stored for this question yet.</p>';
+    const taskId=see.closest('.rec')?.dataset.task;
+    if (taskId) box.innerHTML += `<p><button class="btn" data-next-open="${esc(taskId)}">Record your review conclusion</button></p>`;
+    return;
+  }
+
+  // Selecting only what is on screen respects the filters above, so someone
+  // can narrow to one topic and tag exactly that set.
+  if (e.target.id === 'qSelShown' || e.target.id === 'qSelUntagged' || e.target.id === 'qSelNone') {
+    for (const row of document.querySelectorAll('.prompt')) {
+      const box = row.querySelector('[data-qsel]');
+      if (!box) continue;
+      // offsetParent rather than the hidden attribute: a row can be off
+      // screen from a filter, a collapsed group or a display rule, and only
+      // one of those sets hidden.
+      const onScreen = row.offsetParent !== null;
+      if (e.target.id === 'qSelNone' || !onScreen) box.checked = false;
+      else box.checked = e.target.id === 'qSelUntagged' ? !row.dataset.persona : true;
+    }
+    refreshBulkBar();
+    return;
+  }
+
+  if (e.target.id === 'qBulkClear') {
+    for (const b of document.querySelectorAll('[data-qsel]:checked')) b.checked = false;
+    refreshBulkBar();
+    return;
+  }
+
+  if (e.target.id === 'qBulkApply') {
+    const ids = [...document.querySelectorAll('[data-qsel]:checked')].map((b) => Number(b.dataset.qsel));
+    if (!ids.length) return;
+
+    const persona = $('qBulkPersona').value;
+    const cluster = $('qBulkCluster').value.trim();
+    if (!persona && !cluster) return toast('Choose a buyer type or type a topic first', 'bad');
+
+    e.target.disabled = true;
+    const body = { ids };
+    if (persona) body.personaId = persona === 'none' ? null : Number(persona);
+    if (cluster) body.cluster = cluster;
+
+    const r = await api(`/api/projects/${state.projectId}/prompts/bulk`, { method: 'PATCH', body });
+    e.target.disabled = false;
+
+    if (r?.error) return toast(r.error, 'bad');
+    await render();
+    toast(`${r.changed} question${r.changed === 1 ? '' : 's'} updated`);
+    return;
+  }
+
+  const chip = e.target.closest('[data-group]');
+  if (!chip) return;
+  const group = chip.dataset.group;
+  for (const b of document.querySelectorAll(`[data-group="${group}"]`)) b.classList.toggle('is-on', b === chip);
+  qState[group] = chip.dataset.value;
+  applyQuestionView();
+});
+
+/** How many are selected, and whether the bar should be showing. */
+function refreshBulkBar() {
+  const bar = document.getElementById('qBulk');
+  if (!bar) return;
+  const n = document.querySelectorAll('[data-qsel]:checked').length;
+  bar.hidden = n === 0;
+  const count = document.getElementById('qBulkCount');
+  if (count) count.textContent = `${n} selected`;
+}
+
+document.addEventListener('change', (e) => {
+  if (e.target.matches('[data-qsel]')) { refreshBulkBar(); return; }
+
+  if (e.target.id === 'qsort') {
+    qState.sort = e.target.value;
+    applyQuestionView();
+    return;
+  }
+  // Topic and intent are long lists that read badly as chips, so they are
+  // dropdowns. They still narrow alongside everything else.
+  const group = e.target.dataset?.selectGroup;
+  if (!group) return;
+  qState[group] = e.target.value;
+  applyQuestionView();
+});
+
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'promptFilter') return;
+  qState.text = e.target.value.trim().toLowerCase();
+  applyQuestionView();
+});
+
+/**
+ * Switching a series off hides it and rescales nothing.
+ *
+ * Rescaling on toggle would make the remaining lines jump, which reads as the
+ * data changing rather than the view. The axis stays fixed at 0 to 100.
+ */
+document.addEventListener('click', (e) => {
+  const key = e.target.closest('[data-series][data-chart]');
+  if (!key) return;
+
+  key.classList.toggle('is-on');
+  const wrap = document.querySelector(`[data-chart-id="${key.dataset.chart}"]`);
+  const line = wrap?.querySelector(`.seriesline[data-series="${key.dataset.series}"]`);
+  if (line) line.style.display = key.classList.contains('is-on') ? '' : 'none';
+});
+
+/** Read out every visible series at whichever date the pointer is nearest. */
+function chartHover(wrap, date) {
+  const id = wrap.dataset.chartId;
+  const data = window.__charts?.[id];
+  if (!data) return;
+
+  const readout = wrap.querySelector('.readout');
+  const on = new Set(
+    [...wrap.querySelectorAll('.serieskey.is-on')].map((k) => Number(k.dataset.series))
+  );
+
+  const rows = data.series
+    .map((s, i) => ({ ...s, i }))
+    .filter((s) => on.has(s.i) && s.values[date] != null)
+    .sort((a, b) => b.values[date] - a.values[date]);
+
+  if (!rows.length) {
+    readout.hidden = true;
+    return;
+  }
+
+  readout.hidden = false;
+  readout.innerHTML =
+    `<div class="readout-date">${esc(shortDate(date))}</div>` +
+    rows
+      .map(
+        (r) => `<div class="readout-row${r.own ? ' own' : ''}">
+          <span class="swatch" style="--k:${r.colour}"></span>
+          <span class="readout-label">${esc(r.label)}</span>
+          <span class="readout-value">${Math.round(r.values[date] * 100)}%</span>
+        </div>`
+      )
+      .join('');
+}
+
+document.addEventListener('mouseover', (e) => {
+  const zone = e.target.closest('.hitzone');
+  if (!zone) return;
+  const wrap = zone.closest('.chartwrap');
+  if (!wrap) return;
+
+  const cross = wrap.querySelector('.crosshair');
+  if (cross) {
+    const x = Number(zone.getAttribute('x')) + Number(zone.getAttribute('width')) / 2;
+    cross.setAttribute('x1', x);
+    cross.setAttribute('x2', x);
+    cross.style.display = '';
+  }
+  chartHover(wrap, zone.dataset.date);
+});
+
+document.addEventListener('mouseout', (e) => {
+  const wrap = e.target.closest('.chartwrap');
+  if (!wrap || wrap.contains(e.relatedTarget)) return;
+  wrap.querySelector('.readout')?.setAttribute('hidden', '');
+  const cross = wrap.querySelector('.crosshair');
+  if (cross) cross.style.display = 'none';
+});
+
+/** Keep the report links pointed at the chosen period. */
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'repFrom' && e.target.id !== 'repTo') return;
+
+  state.repFrom = $('repFrom')?.value || '';
+  state.repTo = $('repTo')?.value || '';
+
+  const range = [];
+  if (state.repFrom) range.push(`from=${state.repFrom}`);
+  if (state.repTo) range.push(`to=${state.repTo}`);
+  const q = range.length ? `&${range.join('&')}` : '';
+
+  const open = $('repOpen');
+  const csv = $('repCsv');
+  const prepare = $('repPrepare');
+  if (prepare) prepare.href = `/api/projects/${state.projectId}/report/prepare${range.length ? '?' + range.join('&') : ''}`;
+  if (open) open.href = `/api/projects/${state.projectId}/report/open${range.length ? '?' + range.join('&') : ''}`;
+  if (csv) csv.href = `/api/projects/${state.projectId}/report?format=csv${q}`;
+});
+
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'pcSearch') {
+    const needle = e.target.value.trim().toLowerCase();
+    for (const q of document.querySelectorAll('.pcp-q')) {
+      q.hidden = Boolean(needle) && !q.dataset.text.includes(needle);
+    }
+    // A page with nothing left to show is noise, and a match inside a shut
+    // group would otherwise be invisible.
+    for (const g of document.querySelectorAll('.pcp-group')) {
+      const anyVisible = [...g.querySelectorAll('.pcp-q')].some((q) => !q.hidden);
+      g.hidden = !anyVisible;
+      if (needle && anyVisible) g.classList.remove('is-shut');
+    }
+    return;
+  }
+  if (e.target.id !== 'pcFilter') return;
+  const needle = e.target.value.trim().toLowerCase();
+  for (const r of document.querySelectorAll('.pcrow')) {
+    r.hidden = Boolean(needle) && !r.dataset.filterText.includes(needle);
+  }
+});
+
+document.addEventListener('click', async (e) => {
+  if (e.target.id === 'resendVerify') {
+    e.target.disabled = true;
+    await api('/api/verify/resend', { method: 'POST' });
+    e.target.textContent = 'Sent';
+    return;
+  }
+
+  if (e.target.id === 'pcPreview') {
+    const btn = e.target;
+    btn.disabled = true;
+    btn.textContent = 'Reading Search Console';
+    const q = new URLSearchParams({
+      path: $('pcPath')?.value.trim() || '',
+      days: $('pcDays')?.value || '90',
+      min: $('pcMin')?.value || '1'
+    });
+    const d = await api(`/api/projects/${state.projectId}/page-checks/preview?${q}`);
+    btn.disabled = false;
+    btn.textContent = 'See what it would check';
+
+    const panel = $('pcPanel');
+    if (d?.error) {
+      // Every error here has a fix, so every error should show one.
+      const fix =
+        d.fix === 'connect'
+          ? '<button class="btn" id="gscGrant">Connect Search Console</button>'
+          : d.fix === 'gsc'
+            ? '<button class="ghost" data-goto-setup="1">Choose a property in Setup</button>'
+            : '';
+      panel.innerHTML = `<p class="error">${esc(d.error)}</p>${fix ? `<div class="inline-form" style="margin-top:10px">${fix}</div>` : ''}`;
+      return;
+    }
+    // Every search, grouped by the page that earns it. Branded ones are
+    // unticked by default: an AI Overview naming you for your own brand
+    // confirms nothing, and on some brands that is most of the list.
+    window.__pcPages = d.pages;
+    // With hundreds of searches across dozens of pages, an open list is
+    // unreadable. Groups collapse once there are enough of them to matter.
+    const collapse = d.pages.length > 6;
+
+    panel.innerHTML = `<div class="pq-preview" id="pcPicker">
+      <div class="pcp-head">
+        <p class="hint" style="margin:0">
+          ${d.queries} searches from the last 90 days${
+            d.branded ? `, of which <b>${d.branded}</b> mention your brand and are unticked` : ''
+          }. Each check costs about $${d.costPerQuery.toFixed(4)}.
+        </p>
+        <div class="taskbar" style="margin-top:10px">
+          <button class="tfilter" data-pcpick="unbranded">Unbranded only</button>
+          <button class="tfilter" data-pcpick="all">Everything</button>
+          <button class="tfilter" data-pcpick="top20">Top 20 by impressions</button>
+          <button class="tfilter" data-pcpick="none">Clear</button>
+        </div>
+        <div class="searchrow" style="max-width:340px;margin-top:10px">
+          <input type="search" id="pcSearch" placeholder="Filter searches or pages" autocomplete="off" />
+        </div>
+      </div>
+
+      ${
+        d.sections?.length
+          ? `<div class="pcp-sections">
+              <span class="qtool-k">Sections</span>
+              ${d.sections
+                .map(
+                  (sec) => `<button class="tfilter" data-pcsection="${esc(sec.path)}" title="${sec.pages} pages, ${sec.impressions.toLocaleString()} impressions">
+                    ${esc(sec.path)} <i>${sec.queries}</i>
+                  </button>`
+                )
+                .join('')}
+            </div>`
+          : ''
+      }
+
+      <div class="pcp-list">
+        ${d.pages
+          .map(
+            (g) => `<div class="pcp-group ${collapse ? 'is-shut' : ''}" data-page="${esc(g.page)}">
+              <div class="pcp-grouphead">
+                <input type="checkbox" data-pcgroup="${esc(g.page)}" />
+                <button class="pcp-toggle" data-pctoggle aria-label="Show searches">
+                  <span class="pcp-url">${esc(g.page === 'unknown' ? 'No page recorded' : g.page.replace(/^https?:\/\/(www\.)?/, ''))}</span>
+                  <span class="pcp-qn">${g.queries.length}</span>
+                </button>
+                <span class="pcp-imp">${g.impressions.toLocaleString()}</span>
+              </div>
+              ${g.queries
+                .map(
+                  (q) => `<label class="pcp-q" data-text="${esc(`${q.query} ${g.page}`.toLowerCase())}">
+                    <input type="checkbox" data-pcq="${esc(q.query)}" ${q.branded ? '' : 'checked'} />
+                    <span class="pcp-qt">${esc(q.query)}${q.branded ? '<i class="pcp-brand">brand</i>' : ''}</span>
+                    <span class="pcp-imp">${q.impressions.toLocaleString()}</span>
+                    <span class="pcp-pos">${q.position ?? ''}</span>
+                  </label>`
+                )
+                .join('')}
+            </div>`
+          )
+          .join('')}
+      </div>
+
+      <div class="inline-form pcp-foot">
+        <button class="btn" id="pcRun">Check selected</button>
+        <span class="hint" id="pcCount"></span>
+      </div>
+    </div>`;
+    updatePcCount();
+    return;
+  }
+
+  const pick = e.target.closest('[data-pcpick]');
+  if (pick) {
+    const how = pick.dataset.pcpick;
+    const boxes = [...document.querySelectorAll('[data-pcq]')];
+    const branded = new Set(
+      (window.__pcPages || []).flatMap((g) => g.queries.filter((q) => q.branded).map((q) => q.query))
+    );
+    const top = new Set(
+      (window.__pcPages || [])
+        .flatMap((g) => g.queries)
+        .filter((q) => !q.branded)
+        .sort((a, b) => b.impressions - a.impressions)
+        .slice(0, 20)
+        .map((q) => q.query)
+    );
+    for (const b of boxes) {
+      const q = b.dataset.pcq;
+      b.checked =
+        how === 'all' ? true : how === 'none' ? false : how === 'top20' ? top.has(q) : !branded.has(q);
+    }
+    updatePcCount();
+    return;
+  }
+
+  // A section chip re-scopes the fetch rather than filtering what is already
+  // on screen, so the counts and the cost are for the section itself.
+  const section = e.target.closest('[data-pcsection]');
+  if (section) {
+    const field = $('pcPath');
+    if (field) {
+      field.value = section.dataset.pcsection;
+      $('pcPreview')?.click();
+    }
+    return;
+  }
+
+  const toggle = e.target.closest('[data-pctoggle]');
+  if (toggle) {
+    toggle.closest('.pcp-group').classList.toggle('is-shut');
+    return;
+  }
+
+  const group = e.target.closest('[data-pcgroup]');
+  if (group) {
+    // The group box starts unchecked while its children may be ticked, so
+    // clicking it once appeared to do nothing. Toggle on what the children
+    // are, not on the box's own state.
+    const box = group.closest('.pcp-group');
+    const kids = [...box.querySelectorAll('[data-pcq]')];
+    const allOn = kids.every((b) => b.checked);
+    for (const b of kids) b.checked = !allOn;
+    group.checked = !allOn;
+    updatePcCount();
+    return;
+  }
+
+  if (e.target.matches('[data-pcq]')) { updatePcCount(); return; }
+
+  if (e.target.id === 'pcRun') {
+    const queries = [...document.querySelectorAll('[data-pcq]:checked')].map((b) => b.dataset.pcq);
+    if (!queries.length) return;
+    e.target.disabled = true;
+    e.target.textContent = `Checking ${queries.length}`;
+    const r = await api(`/api/projects/${state.projectId}/page-checks/run`, { method: 'POST', body: { queries } });
+    if (r?.checked) await render();
+    return;
+  }
+
+  if (e.target.id === 'suggestPersonas') {
+    const btn = e.target;
+    btn.disabled = true;
+    btn.textContent = 'Reading your data';
+    const d = await api(`/api/projects/${state.projectId}/personas/suggest`, { method: 'POST' });
+    btn.disabled = false;
+    btn.textContent = 'Suggest buyer types';
+    if (!d?.personas?.length) {
+      $('personaList').innerHTML =
+        '<p class="hint" style="margin:0">Could not suggest buyer types just now. Try again in a moment, or add one yourself below.</p>' +
+        manualPersonaForm();
+      return;
+    }
+
+    // Shown for approval rather than saved: a suggested persona is a guess
+    // until someone who knows the business agrees with it.
+    $('personaList').innerHTML =
+      `<p class="hint" style="margin:0 0 12px">${esc(d.evidence.note)} Pick the ones that match how people actually buy from you.</p>` +
+      d.personas
+        .map(
+          (p, i) => `<label class="persona choose">
+            <input type="checkbox" data-suggested="${i}" checked />
+            <span>
+              <span class="pname">${esc(p.name)}</span>
+              <span class="pdesc">&ldquo;${esc(p.descriptor)}&rdquo;</span>
+              ${p.context ? `<span class="hint">${esc(p.context)}</span>` : ''}
+            </span>
+          </label>`
+        )
+        .join('') +
+      `<div class="inline-form" style="margin-top:12px">
+         <button class="btn" id="savePersonas">Save selected</button>
+       </div>` +
+      manualPersonaForm();
+    window.__suggestedPersonas = d.personas;
+    return;
+  }
+
+  if (e.target.id === 'addPersonaManual') {
+    const name = $('pm_name')?.value.trim();
+    const descriptor = $('pm_desc')?.value.trim();
+    if (!name || descriptor.length < 15) {
+      setupErr('Give them a name and a sentence describing how they would introduce themselves.');
+      return;
+    }
+    e.target.disabled = true;
+    await api(`/api/projects/${state.projectId}/personas`, {
+      method: 'POST',
+      body: { personas: [{ name, descriptor, source: 'manual', evidence: { from: 'you', confidence: 'stated' } }] }
+    });
+    await loadPersonas();
+    return;
+  }
+
+  if (e.target.id === 'savePersonas') {
+    const chosen = [...document.querySelectorAll('[data-suggested]:checked')].map(
+      (c) => window.__suggestedPersonas[Number(c.dataset.suggested)]
+    );
+    if (!chosen.length) return;
+    e.target.disabled = true;
+    const r = await api(`/api/projects/${state.projectId}/personas`, { method: 'POST', body: { personas: chosen } });
+    await loadPersonas();
+    if (r?.note) setupErr(r.note);
+    toast(`${r?.saved || chosen.length} buyer type${(r?.saved || chosen.length) === 1 ? '' : 's'} added`);
+    return;
+  }
+
+  // Show the questions before adding them. Nobody should agree to something
+  // billable they have not read.
+  const applyP = e.target.closest('[data-apply-persona]');
+  if (applyP) {
+    applyP.disabled = true;
+    applyP.textContent = 'Loading';
+    const d = await api(`/api/personas/${applyP.dataset.applyPersona}/preview`);
+    applyP.disabled = false;
+    applyP.textContent = 'Add their questions';
+    if (!d?.questions?.length) {
+      setupErr('Add some questions to this site first, then a buyer type can be applied to them.');
+      return;
+    }
+
+    const box = document.querySelector(`[data-persona="${d.persona.id}"]`);
+    if (!box) return;
+    const available = d.questions.filter((q) => !q.alreadyAdded);
+
+    box.insertAdjacentHTML(
+      'beforeend',
+      `<div class="pq-preview" data-preview="${d.persona.id}">
+        <p class="hint" style="margin:0 0 10px">
+          These are your questions, asked as <b>${esc(d.persona.name)}</b>. Pick the ones worth measuring twice.
+          Each one adds an answer check on every cycle.
+        </p>
+        ${available
+          .map(
+            (q, i) => `<label class="pq">
+              <input type="checkbox" data-pq="${q.baseId}" ${i < 5 ? 'checked' : ''} />
+              <span>${esc(q.text)}</span>
+            </label>`
+          )
+          .join('') ||
+          '<p class="hint" style="margin:0">Every one of your questions has already been added for this buyer type. Add more questions to the site first, or remove some from the list above.</p>'}
+        ${d.questions.length > available.length ? `<p class="hint" style="margin:8px 0 0">${d.questions.length - available.length} already added.</p>` : ''}
+        ${available.length ? `<div class="inline-form" style="margin-top:12px">
+          <button class="btn" data-confirm-persona="${d.persona.id}">Add selected</button>
+          <button class="ghost" data-cancel-preview="${d.persona.id}">Cancel</button>
+          <span class="hint" id="pqCount-${d.persona.id}"></span>
+        </div>` : ''}
+      </div>`
+    );
+    updatePqCount(d.persona.id);
+    return;
+  }
+
+  if (e.target.matches('[data-pq]')) {
+    updatePqCount(e.target.closest('[data-preview]')?.dataset.preview);
+    return;
+  }
+
+  const cancelPv = e.target.closest('[data-cancel-preview]');
+  if (cancelPv) {
+    document.querySelector(`[data-preview="${cancelPv.dataset.cancelPreview}"]`)?.remove();
+    return;
+  }
+
+  const confirmP = e.target.closest('[data-confirm-persona]');
+  if (confirmP) {
+    const id = confirmP.dataset.confirmPersona;
+    const baseIds = [...document.querySelectorAll(`[data-preview="${id}"] [data-pq]:checked`)].map((c) =>
+      Number(c.dataset.pq)
+    );
+    if (!baseIds.length) { setupErr('Pick at least one question.'); return; }
+    confirmP.disabled = true;
+    confirmP.textContent = 'Adding';
+    const r = await api(`/api/personas/${id}/apply`, { method: 'POST', body: { baseIds } });
+    document.querySelector(`[data-preview="${id}"]`)?.remove();
+    await loadPersonas();
+    recalcEstimate();
+    setupErr('');
+    return;
+  }
+
+  const dropQ = e.target.closest('[data-drop-pq]');
+  if (dropQ) {
+    dropQ.disabled = true;
+    await fetch(`/api/personas/${dropQ.dataset.ofPersona}/questions/${dropQ.dataset.dropPq}`, { method: 'DELETE' });
+    await loadPersonas();
+    recalcEstimate();
+    return;
+  }
+
+  const dropP = e.target.closest('[data-drop-persona]');
+  if (dropP) {
+    if (!confirm('Remove this buyer type? Questions already asked as them stay in your history.')) return;
+    await fetch(`/api/personas/${dropP.dataset.dropPersona}`, { method: 'DELETE' });
+    await loadPersonas();
+    return;
+  }
+
+  const copy = e.target.closest('[data-copy-link]');
+  if (copy) {
+    const r = await api(`/api/assigned/${encodeURIComponent(copy.dataset.copyLink)}/link`);
+    if (r?.url) {
+      await navigator.clipboard.writeText(r.url).catch(() => {});
+      const was = copy.textContent;
+      copy.textContent = 'Copied';
+      setTimeout(() => { copy.textContent = was; }, 1800);
+    }
+    return;
+  }
+});
+
+document.addEventListener('click', (e) => {
+  // Clicking a count opens the panel that lists what it counts.
+  const tag = e.target.closest('[data-open-detail]');
+  if (!tag) return;
+  const card = tag.closest('.rec');
+  const panel = card?.querySelector('.qlist');
+  if (panel) {
+    panel.open = !panel.open;
+    if (panel.open) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+});
+
+document.addEventListener('click', async (e) => {
+  if (e.target.id === 'loadSuppressed') {
+    const box = $('suppressedList');
+    box.innerHTML = '<p class="hint">Loading</p>';
+    const rows = await api(`/api/projects/${state.projectId}/suppressed`);
+    box.innerHTML = rows?.length
+      ? rows
+          .map(
+            (r) => `<div class="row">
+              <div class="grow"><div class="name">${esc(r.title || r.fingerprint)}</div>
+              <div class="sub">deleted ${esc(new Date(r.created_at).toLocaleDateString())}</div></div>
+              <button class="ghost" data-unsuppress="${r.id}">Allow it back</button>
+            </div>`
+          )
+          .join('')
+      : '<p class="hint">Nothing has been deleted.</p>';
+    return;
+  }
+
+  const un = e.target.closest('[data-unsuppress]');
+  if (un) {
+    un.disabled = true;
+    await fetch(`/api/projects/${state.projectId}/suppressed/${un.dataset.unsuppress}`, { method: 'DELETE' });
+    un.closest('.row').remove();
+    return;
+  }
+
+  const tf = e.target.closest('[data-task-filter]');
+  if (tf) {
+    state.taskFilter = tf.dataset.taskFilter;
+    await render();
+    return;
+  }
+
+  if (e.target.closest('[data-review-question]')) {
+    document.querySelector('[data-view="questions"]').click();
+    return;
+  }
+
+  const td = e.target.closest('[data-teardown]');
+  if (td) {
+    const id = td.dataset.teardown;
+    const box = $(`teardown-${id}`);
+    box.hidden = false;
+    box.innerHTML = '<p class="hint">Reading the page and checking whether it answers the buyer question</p>';
+    td.disabled = true;
+
+    const res = await fetch(`/api/projects/${state.projectId}/teardown`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: td.dataset.url, question: td.dataset.question })
+    });
+    const d = await res.json();
+    td.disabled = false;
+
+    if (!res.ok) { box.innerHTML = `<p class="error">${esc(d.error)}</p>`; return; }
+    box.innerHTML = renderTeardown(d);
+    const summary = $(`source-review-${id}`);
+    if (summary) summary.innerHTML = renderSourceReview({...d.explanation?.relevance, question: td.dataset.question});
+    td.textContent = 'View relevance details';
+    return;
+  }
+
+  const edit = e.target.closest('[data-task-edit]');
+  if (edit) {
+    const box = $(`edit-${edit.dataset.taskEdit}`);
+    box.hidden = !box.hidden;
+    if (!box.hidden) box.querySelector('input')?.focus();
+    return;
+  }
+
+  const cancel = e.target.closest('[data-task-cancel]');
+  if (cancel) { $(`edit-${cancel.dataset.taskCancel}`).hidden = true; return; }
+
+  const save = e.target.closest('[data-task-save]');
+  if (save) {
+    const id = save.dataset.taskSave;
+    save.disabled = true;
+    const res = await fetch(`/api/recommendations/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        assignee: $(`a-${id}`).value,
+        dueDate: $(`d-${id}`).value,
+        notes: $(`n-${id}`).value
+      })
+    });
+    save.disabled = false;
+    if (res.ok) {
+      const updated = await res.json();
+      replaceCard(id, updated);
+      if (updated.notified) {
+        const note = document.querySelector(`[data-task="${id}"] .task-meta`);
+        if (note) note.insertAdjacentHTML('beforeend', '<span class="tag" data-mailtag>sending</span>');
+
+        // The send resolves after the response, so the result is checked a
+        // moment later. Saying "emailed" when nothing sent is worse than
+        // saying nothing.
+        setTimeout(async () => {
+          const last = await api('/api/notifications/last-assignment');
+          const tag = document.querySelector(`[data-task="${id}"] [data-mailtag]`);
+          if (!tag) return;
+          if (last?.emailed) {
+            tag.textContent = 'emailed';
+            tag.classList.add('ok');
+          } else {
+            tag.textContent = 'email failed';
+            tag.classList.add('bad');
+            tag.title = last?.email_error || 'The message could not be sent.';
+          }
+        }, 2500);
+      }
+    } else {
+      const j = await res.json();
+      $(`saved-${id}`).textContent = j.error || 'Could not save';
+    }
+    return;
+  }
+
+  const del = e.target.closest('[data-delete-rec]');
+  if (del) {
+    if (!confirm('Delete this action permanently? It will not come back on the next cycle. You can undo this from the Dismissed filter.')) return;
+    del.disabled = true;
+    const res = await fetch(`/api/recommendations/${del.dataset.deleteRec}`, { method: 'DELETE' });
+    if (!res.ok) { del.disabled = false; return; }
+    const card = document.querySelector(`[data-task="${del.dataset.deleteRec}"]`);
+    if (card) {
+      card.classList.add('leaving');
+      card.innerHTML = '<p class="rec-action">Deleted. It will not be regenerated.</p>';
+      setTimeout(() => card.remove(), 2500);
+    }
+    await refreshTaskCounts();
+    return;
+  }
+
+  const btn = e.target.closest('button[data-rec]');
+  if (!btn) return;
+
+  btn.disabled = true;
+  const res = await fetch(`/api/recommendations/${btn.dataset.rec}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: btn.dataset.status })
+  });
+  btn.disabled = false;
+  if (!res.ok) return;
+
+  const updated = await res.json();
+  const filter = state.taskFilter || 'active';
+  const stillVisible =
+    filter === 'all' ||
+    (filter === 'active' && ['open', 'doing'].includes(updated.status)) ||
+    filter === updated.status;
+
+  // Moving a task out of the current filter should say so rather than
+  // having it vanish with no explanation.
+  if (stillVisible) replaceCard(btn.dataset.rec, updated);
+  else {
+    const card = document.querySelector(`[data-task="${btn.dataset.rec}"]`);
+    if (card) {
+      card.classList.add('leaving');
+      card.innerHTML = `<p class="rec-action">Moved to <b>${STATUS_LABEL[updated.status]}</b>. <button class="ghost" data-task-filter="${updated.status}">Show ${STATUS_LABEL[updated.status].toLowerCase()}</button></p>`;
+      setTimeout(() => card.remove(), 4000);
+    }
+    await refreshTaskCounts();
+  }
+});
+
+// Save review notes without replacing the card or closing its answer evidence.
+async function handleNextStep(event) {
+  const button = event.target.closest('[data-next-open], [data-next-save], [data-next-cancel]');
+  if (!button) return;
+  const id = button.dataset.nextOpen || button.dataset.nextSave || button.dataset.nextCancel;
+  const editor = $(`next-editor-${id}`);
+  const input = $(`next-note-${id}`);
+  const feedback = $(`next-feedback-${id}`);
+  const save = editor.querySelector('[data-next-save]');
+  if (save.disabled) return;
+  if (button.hasAttribute('data-next-open')) {
+    editor.hidden = false;
+    feedback.textContent = '';
+    input.focus();
+    return;
+  }
+  if (button.hasAttribute('data-next-cancel')) {
+    input.value = input.defaultValue;
+    editor.hidden = true;
+    feedback.textContent = '';
+    document.querySelector(`[data-next-open="${id}"]`)?.focus();
+    return;
+  }
+  save.disabled = true;
+  input.disabled = true;
+  feedback.textContent = 'Saving next step…';
+  try {
+    const response = await fetch(`/api/recommendations/${id}`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({notes: input.value})
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Could not save the next step.');
+    const notes = result.notes || '';
+    input.value = input.defaultValue = notes;
+    const summary = $(`next-summary-${id}`);
+    summary.textContent = notes;
+    summary.hidden = !notes;
+    // The assignment editor edits the same stored field.
+    const existing = $(`n-${id}`);
+    if (existing) existing.value = existing.defaultValue = notes;
+    const opener = document.querySelector(`[data-next-open="${id}"]`);
+    if (opener) opener.textContent = notes ? 'Edit next step' : 'Record next step';
+    const card = editor.closest('[data-task]');
+    const notesFold=card?.querySelector('[data-saved-notes]');
+    if(notesFold) notesFold.hidden=!notes;
+    const badge = card?.querySelector('[data-task-notes-badge]');
+    if (badge) badge.hidden = !notes;
+    const assignment = card?.querySelector('[data-task-edit]');
+    if (assignment) assignment.textContent = result.assignee || result.due_date || notes ? 'Edit' : 'Assign';
+    editor.hidden = true;
+    const reportControls=$(`report-controls-${id}`);
+    if(reportControls) {
+      reportControls.hidden=!notes && !result.review_decision?.stage && !reportControls.querySelector('[data-include="false"]');
+      const preview=reportControls.querySelector('[data-report-preview-panel]');if(preview)preview.hidden=true;
+      const freshness=reportControls.querySelector('[data-report-freshness]');if(freshness)freshness.textContent='Saved notes changed. Preview the report copy before sharing.';
+    }
+    feedback.textContent = 'Next step saved.';
+    opener?.focus();
+  } catch (error) {
+    feedback.textContent = error.message || 'Could not save. Your draft is still here. Try again.';
+  } finally {
+    save.disabled = false;
+    input.disabled = false;
+  }
+}
+document.addEventListener('click', handleNextStep);
+document.addEventListener('click', async event=>{
+ const button=event.target.closest('[data-decision-save]'); if(!button || button.disabled) return;
+ const id=button.dataset.decisionSave, panel=button.closest('.task-decision');
+ const feedback=panel.querySelector('[data-decision-feedback]');
+ const fields=['stage','title','page','evidence','change','purpose','suggested_owner','completion','follow_up'];
+ const inputs=fields.map(key=>$(`decision-${key}-${id}`));
+ const payload=Object.fromEntries(fields.map((key,i)=>[key,inputs[i].value]));
+ button.disabled=true; inputs.forEach(i=>i.disabled=true); feedback.textContent='Saving decision…';
+ try {
+  const response=await fetch(`/api/recommendations/${id}/review-decision`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const result=await response.json(); if(!response.ok) throw new Error(result.error || 'Could not save decision.');
+  panel.querySelector('[data-decision-summary]').textContent=`${decisionLabel(result.stage)} · Recorded ${result.reviewed_at.slice(0,10)}`;
+  const card=panel.closest('[data-task]');
+  const preview=savedDecisionPreview({review_decision:result});
+  card.querySelectorAll('[data-review-title]').forEach(el=>el.textContent=preview?.text || el.dataset.originalTitle);
+  card.querySelectorAll('[data-review-context]').forEach(el=>el.textContent=preview ? `Original check: ${card.querySelector('[data-review-title]').dataset.originalTitle}` : el.dataset.originalContext);
+  card.dataset.reviewed=Boolean(preview);
+  const notesFold=card.querySelector('[data-saved-notes]');
+  notesFold.open=!preview;
+  notesFold.querySelector('summary').hidden=!preview;
+  if(preview) card.querySelector('[data-selection-reason]')?.remove();
+  card.querySelector('[data-decision-brief]').innerHTML=savedDecisionBrief({review_decision:result,assignee:card.dataset.owner});
+  const originalGuidance=card.querySelector('[data-original-guidance]');
+  originalGuidance.open=!preview;
+  originalGuidance.querySelector('summary').hidden=!preview;
+  const badge=panel.closest('[data-task]').querySelector('[data-decision-badge]'); if(badge) badge.textContent=decisionLabel(result.stage);
+  $(`report-controls-${id}`).hidden=false;
+  const reportPanel=$(`report-controls-${id}`).querySelector('[data-report-preview-panel]');
+  if(reportPanel)reportPanel.hidden=true;
+  const freshness=$(`report-controls-${id}`).querySelector('[data-report-freshness]');
+  if(freshness)freshness.textContent='Saved action changed. Preview the report copy before sharing.';
+  feedback.textContent='Decision saved. Any existing client-report copy stays unchanged until you explicitly update it.';
+  const moved=state.view==='actions' && state.opportunityDecision && state.opportunityDecision!=='all' && state.opportunityDecision!==result.stage;
+  if(moved) panel.closest('[data-task]').remove();
+  await refreshTaskCounts();
+  if(moved && $('queueCount')) $('queueCount').textContent += ` Decision saved as ${decisionLabel(result.stage)}. Switch the decision filter to see it.`;
+ } catch(error) {feedback.textContent=error.message || 'Could not save. Your draft is still here.';}
+ finally {button.disabled=false; inputs.forEach(i=>i.disabled=false);}
+});
+
+
+/** Swap one card without re-rendering the list and losing scroll position. */
+function replaceCard(id, task) {
+  const card = document.querySelector(`[data-task="${id}"]`);
+  if (!card) return;
+  const wrapper = document.createElement('div');
+  const expanded = card.querySelector('.queue-task')?.open;
+  wrapper.innerHTML = taskCard(task, ['actions', 'overview'].includes(state.view),'',Boolean(card.closest('[data-question-group]')));
+  if (expanded && wrapper.querySelector('.queue-task')) wrapper.querySelector('.queue-task').open = true;
+  card.replaceWith(wrapper.firstElementChild);
+  refreshTaskCounts();
+}
+
+async function refreshTaskCounts() {
+  const onOverview=state.view==='overview';
+  const data = await api(`/api/projects/${state.projectId}/recommendations?status=${onOverview?'active':state.taskFilter || 'active'}&kind=${onOverview?'all':state.opportunityKind || 'all'}&decision=${onOverview?'all':state.opportunityDecision || 'all'}`);
+  if (!data) return;
+  const focus = $('opportunityKind');
+  if (focus) {
+    const holder = document.createElement('div');
+    holder.innerHTML = opportunityFilters(data.tasks || [], state.opportunityKind || 'all', data.focusCounts);
+    focus.innerHTML = holder.querySelector('select').innerHTML;
+  }
+  const c = data.counts;
+  const filter = state.taskFilter || 'active';
+  const total = filter === 'active' ? c.open + c.doing : filter === 'all' ? c.total : c[filter];
+  if ($('queueCount')) $('queueCount').textContent = queueCountText(data.tasks,total);
+  for(const container of document.querySelectorAll('[data-question-group]')) {
+    const group=reviewGroups(data.tasks).find(g=>g.key===container.dataset.questionGroup);
+    if(!group) { container.remove(); continue; }
+    container.querySelector('.question-review > summary').innerHTML=questionGroupSummary(group);
+    container.querySelector('[data-group-guidance]').textContent=groupReviewGuidance(group);
+  }
+  const set = (id, n) => {
+    const el = document.querySelector(`[data-task-filter="${id}"] span`);
+    if (el) el.textContent = n;
+  };
+  set('active', c.open + c.doing);
+  set('doing', c.doing);
+  set('done', c.done);
+  set('dismissed', c.dismissed);
+  set('all', c.total);
+}
+
+/* ---------- setup ---------- */
+
+async function viewCompetitorReview() {
+  const d=await api(`/api/projects/${state.projectId}/competitor-review`);
+  if(!d || d.error) return '<div class="panel"><h2>Competitor review could not load</h2><p>Check that the latest database migration has run, then try again.</p><button data-retry-view>Try again</button></div>';
+  state.competitorReview=d;
+  const row=(c,i)=>`<article class="panel" data-candidate="${i}">
+    <label><input type="checkbox" data-candidate-select="${i}" ${c.ignored?'disabled':''}> Select ${esc(c.name)}</label>
+    <p class="hint">Possible business or cited source. Confirm it competes with you before tracking. ${c.name===c.domain ? 'Business name not confirmed. ' : `Name appears in ${c.namedAnswers ?? c.evidence.filter(e=>e.named).length} / ${d.answers} reviewed answers. `}Domain cited in ${c.citedAnswers ?? c.evidence.filter(e=>e.cited).length} / ${d.answers} reviewed answers.</p>
+    <details data-candidate-edit="${i}"><summary>Confirm name, aliases and evidence</summary>
+    ${c.domains?.length>1?`<p class="hint">Domains found for this name: ${c.domains.map(esc).join(', ')}. Confirm the domain to track.</p>`:''}
+    <div class="inline-form"><label>Name <input data-candidate-name="${i}" value="${esc(c.name===c.domain?'':c.name)}" placeholder="Confirm brand name"></label><label>Domain <input data-candidate-domain="${i}" value="${esc(c.domain)}" placeholder="Optional domain"></label></div>
+    <label>English / Arabic aliases, one per line<textarea data-candidate-aliases="${i}" rows="2"></textarea></label>
+    <label><input type="checkbox" data-candidate-ambiguous="${i}"> Name is also an ordinary word or phrase</label>
+    <details><summary>Supporting answers</summary>${c.evidence.slice(0,5).map(e=>`<p>${esc(e.engine)} · ${esc(e.question)} · ${e.named ? 'name present' : 'name not confirmed'} · ${e.cited ? 'domain cited' : 'domain not cited'} <a href="/api/projects/${state.projectId}/measurements/${d.measurement.id}#run-${e.id}" target="_blank" rel="noopener">Read answer</a></p>`).join('')}</details>
+    <button class="ghost" data-candidate-decision="${i}" data-decision="${c.ignored?'restore':'ignore'}">${c.ignored?'Restore suggestion':'Ignore'}</button></details></article>`;
+  return `<div class="panel"><h2>Who else appeared?</h2><p>Select businesses you want to compare over time. Confirm their names, domains and aliases before tracking.</p>
+    <p class="hint">${d.measurement?`Measurement ${d.measurement.id}: ${d.answers} eligible stored answers reviewed${d.limited?' (first 250 only)':''}.`:'Run your first measurement to discover suggestions.'} Suggestions use cited domains and names identifiable in stored answer text. A cited source is not necessarily a competitor. They can miss businesses or include unrelated sources. Domain-only suggestions need a real brand name. Different names for the same business may need combining as aliases.</p>
+    <section class="panel"><h3>Tracked competitors: review names</h3><p>Add confirmed English or Arabic names for the same business. Avoid ordinary words that could match unrelated text. Saving applies aliases to future scans and rechecks the latest stored answers. Original measurements and trend history stay unchanged.</p>
+    ${(d.tracked||[]).map(e=>`<details><summary>${esc(e.name)} · ${esc(e.domain||'No domain')}</summary><label>Aliases for ${esc(e.name)}, one per line<textarea data-tracked-aliases="${e.id}" rows="3">${esc((e.aliases||[]).join('\n'))}</textarea></label><p class="hint">Primary name: ${esc(e.name)}. ${e.ambiguous_name?'Ordinary-name protection is enabled.':'Ordinary-name protection is not enabled.'} Alias matches are literal.</p><button data-save-tracked-aliases="${e.id}">Save aliases and recheck stored answers</button></details>`).join('')||'<p>No competitors tracked yet.</p>'}</section>
+    <button class="ghost" id="selectNamedCandidates">Select named suggestions</button> <button class="ghost" id="clearNamedCandidates">Clear selection</button>
+    <p><button id="trackSelectedCompetitors" class="btn">Track selected competitors</button></p><p id="competitorReviewStatus" role="status"></p></div>
+    <h3>Named suggestions to review</h3><p class="hint">Bulk selection includes only suggestions with a name and cited domain. Review each before tracking.</p>
+    ${d.candidates.map((c,i)=>!c.ignored&&c.bulkEligible?row(c,i):'').join('')||'<p>No named suggestions with a matching domain. Review other names and sources below, or add your own.</p>'}
+    <details class="panel"><summary>Other names and cited sources (${d.candidates.filter(c=>!c.ignored&&!c.bulkEligible).length})</summary><p>These need more review. For another language or name of the same business, copy it into that business’s aliases rather than tracking it twice. Ignore the separate suggestion after saving the confirmed business.</p>${d.candidates.map((c,i)=>!c.ignored&&!c.bulkEligible?row(c,i):'').join('')}</details>
+    <details class="panel"><summary>Ignored suggestions (${d.candidates.filter(c=>c.ignored).length})</summary>${d.candidates.map((c,i)=>c.ignored?row(c,i):'').join('')}</details>
+    <section class="panel"><h3>Add your own</h3><label>Name <input id="customCompetitorName"></label><label>Domain <input id="customCompetitorDomain" placeholder="Optional domain"></label><label>English / Arabic aliases, one per line<textarea id="customCompetitorAliases" rows="2"></textarea></label><label><input type="checkbox" id="customCompetitorAmbiguous"> Name is also an ordinary word or phrase</label><p><button id="trackCustomCompetitor">Track this competitor</button></p></section>
+    <section class="panel"><h3>Retrospective starting comparisons</h3><p>Calculated when a competitor was added or its aliases were reviewed, using confirmed names against stored answers. These do not change the original measurement or establish a trend. Future scans track confirmed competitors automatically.</p>
+    ${d.baselines.map(b=>`<article><h4>${esc(b.name)}</h4><p>Measurement ${b.measurement_id||'not available'} · ${b.analysis.measured?`${b.analysis.named} / ${b.analysis.measured} answers named the brand. ${b.analysis.cited==null?'Citations not assessed, no domain.':`${b.analysis.cited} / ${b.analysis.measured} cited its domain.`}`:'No eligible stored answers.'} ${b.analysis.limited?'Limited to 250 answers.':''}</p><p class="hint">Analysed ${esc(shortDate(b.analysis.reviewedAt))}. Name: ${esc(b.analysis.entity.name)}. Aliases: ${esc((b.analysis.entity.aliases||[]).join(', ')||'none')}.</p></article>`).join('')||'<p>No competitors added through this review yet.</p>'}</section>`;
+}
+
+async function saveCompetitorReview(payload,button) {
+  const projectId=state.projectId;
+  button.disabled=true;
+  const status=$('competitorReviewStatus'); if(status)status.textContent='Saving competitor review…';
+  try {
+    const response=await fetch(`/api/projects/${projectId}/competitor-review`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const data=await response.json();
+    if(!response.ok) throw new Error(data.error||'Could not save competitor review');
+    if(state.projectId===projectId) {await render();toast(payload.action==='aliases'?'Aliases saved and stored answers rechecked. No new engine calls.':payload.action==='track'?`${data.added.length} tracked. ${data.skipped.length} already tracked. No new engine calls.`:'Review decision saved.');}
+  } catch(error) {if(state.projectId===projectId && $('competitorReviewStatus'))$('competitorReviewStatus').textContent=error.message;toast(error.message,'bad');} finally {button.disabled=false;}
+}
+document.addEventListener('click',async event=>{
+  const t=event.target.closest('button');if(!t) return;
+  const d=state.competitorReview;
+  if(t.id==='selectNamedCandidates'||t.id==='clearNamedCandidates') {
+    document.querySelectorAll('[data-candidate-select]').forEach(el=>{el.checked=t.id==='selectNamedCandidates'&&!el.disabled&&d.candidates[Number(el.dataset.candidateSelect)].bulkEligible; if(el.checked)document.querySelector(`[data-candidate-edit="${el.dataset.candidateSelect}"]`).open=true;});return;
+  }
+  if(t.dataset.candidateDecision!==undefined) return saveCompetitorReview({action:t.dataset.decision,key:d.candidates[Number(t.dataset.candidateDecision)].key},t);
+  const aliases=value=>value.split(/\n/).map(s=>s.trim()).filter(Boolean);
+  if(t.dataset.saveTrackedAliases!==undefined) {
+    const entity=d.tracked.find(e=>String(e.id)===t.dataset.saveTrackedAliases);
+    if(!entity) return;
+    const value=document.querySelector(`[data-tracked-aliases="${entity.id}"]`).value;
+    return saveCompetitorReview({action:'aliases',entityId:entity.id,aliases:aliases(value),expectedAliases:entity.aliases||[],measurementId:d.measurement?.id},t);
+  }
+  if(t.id==='trackSelectedCompetitors') {
+    const items=[...document.querySelectorAll('[data-candidate-select]:checked')].map(el=>{
+      const i=el.dataset.candidateSelect,get=name=>document.querySelector(`[data-candidate-${name}="${i}"]`);
+      return {name:get('name').value,domain:get('domain').value,aliases:aliases(get('aliases').value),ambiguous:get('ambiguous').checked};
+    });
+    if(!items.length) return toast('Select at least one competitor.','warn');
+    return saveCompetitorReview({action:'track',items,measurementId:d.measurement?.id},t);
+  }
+  if(t.id==='trackCustomCompetitor') return saveCompetitorReview({action:'track',measurementId:d.measurement?.id,items:[{name:$('customCompetitorName').value,domain:$('customCompetitorDomain').value,aliases:aliases($('customCompetitorAliases').value),ambiguous:$('customCompetitorAmbiguous').checked}]},t);
+});
+
+async function viewSetup() {
+  const [data, engines, billing, scope] = await Promise.all([
+    api(`/api/projects/${state.projectId}/setup`),
+    state.engines ? Promise.resolve(state.engines) : api('/api/engines'),
+    api('/api/billing'),
+    api(`/api/projects/${state.projectId}/run-scope`).catch(()=>null)
+  ]);
+  if (!data) return '';
+  state.engines = engines;
+  state.costs = scope?.perEngineCosts || {};
+  state.estimateAvailable = Boolean(scope && !scope.error && scope.defaultPerCall===0.03);
+  state.estimateDefault = scope?.defaultPerCall ?? 0.03;
+  state.measured = Object.keys(state.costs);
+  const p = data.project;
+  const rivals = data.entities.filter((e) => e.kind === 'competitor');
+  const active = data.prompts.filter((q) => q.active).length;
+
+  const rivalRows = rivals.length
+    ? rivals
+        .map(
+          (e) => `<div class="row">
+            <div class="grow">
+              <div class="name">${esc(e.name)}</div>
+              <div class="sub">${esc(e.domain || 'no domain set')}</div>
+              <label class="sub" style="display:flex;gap:6px;align-items:center;margin-top:4px;cursor:pointer">
+                <input type="checkbox" data-ambiguous="${e.id}" ${e.ambiguous_name ? 'checked' : ''} />
+                <span>Only count "${esc(e.name)}" written as a name</span>
+              </label>
+            </div>
+            <button class="ghost" data-del-entity="${e.id}">Remove</button>
+          </div>`
+        )
+        .join('')
+    : `<p class="sub" style="font-family:var(--mono);font-size:12px;color:var(--ink-3)">No competitors yet. Add the ones you actually lose pitches to.</p>`;
+
+  const chosen = p.engines?.length ? p.engines : ['chatgpt'];
+  const allowed = billing?.plan?.engines ?? 1;
+  const cost = active * chosen.length * (p.runs_per_cycle || 1);
+
+  const engineRows = engines
+    .map((e) => {
+      const on = chosen.includes(e.id);
+      const blocked = !on && chosen.length >= allowed;
+      return `<div class="row ${blocked ? 'off' : ''}">
+        <label class="grow eng">
+          <input type="checkbox" data-engine="${e.id}" ${on ? 'checked' : ''} ${blocked ? 'disabled' : ''} />
+          <span><span class="name">${esc(e.label)}</span><span class="sub">${esc(e.note || '')}</span></span>
+        </label>
+      </div>`;
+    })
+    .join('');
+
+  return `
+  <div class="setup-grid">
+    <div>
+      <div class="panel">
+        <div class="panel-head"><h2>This site</h2></div>
+        <div class="field"><label for="s_name">Project name</label><input id="s_name" value="${esc(p.name)}" /></div>
+        <div class="field"><label for="s_brand">Brand name</label><input id="s_brand" value="${esc(p.brand_name)}" /></div>
+        <div class="field"><label for="s_aliases">Also known as, comma separated</label><input id="s_aliases" value="${esc((p.aliases || []).join(', '))}" placeholder="Shortenings, misspellings, the legal name" /></div>
+        <div class="field">
+          <label>Brand name is also an ordinary phrase</label>
+          <label class="eng" style="padding:4px 0">
+            <input type="checkbox" id="s_ambiguous" ${data.owned?.ambiguous_name ? 'checked' : ''} />
+            <span><span class="name">Only count "${esc(p.brand_name)}" when it is written as a name</span>
+            <span class="sub">Saves as soon as you tick it. Turn this on if the brand name doubles as a common term:
+            without it, wording like "the ${esc(String(p.brand_name).toLowerCase())} model" is counted as a mention
+            of you. Shortenings and your domain are unaffected, and past cycles keep their old counts until they are
+            recounted.</span></span>
+          </label>
+        </div>
+        <div class="field"><label for="s_category">What the business does</label><input id="s_category" value="${esc(p.category || '')}" /></div>
+        <div class="field"><label for="s_qualifier">Who the customer is</label><input id="s_qualifier" value="${esc(p.qualifier || '')}" /></div>
+        <div class="field"><label for="s_market">Market</label><select id="s_market">${window.countryOptions(p.market)}</select></div>
+        <div class="field">
+          <label for="s_city">City</label>
+          <select id="s_city" data-selected="${esc(p.location_name || '')}"><option value="">The whole country</option></select>
+          <span class="hint" id="s_cityHint" style="display:block;margin-top:5px">
+            Applies to Google AI Mode and AI Overviews only. ChatGPT and the other assistants are answered
+            through an API with no location, so they stay at country level whatever is chosen here.
+          </span>
+        </div>
+        <div class="field">
+          <label for="s_runs">Runs per question, per engine</label>
+          <input id="s_runs" type="number" min="1" max="10" value="${p.runs_per_cycle}" />
+          <span class="hint" style="display:block;margin-top:5px">
+            One is enough to see whether you are named. Raising it measures how much the answer wobbles
+            between identical asks, and multiplies what each cycle costs.
+          </span>
+        </div>
+        <div class="field">
+          <label>Automatic weekly cycle</label>
+          <label class="eng" style="padding:4px 0">
+            <input type="checkbox" id="s_auto" ${p.auto_cycle ? 'checked' : ''} />
+            <span><span class="name">Run this site every week without being asked</span>
+            <span class="sub">Turn off to keep the site set up but stop it spending anything until you run it by hand.</span></span>
+          </label>
+        </div>
+        <div class="estimate" data-active-count="${active}" data-runs="${p.runs_per_cycle}">
+          <div class="estimate-line">
+            <span data-n>${active}</span> questions &times;
+            <span data-surfaces-n>${chosen.length}</span> <span data-surfaces-word>${chosen.length === 1 ? 'surface' : 'surfaces'}</span> &times;
+            <span data-runs-n>${p.runs_per_cycle}</span> runs =
+            <b data-calls>${cost}</b> answer checks
+          </div>
+          <div class="estimate-cost">
+            <span class="amt" data-cycle-cost>-</span>
+            <span class="per" data-cost-label>per cycle</span>
+            <span class="month" data-month-cost></span>
+          </div>
+          <p class="hint" data-cost-source style="margin-top:8px"></p>
+        </div>
+        <button id="s_save">Save changes</button>
+        <span id="s_saved" class="sub" style="font-family:var(--mono);font-size:11px;color:var(--good);margin-left:10px"></span>
+      </div>
+
+      <details class="panel fold" open>
+        <summary class="panel-head" style="cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none">
+          <h2 style="margin:0">Where we look${helpDot('Which AI surfaces are asked every cycle. Each one you switch off reduces the cost of the next cycle and stops that surface being measured; nothing already recorded is deleted.')}</h2>
+          <div class="spacer"></div>
+          <div class="bulk">
+            <button class="ghost" data-bulk-engines="all">Use all ${Math.min(allowed, engines.length)}</button>
+            <button class="ghost" data-bulk-engines="min">Just ChatGPT</button>
+          </div>
+          <span class="sub" data-engine-allowance="${allowed}" style="font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-left:10px">${chosen.length} of ${allowed} allowed</span>
+          <span class="fold-mark" aria-hidden="true" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">&#9662;</span>
+        </summary>
+        ${engineRows}
+        <p class="hint" style="margin-top:12px">
+          Each surface you add multiplies the cost of every cycle. Two or three chosen deliberately beats all six switched on.
+          ${allowed < engines.length ? `Your plan allows ${allowed}. <button type="button" class="ghost" data-goto-billing="1" style="padding:3px 8px;font-size:10px">Upgrade</button>` : ''}
+        </p>
+        <span id="e_saved" class="sub" style="font-family:var(--mono);font-size:11px;color:var(--good)"></span>
+      </details>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Competitors</h2></div><p><button class="ghost" data-open-view="competitorReview">Discover competitors and compare stored answers</button></p>
+        ${rivalRows}
+        <div class="inline-form">
+          <input id="r_name" placeholder="Name" />
+          <input id="r_domain" placeholder="domain.com" />
+          <button id="r_add">Add</button>
+        </div>
+      </div>
+
+      <details class="panel fold">
+        <summary class="panel-head" style="cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none">
+          <h2 style="margin:0;flex:1">Remove this site</h2>
+          <span class="fold-mark" aria-hidden="true" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">&#9662;</span>
+        </summary>
+        <p class="dek" style="margin:8px 0 14px;font-size:13.5px">Deletes <b>${esc(p.name)}</b>, its questions, every answer recorded against it and its action list. There is no undo, so export anything you need first.</p>
+        <button class="ghost danger" id="s_delete">Delete ${esc(p.name)}</button>
+      </details>
+    </div>
+
+    <div>
+    <div class="panel"><h2>Manage questions</h2><p>Review, add, pause and revise questions, including Search Console imports and buyer variants, in Questions.</p><button class="ghost" data-open-questions>Open Questions</button></div>
+    </div>
+  </div>`;
+}
+
+/**
+ * Filter a list of rows in place. Lists here get long (a GA4 account can hold
+ * hundreds of properties, and a site can track sixty questions), so filtering
+ * happens client-side against text already on the page rather than round
+ * tripping to the server.
+ */
+function filterRows(containerId, term, countId) {
+  const box = $(containerId);
+  if (!box) return;
+  const needle = term.trim().toLowerCase();
+  let shown = 0;
+
+  for (const row of box.querySelectorAll('[data-filter-text]')) {
+    const hit = !needle || row.dataset.filterText.includes(needle);
+    row.hidden = !hit;
+    if (hit) shown++;
+  }
+
+  const empty = box.querySelector('[data-filter-empty]');
+  if (empty) empty.hidden = shown > 0;
+  const counter = countId && $(countId);
+  if (counter) counter.textContent = needle ? `${shown} of ${box.querySelectorAll('[data-filter-text]').length}` : '';
+}
+
+function searchBox(id, placeholder, countId) {
+  return `<div class="searchrow">
+    <input type="search" id="${id}" placeholder="${placeholder}" autocomplete="off" spellcheck="false" />
+    ${countId ? `<span class="searchcount" id="${countId}"></span>` : ''}
+  </div>`;
+}
+
+/* ---------- search console import ---------- */
+
+/**
+ * How many more questions this site can take, said before anything is picked.
+ *
+ * The cap was only reported after selecting and clicking, so the work of
+ * choosing happened first and the refusal came second.
+ */
+function importRoom(d) {
+  const cap = d?.limit?.questions;
+  const used = d?.limit?.active;
+  if (cap === Number.MAX_SAFE_INTEGER) return 'Unlimited active questions on this plan.';
+  if (cap == null || used === undefined) return '';
+  const room = Math.max(0, cap - used);
+  if (room === 0) {
+    return `This site is at its limit of ${cap} active questions. Pause or delete one before importing, or upgrade for more.`;
+  }
+  return `Room for ${room} more on this plan, out of ${cap}.`;
+}
+
+function gscCandidateRow(c, i) {
+  const pos = c.avgPosition ? c.avgPosition.toFixed(1) : '-';
+  const haystack = `${c.text} ${c.examples.join(' ')} ${c.cluster || ''}`.toLowerCase();
+  return `<div class="gsc-review-row ${c.alreadyTracked ? 'off' : ''}" data-filter-text="${esc(haystack)}">
+    <label class="eng"><input type="checkbox" data-gsc="${i}" ${c.alreadyTracked ? 'disabled' : ''} /><span>${c.alreadyTracked?'Already imported. Manage the existing question in Questions':'Add this question after reviewing wording and relevance'}</span></label>
+    ${c.existingQuestion?`<p class="hint">Existing question${c.existingQuestion.active===false?' (paused or superseded)':''}: <span dir="auto">${esc(c.existingQuestion.text)}</span></p>`:''}
+    <div class="gsc-review-columns"><div><b>Original Google queries</b><ul>${c.examples.map(q=>`<li dir="auto">${esc(q)}</li>`).join('')}</ul>
+    <p class="hint">${c.impressions.toLocaleString()} Google search impressions · ${c.clicks} clicks · position ${pos}${c.variants>1?` · ${c.variants} variations`:''}. These figures belong to the source queries.</p></div>
+    <div class="field"><label for="gsc-wording-${i}">Question to measure</label><textarea id="gsc-wording-${i}" data-gsc-wording="${i}" dir="auto" rows="3" minlength="12" maxlength="300" ${c.alreadyTracked?'disabled':''}>${esc(c.text)}</textarea>
+    <p class="hint">${c.source==='gsc+model'?'Suggested question. Check that it preserves the meaning, language, amounts and product restrictions.':'Original query. Check that it reads naturally and fits your customers.'} Use a complete question, not a keyword with a question mark. Do not add “best”, a new product or a location the query does not specify.</p>
+    <details><summary>Initial suggestion</summary><p dir="auto">${esc(c.text)}</p></details></div></div>
+  </div>`;
+}
+
+/**
+ * A 403 from Google means several different things and each needs a different
+ * fix. Offering "reconnect" for all of them sent people round in circles.
+ */
+function gscError(d) {
+  const detail = d.detail ? `<p class="hint" style="margin-top:8px">Google said: ${esc(d.detail)}</p>` : '';
+
+  if (d.fix === 'enable-api') {
+    return `<p class="error">${esc(d.error)}</p>
+      <div class="inline-form" style="margin-top:10px">
+        <a class="btn ghost" href="${esc(d.link || 'https://console.cloud.google.com/apis/library/searchconsole.googleapis.com')}" target="_blank" rel="noopener">Enable the Search Console API</a>
+        <button class="ghost" id="gscLoad">Try again</button>
+      </div>${detail}`;
+  }
+
+  if (d.fix === 'connect') {
+    return `<p class="hint" style="margin:0 0 10px">${esc(d.error)} Connecting takes one screen, and we only ask for Search Console.</p>
+      <div class="inline-form">
+        <button class="btn" id="gscGrant">Connect Search Console</button>
+      </div>${detail}`;
+  }
+
+  if (d.fix === 'reconnect') {
+    // Search Console is a separate grant now, so this is one more approval
+    // rather than redoing the Analytics connection.
+    return `<p class="error">${esc(d.error)}</p>
+      <p class="hint" style="margin-top:8px">
+        We ask for Analytics and Search Console separately, so you only hand over what you actually want to use.
+        Granting this takes one screen and keeps your existing connection.
+      </p>
+      <div class="inline-form" style="margin-top:10px">
+        <button class="btn" id="gscGrant">Allow Search Console</button>
+      </div>${detail}`;
+  }
+
+  return `<p class="error">${esc(d.error)}</p>${detail}`;
+}
+
+async function loadGscCandidates() {
+  const body = $('gscBody');
+  body.innerHTML = '<p class="hint">Reading the last 90 days from Search Console</p>';
+
+  const res = await fetch(`/api/projects/${state.projectId}/gsc/candidates`);
+  const d = await res.json();
+
+  if (!res.ok) {
+    if (/property/i.test(d.error || '')) return loadGscSites();
+    body.innerHTML = gscError(d);
+    return;
+  }
+  if (!d.candidates.length) {
+    body.innerHTML = `<p class="hint">Search Console returned ${d.rows} queries but none made a sensible buyer question. This preview considers up to 30 leading query groups. Queries may be branded, outside your scope, or omitted by the suggestion checks. It does not mean there is no demand.</p>`;
+    return;
+  }
+
+  state.gscCandidates = d.candidates;
+  const available = d.candidates.filter((c) => !c.alreadyTracked).length;
+
+  body.innerHTML = `
+    <div class="gsc-summary">
+      <span class="tag">${d.rows.toLocaleString()} queries read</span>
+      <span class="tag">${d.totalImpressions.toLocaleString()} impressions</span>
+      <span class="tag">${d.clusters} query groups</span>
+      <span class="tag ok">${available} ${available===1?'suggestion':'suggestions'} to review</span>
+    </div>
+    <p class="hint">Select only relevant questions after checking their original queries. Search figures belong to those queries, not the rephrased question. Edit awkward wording before selecting. Automatic checks cannot confirm product relevance or equivalent intent. Your edited wording is saved as a new question, with the initial suggestion and source queries retained.</p>
+    ${searchBox('gscFilter', 'Filter original queries and suggestions', 'gscFilterCount')}
+    <div id="gscList">
+      ${d.candidates.map(gscCandidateRow).join('')}
+      <p class="hint" data-filter-empty hidden>Nothing matches that.</p>
+    </div>
+    <div class="inline-form">
+      <button id="gscImport">Add selected questions</button>
+      <button class="ghost" id="gscAll">Select shown</button>
+      <button class="ghost" id="gscNone">Clear selection</button>
+      <span class="hint" id="gscNote" style="margin:0">${esc(importRoom(d))}</span>
+    </div>`;
+}
+
+async function loadGscSites() {
+  const body = $('gscBody');
+  body.innerHTML = '<p class="hint">Loading your Search Console properties</p>';
+  const res = await fetch(`/api/projects/${state.projectId}/gsc/sites`);
+  const d = await res.json();
+
+  if (!res.ok) { body.innerHTML = gscError(d); return; }
+  if (!d.sites.length) {
+    body.innerHTML = '<p class="hint">That Google account cannot see any Search Console properties.</p>';
+    return;
+  }
+  body.innerHTML = `<p class="teardown-label">Which property</p>` +
+    (d.sites.length > 6 ? searchBox('gscSiteFilter', 'Filter properties', 'gscSiteCount') : '') +
+    `<div id="gscSiteList">` +
+    d.sites
+      .map(
+        (s) => `<div class="row" data-filter-text="${esc(s.url.toLowerCase())}">
+          <div class="grow"><div class="name">${esc(s.url)}</div><div class="sub">${esc(s.permission)}</div></div>
+          <button class="ghost" data-gsc-site="${esc(s.url)}">Use this</button>
+        </div>`
+      )
+      .join('') +
+    `<p class="hint" data-filter-empty hidden>No property matches that.</p></div>`;
+}
+
+document.addEventListener('click', async (e) => {
+  if (e.target.id === 'gscLoad') { if ($('gscPanel')) $('gscPanel').open = true; e.target.disabled = true; await loadGscCandidates(); e.target.disabled = false; }
+
+  const site = e.target.closest('[data-gsc-site]');
+  if (site) {
+    site.disabled = true;
+    try {
+      const projectId = state.projectId;
+      const res = await fetch(`/api/projects/${projectId}/gsc/site`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteUrl: site.dataset.gscSite })
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Could not save this property.');
+      const gsc = await api(`/api/projects/${projectId}/gsc`);
+      if (state.projectId !== projectId || !$('gscPanel')) return;
+      $('gscPanel').outerHTML = gscQuestionPanel(gsc,true);
+      $('gscPanel').open = true;
+      await loadGscCandidates();
+    } catch (error) {
+      const body = $('gscBody');
+      if (body) body.insertAdjacentHTML('afterbegin', `<p class="error" role="alert">${esc(error.message)}</p>`);
+    } finally { site.disabled = false; }
+  }
+
+  if (e.target.id === 'gscNone') {
+    document.querySelectorAll('input[data-gsc]').forEach((b) => { if (!b.disabled) b.checked = false; });
+  }
+
+  if (e.target.id === 'gscAll') {
+    // Only what is currently visible, so it works with the filter.
+    document.querySelectorAll('#gscList .gsc-review-row:not([hidden]) input[data-gsc]').forEach((b) => {
+      if (!b.disabled) b.checked = true;
+    });
+  }
+
+  if (e.target.id === 'gscImport') {
+    const picked = [...document.querySelectorAll('input[data-gsc]:checked')].map(
+      (b) => ({...state.gscCandidates[Number(b.dataset.gsc)], reviewedText: $(`gsc-wording-${b.dataset.gsc}`).value.trim()})
+    );
+    if (!picked.length) { $('gscNote').textContent = 'Nothing selected.'; return; }
+    if (picked.some(c=>c.reviewedText.length<12 || c.reviewedText.length>300)) { $('gscNote').textContent='Each selected question needs 12–300 characters. Review the wording before adding.'; return; }
+
+    e.target.disabled = true;
+    const res = await fetch(`/api/projects/${state.projectId}/gsc/import`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ questions: picked })
+    });
+    const d = await res.json();
+    e.target.disabled = false;
+
+    if (!res.ok) { $('gscNote').textContent = d.error; return; }
+    $('gscNote').textContent = `Added ${d.added}${d.skipped ? `, ${d.skipped} skipped for want of room on your plan` : ''}.`;
+    setTimeout(() => render(), 1200);
+  }
+});
+
+/* ---------- setup handlers ---------- */
+
+const setupErr = (msg) => { const el = $('setupError'); if (el) el.textContent = msg || ''; };
+
+/**
+ * Recalculate the estimate from whatever is currently ticked.
+ * Priced per engine, because a SERP surface costs a fraction of an LLM call.
+ */
+function recalcEstimate() {
+  const box = document.querySelector('[data-active-count]');
+  if (!box) return;
+
+  const questions = Number(box.dataset.activeCount);
+  const runs = Number(box.dataset.runs);
+  const chosen = [...document.querySelectorAll('input[data-engine]:checked')].map((b) => b.dataset.engine);
+
+  const calls = questions * chosen.length * runs;
+  const perCycle = chosen.reduce((sum, id) => sum + questions * runs * (state.costs?.[id] ?? state.estimateDefault ?? 0.03), 0);
+
+  box.querySelector('[data-n]').textContent = questions;
+  box.querySelector('[data-surfaces-n]').textContent = chosen.length;
+  box.querySelector('[data-surfaces-word]').textContent = chosen.length === 1 ? 'surface' : 'surfaces';
+  box.querySelector('[data-runs-n]').textContent = runs;
+  box.querySelector('[data-calls]').textContent = calls;
+  box.querySelector('[data-cycle-cost]').textContent = `$${perCycle.toFixed(2)}`;
+  box.querySelector('[data-month-cost]').textContent =
+    perCycle > 0 ? `about $${(perCycle * 4.33).toFixed(0)} a month at weekly cadence` : '';
+
+  const note = box.querySelector('[data-cost-source]');
+  const label = box.querySelector('[data-cost-label]');
+  if (label) label.textContent = 'estimated per cycle';
+  if(!state.estimateAvailable){
+    box.querySelector('[data-cycle-cost]').textContent='Unavailable';
+    box.querySelector('[data-month-cost]').textContent='';
+    note.textContent='Could not load the current estimate. Review cost and run will request it again.';
+  }else note.textContent=chosen.length?'Uses the same project/model pricing basis as the run confirmation. Unpriced engines use a provisional estimate. Actual cost may differ. Save changes before reviewing the final scope.':'Pick at least one surface.';
+
+}
+
+/** Keep the "x active questions = y checks per cycle" line honest without a reload. */
+function bumpActiveCount(delta) {
+  const el = document.querySelector('[data-active-count]');
+  if (!el) return;
+  el.dataset.activeCount = String(Math.max(0, Number(el.dataset.activeCount) + delta));
+  recalcEstimate();
+}
+
+/**
+ * Redraw only the parts that depend on the engine selection: the allowance
+ * counter, the cost line, and which unchecked boxes are still reachable.
+ * Re-rendering the whole tab for a checkbox threw away scroll position and
+ * felt like a page load.
+ */
+function syncEngineUi() {
+  const boxes = [...document.querySelectorAll('input[data-engine]')];
+  const chosen = boxes.filter((b) => b.checked);
+  const allowed = Number(document.querySelector('[data-engine-allowance]')?.dataset.engineAllowance || 1);
+  const atLimit = chosen.length >= allowed;
+
+  for (const b of boxes) {
+    const blocked = !b.checked && atLimit;
+    b.disabled = blocked;
+    b.closest('.row')?.classList.toggle('off', blocked);
+  }
+
+  const counter = document.querySelector('[data-engine-allowance]');
+  if (counter) counter.textContent = `${chosen.length} of ${allowed} allowed`;
+
+  recalcEstimate();
+}
+
+const FILTERS = {
+  gscFilter: ['gscList', 'gscFilterCount'],
+  gscSiteFilter: ['gscSiteList', 'gscSiteCount'],
+  ga4Filter: ['ga4List', 'ga4FilterCount'],
+  qFilter: ['qList', 'qFilterCount']
+};
+
+document.addEventListener('input', (e) => {
+  const target = FILTERS[e.target.id];
+  if (target) { filterRows(target[0], e.target.value, target[1]); return; }
+});
+
+/**
+ * The same toggle on a competitor.
+ *
+ * Correcting only our own brand would be worse than correcting neither: share
+ * of voice would then compare a strict count of us against a loose count of
+ * them, and the asymmetry runs in the direction that flatters the rival.
+ */
+document.addEventListener('change', async (e) => {
+  const box = e.target.closest('input[data-ambiguous]');
+  if (!box) return;
+  const on = box.checked;
+  box.disabled = true;
+
+  try {
+    const res = await fetch(`/api/entities/${box.dataset.ambiguous}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ambiguousName: on })
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not save');
+    toast(on
+      ? 'Counted only where written as a name, from the next cycle. Past cycles need a recount.'
+      : 'Counted however it is written again.');
+  } catch (err) {
+    box.checked = !on;
+    toast(String(err.message || err), 'warn');
+  } finally {
+    box.disabled = false;
+  }
+});
+
+/**
+ * Save the moment it is ticked.
+ *
+ * The engine checkboxes in this same panel save on change, so a checkbox that
+ * quietly needed the Save button below it was a trap: the tick appeared, felt
+ * applied, and vanished on the next load with nothing said. A toggle with
+ * consequences this large has to confirm its own outcome.
+ */
+document.addEventListener('change', async (e) => {
+  if (e.target.id !== 's_ambiguous') return;
+  const on = e.target.checked;
+  e.target.disabled = true;
+
+  try {
+    const res = await fetch(`/api/projects/${state.projectId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ambiguousName: on })
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not save');
+
+    // Say what changed AND what did not. Past cycles keep their old counts
+    // until they are recounted, and assuming otherwise would be worse than
+    // not knowing.
+    toast(on
+      ? 'Only title-case mentions will count from the next cycle. Past cycles are unchanged until recounted.'
+      : 'Every mention will count again, however it is written.');
+  } catch (err) {
+    // Put the box back where it was, or the screen claims a setting the
+    // server does not have.
+    e.target.checked = !on;
+    toast(String(err.message || err), 'warn');
+  } finally {
+    e.target.disabled = false;
+  }
+});
+
+/**
+ * Switching country in Settings clears the city for the same reason it does
+ * in the new-site dialog: the old city no longer exists in the new country,
+ * and silently keeping it would mean measuring the wrong place.
+ */
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 's_market') return;
+  fillCities(e.target.value, $('s_city'), $('s_cityHint'));
+});
+
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 's_runs') return;
+  const box = document.querySelector('[data-active-count]');
+  if (!box) return;
+  box.dataset.runs = String(Math.min(10, Math.max(1, Number(e.target.value) || 1)));
+  recalcEstimate();
+});
+
+document.addEventListener('change', async (e) => {
+  const box = e.target.closest('input[data-engine]');
+  if (!box) return;
+
+  const chosen = [...document.querySelectorAll('input[data-engine]:checked')].map((b) => b.dataset.engine);
+  if (!chosen.length) {
+    box.checked = true;
+    setupErr('Keep at least one surface switched on.');
+    return;
+  }
+
+  setupErr('');
+  syncEngineUi();
+
+  try {
+    const res = await fetch(`/api/projects/${state.projectId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ engines: chosen })
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not save those engines.');
+    const note = $('e_saved');
+    if (note) { note.textContent = 'Saved'; setTimeout(() => { note.textContent = ''; }, 1800); }
+  } catch (error) {
+    box.checked = !box.checked;
+    syncEngineUi();
+    setupErr(error.message);
+  }
+});
+
+/** Repaint every question row from the server's answer, without a re-render. */
+function applyBulkPrompts(activeIds) {
+  const set = new Set(activeIds.map(String));
+  for (const btn of document.querySelectorAll('button[data-toggle-prompt]')) {
+    const on = set.has(String(btn.dataset.togglePrompt));
+    btn.dataset.active = String(on);
+    btn.textContent = on ? 'Pause' : 'Resume';
+    btn.closest('.row')?.classList.toggle('off', !on);
+  }
+  const cost = document.querySelector('[data-active-count]');
+  if (cost) {
+    cost.dataset.activeCount = String(set.size);
+    recalcEstimate();
+  }
+  const resumeBtn = document.querySelector('[data-bulk-prompts="true"]');
+  const pauseBtn = document.querySelector('[data-bulk-prompts="false"]');
+  const total = document.querySelectorAll('button[data-toggle-prompt]').length;
+  if (resumeBtn) resumeBtn.disabled = set.size === total;
+  if (pauseBtn) pauseBtn.disabled = set.size === 0;
+}
+
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+
+  const bulkP = t.closest('button[data-bulk-prompts]');
+  if (bulkP) {
+    const wantActive = bulkP.dataset.bulkPrompts === 'true';
+    bulkP.disabled = true;
+    setupErr('');
+    try {
+      const res = await fetch(`/api/projects/${state.projectId}/prompts/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: wantActive })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Could not update');
+
+      const fresh = await api(`/api/projects/${state.projectId}/setup`);
+      applyBulkPrompts(fresh.prompts.filter((q) => q.active).map((q) => q.id));
+      if (json.capped > 0) {
+        setupErr(`Resumed ${json.activeNow}, the most searched ones. The ${json.planName} plan allows ${json.limit} active questions, so ${json.capped} stayed paused.`);
+      }
+    } catch (err) {
+      setupErr(err.message);
+      bulkP.disabled = false;
+    }
+    return;
+  }
+
+  const bulkE = t.closest('button[data-bulk-engines]');
+  if (bulkE) {
+    const boxes = [...document.querySelectorAll('input[data-engine]')];
+    const allowed = Number(document.querySelector('[data-engine-allowance]')?.dataset.engineAllowance || 1);
+    const wanted = bulkE.dataset.bulkEngines === 'all'
+      ? boxes.slice(0, allowed).map((b) => b.dataset.engine)
+      : ['chatgpt'];
+
+    const previous = boxes.map(b => b.checked);
+    for (const b of boxes) b.checked = wanted.includes(b.dataset.engine);
+    syncEngineUi();
+    setupErr('');
+
+    const res = await fetch(`/api/projects/${state.projectId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ engines: wanted })
+    });
+    const note = $('e_saved');
+    if (res.ok && note) { note.textContent = 'Saved'; setTimeout(() => { note.textContent = ''; }, 1800); }
+    if (!res.ok) { boxes.forEach((b,i) => { b.checked = previous[i]; }); syncEngineUi(); setupErr((await res.json().catch(() => ({}))).error || 'Could not save those engines.'); }
+    return;
+  }
+
+  if (t.id === 's_save') {
+    if (!syncLocationChoice($('s_city'), $('s_cityHint'))) return;
+    t._saving = true;
+    t.disabled = true;
+    // This reported "Saved" whatever came back, so a rejected change looked
+    // exactly like an accepted one until someone reloaded.
+    const res = await fetch(`/api/projects/${state.projectId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: $('s_name').value,
+        brandName: $('s_brand').value,
+        aliases: $('s_aliases').value.split(',').map((x) => x.trim()).filter(Boolean),
+        ambiguousName: $('s_ambiguous') ? $('s_ambiguous').checked : undefined,
+        category: $('s_category').value,
+        qualifier: $('s_qualifier').value,
+        market: $('s_market').value,
+        locationName: $('s_city') ? $('s_city').value : undefined,
+        runsPerCycle: Number($('s_runs').value),
+        autoCycle: $('s_auto').checked
+      })
+    });
+    t._saving = false;
+    syncLocationChoice($('s_city'), $('s_cityHint'));
+    if (!res.ok) {
+      const why = (await res.json().catch(() => ({}))).error || 'Could not save those changes';
+      $('s_saved').textContent = '';
+      toast(why, 'warn');
+      return;
+    }
+    $('s_saved').textContent = 'Saved';
+    await loadProjectList();
+    setTimeout(() => { const el = $('s_saved'); if (el) el.textContent = ''; }, 2500);
+  }
+
+  if (t.id === 'r_add') {
+    const name = $('r_name').value.trim();
+    const res = await fetch(`/api/projects/${state.projectId}/entities`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, domain: $('r_domain').value })
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      toast(json.error || 'Could not add that competitor', 'bad');
+      return setupErr(json.error);
+    }
+    await render();
+    toast(`${name} added. They will be measured on the next cycle.`);
+  }
+
+  if (t.dataset.delEntity) {
+    // Read the name before the row goes, or the confirmation cannot say what
+    // was removed.
+    const gone = t.closest('.row')?.querySelector('.name')?.textContent?.trim();
+    await fetch(`/api/entities/${t.dataset.delEntity}`, { method: 'DELETE' });
+    await render();
+    toast(gone ? `${gone} removed` : 'Removed');
+  }
+
+  if (t.id === 'q_topic') {
+    const topic = $('q_text').value.trim();
+    if (topic.length < 3) return setupErr('Give it a topic — what a buyer would search for in your category.');
+
+    t.disabled = true;
+    t.textContent = 'Thinking';
+    const d = await api(`/api/projects/${state.projectId}/prompts/from-topic`, { method: 'POST', body: { topic } });
+    t.disabled = false;
+    t.textContent = 'Generate from topic';
+
+    if (d?.error) return setupErr(d.error);
+    setupErr('');
+
+    // Shown for approval. A generated question is a suggestion until someone
+    // who knows the business agrees with it.
+    $('qTopicPanel').innerHTML = `<div class="pq-preview">
+      <p class="hint" style="margin:0 0 10px">
+        Questions a buyer might ask about <b>${esc(d.topic)}</b>. Pick the ones worth tracking; each one is an answer
+        check on every cycle.
+      </p>
+      ${d.questions
+        .map(
+          (q, i) => `<label class="pq${q.duplicate ? ' is-dupe' : ''}">
+            <input type="checkbox" data-topicq="${i}" ${q.duplicate ? 'disabled' : 'checked'} />
+            <span>${esc(q.text)}${q.duplicate ? '<i class="pcp-brand">already tracked</i>' : ''}</span>
+          </label>`
+        )
+        .join('')}
+      <div class="inline-form" style="margin-top:12px">
+        <button class="btn" id="q_topic_add">Add selected</button>
+        <button class="ghost" id="q_topic_cancel">Cancel</button>
+      </div>
+    </div>`;
+    window.__topicQuestions = d.questions;
+    return;
+  }
+
+  if (t.id === 'q_topic_cancel') {
+    $('qTopicPanel').innerHTML = '';
+    return;
+  }
+
+  if (t.id === 'q_topic_add') {
+    const chosen = [...document.querySelectorAll('[data-topicq]:checked')].map(
+      (c) => window.__topicQuestions[Number(c.dataset.topicq)].text
+    );
+    if (!chosen.length) return setupErr('Pick at least one.');
+    t.disabled = true;
+    t.textContent = 'Adding';
+    let added = 0;
+    for (const text of chosen) {
+      const res = await fetch(`/api/projects/${state.projectId}/prompts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, source: 'topic' })
+      });
+      if (res.ok) added++;
+    }
+    await render();
+    // Says how many landed, not how many were asked for: a plan limit can
+    // stop some of them and silence would hide that.
+    toast(
+      added === chosen.length
+        ? `${added} question${added === 1 ? '' : 's'} added`
+        : `${added} of ${chosen.length} added. The rest were beyond this plan.`,
+      added === chosen.length ? 'ok' : 'bad'
+    );
+    return;
+  }
+
+  if (t.id === 'q_add') {
+    const res = await fetch(`/api/projects/${state.projectId}/prompts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: $('q_text').value })
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      toast(json.error || 'Could not add that question', 'bad');
+      return setupErr(json.error);
+    }
+    await render();
+    toast('Question added. It will be asked on the next cycle.');
+  }
+
+  if (t.dataset.delPrompt) {
+    await fetch(`/api/prompts/${t.dataset.delPrompt}`, { method: 'DELETE' });
+    await render();
+    toast('Question removed');
+  }
+
+  if (t.dataset.togglePrompt) {
+    // Update the row immediately and let the request settle behind it.
+    // Re-rendering the whole tab for a one-field change felt broken.
+    const wasActive = t.dataset.active === 'true';
+    const next = !wasActive;
+    const row = t.closest('.row');
+
+    t.disabled = true;
+    row.classList.toggle('off', !next);
+    t.textContent = next ? 'Pause' : 'Resume';
+    t.dataset.active = String(next);
+
+    try {
+      const res = await fetch(`/api/prompts/${t.dataset.togglePrompt}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: next })
+      });
+      if (!res.ok) throw new Error('save failed');
+      bumpActiveCount(next ? 1 : -1);
+    } catch {
+      // Put it back the way it was rather than leaving a lie on screen.
+      row.classList.toggle('off', !wasActive);
+      t.textContent = wasActive ? 'Pause' : 'Resume';
+      t.dataset.active = String(wasActive);
+      setupErr('Could not save that. Check your connection and try again.');
+    } finally {
+      t.disabled = false;
+    }
+  }
+
+  if (t.id === 'q_generate') {
+    t.disabled = true;
+    t.textContent = 'Writing';
+    const res = await fetch(`/api/projects/${state.projectId}/generate-prompts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ count: 10, language: $('q_site_language').value })
+    });
+    const json = await res.json();
+    await render();
+    if (!res.ok) { setupErr(json.error || 'Could not generate questions.'); return; }
+    if (json.added === 0) setupErr('Nothing new to add. Every suggestion was already on the list.');
+  }
+
+  if (t.id === 's_delete') {
+    if (!confirm('Delete this site and everything measured against it?')) return;
+    await fetch(`/api/projects/${state.projectId}`, { method: 'DELETE' });
+    state.projectId = null;
+    const url = new URL(location.href);
+    url.searchParams.delete('site');
+    history.replaceState({}, '', url);
+    await loadProjectList();
+    await refreshUsagePill();
+  }
+});
+
+/* ---------- add site ---------- */
+
+function parseRivals(text) {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [name, domain] = line.split(',').map((x) => (x || '').trim());
+      return { name, domain };
+    })
+    .filter((r) => r.name);
+}
+
+/* ---------- feedback ---------- */
+
+let feedbackKind = 'bug';
+
+$('feedbackBtn').addEventListener('click', () => {
+  $('fbError').textContent = '';
+  $('feedbackDialog').showModal();
+  $('fbMessage').focus();
+});
+
+$('fbCancel').addEventListener('click', () => $('feedbackDialog').close());
+
+document.addEventListener('click', (e) => {
+  const k = e.target.closest('.kind');
+  if (!k) return;
+  feedbackKind = k.dataset.kind;
+  document.querySelectorAll('.kind').forEach((b) => b.classList.toggle('is-on', b === k));
+});
+
+$('fbSend').addEventListener('click', async () => {
+  const message = $('fbMessage').value.trim();
+  if (message.length < 4) { $('fbError').textContent = 'Tell us a little more than that.'; return; }
+
+  $('fbSend').disabled = true;
+  $('fbSend').textContent = 'Sending';
+
+  try {
+    // Attach the context so nobody has to describe where they were.
+    const res = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: feedbackKind,
+        message,
+        email: $('fbEmail').value.trim(),
+        view: state.view,
+        projectId: state.projectId,
+        path: location.pathname + location.search,
+        viewport: `${window.innerWidth}x${window.innerHeight}`
+      })
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Could not send that');
+
+    $('feedbackDialog').querySelector('form').innerHTML = `
+      <div class="fb-thanks">
+        <h2>Thank you</h2>
+        <p class="dek" style="margin:0 auto 20px;max-width:40ch">
+          Read by a person, not a queue. If you left an email we will come back to you.
+        </p>
+        <button type="button" id="fbClose">Close</button>
+      </div>`;
+    setTimeout(() => $('feedbackDialog').close(), 2600);
+  } catch (err) {
+    $('fbError').textContent = err.message;
+    $('fbSend').disabled = false;
+    $('fbSend').textContent = 'Send';
+  }
+});
+
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'fbClose') $('feedbackDialog').close();
+});
+
+$('addSiteBtn').addEventListener('click', () => {
+  state.demoSetupDomain=null;
+  $('demoQuestionSelection')?.remove();
+  $('f_ambiguous').checked = false;
+  $('f_market').innerHTML = window.countryOptions(window.DEFAULT_COUNTRY);
+  $('siteDialog').showModal();
+  $('f_domain').focus();
+  fillCities(window.DEFAULT_COUNTRY, $('f_city'), $('f_cityHint'));
+});
+
+/**
+ * Changing the country strands whatever city was chosen, so reload the list
+ * rather than leaving a Manchester sitting under a UAE label. The server
+ * rejects that pair anyway; catching it here means nobody has to see the
+ * rejection.
+ */
+$('f_market').addEventListener('change', () => {
+  fillCities($('f_market').value, $('f_city'), $('f_cityHint'));
+});
+
+$('f_scan').addEventListener('click', async () => {
+  const btn = $('f_scan');
+  const note = $('f_scanned');
+  const domain = $('f_domain').value.trim();
+  if (!domain) { note.className = 'hint warn'; note.textContent = 'Enter a domain first.'; return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Reading';
+  note.className = 'hint';
+  note.textContent = 'Reading the homepage';
+  $('siteError').textContent = '';
+
+  try {
+    const res = await fetch('/api/discover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain })
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'Could not read that site');
+
+    $('f_domain').value = d.domain;
+    $('f_brand').value = d.brandName || '';
+    $('f_aliases').value = (d.aliases || []).join(', ');
+    $('f_category').value = d.category || '';
+    $('f_qualifier').value = d.qualifier || '';
+    $('f_market').innerHTML = window.countryOptions(d.market || window.DEFAULT_COUNTRY);
+    fillCities($('f_market').value, $('f_city'), $('f_cityHint'));
+    $('f_rivals').value = (d.competitors || []).map((c) => `${c.name}${c.domain ? ', ' + c.domain : ''}`).join('\n');
+
+    const how = { dataforseo: ' Read through our renderer, since the site blocks direct requests.',
+                  browserless: ' Read with a headless browser.' }[d.via] || '';
+    note.className = d.confident ? 'hint good' : 'hint warn';
+    note.textContent = (d.confident
+      ? 'Filled in from the homepage. Check every field, especially who the customer is.'
+      : 'Read the page but could not infer much. Fill the fields in yourself.') + how;
+  } catch (err) {
+    // A failed scan must not be a dead end. Every field can be typed.
+    note.className = 'hint warn';
+    note.textContent = `${err.message} Fill the fields in below and carry on.`;
+    $('f_brand').focus();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Scan site';
+  }
+});
+$('siteCancel').addEventListener('click', () => $('siteDialog').close());
+
+$('siteSave').addEventListener('click', async () => {
+  if(state.demoSetupDomain && $('f_domain').value.trim().toLowerCase()!==state.demoSetupDomain && document.querySelector('[data-demo-question]:checked')){
+    $('siteError').textContent='These demo questions belong to '+state.demoSetupDomain+'. Restore that domain or uncheck the demo questions before continuing.';
+    return;
+  }
+  if (!syncLocationChoice($('f_city'), $('f_cityHint'))) { $('siteError').textContent = $('f_city')._locationError; return; }
+  const btn = $('siteSave');
+  btn._saving = true;
+  $('siteError').textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Writing questions';
+  try {
+    const res = await fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        demoQuestions: state.demoSetupDomain && $('f_domain').value.trim().toLowerCase()===state.demoSetupDomain ? [...document.querySelectorAll('[data-demo-question]:checked')].map(el=>el.value) : [],
+        brandName: $('f_brand').value,
+        ambiguousName: $('f_ambiguous').checked,
+        aliases: $('f_aliases').value.split(',').map((x) => x.trim()).filter(Boolean),
+        domain: $('f_domain').value,
+        category: $('f_category').value,
+        qualifier: $('f_qualifier').value,
+        market: $('f_market').value,
+        locationName: $('f_city').value,
+        competitors: parseRivals($('f_rivals').value)
+      })
+    });
+    const json = await res.json();
+    if (res.status === 402) {
+      $('siteError').innerHTML =
+        `<span class="limit-msg">${esc(json.error)}</span>` +
+        `<button type="button" class="ghost" data-goto-billing="1">See plans</button>`;
+      return;
+    }
+    if (!res.ok) throw new Error(json.error || 'Could not create the site');
+    $('siteDialog').close();
+    await loadProjectList(json.project.id);
+    state.setupStep='sources';
+    state.view = 'connections';
+    await render();
+    window.scrollTo({top:0});
+    toast(json.questionGenerationWarning || 'Site created. Connect your sources, or continue to review the suggested questions.',json.questionGenerationWarning?'warn':'ok');
+  } catch (err) {
+    $('siteError').textContent = err.message;
+  } finally {
+    btn._saving = false;
+    syncLocationChoice($('f_city'), $('f_cityHint'));
+    btn.textContent = 'Continue to connect sources';
+  }
+});
+
+/* ---------- plan and usage ---------- */
+
+function renewLine(b) {
+  if (b.plan.id === 'free' || !b.currentPeriodEnd) return '';
+  const d = new Date(b.currentPeriodEnd);
+  if (Number.isNaN(d.getTime())) return '';
+  const when = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  return ` &middot; ${b.cancelAtPeriodEnd ? 'access until' : 'renews'} ${when}`;
+}
+
+async function viewBilling() {
+  const [b, meta] = await Promise.all([api('/api/billing'), api('/api/plans')]);
+  if (!b) return '';
+  state.billing = b;
+
+  const u = b.usage;
+  const barClass = u.percent >= 90 ? 'over' : u.percent >= 70 ? 'warn' : '';
+  const spent = u.spend ? `$${Number(u.spend).toFixed(2)} of engine cost` : 'no spend recorded yet';
+
+  // Open on the interval the customer is actually paying for, not always monthly.
+  if (state.interval === null) state.interval = b.plan.id === 'free' ? 'month' : b.interval || 'month';
+  const yearly = state.interval === 'year';
+
+  const cards = meta.plans
+    .map((p) => {
+      const samePlan = p.id === b.plan.id;
+      const sameInterval = p.id === 'free' || b.interval === state.interval;
+      const monthlyEquivalent = yearly && p.priceAnnual ? Math.round(p.priceAnnual / 12) : p.price;
+
+      let cta;
+      if (samePlan && sameInterval) {
+        cta = `<button class="ghost" disabled>Your plan</button>`;
+      } else if (samePlan) {
+        // Same plan, other billing period. Stripe's portal handles the swap.
+        cta = `<button class="ghost" data-portal="1">Switch to ${yearly ? 'yearly' : 'monthly'}</button>`;
+      } else if (p.id === 'free') {
+        cta = `<button class="ghost" data-portal="1">Downgrade</button>`;
+      } else {
+        cta = `<button data-buy="${p.id}">Choose ${esc(p.name)}</button>`;
+      }
+
+      return `
+      <div class="plan ${samePlan ? 'is-current' : ''} ${p.popular && !samePlan ? 'is-popular' : ''}">
+        ${samePlan ? '<div class="plan-flag">Current</div>' : ''}
+        <div class="plan-name">${esc(p.name)}</div>
+        <div class="plan-price">${p.price ? '$' + monthlyEquivalent : 'Free'}<span>${p.price ? '/mo' : ''}</span></div>
+        ${p.price && yearly ? `<div class="plan-annual">$${p.priceAnnual} billed yearly</div>` : ''}
+        <p class="plan-blurb">${esc(p.blurb)}</p>
+        <div class="plan-limits">
+          <span>${p.sites} site${p.sites > 1 ? 's' : ''}</span>
+          <span>${p.questions} questions</span>
+          <span>${p.engines} engine${p.engines > 1 ? 's' : ''}</span>
+          <span>${p.runs} run${p.runs > 1 ? 's' : ''}</span>
+          <span>${p.monthlyCalls.toLocaleString()} checks</span>
+        </div>
+        ${cta}
+      </div>`;
+    })
+    .join('');
+
+  return `
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Your plan</h2>
+      <div class="spacer"></div>
+      ${b.hasStripeCustomer ? '<button class="ghost" data-portal="1">Manage billing</button>' : ''}
+    </div>
+
+    <div class="current-plan">
+      <div>
+        <div class="current-name">${esc(b.plan.name)}</div>
+        <div class="current-meta">
+          ${b.plan.id === 'free'
+            ? 'No card on file'
+            : `$${b.interval === 'year' ? b.plan.priceAnnual : b.plan.price} billed ${b.interval === 'year' ? 'yearly' : 'monthly'}`}
+          ${renewLine(b)}
+        </div>
+      </div>
+      ${b.cancelAtPeriodEnd ? '<div class="tag" style="background:#fbe9e7;color:var(--alert)">Cancels at period end</div>' : ''}
+    </div>
+
+    <div class="usage-top">
+      <div>
+        <div class="usage-big">${u.calls.toLocaleString()} <span>of ${u.limit.toLocaleString()}</span></div>
+        <div class="sub" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">answer checks used this month &middot; ${spent}</div>
+      </div>
+    </div>
+
+    <div class="usage-track"><div class="usage-fill ${barClass}" style="width:${Math.max(u.percent, u.budgetPercent || 0)}%"></div></div>
+    <p class="hint" style="margin-top:10px">
+      ${(u.budgetPercent || 0) > u.percent
+        ? `Heavier surfaces such as ChatGPT use more of the allowance than Google's AI Overview does, so you are ${u.budgetPercent}% through this month's usage on ${u.percent}% of your checks. Switching a site to lighter surfaces makes the allowance go further.<br />`
+        : ''}
+      ${u.remaining > 0
+        ? `${u.remaining.toLocaleString()} left, resetting on the 1st. A cycle trims itself to fit rather than running you over.`
+        : 'Allowance used for this month. Cycles are paused until the 1st, or upgrade to carry on now.'}
+    </p>
+
+    <div class="usage-counts">
+      <span><b>${b.counts.sites}</b> of ${b.plan.sites} sites</span>
+      <span><b>${b.counts.questions}</b> active questions</span>
+      <span>${b.plan.engines} engine${b.plan.engines > 1 ? 's' : ''} allowed</span>
+      <span>${b.plan.runs} run${b.plan.runs > 1 ? 's' : ''} per question</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Plans</h2>
+      <div class="spacer"></div>
+      <div class="switch-int" role="group" aria-label="Billing period">
+        <button class="int-b ${yearly ? '' : 'is-on'}" data-interval="month">Monthly</button>
+        <button class="int-b ${yearly ? 'is-on' : ''}" data-interval="year">Yearly &middot; 2 months free</button>
+      </div>
+    </div>
+    ${b.stripeEnabled ? '' : '<p class="notice" style="margin-bottom:16px">Billing is not configured on this deployment, so everything runs on the Free plan. Add your Stripe keys to enable upgrades.</p>'}
+    <div class="plans">${cards}</div>
+    <p class="hint" style="margin-top:16px">
+      One answer check is one question put to one engine, once. Questions multiply by engines and by runs, which is why the
+      allowance is the number worth watching.
+    </p>
+    <p class="error" id="billingError" role="alert"></p>
+  </div>`;
+}
+
+async function goToStripe(path, body) {
+  const err = $('billingError');
+  if (err) err.textContent = '';
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {})
+  });
+  const json = await res.json();
+  if (!res.ok) { if (err) err.textContent = json.error; return; }
+  window.location.href = json.url;
+}
+
+document.addEventListener('click', async (e) => {
+  const buy = e.target.closest('button[data-buy]');
+  if (buy) {
+    buy.disabled = true;
+    await goToStripe('/api/billing/checkout', { plan: buy.dataset.buy, interval: state.interval });
+    buy.disabled = false;
+  }
+  if (e.target.closest('button[data-portal]')) {
+    await goToStripe('/api/billing/portal');
+  }
+  const int = e.target.closest('button[data-interval]');
+  if (int && int.classList.contains('int-b')) {
+    state.interval = int.dataset.interval;
+    await render();
+  }
+  const goBilling = e.target.closest('[data-goto-billing]');
+  if (goBilling) {
+    e.preventDefault();
+    // Close the Add site sheet first, otherwise the Plan tab loads behind it
+    // and the person has to work out that they need to cancel.
+    const sheet = $('siteDialog');
+    if (sheet?.open) sheet.close();
+    document.querySelector('.tab[data-view="billing"]').click();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+});
+
+/**
+ * A banner while an address is unconfirmed.
+ *
+ * The block happens when a cycle is run, which is the right place, but
+ * discovering it only at that moment is a poor first experience.
+ */
+function showVerifyBar(me) {
+  const bar = document.getElementById('verifyBar');
+  if (!bar) return;
+
+  if (!me?.signedIn || me.emailVerified !== false) {
+    bar.hidden = true;
+    return;
+  }
+  bar.hidden = false;
+  bar.innerHTML = `Confirm your email to run cycles. We sent a link to <b>${esc(me.email || 'your address')}</b>.
+    <button class="ghost" id="resendVerify">Send it again</button>`;
+}
+
+async function refreshUsagePill() {
+  const b = await api('/api/billing');
+  if (!b) return;
+  state.billing = b;
+  const pill = $('usagePill');
+  pill.hidden = false;
+  // An internal account has no sold allowance, so showing one is misleading.
+  pill.textContent = b.internal
+    ? `${b.plan.name} \u00b7 ${b.usage.calls} checks \u00b7 $${(b.usage.spend || 0).toFixed(2)}`
+    : `${b.plan.name} \u00b7 ${b.usage.calls}/${b.usage.limit}`;
+  pill.className = 'pill' + (b.usage.percent >= 90 ? ' over' : b.usage.percent >= 70 ? ' warn' : '');
+}
+
+/* ---------- trend ---------- */
+
+const DATE_FMT = { day: 'numeric', month: 'short' };
+const shortDate = (d) => new Date(d).toLocaleDateString(undefined, DATE_FMT);
+
+/**
+ * Hand-rolled SVG rather than a charting library. The data is a handful of
+ * points on a shared date axis, and a dependency would cost more than it
+ * saves while fighting the design tokens.
+ */
+/**
+ * A line chart you can interrogate.
+ *
+ * Six overlapping lines and a native SVG tooltip is a picture, not an
+ * instrument. Series can be switched off, and hovering anywhere reads out
+ * every visible value at that date rather than requiring an exact hit on a
+ * three-pixel dot.
+ */
+function lineChart(series, { height = 220, showAxis = true, id = 'chart' } = {}) {
+  const dates = [...new Set(series.flatMap((s) => s.points.map((p) => p.date)))].sort();
+  if (dates.length < 2) return null;
+
+  const W = 760;
+  const H = height;
+  const pad = { l: 38, r: 12, t: 14, b: 26 };
+  const x = (d) => pad.l + (dates.indexOf(d) / (dates.length - 1)) * (W - pad.l - pad.r);
+  const y = (v) => pad.t + (1 - v) * (H - pad.t - pad.b);
+
+  const grid = [0, 0.25, 0.5, 0.75, 1]
+    .map(
+      (v) => `<line x1="${pad.l}" y1="${y(v)}" x2="${W - pad.r}" y2="${y(v)}" class="gridline" />
+              ${showAxis ? `<text x="${pad.l - 8}" y="${y(v) + 4}" class="axis" text-anchor="end">${Math.round(v * 100)}%</text>` : ''}`
+    )
+    .join('');
+
+  const xLabels = dates
+    .filter((_, i) => dates.length <= 6 || i % Math.ceil(dates.length / 6) === 0 || i === dates.length - 1)
+    .map((d) => `<text x="${x(d)}" y="${H - 6}" class="axis" text-anchor="middle">${shortDate(d)}</text>`)
+    .join('');
+
+  // Handed to the hover readout so it does not have to parse the SVG back.
+  const dataForHover = series.map((s) => ({
+    label: s.label,
+    colour: s.colour,
+    own: Boolean(s.own),
+    values: Object.fromEntries(s.points.filter((p) => p.value != null).map((p) => [p.date, p.value]))
+  }));
+
+  const lines = series
+    .map((s) => {
+      const pts = s.points.filter((p) => p.value !== null && p.value !== undefined).sort((a, b) => (a.date < b.date ? -1 : 1));
+      if (!pts.length) return '';
+      const path = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.date).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
+      const dots = pts
+        .map(
+          (p) => `<circle cx="${x(p.date).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="${s.own ? 4 : 3}" class="dot" style="fill:${s.colour}">
+                    <title>${esc(s.label)} &middot; ${shortDate(p.date)} &middot; ${Math.round(p.value * 100)}%</title>
+                  </circle>`
+        )
+        .join('');
+      return `<g class="seriesline" data-series="${series.indexOf(s)}">
+        <path d="${path}" class="line ${s.own ? 'own' : ''}" style="stroke:${s.colour}" />${dots}
+      </g>`;
+    })
+    .join('');
+
+  // A hit area per date, so the pointer never has to find the dot itself.
+  const step = (W - pad.l - pad.r) / Math.max(dates.length - 1, 1);
+  const zones = dates
+    .map(
+      (d, i) => `<rect class="hitzone" data-date="${esc(d)}" x="${(x(d) - step / 2).toFixed(1)}" y="${pad.t}"
+        width="${step.toFixed(1)}" height="${(H - pad.t - pad.b).toFixed(1)}" fill="transparent" />`
+    )
+    .join('');
+
+  const marker = `<line class="crosshair" x1="0" y1="${pad.t}" x2="0" y2="${H - pad.b}" style="display:none" />`;
+
+  const toggles = series
+    .map(
+      (s, i) => `<button class="serieskey is-on" data-series="${i}" data-chart="${id}" style="--k:${s.colour}">
+        <span class="swatch"></span>${esc(s.label)}
+      </button>`
+    )
+    .join('');
+
+  window.__charts = window.__charts || {};
+  window.__charts[id] = { series: dataForHover, dates };
+
+  return `<div class="chartwrap" data-chart-id="${id}">
+    <div class="serieskeys">${toggles}</div>
+    <div class="chartbox">
+      <svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Visibility over time" preserveAspectRatio="xMidYMid meet">
+        ${grid}${xLabels}${marker}${lines}${zones}
+      </svg>
+      <div class="readout" hidden></div>
+    </div>
+  </div>`;
+}
+
+function legend(series) {
+  return `<div class="legend">${series
+    .map((s) => `<span class="legend-item"><i style="background:${s.colour}"></i>${esc(s.label)}</span>`)
+    .join('')}</div>`;
+}
+
+const RIVAL_COLOURS = ['#a8601b', '#7b5ea8', '#1f7a8c', '#8a6d3b', '#6b7280'];
+
+async function viewTrends() {
+  const h = await api(`/api/projects/${state.projectId}/history`);
+  if (!h) return '';
+
+  if (h.cycles.length === 0) {
+    return `<div class="empty"><h2>Nothing measured yet</h2><p>Run a cycle and the trend starts here.</p></div>`;
+  }
+  if (h.cycles.length === 1) {
+    const c = h.cycles[0];
+    return `<div class="empty">
+      <h2>One day of results</h2>
+      <p>You were named in <b>${Math.round(c.rate * 100)}%</b> of ${c.runs} answers on ${esc(shortDate(c.date))}.
+      Daily charts use the latest completed measurement per day. Earlier same-day runs remain in Measurement archive. A comparison needs another day with matching settings and a common question-and-engine cohort.</p>
+    </div>`;
+  }
+
+  const first = h.cycles[0];
+  const last = h.cycles[h.cycles.length - 1];
+  const best = h.cycles.reduce((a, b) => (b.rate > a.rate ? b : a));
+
+  /**
+   * Movement is read off the questions asked in every cycle, not off all of
+   * them. Adding questions changes the full-set rate on its own: one project
+   * went from 209 measured answers to 1,324, and its headline fell five
+   * points while the questions present throughout did not move at all. That
+   * five points was the question set, reported as a loss of visibility.
+   */
+  const cohort = (h.comparable || []).filter((c) => c.rate !== null);
+  const cohortFirst = cohort[0];
+  const cohortLast = cohort[cohort.length - 1];
+  const comparable = h.settingsComparable !== false && cohort.length >= 2 && cohortLast.runs >= 30;
+  const change = comparable ? cohortLast.rate - cohortFirst.rate : null;
+
+  /**
+   * Two standard errors on the later cycle. A move inside that is sampling
+   * noise, and calling it a rise or a fall would be inventing a finding.
+   */
+  const noise = comparable
+    ? 2 * Math.sqrt((cohortLast.rate * (1 - cohortLast.rate)) / cohortLast.runs)
+    : null;
+  const settled = change !== null && (noise === null || Math.abs(change) > noise);
+
+  const basis = comparable
+    ? `Measured on the ${cohortLast.runs} answers to questions asked in all ${h.cycles.length} cycles.` +
+      (settled
+        ? ''
+        : ` That is inside the ${Math.round(noise * 100)} point margin at this sample size, so treat it as no measurable change.`)
+    : `No comparable movement claim. Settings are changed or unknown, or a sufficiently measured common cohort is unavailable. Daily charts use the latest completed measurement per day.`;
+
+  /* headline: you against your competitors */
+  const byName = new Map();
+  for (const row of h.byEntity) {
+    if (!byName.has(row.name)) byName.set(row.name, { label: row.name, kind: row.kind, points: [] });
+    byName.get(row.name).points.push({ date: row.date, value: row.rate });
+  }
+  const own = [...byName.values()].find((s) => s.kind === 'owned');
+  const rivals = [...byName.values()]
+    .filter((s) => s.kind !== 'owned')
+    .sort((a, b) => b.points[b.points.length - 1].value - a.points[a.points.length - 1].value)
+    .slice(0, 5);
+
+  const series = [
+    { ...own, colour: 'var(--you)', own: true },
+    ...rivals.map((r, i) => ({ ...r, colour: RIVAL_COLOURS[i % RIVAL_COLOURS.length] }))
+  ].filter(Boolean);
+
+  /* per engine */
+  const engineMap = new Map();
+  for (const row of h.byEngine) {
+    if (!engineMap.has(row.engine)) engineMap.set(row.engine, { label: row.engine, points: [] });
+    engineMap.get(row.engine).points.push({ date: row.date, value: row.rate });
+  }
+  const engineSeries = [...engineMap.values()].map((s, i) => ({ ...s, colour: RIVAL_COLOURS[i % RIVAL_COLOURS.length] }));
+
+  const moversRows = h.movers.length
+    ? h.movers
+        .map((m) => {
+          const pts = Math.round(m.delta * 100);
+          return `<div class="mover">
+            <div class="mover-q">${esc(m.text)}</div>
+            <div class="mover-delta ${pts > 0 ? 'up' : 'down'}">${pts > 0 ? '+' : ''}${pts} pts</div>
+            <div class="mover-nums">${m.before_runs ? `${Math.round(m.before * m.before_runs)} of ${m.before_runs}` : `${Math.round(m.before * 100)}%`} &rarr; ${m.after_runs ? `${Math.round(m.after * m.after_runs)} of ${m.after_runs}` : `${Math.round(m.after * 100)}%`}</div>
+          </div>`;
+        })
+        .join('')
+    // An empty panel with no reason reads as "nothing changed", which is a
+    // stronger claim than "nothing changed by more than the noise".
+    : h.moversHeldBack
+      ? `<p class="hint">${h.moversHeldBack} question${h.moversHeldBack === 1 ? '' : 's'} changed, but each was asked
+         fewer than ${h.moversMinRuns} times in one of the two cycles. Asked once, a question is either named or not,
+         so a single answer flipping looks like a total collapse. Raise runs per question in Settings to tell a real
+         change from ordinary variation.</p>`
+      : '<p class="hint">No supported question-level movement to report.</p>';
+
+  const totalSpend = h.spend.reduce((n, s) => n + Number(s.cost), 0);
+
+  return `
+  <div class="figures">
+    <div class="figure">
+      <div class="label">Since ${esc(shortDate(first.date))}${comparable ? ', like for like' : ''}</div>
+      <div class="value ${!settled ? 'dim' : change > 0 ? 'up' : change < 0 ? 'down' : 'dim'}">${change === null ? 'Not comparable' : `${change > 0 ? '+' : ''}${Math.round(change * 100)}<span style="font-size:16px"> pts</span>`}</div>
+      <div class="sub">was ${Math.round((comparable ? cohortFirst.rate : first.rate) * 100)}%</div>
+    </div>
+    <div class="figure">
+      <div class="label">Best cycle</div>
+      <div class="value">${Math.round(best.rate * 100)}%</div>
+      <div class="sub">${esc(shortDate(best.date))}</div>
+    </div>
+    <div class="figure">
+      <!-- Ordinal is the position among the brands THIS PROJECT tracks that
+           appeared, not among every brand in the answer. If yours is the only
+           tracked name present it reads 1.0, however many untracked firms
+           were listed above it. Labelled for what it measures until it can be
+           computed against every brand named. -->
+      <div class="label">Position among tracked brands${helpDot('Where the brand ranks against the competitors set up on this project, by how often each is named in the same set of answers. It is not a position in the market, and not a place within the text of an answer - only a rank among the brands being tracked here.')}</div>
+      <div class="value">${last.avg_ordinal ? Number(last.avg_ordinal).toFixed(1) : '-'}</div>
+      <div class="sub">${first.avg_ordinal ? `was ${Number(first.avg_ordinal).toFixed(1)}` : 'no earlier reading'}</div>
+    </div>
+    <div class="figure">
+      <div class="label">Cycles run</div>
+      <div class="value">${h.cycles.length}</div>
+      <div class="sub">$${totalSpend.toFixed(2)} all in</div>
+    </div>
+  </div>
+
+  <p class="hint" style="margin:-6px 0 14px">${esc(basis)}${
+    (h.notes || []).length
+      ? ' ' + h.notes.map((n) => `The method changed on ${shortDate(n.date)}: ${n.note}.`).join(' ')
+      : ''
+  }</p>
+
+  <div class="panel">
+    <div class="panel-head"><h2>You against the field</h2></div>
+    ${lineChart(series, { id: 'rivals' }) || '<p class="hint">Not enough cycles yet.</p>'}
+    ${legend(series)}
+    <p class="hint" style="margin-top:12px">Share of answers each brand was named in, cycle by cycle. Hover a point for the exact figure.</p>
+  </div>
+
+  <div class="setup-grid">
+    <div class="panel">
+      <div class="panel-head"><h2>By surface</h2></div>
+      ${lineChart(engineSeries, { height: 190, id: 'engines' }) || '<p class="hint">Not enough cycles yet.</p>'}
+      ${legend(engineSeries)}
+      <p class="hint" style="margin-top:12px">A surface that moves alone usually points at a crawler or freshness problem rather than your content.</p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>What moved</h2></div>
+      ${moversRows}
+      <p class="hint" style="margin-top:12px">Biggest changes between the last two cycles, per question.</p>
+    </div>
+  </div>`;
+}
+
+/* ---------- category landscape ---------- */
+
+function barRow(label, value, max, { own = false, suffix = '' } = {}) {
+  const width = max > 0 ? Math.max(2, (value / max) * 100) : 0;
+  return `<div class="sov-row">
+    <div class="sov-name ${own ? 'own' : ''}">${esc(label)}${own ? ' (you)' : ''}</div>
+    <div class="sov-track"><div class="sov-fill ${own ? 'own' : ''}" style="width:${width}%"></div></div>
+    <div class="sov-val">${value.toLocaleString()}${suffix}</div>
+  </div>`;
+}
+
+async function viewLandscape() {
+  const platform = state.landscapePlatform || 'google';
+  const d = await api(`/api/projects/${state.projectId}/landscape?platform=${platform}`);
+  if (!d) return '';
+  if (d.error) return `<div class="empty"><h2>Could not read the landscape</h2><p>${esc(d.error)}</p></div>`;
+
+  const brand = (d.brand || '').toLowerCase();
+  const ownDomain = (d.ownDomain || '').replace(/^www\./, '');
+
+  const market = state.overview?.project?.market || 'AE';
+  const toggle = `<div class="switch-int" role="group" aria-label="Platform">
+      <button class="int-b ${platform === 'google' ? 'is-on' : ''}" data-landscape="google">Google AI Overview</button>
+      <button class="int-b ${platform === 'chat_gpt' ? 'is-on' : ''}" data-landscape="chat_gpt"
+        title="${market === 'US' ? 'Covers the United States' : 'This dataset covers the United States only'}">
+        ChatGPT${market === 'US' ? '' : ' <em>US only</em>'}
+      </button>
+    </div>`;
+
+  const panel = (title, rows, render, note, err) => `
+    <div class="panel">
+      <div class="panel-head"><h2>${title}</h2></div>
+      ${err ? `<p class="error">${esc(err)}</p>` : rows.length ? render : '<p class="hint">Nothing returned for this category.</p>'}
+      ${note ? `<p class="hint" style="margin-top:12px">${note}</p>` : ''}
+    </div>`;
+
+  const brandsMax = Math.max(...d.brands.map((r) => r.mentions), 1);
+  const domainsMax = Math.max(...d.domains.map((r) => r.mentions), 1);
+
+  return `
+  <div class="landscape-head">
+    ${toggle}
+    <span class="spacer"></span>
+    <span class="tag">${esc((d.keywordsUsed || []).join(' | '))}</span>
+    <span class="tag">${d.totalCount ? d.totalCount.toLocaleString() + ' domains in corpus' : ''}</span>
+    <span class="tag">${d.cached ? 'cached' : '$' + (d.cost || 0).toFixed(2)}</span>
+  </div>
+
+  ${d.coverageWarning ? `<p class="report-warn">${esc(d.coverageWarning)}</p>` : ''}
+
+  <p class="dek" style="margin:16px 0 20px;max-width:70ch">
+    This reads what AI answers already say across your whole category, from a harvested corpus rather than by asking
+    your tracked questions. It costs a fraction of a cycle and shows you brands you never thought to track.
+  </p>
+
+  ${panel('Who owns the conversation',
+    d.brands,
+    d.brands.slice(0, 15).map((r) => barRow(`${r.name}  ${r.share}%`, r.mentions, brandsMax,
+      { own: r.domain === ownDomain })).join(''),
+    `Brands named most often across this category, measured by how often their own domain is cited.
+     Anyone above you here is worth adding as a tracked competitor.`,
+    d.errors?.[0])}
+
+  ${panel('Every source, including the platforms',
+    d.domains,
+    d.domains.slice(0, 15).map((r) => barRow(r.domain, r.mentions, domainsMax, { own: r.domain === ownDomain })).join(''),
+    `The same list before platforms such as YouTube and Wikipedia are filtered out. A platform high on this list is
+     itself a channel worth being present on.`)}`;
+}
+
+boot();
+
+// Question management lives alongside the evidence, not in site settings.
+document.addEventListener('click', async e => {
+  const button = e.target.closest('button');
+  if (!button) return;
+  if (button.hasAttribute('data-open-questions')) { document.querySelector('[data-view="questions"]').click(); return; }
+  const id = button.dataset.questionEdit || button.dataset.questionSave || button.dataset.questionToggle || button.dataset.questionCancel;
+  if (!id) return;
+  const question = state.questionRows?.get(String(id));
+  if (!question) return;
+  const box = $(`question-edit-${id}`);
+  if (button.dataset.questionCancel) { box.hidden = true; return; }
+  if (button.dataset.questionEdit) {
+    box.hidden = false;
+    box.innerHTML = `<label for="question-wording-${id}">Question wording</label><textarea id="question-wording-${id}" rows="3" maxlength="500">${esc(question.text)}</textarea>
+      <p class="hint">Saving creates a new version and pauses this one. Earlier answers keep their original wording. The new version keeps its origin and buyer type, but starts without measurements or a demand estimate.</p>
+      <button class="ghost" data-question-save="${id}">Save revision</button><button class="ghost" data-question-cancel="${id}">Cancel</button><p class="error" role="alert" data-question-error></p>`;
+    return;
+  }
+  button.disabled = true;
+  try {
+    const editing = Boolean(button.dataset.questionSave);
+    const res = await fetch(`/api/prompts/${id}${editing ? '/revise' : ''}`, {
+      method: editing ? 'POST' : 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(editing ? {text: $(`question-wording-${id}`).value, expectedText: question.text} : {active: !question.active})
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Could not save the question.');
+    await render();
+    toast(editing ? (result.unchanged ? 'No wording change to save.' : 'Revision saved. Earlier answers are preserved.') : (question.active ? 'Question paused.' : 'Question resumed.'));
+  } catch (error) {
+    const target = button.dataset.questionSave ? box?.querySelector('[data-question-error]') : null;
+    if (target) target.textContent = error.message;
+    else toast(error.message, 'bad');
+  } finally { button.disabled = false; }
+});
+
+document.addEventListener('click',async event=>{
+ const button=event.target.closest('[data-report-note]');if(!button)return;
+ const projectId=state.projectId;button.disabled=true;
+ try {
+ const response=await fetch(`/api/recommendations/${button.dataset.reportNote}/report-note`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({include:button.dataset.include==='true',version:button.dataset.version})});
+ const data=await response.json();if(!response.ok)throw Error(data.error||'Could not update report note');
+ if(state.projectId===projectId){await render();toast(data.included?'Saved note included in client report.':'Note removed from client report.');}
+ }catch(error){toast(error.message,'bad');}finally{button.disabled=false;}
+});
+
+// Fetch the saved decision, never unsaved form edits, before publishing a report copy.
+document.addEventListener('click',async event=>{
+ const cancel=event.target.closest('[data-report-preview-cancel]');
+ if(cancel){cancel.closest('[data-report-preview-panel]').hidden=true;return;}
+ const button=event.target.closest('[data-report-preview]');if(!button)return;
+ const projectId=state.projectId;
+ const panel=button.closest('[id^="report-controls-"]').querySelector('[data-report-preview-panel]');
+ button.disabled=true;
+ try {
+  const response=await fetch(`/api/recommendations/${button.dataset.reportPreview}/report-note-preview`);
+  const data=await response.json();if(!response.ok)throw Error(data.error||'Could not preview report copy');
+  if(state.projectId!==projectId || !panel.isConnected)return;
+  const copy=(label,value)=>`<section><h4>${label}</h4>${value?`<strong>${esc(value.title)}</strong><p style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(value.notes)}</p>`:'<p>Not included yet.</p>'}</section>`;
+  panel.innerHTML=`<h3>Review client report copy</h3><p class="hint">Only saved content appears here. A reviewed decision replaces older working notes in the report. Your task notes are kept.</p>${copy('Currently in the report',data.current)}${copy('Proposed report copy',data.proposed)}<p class="hint">${data.current&&!data.changed?'The report copy is current.':data.canInclude?'Updating changes the report copy only. It does not mark the action complete.':'Save a decision or note of 12,000 characters or fewer before including it.'}</p>${data.canInclude&&(!data.current||data.changed)?`<button data-report-note="${button.dataset.reportPreview}" data-include="true" data-version="${esc(data.version)}">${data.current?'Update report copy':'Include in client report'}</button>`:''} <button class="ghost" data-report-preview-cancel>Close preview</button>`;
+  panel.hidden=false;
+ }catch(error){toast(error.message,'bad');}finally{button.disabled=false;}
+});
+
+
+function showDemoHandoff(){
+ $('demoHandoff')?.remove();
+ const draft=window.CitedDemoHandoff?.read();
+ if(!draft)return;
+ const domainKey=value=>String(value||'').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/^www\./,'').replace(/\/$/,'');
+ const existing=(state.projects||[]).find(p=>domainKey(p.domain)===domainKey(draft.site.domain));
+ const box=document.createElement('section');box.className='panel';box.id='demoHandoff';
+ box.innerHTML=`<h2>Continue your demo: ${esc(draft.site.domain)}</h2><p>Browser-local notes, retained for 24 hours. These are not verified project measurements and are not included in reports.</p><details><summary>Review tested questions and demo notes</summary>${(Array.isArray(draft.results)?draft.results:[]).slice(0,10).map(r=>`<article><h3>${esc(r.question)}</h3><p>${!r.collectionProfile?'Older demo note · score unavailable':r.status==='inconclusive'||r.mentions==null?'Inconclusive · score withheld':`${esc(r.mentions)} / ${esc(r.runs)} answers`} · ${esc(r.engine)} · ${esc(r.collectedAt||'Collection date unavailable')}</p><p>${esc(r.excerpt||'')}</p></article>`).join('')}</details><p>${existing?'This site already has a project in your account. Review its saved questions before running a measurement.':'Use these notes to choose your project questions. You can select these questions during setup.'} Demo answers are never imported as project measurements, and setup does not run new checks.</p><button type="button" id="demoUseSetup">${existing?'Open project questions':'Use this site for setup'}</button> <button type="button" class="ghost" id="demoDiscard">Discard demo notes</button>`;
+ document.querySelector('main').prepend(box);
+ $('demoDiscard').onclick=()=>{window.CitedDemoHandoff.clear();box.remove();};
+ $('demoUseSetup').onclick=async()=>{
+  if(existing){
+   const button=$('demoUseSetup');button.disabled=true;
+   try{await loadProjectList(existing.id);state.view='questions';await render();$('view').scrollIntoView({block:'start'});}
+   catch(error){toast('Could not open the project. Please try again.','bad');}
+   finally{button.disabled=false;}
+   return;
+  }
+  $('addSiteBtn').click();
+  for(const [field,key] of [['f_domain','domain'],['f_brand','brandName'],['f_category','category'],['f_qualifier','qualifier']])$(field).value=String(draft.site[key]||'');
+  $('f_aliases').value='';$('f_rivals').value='';
+  $('f_market').innerHTML=window.countryOptions(draft.site.market||window.DEFAULT_COUNTRY);
+  fillCities($('f_market').value,$('f_city'),$('f_cityHint'));
+  $('f_scanned').textContent='Prefilled from your demo. Review the details and market before continuing.';
+  state.demoSetupDomain=String(draft.site.domain).trim().toLowerCase();
+  const questions=[...new Set((draft.results||[]).map(r=>r.question).filter(q=>typeof q==='string'&&q.length>=10&&q.length<=500))];
+  if(questions.length){
+    const selection=document.createElement('fieldset');selection.id='demoQuestionSelection';
+    selection.innerHTML=`<legend>Keep questions from your demo</legend><p>Selected wording is kept exactly. These questions use your plan allowance. Answers start unmeasured.</p>${questions.map(q=>`<label style="display:block;margin:12px 0"><input type="checkbox" data-demo-question value="${esc(q)}" checked> ${esc(q)}</label>`).join('')}`;
+    $('siteError').before(selection);
+  }
+
+ };
+}

@@ -1379,6 +1379,15 @@ function questionTools(p, scope, gsc = {}) {
 `;
 }
 
+// Search demand belongs to the saved Google queries and their own dated window.
+// Never present an older import count under refreshed snapshot dates.
+function questionSearchEvidence(origin = {}) {
+  const g = origin.gscSnapshot;
+  if (!g) return '<p class="hint">No dated search snapshot is stored. Refresh Search Console evidence before using demand figures.</p>';
+  const count = value => Number.isFinite(value) && value >= 0 ? value.toLocaleString('en-GB') : 'Not matched';
+  return `<p class="hint"><b>Google search evidence:</b> ${count(g.impressions)} impressions · ${count(g.clicks)} clicks. Period: ${esc(g.startDate || 'not recorded')} to ${esc(g.endDate || 'not recorded')}.</p><p class="hint">${esc(g.property || origin.property || 'Property not recorded')} · ${esc(g.scope || 'Stored query evidence')}. ${count(g.matchedQueries)} of ${count(g.storedQueries)} stored queries matched. These figures describe Google searches, not the number of people asking this AI question.</p>`;
+}
+
 async function viewQuestions() {
   const prompts = (await api(`/api/projects/${state.projectId}/prompts`)) || [];
   state.questionRows = new Map(prompts.map(p => [String(p.id), p]));
@@ -1414,16 +1423,16 @@ async function viewQuestions() {
           ${p.persona ? `<div class="asked-as" title="${esc(p.personaDescriptor || '')}"><span>asked as</span> ${esc(p.persona)}</div>` : ''}
           <div class="prompt-tags">Origin: ${esc(questionSourceLabel(p.source))}${p.revisesPromptId ? ' &middot; revised wording' : ''}${p.originDetails?.baseSource ? ` &middot; based on ${esc(questionSourceLabel(p.originDetails.baseSource))}` : ''}</div>
           ${p.originDetails?.wordingEdited ? `<details><summary>Wording reviewed before import</summary><p class="hint">Initial suggestion:</p><p dir="auto">${esc(p.originDetails.proposedText)}</p><p class="hint">The current question uses your edited wording. Search evidence belongs to the original queries, not a validated equivalent AI question.</p></details>` : ''}
-          ${p.originDetails?.queryExamples?.length ? `<details><summary>Original GSC query examples</summary><p class="hint">${esc(p.originDetails.queryExamples.join(' · '))}</p><p class="hint">${esc(p.originDetails.property || 'Property not recorded')} &middot; original search evidence, not measured AI demand</p></details>` : ''}
+          ${p.originDetails?.queryExamples?.length ? `<details><summary>Original GSC query examples</summary><p class="hint" dir="auto">${esc(p.originDetails.queryExamples.join(' · '))}</p>${questionSearchEvidence(p.originDetails)}</details>` : ''}
           <div class="prompt-tags">
-            ${esc(p.cluster?.replace(/[_-]/g, ' '))} &middot; ${esc(p.intent)} &middot; <span title="Stored demand estimates do not have a verified source attached. They are not measured monthly question counts.">demand unverified</span>
+            ${esc(p.cluster?.replace(/[_-]/g, ' '))} &middot; ${esc(p.intent)} &middot; <span title="AI question volume is not measured. Original Google query evidence, where available, is shown separately above.">AI question volume not measured</span>
             ${p.active ? '' : ' &middot; <span class="paused">paused</span>'}
           </div>
           ${p.measured ? runStrip(p.runs) : `<div class="notrun">${p.active ? 'Not asked yet. Included in the next cycle.' : 'Not asked yet. Paused and excluded from the next cycle.'}</div>`}
           <div class="q-actions">
             ${p.measured ? `<button class="btn" data-see-answer="${p.id}">Read answers</button>` : ''}
+            <button class="ghost" data-brief="${p.id}">Review content brief</button>
             <button class="ghost" data-question-edit="${p.id}">Edit wording</button><details class="question-more"><summary>More actions</summary><div class="q-actions">
-              <button class="ghost" data-brief="${p.id}">Review content brief</button>
               ${p.measured ? `<button class="ghost" data-reask="${p.id}">Ask again now</button><span class="hint">Starts immediately and uses answer checks.</span>` : ''}
               ${p.replacedBy ? '<span class="tag">Superseded by a newer revision</span>' : `<button class="ghost" data-question-toggle="${p.id}">${p.active ? 'Pause' : 'Resume'}</button>`}
             </div></details>
@@ -1436,9 +1445,10 @@ async function viewQuestions() {
           ${p.fanOut?.length ? `<div class="fanout"><span class="fanout-label">searched for</span>${p.fanOut.map((q) => `<span class="chip">${esc(q)}</span>`).join('')}</div>` : ''}
         </div>
         <div class="rates">
+          <div class="ratesplit">Named or cited</div>
           <div class="rate ${p.measured ? rateClass(p.seenRate ?? p.rate) : 'none'}">${p.measured ? pct(p.seenRate ?? p.rate) : '&mdash;'}</div>
           ${
-            p.measured && (p.citedRate || p.rate)
+            p.measured
               ? `<div class="ratesplit" title="Named means the answer said your name. Cited means it linked to your site as a source.">
                   named ${pct(p.rate)} &middot; cited ${pct(p.citedRate || 0)}
                 </div>`
