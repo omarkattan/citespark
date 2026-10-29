@@ -6,8 +6,8 @@ const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5';
 export const hasAnthropic = Boolean(KEY);
 
 /** Single-shot call. Returns plain text, or null if unavailable. */
-export async function complete(prompt, { maxTokens = 1500, system, timeoutMs = 0 } = {}) {
-  if (!KEY) return null;
+export async function complete(prompt, { maxTokens = 1500, system, timeoutMs = 0, onFailure } = {}) {
+  if (!KEY) { onFailure?.('not_configured'); return null; }
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -24,14 +24,15 @@ export async function complete(prompt, { maxTokens = 1500, system, timeoutMs = 0
         messages: [{ role: 'user', content: prompt }]
       })
     });
-    if (!res.ok) return null;
+    if (!res.ok) { onFailure?.(`http_${res.status}`); return null; }
     const json = await res.json();
     return (json.content || [])
       .filter((block) => block.type === 'text')
       .map((block) => block.text)
       .join('\n')
       .trim();
-  } catch {
+  } catch (error) {
+    onFailure?.(/timeout|abort/i.test(error.name||'')?'timeout':'request_failed');
     return null;
   }
 }

@@ -1920,7 +1920,7 @@ app.post('/api/run-all', requireAuth, wrap(async (req, res) => {
 app.post('/api/projects/:id/rebuild', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
-  const recs = await buildRecommendations(project.id);
+  const recs = await buildRecommendations(project.id,{refreshActionPlans:req.body?.refreshActions===true});
   await persistRecommendations(project.id, recs);
   res.json({ ok: true, count: recs.length });
 }));

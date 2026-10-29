@@ -82,7 +82,7 @@ function rec({ type, title, action, targetUrl = null, impact, evidence = {} }) {
   };
 }
 
-export async function buildRecommendations(projectId) {
+export async function buildRecommendations(projectId, {refreshActionPlans=false}={}) {
   const project = (
     await many('SELECT * FROM projects WHERE id = $1', [projectId])
   )[0];
@@ -235,7 +235,7 @@ export async function buildRecommendations(projectId) {
   const ga4=verifiedTraffic.state==='ready'?verifiedTraffic.pages:[];
 
   const recs=evaluateRules({ project, stats, sourceRows, ownCitedByPrompt, citedByPrompt, priorRates, ga4, fanOutByPrompt });
-  return attachImmediateActions(project,recs,cycle);
+  return attachImmediateActions(project,recs,cycle,{refresh:refreshActionPlans});
 }
 
 /**
