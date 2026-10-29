@@ -75,7 +75,7 @@ test('migration is additive, repeatable, and supports archived usage and approva
  const {PGlite}=await import(process.env.PGLITE_MODULE);const db=new PGlite();
  try{
  await db.exec('CREATE TABLE orgs(id int PRIMARY KEY); CREATE TABLE projects(id int PRIMARY KEY); INSERT INTO projects VALUES(31),(99);');
- const sql=readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8').split('-- Batch 85:')[1];
+ const sql=readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8').split('-- Batch 85:')[1].split('-- Batch 133:')[0];
  const migration='-- Batch 85:'+sql;await db.exec(migration);await db.exec(migration);
  await db.query("INSERT INTO report_analyst_drafts(project_id,evidence_hash,packet,status,requested_model,usage,cost_estimate) VALUES($1,'hash','{}','failed','test',$2,$3)",[31,{input_tokens:100,output_tokens:10},{usd:0.1}]);
  const r=await db.query('SELECT usage,cost_estimate FROM report_analyst_drafts WHERE project_id=$1',[31]);assert.equal(r.rows[0].usage.input_tokens,100);assert.equal(r.rows[0].cost_estimate.usd,0.1);
@@ -167,7 +167,7 @@ test('editing preserves original response and references, archives wording, clea
  const {PGlite}=await import(process.env.PGLITE_MODULE),db=new PGlite(),r=report(),p=analyst.analystPacket(r),a=draft(p);
  try{
  await db.exec('CREATE TABLE orgs(id int PRIMARY KEY); CREATE TABLE projects(id int PRIMARY KEY); INSERT INTO projects VALUES(31);');
- await db.exec('-- Batch 85:'+readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8').split('-- Batch 85:')[1]);
+ await db.exec('-- Batch 85:'+readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8').split('-- Batch 85:')[1].split('-- Batch 133:')[0]);
  await db.query("INSERT INTO report_analyst_drafts(id,project_id,evidence_hash,packet,status,requested_model,analysis,raw_response,approved_at) VALUES(7,31,$1,$2,'draft','test',$3,'original raw',now())",[analyst.packetHash(p),p,a]);
  const api=store({many:async()=>[],pool:{connect:async()=>({query:(sql,args)=>db.query(sql,args),release(){}})},one:async(sql,args)=>(await db.query(sql,args)).rows[0],query:async(sql,args)=>{const out=await db.query(sql,args);return {rowCount:out.affectedRows};}});
  const changes=structuredClone(a);changes.findings[0].title='Review developer attribution';changes.findings[0].evidence=[{id:'fabricated',quote:'do not accept this'}];changes.findings[0].kind='proposed_change';

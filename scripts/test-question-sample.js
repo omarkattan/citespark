@@ -47,7 +47,7 @@ test('repair previews, publishes a corrected sample, keeps historical snapshots 
 test('future inheritance includes only active questions and keeps the prior sample immutable',async()=>{
  const {db}=await fixture();try{
  await db.exec('UPDATE prompts SET active=true WHERE id=3');
- const src=readFileSync(new URL('../src/lib/measurement-batches.js',import.meta.url),'utf8').replace(/^import .*;\n/,'').replaceAll('export ','');
+ const src=readFileSync(new URL('../src/lib/measurement-batches.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replaceAll('export ','');
  const h=new Function('one','query','pool',src+';return {inheritMeasurement};')(async(s,p)=>(await db.query(s,p)).rows[0],(s,p)=>db.query(s,p),{});
  const {rows:[batch]}=await db.query(`INSERT INTO measurement_batches(project_id,cycle_date,status,settings,collection_plan) VALUES(28,'2026-09-29','running','{"engines":["chatgpt"],"runs":1}','[{"prompt_id":4,"engine":"chatgpt","run_index":0}]') RETURNING *`);
  await h.inheritMeasurement(batch,batch.settings);

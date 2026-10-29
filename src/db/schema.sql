@@ -659,9 +659,10 @@ INSERT INTO measurement_batches(project_id,cycle_date,status,legacy,started_at,c
  ON CONFLICT (project_id,cycle_date) WHERE legacy DO NOTHING;
 UPDATE runs r SET measurement_id=b.id FROM measurement_batches b
  WHERE r.measurement_id IS NULL AND b.legacy AND b.project_id=r.project_id AND b.cycle_date=r.cycle_date;
+ALTER TABLE measurement_batches ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'monitoring' CHECK(purpose IN ('monitoring','faq_recheck'));
 CREATE OR REPLACE VIEW published_measurements AS
  SELECT DISTINCT ON (project_id,cycle_date) * FROM measurement_batches
- WHERE status='completed' ORDER BY project_id,cycle_date,completed_at DESC,id DESC;
+ WHERE status='completed' AND purpose='monitoring' ORDER BY project_id,cycle_date,completed_at DESC,id DESC;
 CREATE TABLE IF NOT EXISTS measurement_members (
  measurement_id BIGINT NOT NULL REFERENCES measurement_batches(id) ON DELETE CASCADE,
  run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
@@ -679,7 +680,7 @@ ALTER TABLE measurement_batches ADD COLUMN IF NOT EXISTS collection_plan JSONB;
 -- Expand the projection explicitly after the additive table change.
 CREATE OR REPLACE VIEW published_measurements AS
  SELECT DISTINCT ON (project_id,cycle_date) * FROM measurement_batches
- WHERE status='completed' ORDER BY project_id,cycle_date,completed_at DESC,id DESC;
+ WHERE status='completed' AND purpose='monitoring' ORDER BY project_id,cycle_date,completed_at DESC,id DESC;
 
 -- Batch 38: review decisions and retrospective comparisons stay outside historical measurements.
 CREATE TABLE IF NOT EXISTS competitor_review_decisions (
@@ -791,3 +792,56 @@ CREATE INDEX IF NOT EXISTS demo_journeys_started ON demo_journeys(started_at);
 
 -- Batch132: link reused benchmark responses to their original immutable evidence.
 ALTER TABLE report_analyst_drafts ADD COLUMN IF NOT EXISTS import_provenance JSONB;
+
+-- Batch 133: content workflow, with source passages and owner decisions separate.
+ALTER TABLE prompts ALTER COLUMN ai_search_volume DROP DEFAULT;
+UPDATE prompts SET origin_details=COALESCE(origin_details,'{}'::jsonb) ||
+ jsonb_build_object('legacyUnverifiedVolume',ai_search_volume), ai_search_volume=NULL
+ WHERE ai_search_volume IS NOT NULL AND NOT (COALESCE(origin_details,'{}'::jsonb) ? 'aiVolumeEvidence');
+CREATE TABLE IF NOT EXISTS brand_fact_reviews (
+ project_id INTEGER PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+ revision INTEGER NOT NULL DEFAULT 1,
+ facts JSONB NOT NULL DEFAULT '[]',
+ reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS content_jobs (
+ id BIGSERIAL PRIMARY KEY,
+ project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL,
+ request_key TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running','completed','failed')),
+ model TEXT, usage JSONB, estimated_cost_usd NUMERIC(14,8),
+ result JSONB, error TEXT,
+ started_at TIMESTAMPTZ NOT NULL DEFAULT now(), finished_at TIMESTAMPTZ,
+ UNIQUE(project_id,kind,request_key)
+);
+CREATE INDEX IF NOT EXISTS content_jobs_project ON content_jobs(project_id,started_at DESC);
+CREATE TABLE IF NOT EXISTS faq_workflows (
+ id BIGSERIAL PRIMARY KEY,
+ project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ recommendation_id INTEGER NOT NULL UNIQUE REFERENCES recommendations(id) ON DELETE CASCADE,
+ prompt_id INTEGER NOT NULL REFERENCES prompts(id) ON DELETE CASCADE,
+ question TEXT NOT NULL,
+ target_url TEXT NOT NULL DEFAULT '',
+ content JSONB NOT NULL,
+ facts_snapshot JSONB NOT NULL,
+ facts_hash TEXT NOT NULL,
+ revision INTEGER NOT NULL DEFAULT 1,
+ status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','ready','implemented')),
+ baseline_measurement_id BIGINT REFERENCES measurement_batches(id) ON DELETE SET NULL,
+ reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+ reviewed_at TIMESTAMPTZ,
+ implemented_url TEXT, implemented_on DATE,
+ recheck JSONB,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS faq_workflow_history (
+ id BIGSERIAL PRIMARY KEY,
+ workflow_id BIGINT NOT NULL REFERENCES faq_workflows(id) ON DELETE CASCADE,
+ revision INTEGER NOT NULL, snapshot JSONB NOT NULL,
+ saved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+ saved_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE(workflow_id,revision)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS content_jobs_one_active ON content_jobs(project_id,kind)
+ WHERE status='running' AND kind IN ('brand_facts','faq_draft','faq_recheck');

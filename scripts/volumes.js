@@ -76,7 +76,7 @@ for (const p of prompts) {
     console.log(
       `  ${String(p.ai_search_volume).padStart(9)}  ${String(hit.volume).padStart(8)}   ${p.text.slice(0, 62)}`
     );
-    if (fix) await query('UPDATE prompts SET ai_search_volume = $2 WHERE id = $1', [p.id, hit.volume]);
+    if (fix) await query("UPDATE prompts SET ai_search_volume = $2,origin_details=origin_details || jsonb_build_object('aiVolumeEvidence',jsonb_build_object('provider','DataForSEO','retrievedAt',now(),'question',text,'volume',$2::integer)) WHERE id = $1", [p.id, hit.volume]);
   }
 }
 
@@ -84,7 +84,7 @@ console.log(`\n${changed} of ${prompts.length} would change.`);
 if (missing) console.log(`${missing} had no measured figure and were left as they are.`);
 
 if (!fix && changed) {
-  console.log('\nRun with --fix to write them, then rebuild so the priorities reflect it:');
+  console.log('\nRun with --fix to write them, the provenance is saved separately from editorial action priorities:');
   console.log(`  npm run volumes -- ${id} --fix && npm run rebuild -- ${id}\n`);
 } else if (fix) {
   console.log(`\nWritten. Rebuild the actions so the ordering reflects it:  npm run rebuild -- ${id}\n`);

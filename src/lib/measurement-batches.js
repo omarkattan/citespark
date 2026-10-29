@@ -22,7 +22,7 @@ export function measurementSettings(project, models, engines, runs, maxTokens, e
    entities:entities.map(e=>({id:e.id,name:e.name,aliases:e.aliases,domain:e.domain,kind:e.kind,ambiguous_name:e.ambiguous_name})).sort((a,b)=>a.id-b.id)};
 }
 export async function startMeasurement(projectId, day, settings) {
- const prior=await one('SELECT * FROM measurement_batches WHERE project_id=$1 AND status=\'completed\' ORDER BY cycle_date DESC,completed_at DESC,id DESC LIMIT 1',[projectId]);
+ const prior=await one('SELECT * FROM measurement_batches WHERE project_id=$1 AND status=\'completed\' AND purpose=\'monitoring\' ORDER BY cycle_date DESC,completed_at DESC,id DESC LIMIT 1',[projectId]);
  const batch=await one(`INSERT INTO measurement_batches(project_id,cycle_date,status,settings)
  VALUES ($1,$2,'running',$3::jsonb) RETURNING *`,[projectId,day,JSON.stringify(settings)]);
  if (prior && !(await one('SELECT settings=$2::jsonb AS same FROM measurement_batches WHERE id=$1',[prior.id,JSON.stringify(settings)]))?.same) {
@@ -43,7 +43,7 @@ export async function comparableSettings(projectId, period={}) {
  return Boolean(row?.n >= 2 && row.known && row.variants===1);
 }
 export async function inheritMeasurement(batch, settings) {
- const prior=await one(`SELECT * FROM measurement_batches WHERE project_id=$1 AND status='completed'
+ const prior=await one(`SELECT * FROM measurement_batches WHERE project_id=$1 AND status='completed' AND purpose='monitoring'
  ORDER BY cycle_date DESC,completed_at DESC,id DESC LIMIT 1`,[batch.project_id]);
  if (!prior) return;
  // JSONB equality ignores object key order, unlike JSON.stringify.

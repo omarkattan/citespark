@@ -16,7 +16,7 @@ test('snapshot stores paired rendered documents and original values, retry never
  const {PGlite}=await import(process.env.PGLITE_MODULE),db=new PGlite();
  try{
  await db.exec('CREATE TABLE projects(id int primary key); INSERT INTO projects VALUES(31),(32);');
- const migration='-- Batch 99:'+readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8').split('-- Batch 99:')[1];await db.exec(migration);await db.exec(migration);
+ const migration='-- Batch 99:'+readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8').split('-- Batch 99:')[1].split('-- Batch 102:')[0];await db.exec(migration);await db.exec(migration);
  let report=fixture(),builds=0,approved=null;
  const api=module({one:async(sql,args)=>(await db.query(sql,args)).rows[0],many:async(sql,args)=>(await db.query(sql,args)).rows,buildReport:async()=>{builds++;return structuredClone(report);},currentAnalysis:async()=>approved});
  await api.saveReportSnapshot(report.project,id,42,{});

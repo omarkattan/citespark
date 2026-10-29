@@ -1,7 +1,7 @@
 import { comparableSettings } from './measurement-batches.js';
 import { many, query } from '../db/index.js';
 import { classifySource } from './teardown.js';
-import { attachImmediateActions } from './immediate-actions.js';
+import { attachImmediateActions, buyingIntent } from './immediate-actions.js';
 
 /**
  * The recommendations engine.
@@ -12,7 +12,7 @@ import { attachImmediateActions } from './immediate-actions.js';
  * that justify it so the claim can be checked.
  *
  * priority = impact / effort
- *   impact  scales with the AI search volume of the prompt and the size of the gap
+ *   impact  uses editorial buying-intent weights and the observed sample gap
  *   effort  is a fixed 1 to 5 estimate per action type
  */
 
@@ -48,25 +48,8 @@ function citableAdvice(prompt, ownDomain, competitorDomains) {
     (sources.length ? ` Recorded sources to review: ${sources.join(', ')}.` : '');
 }
 
-/**
- * Score volume relative to this project's own question set, not an absolute
- * scale. An absolute scale collapses: if a model assigns every question a
- * high volume they all hit the ceiling and every action lands on the same
- * priority, which is exactly what happened in the first live run.
- *
- * Percentile within the set guarantees a real spread from 25 to 100 however
- * the volumes were estimated, and keeps ordering meaningful when the
- * estimates themselves are unreliable.
- */
-function makeScorer(volumes) {
-  const sorted = [...new Set(volumes.filter((v) => Number.isFinite(v)))].sort((a, b) => a - b);
-  if (sorted.length < 2) return () => 100;
-  return (volume) => {
-    const below = sorted.filter((v) => v < volume).length;
-    const percentile = below / (sorted.length - 1);
-    return Math.round(25 + 75 * percentile);
-  };
-}
+/** Editorial intent weights are not demand estimates or predicted outcomes. */
+export const actionIntentWeight = question => ({pricing:100, comparison:85, selection:85, answer:60})[buyingIntent(question).kind];
 
 function rec({ type, title, action, targetUrl = null, impact, evidence = {} }) {
   const effort = EFFORT[type] || 3;
@@ -303,11 +286,10 @@ export function evaluateRules({
   const out = [];
   const rivalGaps = new Map();
   const rate = (hits, runs) => (runs ? hits / runs : 0);
-  const norm = makeScorer([...prompts.values()].map((p) => p.volume));
 
   for (const p of prompts.values()) {
     const ownRate = rate(p.owned.hits, p.owned.runs);
-    const volumeScore = norm(p.volume);
+    const intentWeight = actionIntentWeight(p.text);
     const avgOrdinal = p.owned.ordinalN ? p.owned.ordinalSum / p.owned.ordinalN : null;
     const cited = ownCitedByPrompt.get(p.id) || 0;
 
@@ -332,7 +314,7 @@ export function evaluateRules({
             (topQuery ? `The stored search trace includes "${topQuery}". A search trace does not establish your ranking or explain source selection. ` : '') +
             'Read the original answers and cited pages, confirm the question fits your buyers, and identify any specific missing information on your relevant page. ' +
             'Update that page only if the review supports a change. Pause irrelevant questions. Record what you reviewed and use a later measurement to check the outcome.',
-          impact: volumeScore * 1.0,
+          impact: intentWeight * 1.0,
           evidence: {
             prompt_id: p.id,
             prompt: p.text,
@@ -353,7 +335,7 @@ export function evaluateRules({
           type: 'citable_asset',
           title: "Review mentions and source links" + `: ${p.text}`,
           action: citableAdvice(p, ownDomain, competitorDomains),
-          impact: volumeScore * 0.8 * ownRate,
+          impact: intentWeight * 0.8 * ownRate,
           evidence: {
             prompt_id: p.id,
             prompt: p.text,
@@ -375,7 +357,7 @@ export function evaluateRules({
           type: 'entity_authority',
           title: "Review citations and brand naming" + `: ${p.text}`,
           action: "This task records citations alongside a low rate of brand naming. Compare the cited page with the answer. Check whether the brand identity is accurate and whether naming it is relevant to the question. Correct a specific identity error if found. A citation without a name does not diagnose a schema problem.",
-          impact: volumeScore * 0.7,
+          impact: intentWeight * 0.7,
           evidence: { prompt_id: p.id, prompt: p.text, own_rate: Math.round(ownRate * 100), citations: cited }
         })
       );
@@ -387,8 +369,8 @@ export function evaluateRules({
         rec({
           type: 'ordinal_push',
           title: "Review where the brand appears" + `: ${p.text}`,
-          action: "This task flagged the brand's recorded position in answers. Read the original list and check whether its order expresses a ranking. An extracted position is not a measure of attention or preference. Record any factual omission or misleading comparison you can substantiate. Do not commission extra references solely to change this position.",
-          impact: volumeScore * 0.5 * (avgOrdinal / 5),
+          action: "This task records first-mention order among tracked brands in the answer text. This is not a recommendation rank, attention or preference measure. Read the original answer before interpreting any list order. Record any factual omission or misleading comparison you can substantiate. Do not commission extra references solely to change this position.",
+          impact: 0,
           evidence: { prompt_id: p.id, prompt: p.text, avg_ordinal: Number(avgOrdinal.toFixed(2)) }
         })
       );
@@ -405,7 +387,7 @@ export function evaluateRules({
         const g = rivalGaps.get(c.name);
         g.questions.push({ prompt_id: p.id, text: p.text, theirs: Math.round(cRate * 100), yours: Math.round(ownRate * 100), own_runs: p.owned.runs, competitor_runs: c.runs });
         g.gapSum += cRate - ownRate;
-        g.impact += volumeScore * (cRate - ownRate);
+        g.impact += intentWeight * (cRate - ownRate);
       }
     }
 
@@ -420,7 +402,7 @@ export function evaluateRules({
             type: 'engine_gap',
             title: "Compare answers across engines" + `: ${p.text}`,
           action: "This task flagged different brand-naming rates across engines in its stored sample. Read each engine's answers and check sample sizes, question wording, dates and model settings. Different engines may answer the same question differently. Investigate a specific content or access issue only if the evidence supports it. An engine gap alone does not prove a crawling, indexing or profile problem.",
-          impact: volumeScore * 0.45,
+          impact: intentWeight * 0.45,
             evidence: { prompt_id: p.id, prompt: p.text, best: best.engine, worst: worst.engine }
           })
         );
@@ -434,7 +416,7 @@ export function evaluateRules({
           type: 'sentiment_correction',
           title: "Review a flagged brand description" + `: ${p.text}`,
           action: "An automated check flagged negative language. Its interpretation needs review. Read the full answer to confirm that the language refers to your brand and is inaccurate or misleading. Check any linked source independently. Correct a verified error in material you control, or request a correction with evidence. Do not assume a cited page caused the wording or publish a response before checking.",
-          impact: volumeScore * 0.9,
+          impact: intentWeight * 0.9,
           evidence: { prompt_id: p.id, prompt: p.text, snippet: p.owned.snippet, run_id: p.owned.sampleRun }
         })
       );
@@ -448,7 +430,7 @@ export function evaluateRules({
           type: 'fanout_target',
           title: "Review recorded search queries" + `: ${p.text}`,
           action: "This task includes search queries recorded during answer collection. Compare the recorded queries with the buyer question and sources. A trace does not establish your search rank or explain source selection. Use a relevant query as a research lead. Validate buyer intent and any missing information before choosing a page change. Page-one ranking is not established here as a requirement for AI inclusion." + ` Recorded queries: ${list}.`,
-          impact: volumeScore * 0.75 * (1 - ownRate),
+          impact: intentWeight * 0.75 * (1 - ownRate),
           evidence: { prompt_id: p.id, prompt: p.text, queries: fanOut.map((f) => f.query), own_rate: Math.round(ownRate * 100) }
         })
       );
@@ -462,7 +444,7 @@ export function evaluateRules({
           type: 'decline_alert',
           title: "Review a possible measurement change" + `: ${p.text}`,
           action: "Stored cycle summaries differ. This card alone does not establish a like-for-like decline. Open the trend view and compare the same questions and engines, including sample sizes and measurement-method changes. Only investigate a decline after confirming a comparable cohort. Record a supported finding rather than assuming competitors or indexing caused the difference.",
-          impact: volumeScore * (before - ownRate) * 1.2,
+          impact: intentWeight * (before - ownRate) * 1.2,
           evidence: { prompt_id: p.id, prompt: p.text, before: Math.round(before * 100), now: Math.round(ownRate * 100) }
         })
       );

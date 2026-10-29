@@ -615,14 +615,12 @@ await test('one comparison action per rival, however many questions they win', (
   assert.ok(comps[0].title.includes('5 questions'));
 });
 
-await test('priorities spread even when every volume estimate is high', () => {
-  const stats = [];
-  const volumes = [5000, 4800, 4600, 4400, 4200];
-  volumes.forEach((v, i) => stats.push(stat({ prompt_id: i + 1, text: `q${i}`, ai_search_volume: v, hits: 0 })));
-  const recs = evaluateRules({ project, stats });
-  const priorities = new Set(recs.map((r) => r.priority));
-  assert.ok(priorities.size >= 4, `expected a spread, got ${[...priorities].join(', ')}`);
-  assert.ok(Math.max(...priorities) > Math.min(...priorities) * 2, 'top action clearly outranks the bottom');
+await test('unverified volume cannot change action priority; buying intent remains an editorial weight', () => {
+  const questions=['What does this service cost?','Which provider should I choose?','How does this work?'];
+  const run=volumes=>evaluateRules({project,stats:questions.map((text,i)=>stat({prompt_id:i+1,text,ai_search_volume:volumes[i],hits:0}))});
+  const first=run([5000,1,900]),second=run([0,999999,null]);
+  assert.deepEqual(first.map(r=>[r.type,r.evidence.prompt_id,r.priority]),second.map(r=>[r.type,r.evidence.prompt_id,r.priority]));
+  assert.ok(first.find(r=>r.evidence.prompt_id===1).priority>first.find(r=>r.evidence.prompt_id===3).priority);
 });
 
 await test('no more than two actions per question', () => {
@@ -3728,14 +3726,14 @@ await test('a change in what is measured is recorded when it happens', async () 
   assert.ok(/The method changed on/.test(app), 'and the trend page shows it');
 });
 
-await test('position is labelled as position among tracked brands', async () => {
+await test('mention order is labelled separately from recommendation rank', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
 
-  // analyseRun ranks only the entities this project tracks that appeared, so
+  // analyseRun orders first mentions of tracked entities in the text, so
   // being the only tracked name present reads 1.0 however many untracked
   // firms were listed above. "Position in answer" claimed more than that.
-  assert.ok(/Position among tracked brands/.test(app), 'the label must match what is measured');
+  assert.ok(/First-mention order/.test(app), 'the label must match what is measured');
   assert.ok(!/Position in answer/.test(app), 'and the overclaiming label must be gone');
 });
 
@@ -3789,7 +3787,7 @@ await test('the overview says what it measures, in words and dates', async () =>
   // The trend card was relabelled and this one, on the more prominent page,
   // was missed. Ordinal ranks only the tracked brands that appeared.
   assert.ok(!/Avg position in answer/.test(app), 'the overclaiming label must be gone everywhere');
-  assert.equal((app.match(/Position among tracked brands/g) || []).length, 2, 'both cards say what is measured');
+  assert.equal((app.match(/class="label">First-mention order/g) || []).length, 2, 'both cards say what is measured');
   assert.ok(!/1 is first named/.test(app), 'and the caption with it');
 
   // "2026-08-25T00:00:00.000Z" was reaching the screen in three places.

@@ -225,7 +225,7 @@ export async function engineCosts(orgId) {
  * up, look around and configure a site before proving anything. What they
  * cannot do is run cycles on an address that may not exist.
  */
-async function verifiedEnough(orgId) {
+export async function verifiedEnough(orgId) {
   const row = await one(
     `SELECT COUNT(*) FILTER (WHERE email_verified_at IS NOT NULL)::int AS verified,
             MIN(created_at) AS first_user

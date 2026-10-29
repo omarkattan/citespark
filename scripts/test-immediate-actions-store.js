@@ -21,7 +21,7 @@ INSERT INTO recommendations(project_id,fingerprint,type,title,action,evidence,re
 INSERT INTO report_review_notes VALUES(1,39,'Fixed report copy');`);
 const ctx=vm.createContext({many:async(sql,p)=>(await db.query(sql,p)).rows,query:(sql,p)=>db.query(sql,p),ownPageUrl,pageMatch,console,
  readActionPages:async()=>[{id:'page-1',url:'https://example.org/products/serum',title:'Routine serum cost',text:'Our routine serum comes in a labelled pack with clear usage instructions.',read_at:'2026-10-29'}],
- complete:async()=>{generations++;return '[]';},parseJsonArray:JSON.parse});
+ complete:async()=>{generations++;return '[]';},recordedCompletion:async()=>{generations++;return '[]';},parseJsonArray:JSON.parse});
 const source=readFileSync(new URL('../src/lib/immediate-actions.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replace(/export /g,'');vm.runInContext(source,ctx);
 const recSource=readFileSync(new URL('../src/lib/recommend.js',import.meta.url),'utf8');vm.runInContext(recSource.slice(recSource.indexOf('export async function persistRecommendations')).replace('export ',''),ctx);
 const project={id:39,domain:'example.org',name:'Example'},cycle=new Date('2026-10-29');

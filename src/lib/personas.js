@@ -346,7 +346,7 @@ export async function personaGap(projectId, personaId) {
      WHERE r.project_id = $1 AND r.ok AND r.cycle_date = $2 AND ${where}
      GROUP BY p.id, p.text, p.ai_search_volume, pe.descriptor
      HAVING COUNT(*) FILTER (WHERE m.mentioned) = 0
-     ORDER BY p.ai_search_volume DESC NULLS LAST LIMIT 12`,
+     ORDER BY p.id NULLS LAST LIMIT 12`,
     args
   );
 

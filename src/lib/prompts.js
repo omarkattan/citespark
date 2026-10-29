@@ -35,7 +35,7 @@ Rules:
 - Prefer evergreen wording without a year. If a current-year qualifier is essential, use the supplied current year, never a past or future year.
 - Cover a spread of intent: category discovery, comparison, "best X for Y" with a qualifier, problem-led, and pricing or process questions.
 - Include location or sector qualifiers where the business is local or vertical.
-- Return ONLY a JSON array. Each item: {"text": string, "cluster": string, "intent": "discovery"|"comparison"|"commercial"|"problem", "ai_search_volume": integer estimate 0-5000}
+- Return ONLY a JSON array. Each item: {"text": string, "cluster": string, "intent": "discovery"|"comparison"|"commercial"|"problem"}
 - No preamble, no markdown fences.`;
 
 const TEMPLATES = [
@@ -59,7 +59,7 @@ function templateSet({ category, market, qualifier }) {
       .replace('{qualifier}', qualifier),
     cluster: row.cluster,
     intent: row.intent,
-    ai_search_volume: 500 - i * 30
+    ai_search_volume: null
   }));
 }
 
@@ -132,7 +132,7 @@ Write ${count} questions.`;
         text: p.text.trim(),
         cluster: String(p.cluster || 'general').toLowerCase(),
         intent: ['discovery', 'comparison', 'commercial', 'problem'].includes(p.intent) ? p.intent : 'commercial',
-        ai_search_volume: Number.isFinite(p.ai_search_volume) ? Math.max(0, Math.round(p.ai_search_volume)) : 100
+        ai_search_volume: null
       }))
       .slice(0, count);
     if (suggestions.length) return suggestions;

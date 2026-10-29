@@ -33,7 +33,7 @@ async function fixture(){
  INSERT INTO mentions SELECT id,2,true,1 FROM runs;
  INSERT INTO runs(project_id,cycle_date,ok,response_text,cost_usd,prompt_id,engine) VALUES(1,'2026-09-28',true,'New question',.01,999,'gemini');
  INSERT INTO mentions SELECT max(id),1,true,1 FROM runs;`);
- const schema=readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8').split('-- Batch 29:')[1];
+ const schema=readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8').split('-- Batch 29:')[1].split('-- Batch 38:')[0];
  await db.exec('-- Batch 29:'+schema);return db;
 }
 test('single materialised cohort preserves rates, counts, days, missing mentions and site isolation',async()=>{

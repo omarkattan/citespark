@@ -197,7 +197,7 @@ function runStrip(runs) {
           // Three states, not two: named, linked but not named, neither.
           const state = r.mentioned == null ? 'unrun' : r.mentioned ? 'hit' : r.cited ? 'cited' : 'miss';
           const label = r.mentioned == null ? 'not measured: no brand verdict available' : r.mentioned
-            ? `named at position ${r.ordinal}`
+            ? r.ordinal ? `named, first-mention order ${r.ordinal} among tracked brands` : 'named; mention order unavailable'
             : r.cited
               ? 'linked as a source, but not named in the answer'
               : 'neither named nor linked';
@@ -461,7 +461,7 @@ function immediateActionSection(tasks, {offerPrepare=false}={}) {
   return `<section class="immediate-actions" aria-label="Specific next actions"><header><div><p class="eyebrow">Start here</p><h2>Your next ${selected.length===1?'action':selected.length+' actions'}</h2><p>Check the suggested change, then save your action. Buying questions are prioritised as an editorial starting point, not a forecast of demand or results.</p></div><button class="ghost" data-rebuild-actions title="Recheck pages and draft suggestions using the saved answers. No new answer checks.">Refresh suggested actions</button></header><div class="action-plan-grid">${selected.map((task,i)=>{
     const plan=task.evidence.action_plan,decision=savedDecisionPreview(task)?task.review_decision:null;
     const label=decision?decisionLabel(decision.stage):plan.mode==='retain'?'Keep and check':plan.mode==='improve'?'Suggested edit':'Specific check';
-    return `<article class="action-plan" data-plan-id="${task.id}" dir="auto"><span class="plan-badge">${i+1}. ${esc(label)}</span><p class="plan-question">Question: ${esc(plan.question)}</p><h3>${esc(decision?.title||plan.title)}</h3><p class="plan-change">${esc(decision?.change||plan.change)}</p><p class="plan-page"><b>Page</b><br>${(decision?.page||plan.page)?safeLink(decision?.page||plan.page,decision?.page||plan.page):'Choose the relevant existing page. A matching page could not be verified.'}</p><p><b>Why this action</b><br>${esc(decision?.purpose||plan.rationale)}</p>${!decision&&plan.suggested_questions?.length?`<details><summary>Suggested questions for this page</summary><ul>${plan.suggested_questions.map(q=>`<li>${esc(q)}</li>`).join('')}</ul><p class="hint">Editorial suggestions, not measured question demand.</p></details>`:''}<details><summary>View supporting evidence</summary><p>${esc(plan.evidence.observation)}</p>${plan.evidence.answer_url?safeLink(plan.evidence.answer_url,'Open the measured answer'):''}<blockquote>${esc(plan.evidence.answer_quote)}</blockquote>${plan.evidence.page_quote?`<p>Read from the page on ${esc(shortDate(plan.evidence.page_read_at))}:</p><blockquote>${esc(plan.evidence.page_quote)}</blockquote>`:`<p>${plan.page_status==='candidate'?'A possible page was found. Its answer coverage still needs checking.':'No matching page content was verified. Check the website before editing.'}</p>`}<p>Page excerpts are a limited check, not a full site audit. Suggested edits need factual approval.</p></details><div class="plan-use"><button data-use-action-plan="${task.id}">${decision?'Open saved action':'Review and save action'}</button></div></article>`;
+    return `<article class="action-plan" data-plan-id="${task.id}" dir="auto"><span class="plan-badge">${i+1}. ${esc(label)}</span><p class="plan-question">Question: ${esc(plan.question)}</p><h3>${esc(decision?.title||plan.title)}</h3><button class="faq-quick" data-draft-faq="${task.id}" data-project-id="${state.projectId}">Draft this FAQ</button><p class="plan-change">${esc(decision?.change||plan.change)}</p><p class="plan-page"><b>Page</b><br>${(decision?.page||plan.page)?safeLink(decision?.page||plan.page,decision?.page||plan.page):'Choose the relevant existing page. A matching page could not be verified.'}</p><p><b>Why this action</b><br>${esc(decision?.purpose||plan.rationale)}</p>${!decision&&plan.suggested_questions?.length?`<details><summary>Suggested questions for this page</summary><ul>${plan.suggested_questions.map(q=>`<li>${esc(q)}</li>`).join('')}</ul><p class="hint">Editorial suggestions, not measured question demand.</p></details>`:''}<details><summary>View supporting evidence</summary><p>${esc(plan.evidence.observation)}</p>${plan.evidence.answer_url?safeLink(plan.evidence.answer_url,'Open the measured answer'):''}<blockquote>${esc(plan.evidence.answer_quote)}</blockquote>${plan.evidence.page_quote?`<p>Read from the page on ${esc(shortDate(plan.evidence.page_read_at))}:</p><blockquote>${esc(plan.evidence.page_quote)}</blockquote>`:`<p>${plan.page_status==='candidate'?'A possible page was found. Its answer coverage still needs checking.':'No matching page content was verified. Check the website before editing.'}</p>`}<p>Page excerpts are a limited check, not a full site audit. Suggested edits need factual approval.</p></details><div class="plan-use"><button data-use-action-plan="${task.id}">${decision?'Open saved action':'Review and save action'}</button></div></article>`;
   }).join('')}</div></section>`;
 }
 function actionPlanDecision(plan) {
@@ -488,6 +488,23 @@ document.addEventListener('click',async event=>{
     form.scrollIntoView({block:'start',behavior:'smooth'});$(`decision-stage-${task.id}`).focus({preventScroll:true});
   }catch(error){toast(error.message,'bad');}finally{button.disabled=false;}
 });
+
+window.CitedFaqToAction=async data=>{
+  try{
+    if(Number(data.project.id)!==Number(state.projectId))throw Error('Open this site before loading its FAQ into an action.');
+    state.view='actions';state.taskFilter='active';state.opportunityKind='all';state.opportunityDecision='all';await render();
+    const id=data.action.id,card=document.querySelector(`[data-task="${id}"]`);
+    if(!card)throw Error('This action is no longer in the active list. Your FAQ is still saved.');
+    const form=card.querySelector('.task-decision > details');
+    for(let parent=card;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
+    form.open=true;
+    const values={stage:'ready',page:data.draft.target_url,change:`FAQ: ${data.draft.question}\n\n${data.draft.content.answer}`,
+      evidence:data.draft.facts_snapshot.filter(f=>data.draft.content.fact_ids.includes(f.id)).map(f=>`${f.statement} — ${f.source_url}`).join('\n')};
+    for(const [key,value] of Object.entries(values)){const input=$(`decision-${key}-${id}`);if(input)input.value=value;}
+    form.querySelector('[data-decision-feedback]').textContent='Approved FAQ loaded for review. Save this decision, then use Preview report wording to include it in the client report. Your previously saved action has not been changed yet.';
+    form.scrollIntoView({block:'start',behavior:'smooth'});return true;
+  }catch(error){toast(error.message,'bad');return false;}
+};
 
 function savedDecisionPreview(task) {
   const d=task.review_decision;
@@ -843,8 +860,8 @@ const REVIEW_GUIDANCE = {
   ],
   "ordinal_push": [
     "Review where the brand appears",
-    "This task flagged the brand's recorded position in answers.",
-    "Read the original list and check whether its order expresses a ranking. An extracted position is not a measure of attention or preference.",
+    "This task records first-mention order among tracked brands in the answer text.",
+    "First-mention order is not a recommendation rank, attention or preference measure. Read the original answer before interpreting list order.",
     "Record any factual omission or misleading comparison you can substantiate. Do not commission extra references solely to change this position."
   ],
   "engine_gap": [
@@ -1468,7 +1485,6 @@ async function viewQuestions() {
         data-intent="${esc(p.intent || '')}"
         data-state="${p.measured ? (p.rate === 0 ? 'invisible' : p.rate < 0.5 ? 'weak' : 'strong') : 'unrun'}"
         data-rate="${p.measured ? p.rate : -1}"
-        data-volume="${p.volume || 0}"
         data-title="${esc((p.persona ? p.text.slice(-80) : p.text).toLowerCase())}"
         data-filter-text="${esc(`${p.text} ${p.cluster} ${p.intent} ${p.persona || ''} ${p.citations.map((c) => c.domain).join(' ')}`.toLowerCase())}">
         <div style="min-width:0">
@@ -1639,7 +1655,6 @@ async function viewQuestions() {
             <option value="opportunity">Suggested priority</option>
             <option value="rate-asc">Least visible first</option>
             <option value="rate-desc">Most visible first</option>
-            <option value="volume">Stored demand estimate (unverified)</option>
             <option value="az">A to Z</option>
           </select>
         </span>
@@ -1670,7 +1685,7 @@ async function viewQuestions() {
                   <div><b>${esc(p.persona)}</b><br /><span class="dupewho">${p.questions} question${p.questions === 1 ? '' : 's'}</span></div>
                   <div class="pcnum">${pct(p.rate)}</div>
                   <div class="barcell" style="width:150px"><span class="bar ${(p.rate || 0) < 0.2 ? 'hot' : ''}"><i style="width:${Math.round((p.rate || 0) * 100)}%"></i></span></div>
-                  <div class="pcnum">${p.avg_position ? `pos ${p.avg_position.toFixed(1)}` : ''}</div>
+                  <div class="pcnum">${p.avg_position ? `mention order ${p.avg_position.toFixed(1)}` : ''}</div>
                   <div><button class="seeanswer" data-persona-gap="${p.persona_id || 'none'}">Why</button></div>
                 </div>
                 <div class="answers" id="gap-${p.persona_id || 'none'}" hidden></div>`
@@ -1708,7 +1723,7 @@ async function viewQuestions() {
       <label>Origin <select data-select-group="origin"><option value="all">All origins</option>${[...new Set(prompts.map(p => p.source?.startsWith('gsc') ? 'gsc' : p.source || 'unknown'))].map(source => `<option value="${esc(source)}">${esc(source === 'gsc' ? 'Google Search Console' : questionSourceLabel(source))}</option>`).join('')}</select></label></div>
     ${searchBox('promptFilter', 'Search questions, topics or cited domains', 'promptFilterCount')}
     <details class="question-filters"${advancedActive ? ' open' : ''}><summary>Advanced filters and sorting</summary>
-    <p class="hint">Suggested priority uses visibility and stored demand estimates. Those estimates may be generated or imported; their source is not verified here. They are not measured monthly AI question counts.</p>
+    <p class="hint">Questions with the lowest observed brand-naming rate appear first. This is a way to review this sample, not a measure of demand or predicted business impact. AI question volume is not measured.</p>
     ${filters}</details>
     <p class="hint">Select a question to organise several at once.</p>
     ${bulkBar}
@@ -2107,16 +2122,16 @@ async function renderFigures() {
       <div class="sub">${o.runs} answers read</div>
     </div>
     <div class="figure">
-      <!-- Ranks only the brands this project tracks that appeared, so being
+      <!-- Orders first textual mentions only among tracked brands, so being
            the only tracked name present reads 1.0 however many untracked
            firms were listed above. -->
-      <div class="label">Position among tracked brands${helpDot('Where the brand ranks against the competitors set up on this project, by how often each is named in the same set of answers. It is not a position in the market, and not a place within the text of an answer - only a rank among the brands being tracked here.')}</div>
+      <div class="label">First-mention order${helpDot('Average order of the first textual mention among tracked brands, in answers that name this brand. This is not a recommendation rank, preference score or market position.')}</div>
       <div class="value ${o.avgOrdinal ? '' : 'dim'}">${o.avgOrdinal ? o.avgOrdinal.toFixed(1) : '-'}</div>
-      <div class="sub">1 is first of the brands you track</div>
+      <div class="sub">1 is the first tracked brand mentioned</div>
     </div>
     ${engineCells}
     <button class="figure figure-btn" data-spend title="Where this went, and what turning each part off would save">
-      <div class="label">Last cycle cost</div>
+      <div class="label">Last answer-check cost</div>
       <div class="value">$${(o.spend || 0).toFixed(2)}</div>
       <div class="sub" data-spend-sub>${esc(shortDate(o.cycle))} &middot; tap to break down</div>
     </button>
@@ -3016,13 +3031,11 @@ function applyQuestionView() {
         return (num(a, 'rate') < 0 ? 2 : num(a, 'rate')) - (num(b, 'rate') < 0 ? 2 : num(b, 'rate'));
       case 'rate-desc':
         return num(b, 'rate') - num(a, 'rate');
-      case 'volume':
-        return num(b, 'volume') - num(a, 'volume');
       case 'az':
         return a.dataset.title.localeCompare(b.dataset.title);
       default: {
-        // Most asked and least visible first, which is where the work is.
-        const score = (r) => (num(r, 'rate') < 0 ? 0 : (1 - num(r, 'rate')) * Math.log10((num(r, 'volume') || 10) + 10));
+        // Lowest observed naming rate first; no invented demand weighting.
+        const score = (r) => (num(r, 'rate') < 0 ? 0 : (1 - num(r, 'rate')));
         return score(b) - score(a);
       }
     }
@@ -3111,7 +3124,7 @@ document.addEventListener('click', async (e) => {
                         ? ` <button class="moretext" data-more="${esc(full)}">read more</button>`
                         : ''
                     }</span>
-                    <span class="pcnum">${q.volume || ''}</span>
+                    <span class="pcnum">Demand unmeasured</span>
                   </div>`;
                 })
                 .join('')}
@@ -3635,7 +3648,7 @@ document.addEventListener('click', async (e) => {
         const verdict = !r.measured
           ? `<span class="tag" title="${esc(r.unmeasuredReason || 'No brand measurement is available for this answer.')}">not measured</span>`
           : r.mentioned
-            ? `<span class="tag ok">named${r.ordinal ? `, ${r.ordinal}${r.ordinal === 1 ? 'st' : r.ordinal === 2 ? 'nd' : r.ordinal === 3 ? 'rd' : 'th'}` : ''}</span>`
+            ? `<span class="tag ok">named${r.ordinal ? `, mention order ${r.ordinal}` : ''}</span>`
             : '<span class="tag">not named</span>';
         /**
          * Two blocks for one engine used to mean a bug. Now it only ever
@@ -6158,7 +6171,7 @@ async function viewTrends() {
            tracked name present it reads 1.0, however many untracked firms
            were listed above it. Labelled for what it measures until it can be
            computed against every brand named. -->
-      <div class="label">Position among tracked brands${helpDot('Where the brand ranks against the competitors set up on this project, by how often each is named in the same set of answers. It is not a position in the market, and not a place within the text of an answer - only a rank among the brands being tracked here.')}</div>
+      <div class="label">First-mention order${helpDot('Average order of the first textual mention among tracked brands, in answers that name this brand. This is not a recommendation rank, preference score or market position.')}</div>
       <div class="value">${last.avg_ordinal ? Number(last.avg_ordinal).toFixed(1) : '-'}</div>
       <div class="sub">${first.avg_ordinal ? `was ${Number(first.avg_ordinal).toFixed(1)}` : 'no earlier reading'}</div>
     </div>

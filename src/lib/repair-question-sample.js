@@ -28,7 +28,7 @@ export async function repairQuestionSample(db, projectId, measurementId, {apply=
   // Use the same lock as collection. Do not publish over a newer measurement.
   const {rows:[lock]}=await db.query('SELECT pg_try_advisory_xact_lock(290029,$1) AS locked',[projectId]);
   if(!lock.locked) throw Error('A measurement is running. Try again after it finishes.');
-  const {rows:[latest]}=await db.query(`SELECT id FROM measurement_batches WHERE project_id=$1 AND status='completed'
+  const {rows:[latest]}=await db.query(`SELECT id FROM measurement_batches WHERE project_id=$1 AND status='completed' AND purpose='monitoring'
     ORDER BY cycle_date DESC,completed_at DESC,id DESC LIMIT 1`,[projectId]);
   if(Number(latest?.id)!==Number(source.id)) throw Error('A newer completed snapshot exists. Nothing changed. Review it before repairing.');
   const {rows:[corrected]}=await db.query(`INSERT INTO measurement_batches(project_id,cycle_date,status,settings,collection_plan,started_at,completed_at)

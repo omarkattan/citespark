@@ -1,3 +1,4 @@
+import {recordedCompletion} from './content-cost.js';
 import {many} from '../db/index.js';
 import {complete,parseJsonArray} from './anthropic.js';
 import {readActionPages,ownPageUrl,pageMatch} from './action-pages.js';
@@ -147,7 +148,7 @@ export async function attachImmediateActions(project,recs,cycle,{refresh=false}=
     for(const a of answers)if(!recs.some(r=>Number(r.evidence?.prompt_id)===Number(a.prompt_id))){const r={type:'answer_review',title:`Check the answer to: ${a.question}`,action:'Check the recorded brand description against approved information. Keep accurate content and record only a supported correction.',target_url:null,impact:0,effort:1,priority:0,evidence:{prompt_id:a.prompt_id,prompt:a.question,run_id:a.id}};if(eligible(r))candidates.push(r);}
     const selected=new Set(selectActionCandidates(candidates,answers));
     const final=candidates.filter(r=>recs.includes(r)||selected.has(r));
-    await prepareActionPlans(project,final,answers,{cycle,cached:refresh?[]:cached});
+    await prepareActionPlans(project,final,answers,{cycle,cached:refresh?[]:cached,generate:(prompt,options)=>recordedCompletion(project.id,'immediate_actions',prompt,options)});
     return [...recs,...final.filter(r=>!recs.includes(r))];
   })().catch(error=>{console.warn('Immediate actions unavailable:',error.message);return recs;}).finally(()=>preparing.delete(project.id));
   preparing.set(project.id,work);return work;

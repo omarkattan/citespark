@@ -1,3 +1,4 @@
+import {mountContentWorkflow} from './lib/content-workflow.js';
 import { createGa4Refresh } from './lib/ga4-refresh.js';
 import { measurementLocation } from './lib/measurement-location.js';
 import { estimateEngineCosts } from './lib/measurement-cost.js';
@@ -169,6 +170,8 @@ async function assertProject(req, res) {
   }
   return project;
 }
+
+mountContentWorkflow(app,{requireAuth,assertProject});
 
 /* ---------------- auth ---------------- */
 
@@ -462,7 +465,7 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
                           WHERE project_id = $1 AND kind = 'owned'
                           ORDER BY id LIMIT 1)
      WHERE p.project_id = $1
-     ORDER BY p.persona_id NULLS FIRST, p.ai_search_volume DESC NULLS LAST, p.id, r.engine, r.run_index`,
+     ORDER BY p.persona_id NULLS FIRST, p.id, r.engine, r.run_index`,
     [project.id, cycle, project.domain]
   );
 
@@ -1254,7 +1257,7 @@ app.get('/api/projects/:id/setup', requireAuth, wrap(async (req, res) => {
   if (!project) return;
   const entities = await many('SELECT id, name, domain, kind, aliases, ambiguous_name FROM entities WHERE project_id = $1 ORDER BY kind, name', [project.id]);
   const prompts = await many(
-    'SELECT id, text, cluster, intent, ai_search_volume, active FROM prompts WHERE project_id = $1 ORDER BY active DESC, ai_search_volume DESC, id',
+    'SELECT id, text, cluster, intent, ai_search_volume, active FROM prompts WHERE project_id = $1 ORDER BY active DESC, id',
     [project.id]
   );
   const pricing = await engineCosts(req.session.orgId);
@@ -1404,7 +1407,7 @@ app.post('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
       text,
       String(req.body?.cluster || 'custom').toLowerCase(),
       ['discovery', 'comparison', 'commercial', 'problem'].includes(req.body?.intent) ? req.body.intent : 'commercial',
-      Number.isFinite(Number(req.body?.volume)) ? Math.max(0, Math.round(Number(req.body.volume))) : 100,
+      null,
       req.body?.source === 'topic' ? 'topic' : 'custom'
     ]
   );
@@ -1417,7 +1420,7 @@ app.post('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
  * Pause or resume every question on a site in one request.
  *
  * Resuming respects the plan: if there are more questions than the plan
- * allows we resume the highest-volume ones up to the ceiling and say how
+ * allows we resume questions in creation order up to the ceiling and say how
  * many were left paused, rather than failing the whole thing.
  */
 app.post('/api/projects/:id/prompts/bulk', requireAuth, wrap(async (req, res) => {
@@ -1433,12 +1436,12 @@ app.post('/api/projects/:id/prompts/bulk', requireAuth, wrap(async (req, res) =>
   const ent = await getEntitlements(req.session.orgId);
   const limit = ent.plan.questions;
 
-  // Highest estimated volume first, so the cap keeps the questions that matter.
+  // Stable creation order; generated volumes are not measured demand.
   await query(
     `UPDATE prompts SET active = (id IN (
        SELECT id FROM prompts q WHERE project_id = $1
        AND NOT EXISTS (SELECT 1 FROM prompts newer WHERE newer.revises_prompt_id = q.id)
-       ORDER BY ai_search_volume DESC, id
+       ORDER BY id, id
        LIMIT $2
      )) WHERE project_id = $1`,
     [project.id, limit]
@@ -2246,7 +2249,7 @@ app.get('/api/prompts/:promptId/brief', requireAuth, wrap(async (req, res) => {
   const siblings = await many(
     `SELECT text FROM prompts
      WHERE project_id = $1 AND cluster = $2 AND id <> $3 AND active
-     ORDER BY ai_search_volume DESC LIMIT 5`,
+     ORDER BY id LIMIT 5`,
     [project.id, prompt.cluster, prompt.id]
   );
 
@@ -2885,7 +2888,7 @@ app.get('/api/personas/:personaId/preview', requireAuth, wrap(async (req, res) =
   const base = await many(
     `SELECT id, text, cluster, intent, ai_search_volume FROM prompts
      WHERE project_id = $1 AND persona_id IS NULL AND active
-     ORDER BY ai_search_volume DESC NULLS LAST LIMIT 20`,
+     ORDER BY id NULLS LAST LIMIT 20`,
     [persona.project_id]
   );
 
@@ -2930,7 +2933,7 @@ app.post('/api/personas/:personaId/apply', requireAuth, wrap(async (req, res) =>
     : await many(
         `SELECT id, text, cluster, intent, ai_search_volume, source, origin_details FROM prompts
          WHERE project_id = $1 AND persona_id IS NULL AND active
-         ORDER BY ai_search_volume DESC NULLS LAST LIMIT $2`,
+         ORDER BY id NULLS LAST LIMIT $2`,
         [persona.project_id, Math.min(Number(req.body?.limit) || 5, 15)]
       );
 
@@ -2940,7 +2943,7 @@ app.post('/api/personas/:personaId/apply', requireAuth, wrap(async (req, res) =>
       `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume, source, persona_id, active, origin_details)
        VALUES ($1,$2,$3,$4,$5,'persona',$6,true,$7::jsonb)
        ON CONFLICT (project_id, text) DO NOTHING`,
-      [persona.project_id, asPersona(q.text, persona), q.cluster, q.intent, q.ai_search_volume, persona.id, JSON.stringify({...q.origin_details, baseQuestionId: q.id, baseSource: q.source})]
+      [persona.project_id, asPersona(q.text, persona), q.cluster, q.intent, null, persona.id, JSON.stringify({...q.origin_details, baseQuestionId: q.id, baseSource: q.source})]
     );
     added += r.rowCount;
   }

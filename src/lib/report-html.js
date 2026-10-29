@@ -446,7 +446,7 @@ ${
         The same question gets a different answer depending on who is asking. A single visibility figure averages
         those together and hides the buyers you are invisible to.
       </p>
-      <table><thead><tr><th>Buyer type</th><th class="num">Questions</th><th class="num">Named in</th><th class="barcell"></th><th class="num">Average position</th></tr></thead><tbody>
+      <table><thead><tr><th>Buyer type</th><th class="num">Questions</th><th class="num">Named in</th><th class="barcell"></th><th class="num" title="First textual mention among tracked brands; not recommendation rank">First-mention order</th></tr></thead><tbody>
       ${r.personas
         .map(
           (p) => `<tr>

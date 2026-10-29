@@ -1,3 +1,4 @@
+import {matchedRecheckScope} from '../lib/faq-recheck.js';
 import { assertMeasurementLocation } from '../lib/measurement-location.js';
 import { estimateEngineCosts } from '../lib/measurement-cost.js';
 import { requestCounts } from '../lib/measurement-coverage.js';
@@ -650,7 +651,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
  *   A run that completed and simply did not name the brand is evidence. It is
  *   kept, and the new answer is stored alongside it as another sample.
  */
-async function collectRetry(promptId, { engine = null } = {}, registerBatch) {
+async function collectRetry(promptId, { engine = null, matched = null } = {}, registerBatch) {
   const prompt = await one(
     `SELECT p.*, pr.id AS project_id FROM prompts p JOIN projects pr ON pr.id = p.project_id WHERE p.id = $1`,
     [promptId]
@@ -672,20 +673,29 @@ async function collectRetry(promptId, { engine = null } = {}, registerBatch) {
   const cycle =
     (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [project.id]))?.d ||
     new Date().toISOString().slice(0, 10);
-  const cycleDay = new Date(cycle).toISOString().slice(0, 10);
+  const cycleDay = matched ? new Date().toISOString().slice(0,10) : new Date(cycle).toISOString().slice(0, 10);
 
   const ceiling = Number(process.env.MAX_OUTPUT_TOKENS || 2000);
   const models = {};
   for (const eng of configured) if (ENGINE_CFG[eng]?.kind === 'llm') models[eng] = await resolveModel(eng, ENGINE_CFG[eng], project.models?.[eng] || null);
-  const batch = await startMeasurement(project.id, cycleDay,
-    measurementSettings(project, models, configured, project.runs_per_cycle, ceiling, entities));
+  const settings=measurementSettings(project, models, configured, project.runs_per_cycle, ceiling, entities);
+  let repeatCounts=Object.fromEntries(engines.map(e=>[e,1]));
+  if(matched){
+    const scope=await matchedRecheckScope(project,{prompt_id:promptId,question:matched.question,baseline_measurement_id:matched.baselineId},null,{settings});
+    if(!scope.eligible)throw new Error(scope.reason);
+    repeatCounts=scope.counts;
+  }
+  const batch = await startMeasurement(project.id, cycleDay, settings);
   registerBatch(batch);
-  await inheritMeasurement(batch, batch.settings);
+  // A targeted before/after check must never replace a full daily monitoring cohort.
+  if(matched)await query("UPDATE measurement_batches SET purpose='faq_recheck' WHERE id=$1",[batch.id]);
+  else await inheritMeasurement(batch, batch.settings);
 
   const results = [];
   let spend = 0;
 
-  for (const eng of engines) {
+  const retryJobs=engines.flatMap(eng=>Array.from({length:repeatCounts[eng]||0},(_,index)=>({eng,index})));
+  for (const {eng,index} of retryJobs) {
     const budget = await budgetForCycle(project.org_id, { questions: 1, engines: [eng], runs: 1 });
     if (!budget.ok || budget.maxCalls < 1) throw new Error(budget.reason || 'No answer checks available');
     const model = ENGINE_CFG[eng]?.kind === 'llm'
@@ -711,6 +721,8 @@ async function collectRetry(promptId, { engine = null } = {}, registerBatch) {
     await recordUsage(project.org_id, 1, answer.costUsd || 0);
 
     if (!answer.ok) {
+      if(matched)await query(`INSERT INTO runs(prompt_id,project_id,engine,model,cycle_date,run_index,ok,cost_usd,error,measurement_id,max_output_tokens)
+        VALUES($1,$2,$3,$4,$5,$6,false,$7,$8,$9,$10)`,[promptId,project.id,eng,answer.model||model,cycleDay,index,answer.costUsd||0,answer.error||'No usable answer',batch.id,collectionLimit(eng,ceiling)]);
       results.push({ engine: eng, ok: false, error: answer.error });
       continue;
     }
@@ -719,7 +731,7 @@ async function collectRetry(promptId, { engine = null } = {}, registerBatch) {
       await query('DELETE FROM measurement_members WHERE measurement_id=$1 AND run_id=ANY($2::int[])', [batch.id, broken.map((r) => r.id)]);
     }
 
-    const runIndex = sound.length ? Math.max(...sound.map((r) => r.run_index)) + 1 : 0;
+    const runIndex = matched ? index : sound.length ? Math.max(...sound.map((r) => r.run_index)) + 1 : 0;
 
     const run = await one(
       `INSERT INTO runs (prompt_id, project_id, engine, model, cycle_date, run_index, response_text, ok, cost_usd, error, max_output_tokens, no_overview, measurement_id)
@@ -763,7 +775,12 @@ async function collectRetry(promptId, { engine = null } = {}, registerBatch) {
     });
   }
 
-  await finishMeasurement(batch.id, results.some(r => r.ok) ? 'completed' : 'failed');
+  if(matched){
+    const prior=await one('SELECT collection_plan FROM measurement_batches WHERE id=$1',[batch.id]);
+    const plan=[...(prior?.collection_plan||[]).filter(x=>Number(x.prompt_id)!==Number(promptId)),...retryJobs.map(({eng,index})=>({prompt_id:promptId,engine:eng,run_index:index}))];
+    await query('UPDATE measurement_batches SET collection_plan=$2::jsonb WHERE id=$1',[batch.id,JSON.stringify(plan)]);
+  }
+  await finishMeasurement(batch.id, (matched ? results.length===retryJobs.length&&results.every(r=>r.ok) : results.some(r => r.ok)) ? 'completed' : 'failed');
   registerBatch(null);
   return { measurementId: batch.id, prompt: prompt.text, cycle: cycleDay, spend: Math.round(spend * 10000) / 10000, results };
 }

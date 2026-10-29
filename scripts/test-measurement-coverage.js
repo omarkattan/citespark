@@ -26,7 +26,7 @@ test('recorded plan includes entirely unasked questions and does not recommend g
  const c=coverageFor(rows,{collection_plan:plan});const e=summariseEvidence(rows,{coverage:c});
  assert.equal(c.missing,2);assert.equal(e.questions.length,2);assert.equal(e.questions[1].measured,0);
  assert.ok(!e.priorities.some(p=>p.do==='Review a buyer question with no recorded presence.'));
- assert.match(executiveReportHtml({executive:e,project:{name:'Test'},trend:{},methodNotes:[],limitations:[]}),/2 expected checks have no stored result/);
+ assert.match(executiveReportHtml({executive:e,project:{name:'Test'},trend:{},methodNotes:[],limitations:[]}),/2 planned checks without a stored result excluded/);
 });
 test('legacy unknown remains unknown and extra retry samples cannot hide another engine gap',()=>{
  assert.equal(coverageFor([row(1,'chatgpt')],{legacy:true}).missing,null);

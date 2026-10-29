@@ -16,7 +16,7 @@ test('progress distinguishes absent, present, unmeasured and failed answers',()=
  const source=readFileSync(new URL('../src/public/app.js',import.meta.url),'utf8');
  const start=source.indexOf('function showProgress('),end=source.indexOf('\n}',start)+2;
  const elements=new Map();const $=id=>{if(!elements.has(id))elements.set(id,{style:{}});return elements.get(id);};
- const c=vm.createContext({$,state:{overview:{cycle:'today'}},PHASE_LABEL:{},ENGINE_LABEL:{},esc:s=>s});
+ const c=vm.createContext({$,document:{querySelector:()=>null},state:{overview:{cycle:'today'}},PHASE_LABEL:{},ENGINE_LABEL:{},esc:s=>s});
  vm.runInContext(source.slice(start,end),c);
  c.showProgress('asking',4,4,[{state:'answered',named:null,question:'Q',engine:'chatgpt'},{state:'answered',named:false,question:'Q',engine:'chatgpt'},{state:'answered',named:true,question:'Q',engine:'chatgpt'},{state:'failed',question:'Q',engine:'chatgpt'}]);
  const html=$('cycleFeed').innerHTML;
