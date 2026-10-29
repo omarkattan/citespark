@@ -46,6 +46,7 @@ async function request(method,path,body,project=39){
  const res={code:200,status(n){this.code=n;return this;},json(body){this.body=body;return this;}};
  await matched.handlers.at(-1)({params:matched.params,session:{orgId:1,userId:1},query:Object.fromEntries(new URL(path,'https://cited.test').searchParams),body:body||{}},res);return res;
 }
+function dummyStyle(w){const style=w.document.createElement('style');style.textContent='input {width:100%;padding:9px 11px}'+read('../src/public/faq-workflow.css');w.document.head.appendChild(style);return style;}
 const base='/api/projects/39';let draft;
 test('facts preserve exact source passages, reject invented excerpts and require explicit approval',()=>{
  const pages=[{id:'p',url:'https://example.org',text:'The serum has a clear pack label.',read_at:'today'}];
@@ -83,8 +84,8 @@ test('new-user UI resumes saved draft and exposes report, publication and separa
  const dom=new JSDOM('<button data-draft-faq="99" data-project-id="39">Draft this FAQ</button>',{url:'https://cited.test/app',runScripts:'outside-only',pretendToBeVisual:true});const w=dom.window;
  w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;};w.confirm=()=>true;
  w.fetch=async(path,options={})=>{const res=await request(options.method||'GET',path,options.body?JSON.parse(options.body):undefined);return {ok:res.code<300,status:res.code,json:async()=>res.body};};
- w.eval(read('../src/public/faq-workflow.js'));await w.CitedFaq.open(39,99);
- const d=w.document;assert.match(d.querySelector('#faqTitle').textContent,/Review your FAQ/);assert.equal(d.querySelector('[data-faq-answer]').value,draft.content.answer);assert.ok(d.querySelector('[data-faq-report]'));assert.equal(modelCalls,2);
+ const css=dummyStyle(w);w.eval(read('../src/public/faq-workflow.js'));await w.CitedFaq.open(39,99);
+ const d=w.document;assert.equal(w.getComputedStyle(d.querySelector('[data-faq-approved]')).width,'18px','checkbox overrides full-width global inputs');assert.match(d.querySelector('#faqTitle').textContent,/Review your FAQ/);assert.equal(d.querySelector('[data-faq-answer]').value,draft.content.answer);assert.ok(d.querySelector('[data-faq-report]'));assert.equal(modelCalls,2);
  d.querySelector('[data-faq-step="publish"]').click();assert.ok(d.querySelector('[data-implemented-confirm]'));assert.match(d.querySelector('.faq-costs').textContent,/recorded drafting/);assert.equal(rechecks,0,'publication and paid recheck remain separate');
  dom.window.close();
 });
@@ -103,6 +104,7 @@ test('failed or incomplete samples cannot imply improvement',()=>{
 });
 test('approved-fact changes invalidate readiness and generated unsupported numbers are rejected',()=>{
  const facts=[{id:'one',statement:'A 30 ml bottle',approved:true,source_url:'https://example.org/p'}];
+ assert.equal(core.validateGeneratedFaq({answer:'The listed serum price is £165 GBP.',fact_ids:['price'],missing_facts:[]},[{id:'price',statement:'Serum £165.00 GBP'}]).answer,'The listed serum price is £165 GBP.');
  assert.throws(()=>core.validateGeneratedFaq({answer:'It costs £99 for a 30 ml bottle.',fact_ids:['one'],missing_facts:[]},core.approvedFacts(facts)));
  assert.throws(()=>core.validateGeneratedFaq({answer:'A 30 ml bottle of serum is included.',fact_ids:['foreign'],missing_facts:[]},core.approvedFacts(facts)));
  assert.throws(()=>core.validateFaqEdit({answer:'A 30 ml bottle of serum is included.',target_url:'https://example.org/p',status:'ready',approved:true},{facts_hash:'old',content:{missing_facts:[]}},'example.org',facts));

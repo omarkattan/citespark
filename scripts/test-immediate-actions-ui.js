@@ -60,3 +60,12 @@ test('verification resend errors remain retryable and never claim success',async
  let calls=0;const dom=loginFixture(async()=>++calls===1?{ok:true,json:async()=>({verificationSent:true})}:{ok:false,json:async()=>({error:'Please retry later'})}),d=dom.window.document;
  d.getElementById('email').value='tester@example.org';d.getElementById('password').value='example-only-password';d.getElementById('submit').click();await settle();d.getElementById('resend').click();await settle();assert.equal(d.getElementById('resend').disabled,false);assert.equal(d.getElementById('resendMsg').textContent,'Please retry later');dom.window.close();
 });
+
+test('FAQ report handoff loads exact copy and original measurement evidence without saving or publishing',async()=>{
+ const f=await appFixture();
+ const value={project:{id:39},action:{id:99,evidence:plan.evidence},draft:{question:plan.question,target_url:plan.page,content:{answer:'An approved answer with factual product detail.',fact_ids:['f1']},facts_snapshot:[{id:'f1',statement:'Pack size 30 ml.',source_url:plan.page}]}};
+ assert.equal(await f.w.CitedFaqToAction(value),true);
+ assert.match(f.w.document.getElementById('decision-evidence-99').value,/measurements\/60#run-100/);
+ assert.match(f.w.document.getElementById('decision-change-99').value,/An approved answer/);
+ assert.ok(f.requests.every(r=>r.method==='GET'));f.dom.window.close();
+});

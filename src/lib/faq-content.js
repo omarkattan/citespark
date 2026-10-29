@@ -30,7 +30,7 @@ export function validateGeneratedFaq(raw,facts) {
   if(!Array.isArray(raw.fact_ids)||!Array.isArray(raw.missing_facts)||raw.missing_facts.length>10)throw workflowError('The draft did not include its supporting facts. Try again.',502);
   const ids=new Set(facts.map(f=>f.id));if(raw.fact_ids.some(id=>!ids.has(id))||!raw.fact_ids.length)throw workflowError('The draft referred to an unapproved fact. Review your facts and try again.',502);
   const support=facts.filter(f=>raw.fact_ids.includes(f.id)).map(f=>f.statement).join(' ');
-  const numbers=s=>String(s).match(/\d+(?:[.,]\d+)*/g)||[];
+  const numbers=s=>(String(s).match(/\d+(?:[.,]\d+)*/g)||[]).map(n=>String(Number(n.replace(/,/g,''))));
   if(numbers(raw.answer).some(n=>!numbers(support).includes(n)))throw workflowError('The draft introduced an unsupported figure. Review your facts and try again.',502);
   if(/https?:\/\//i.test(raw.answer))throw workflowError('The draft introduced a link outside its references. Try again.',502);
   return {answer:raw.answer.trim(),fact_ids:[...new Set(raw.fact_ids)],missing_facts:raw.missing_facts.map(x=>String(x).trim().slice(0,300)).filter(Boolean)};

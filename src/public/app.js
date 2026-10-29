@@ -499,7 +499,7 @@ window.CitedFaqToAction=async data=>{
     for(let parent=card;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
     form.open=true;
     const values={stage:'ready',page:data.draft.target_url,change:`FAQ: ${data.draft.question}\n\n${data.draft.content.answer}`,
-      evidence:data.draft.facts_snapshot.filter(f=>data.draft.content.fact_ids.includes(f.id)).map(f=>`${f.statement} — ${f.source_url}`).join('\n')};
+      evidence:[data.action.evidence.observation,new URL(data.action.evidence.answer_url,location.origin).href,'Approved website facts:',...data.draft.facts_snapshot.filter(f=>data.draft.content.fact_ids.includes(f.id)).map(f=>`${f.statement} — ${f.source_url}`)].join('\n')};
     for(const [key,value] of Object.entries(values)){const input=$(`decision-${key}-${id}`);if(input)input.value=value;}
     form.querySelector('[data-decision-feedback]').textContent='Approved FAQ loaded for review. Save this decision, then use Preview report wording to include it in the client report. Your previously saved action has not been changed yet.';
     form.scrollIntoView({block:'start',behavior:'smooth'});return true;

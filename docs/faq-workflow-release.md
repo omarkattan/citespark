@@ -25,6 +25,15 @@ A measured buyer question now leads to an editable, evidence-linked FAQ through 
 - The new workflow tests exercise a fresh facts-to-draft-to-publication-to-repeat journey in JSDOM against PostgreSQL-compatible storage, including missing-fact rejection, saved-work recovery, original quotations, explicit approval, account isolation, cost accounting, concurrency and stale-edit protection.
 - Collector integration tests repeat three original samples, exclude prior target answers, preserve the original monitoring cohort, reject changed questions/settings before spending, and mark failed or model-drift samples noncomparable.
 - The full schema supports clean installation and replay. Existing atomic migration/retry protection is retained. No dependency or hosting configuration change is required.
-- 193 focused onboarding, action, report, migration, storage and measurement checks pass, including 14 new FAQ workflow/recheck checks. The broad legacy suite has 288 passing checks and six pre-existing failures and is not represented as fully passing.
+- 194 focused onboarding, action, report, migration, storage and measurement checks pass, including 15 new FAQ workflow/recheck checks. The broad legacy suite has 288 passing checks and six pre-existing failures and is not represented as fully passing.
 
-Live deployment and QA results will be appended after verification.
+## Live QA
+
+- Render served the release commit `73cd059` at 16:00 UTC, then the pricing/cost correction `68a794e` at 16:06 UTC. The schema migration completed successfully.
+- The live SkinCycles account opened the new workflow, extracted facts, saved four reviewed commercial price examples, generated a draft, retained missing-fact placeholders for review, and saved a human-edited FAQ on the exact measured question with the anti-aging collection URL.
+- Reopening recovered saved facts and work. Copy approved FAQ copied the exact question and reviewed answer. The report handoff opened the existing action editor with the FAQ and source facts; report inclusion remained an explicit preview step.
+- The reviewed pricing FAQ was saved as a ready action, its changed report copy was explicitly confirmed, and a new immutable report snapshot was saved at 16:16 UTC. The saved report contains the exact FAQ, target page, source prices, original measured-answer link, completion checks and follow-up instructions: https://cited.ae/api/projects/39/report/snapshots/44c0755a-c844-4dea-a82d-d0cc6f595d08. The previous report snapshot remains unchanged.
+- Live QA identified and corrected an overly broad fact-selection prompt, Sonnet's `inference_geo=not_available` cost classification, a checkbox inheriting the global full-width input style, and missing progress feedback during report handoff. Numeric validation accepts equivalent price formats such as 165 and 165.00 while still rejecting unsupported values.
+- Two fact-selection requests and one FAQ draft recorded an estimated total of $0.0425; answer-check cost stayed $0.252492 and allowance use stayed 20/40. No new visibility checks were required for drafting.
+- No FAQ was published to skincycles.com and no publication date was falsely recorded. Publication and matched-repeat behaviour were verified with test data; the real-site repeat waits for an actual published change. A fresh signed-out account was not created again during this release's live QA; the existing new-account test workspace was reused.
+
