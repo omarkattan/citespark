@@ -15,6 +15,10 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Existing accounts keep manual access. Only new registrations start a tour.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS product_tour_status TEXT NOT NULL DEFAULT 'not_required'
+  CHECK (product_tour_status IN ('not_required', 'pending', 'skipped', 'completed'));
+
 CREATE TABLE IF NOT EXISTS projects (
   id          SERIAL PRIMARY KEY,
   org_id      INTEGER NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,

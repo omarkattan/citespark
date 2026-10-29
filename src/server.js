@@ -205,7 +205,7 @@ app.post('/api/register', wrap(async (req, res) => {
   const org = await one('INSERT INTO orgs (name) VALUES ($1) RETURNING id', [orgName || address.split('@')[1]]);
   const hash = await bcrypt.hash(password, 10);
   const user = await one(
-    'INSERT INTO users (org_id, email, password_hash) VALUES ($1,$2,$3) RETURNING id, org_id',
+    "INSERT INTO users (org_id, email, password_hash, product_tour_status) VALUES ($1,$2,$3,'pending') RETURNING id, org_id",
     [org.id, address, hash]
   );
 
@@ -328,13 +328,15 @@ app.post('/api/logout', (req, res) => {
 
 app.get('/api/me', wrap(async (req, res) => {
   if (!req.session?.userId) return res.json({ signedIn: false, mock: MOCK });
-  const user = await one('SELECT email, email_verified_at, created_at FROM users WHERE id = $1', [req.session.userId]);
+  const user = await one('SELECT id, email, email_verified_at, created_at, product_tour_status FROM users WHERE id = $1', [req.session.userId]);
   const org = await one('SELECT internal FROM orgs WHERE id = $1', [req.session.orgId]).catch(() => null);
 
   res.json({
     signedIn: true,
     mock: MOCK,
     email: user?.email || null,
+    userId: user?.id || null,
+    productTourStatus: user?.product_tour_status || 'not_required',
     // Drives whether the admin link is shown at all. The route enforces this
     // independently; this only decides what is offered.
     admin: Boolean(org?.internal),
@@ -345,6 +347,14 @@ app.get('/api/me', wrap(async (req, res) => {
 }));
 
 /* ---------------- data ---------------- */
+
+app.post('/api/product-tour', requireAuth, wrap(async (req, res) => {
+  if (!req.is('application/json')) return res.status(415).json({error:'Send a JSON request.'});
+  const status = req.body?.status;
+  if (!['skipped','completed'].includes(status)) return res.status(400).json({error:'Choose a valid tour status.'});
+  await query('UPDATE users SET product_tour_status=$1 WHERE id=$2', [status, req.session.userId]);
+  res.json({ok:true});
+}));
 
 app.get('/api/projects', requireAuth, wrap(async (req, res) => {
   const rows = await many(

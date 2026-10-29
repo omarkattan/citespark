@@ -1,0 +1,30 @@
+/* Tour presentation and space for the persistent header CTA. */
+.masthead-inner{flex-wrap:wrap;align-items:center;gap:12px}
+.masthead .tour-launch{border:1px solid var(--you,#14896b);color:var(--ink,#162f29);white-space:nowrap;min-height:40px;padding:9px 13px}
+.masthead .tour-launch:disabled{opacity:.55}
+body.cited-tour-open{overflow:hidden}
+#citedTour{position:fixed;inset:0;margin:0;padding:0;border:0;width:100%;height:100%;max-width:none;max-height:none;background:transparent;color:var(--ink,#142c26);overflow:hidden}
+#citedTour::backdrop{background:transparent}
+#citedTour .tour-shade{position:fixed;inset:0;background:rgba(9,25,20,.62);pointer-events:none}
+#citedTour .tour-spotlight{position:fixed;pointer-events:none;border:3px solid #35e08a;border-radius:8px;box-shadow:0 0 0 9999px rgba(9,25,20,.62)}
+#citedTour [hidden]{display:none!important}
+#citedTour .tour-card{position:fixed;box-sizing:border-box;width:420px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow-y:auto;background:var(--panel,#fffdf7);border:1px solid var(--line,#ccd6ce);border-radius:16px;padding:24px;box-shadow:0 24px 80px #001a1640}
+#citedTour .tour-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+#citedTour .tour-step{font:600 11px/1.4 var(--sans,system-ui);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3,#54675d)}
+#citedTour .tour-close{font-size:24px;line-height:1;padding:6px 10px;background:transparent;color:inherit;border:0;min-width:40px;min-height:40px}
+#citedTour .tour-progress{display:flex;gap:5px;margin:0 0 22px}
+#citedTour .tour-progress span{height:4px;flex:1;background:#dde6df;border-radius:3px}
+#citedTour .tour-progress .is-done{background:#16815e}
+#citedTour h2{font:400 30px/1.12 var(--display,Georgia);letter-spacing:-.02em;margin:0 0 12px}
+#citedTour .tour-copy{font:15px/1.55 var(--sans,system-ui);margin:0 0 18px;color:var(--ink-2,#344c42)}
+#citedTour .tour-path{font:500 12px/1.5 var(--sans,system-ui);padding:11px 13px;background:#eaf2ec;border-radius:7px;margin:0 0 20px;color:#215741}
+#citedTour .tour-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--line,#d8e1da);padding-top:16px}
+#citedTour .tour-buttons{display:flex;gap:8px;align-items:center}
+#citedTour button{cursor:pointer;font-family:var(--sans,system-ui);min-height:42px}
+#citedTour .tour-next{background:#143e2e;color:#fff;border:0;border-radius:7px;padding:11px 16px;font-size:13px}
+#citedTour .tour-back,#citedTour .tour-skip{background:transparent;border:0;color:#3d5d4e;font-size:13px;padding:8px}
+#citedTour button:focus-visible{outline:3px solid #127b59;outline-offset:3px}
+#citedTour .tour-back:disabled{opacity:.35;cursor:default}
+@media(max-width:760px){.masthead .tour-launch{margin-left:auto}.masthead-inner .wordmark{margin-right:0}}
+@media(max-width:420px){#citedTour .tour-card{padding:18px}#citedTour h2{font-size:26px}#citedTour .tour-copy{font-size:14px}#citedTour .tour-buttons{gap:3px}#citedTour .tour-next{padding:10px 12px}}
+@media print{#takeTourBtn,#citedTour{display:none!important}}

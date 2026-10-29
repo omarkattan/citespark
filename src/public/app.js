@@ -2253,6 +2253,13 @@ async function boot() {
    */
   state.emailVerified = me.emailVerified !== false;
 
+  const tour = window.CitedTour?.create({
+    userId: me.userId,
+    status: me.productTourStatus,
+    hasProject: () => Boolean(state.projectId),
+    onAddSite: () => $('addSiteBtn').click()
+  });
+
   await loadProjectList();
   await refreshUsagePill();
   showDemoHandoff();
@@ -2281,6 +2288,9 @@ async function boot() {
   }
 
   // Someone may have started a cycle then refreshed or switched device.
+  // A new account has no project yet. Do not request /projects/null or wait
+  // for measurement polling before offering the introductory tour.
+  if (!state.projectId) { if (!returned) tour?.autoStart(); return; }
   const running = await api(`/api/projects/${state.projectId}/cycle-status`);
   if (running && ['starting', 'asking', 'thinking'].includes(running.phase)) {
     $('runBtn').disabled = true;
@@ -2292,6 +2302,7 @@ async function boot() {
     };
     tick();
   }
+  if (!returned) tour?.autoStart();
 }
 
 document.querySelectorAll('.tab[data-view]').forEach((tab) => {
