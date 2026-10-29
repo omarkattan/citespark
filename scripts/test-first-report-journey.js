@@ -10,7 +10,7 @@ const app=readFileSync(new URL('../src/public/app.js',import.meta.url),'utf8');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const settle=()=>new Promise(r=>setImmediate(r));
 function fixture(extra={}){
- const dom=new JSDOM('<div id="view"></div><div id="brandTitle">SkinCycles</div><div id="brandDek"></div><div id="cycleMeta"></div><div id="verifyBar"></div><button id="runBtn"></button><input id="draft" value="Keep my draft">',{url:'https://cited.test/app?site=39'});
+ const dom=new JSDOM('<div id="figures"></div><div id="view"></div><div id="brandTitle">SkinCycles</div><div id="brandDek"></div><div id="cycleMeta"></div><div id="verifyBar"></div><button id="runBtn"></button><input id="draft" value="Keep my draft">',{url:'https://cited.test/app?site=39'});
  const w=dom.window;w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
  const state={projectId:39,view:'connections',setupStep:'sources',emailVerified:true,overview:{project:{name:'SkinCycles',domain:'skincycles.com',brand_name:'SkinCycles',market:'GB',engines:['chatgpt']}}};
  const ctx=vm.createContext({window:w,document:w.document,state,esc,URL,URLSearchParams,setTimeout,clearTimeout,$:id=>w.document.getElementById(id),ENGINE_LABEL:{chatgpt:'ChatGPT'},COUNTRIES:[['GB','United Kingdom']],api:async()=>({}),toast:()=>{},render:async()=>{},...extra});
@@ -107,4 +107,11 @@ test('one-check question opens its task and decision save leads directly to a co
  const next=card.querySelector('[data-decision-feedback] [data-report-preview]');assert.ok(next);next.click();
  for(let i=0;i<20&&!card.querySelector('[data-report-note]');i++)await settle();
  assert.equal(card.querySelector('[data-report-preview-panel]').hidden,false);assert.equal(card.querySelector('[data-report-note]').textContent,'Include in client report');assert.ok(!requests.some(([path,method])=>path.endsWith('/report-note')&&method==='POST'));dom.window.close();
+});
+
+test('failed overview reads give an actionable retry instead of a permanent Loading screen',async()=>{
+ let reads=0;const f=fixture({refreshRunScope:()=>{},renderFigures:async()=>{},shortDate:()=>'',api:async path=>path.endsWith('/overview')?(++reads===1?{error:'Temporarily unavailable <img src=x>'}:{cycle:'2026-10-29',runs:10,project:{name:'SkinCycles',brand_name:'SkinCycles'}}):{step:'report'}});
+ vm.runInContext(app.slice(app.indexOf('function showProjectLoadError('),app.indexOf('async function loadProjectList(')),f.ctx);
+ await f.ctx.loadProject(39);assert.match(f.w.document.getElementById('brandTitle').textContent,/could not be loaded/);assert.ok(f.w.document.querySelector('[data-retry-project]'));assert.equal(f.w.document.querySelector('img'),null);
+ f.w.document.querySelector('[data-retry-project]').click();await settle();assert.equal(reads,2);assert.equal(f.w.document.getElementById('brandTitle').textContent,'SkinCycles');assert.equal(f.state.view,'reportGuide');f.close();
 });

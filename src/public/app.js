@@ -2137,10 +2137,25 @@ async function render() {
   }
 }
 
+function showProjectLoadError(message='Please try again. Your stored results have not been changed.') {
+  $('brandTitle').textContent='This site could not be loaded';
+  $('brandDek').textContent='Your saved setup and measurements remain available.';
+  $('figures').innerHTML='';
+  $('view').innerHTML=`<section class="notice" role="alert"><h2>We could not load this site</h2><p>${esc(message)}</p><button data-retry-project>Try loading the site again</button></section>`;
+}
+document.addEventListener('click',async event=>{
+  const retry=event.target.closest('[data-retry-project]');if(!retry)return;
+  retry.disabled=true;
+  if(state.projectId)await loadProject(state.projectId);else location.reload();
+});
 async function loadProject(id) {
   const finishingSetup=state.projectId===id && state.setupStep && state.setupStep!=='complete';
   state.projectId = id;
-  state.overview = await api(`/api/projects/${id}/overview`);
+  let overview;
+  try { overview=await api(`/api/projects/${id}/overview`,{readTimeoutMs:20000}); }
+  catch(error) { state.overview=null;showProjectLoadError(error.message);return false; }
+  if(!overview?.project || overview.error) { state.overview=null;showProjectLoadError(overview?.error||'The site response was incomplete. Please try again.');return false; }
+  state.overview=overview;
   const progress=await api(`/api/projects/${id}/setup-progress`).catch(()=>null);
   const measured=Boolean(state.overview.cycle && state.overview.runs>0);
   state.setupStep=progress?.step||(measured?'complete':'sources');
@@ -6210,7 +6225,7 @@ async function viewLandscape() {
      itself a channel worth being present on.`)}`;
 }
 
-boot();
+boot().catch(()=>showProjectLoadError('The app could not finish loading. Please try again.'));
 
 // Question management lives alongside the evidence, not in site settings.
 document.addEventListener('click', async e => {
