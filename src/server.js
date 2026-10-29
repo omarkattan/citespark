@@ -1088,8 +1088,8 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
   if (!location.ok) return res.status(422).json(location);
 
   const project = await one(
-    `INSERT INTO projects (org_id, name, domain, brand_name, aliases, market, language, category, qualifier, engines, location_name)
-     VALUES ($1,$2,$3,$4,$5,$6,'en',$7,$8,$9,$10) RETURNING *`,
+    `INSERT INTO projects (org_id, name, domain, brand_name, aliases, market, language, category, qualifier, engines, location_name, setup_step)
+     VALUES ($1,$2,$3,$4,$5,$6,'en',$7,$8,$9,$10,'sources') RETURNING *`,
     [
       req.session.orgId,
       (name || brandName).trim(),
@@ -1098,7 +1098,7 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
       Array.isArray(aliases) ? aliases.map((a) => String(a).trim()).filter(Boolean).slice(0, 10) : [],
       marketCode,
       (category || 'business').trim(),
-      (qualifier || 'small business').trim(),
+      (qualifier || '').trim(),
       startingEngines,
       city.name
     ]
@@ -1131,6 +1131,7 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
   if(generate !== false && remaining>0){
     try{
       const prompts=await generatePrompts({brand:project.brand_name,domain:project.domain,category:project.category,market:MARKET_NAMES[project.market]||project.market,qualifier:project.qualifier,count:remaining});
+      if(prompts.length<remaining)questionGenerationWarning=`Your site is saved. ${prompts.length} usable question suggestions were returned. Review them and add more relevant questions if needed.`;
       for(const p of prompts.slice(0,remaining)){
         const inserted=await query(`INSERT INTO prompts(project_id,text,cluster,intent,ai_search_volume) VALUES($1,$2,$3,$4,$5) ON CONFLICT(project_id,text) DO NOTHING`,[project.id,p.text,p.cluster,p.intent,p.ai_search_volume]);
         added+=inserted.rowCount;
@@ -1238,8 +1239,8 @@ app.get('/api/projects/:id/setup-progress', requireAuth, wrap(async (req,res) =>
 app.post('/api/projects/:id/setup-progress', requireAuth, wrap(async (req,res) => {
   const project=await assertProject(req,res);if(!project)return;
   const step=req.body?.step;
-  if(!['website','sources','questions','measurement','complete'].includes(step))return res.status(400).json({error:'Choose a valid setup step.'});
-  if (step !== 'website') {
+  if(!['website','sources','questions','measurement','recommendations','report','complete'].includes(step))return res.status(400).json({error:'Choose a valid setup step.'});
+  if (step === 'measurement') {
     const location = await measurementLocation(project, { requireGoogle: true });
     if (!location.ok) return res.status(422).json(location);
   }

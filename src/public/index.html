@@ -138,10 +138,10 @@
 </dialog>
 
 <dialog id="siteDialog" class="sheet">
-  <p class="hint" style="padding:16px 24px 0">Step 1 of 4: Website → Connect sources → Review questions → First measurement</p>
+  <p class="hint" style="padding:16px 24px 0">Step 1 of 6: Website → Optional sources → Questions → Measurement → Recommendations → Report</p>
   <form method="dialog" id="siteForm">
     <h2>Add a site</h2>
-    <p class="dek" style="margin:8px 0 20px;font-size:13.5px">Tell us about your business and buyers. We’ll suggest questions for you to review before you run a measurement.</p>
+    <p class="dek" style="margin:8px 0 20px;font-size:13.5px">Start with your domain and select Scan site. Check the suggested details, then continue. We’ll guide you through your questions, first measurement and report.</p>
 
     <div class="field">
       <label for="f_domain">Domain</label>
@@ -153,24 +153,24 @@
     </div>
     <div class="field"><label for="f_brand">Brand name as customers say it</label><input id="f_brand" placeholder="No legal suffix unless you always use it" /></div>
 
+    <div class="field"><label for="f_category">What the business does</label><input id="f_category" placeholder="What the business does, in a few words" /></div>
     <div class="field">
+      <label for="f_qualifier">Who the customer is</label>
+      <input id="f_qualifier" placeholder="Who buys from you and what they need" />
+      <p class="hint">Use details you know, such as “UK shoppers looking for skincare for dry or sensitive skin”. Leave out assumptions about age, income or occupation.</p>
+    </div>
+    <div class="field"><label for="f_market">Market</label><select id="f_market"></select></div>
+    <details id="siteOptional" class="setup-optional"><summary>Optional: brand matching, competitors and Google location</summary>    <div class="field">
       <label for="f_ambiguous"><input type="checkbox" id="f_ambiguous" /> My brand name is also an ordinary phrase</label>
       <p class="hint">For names such as The Family Office, only count the name when its main words start with capitals. Aliases and domain matches remain case-insensitive. This reduces false matches but still needs evidence review.</p>
     </div>
 
-    <div class="field"><label for="f_category">What the business does</label><input id="f_category" placeholder="What the business does, in a few words" /></div>
-    <div class="field">
-      <label for="f_qualifier">Who the customer is</label>
-      <input id="f_qualifier" placeholder="Sector, size and location of your buyer" />
-      <p class="hint">The more specific this is, the better the questions. "UK ecommerce brands" beats "businesses".</p>
-    </div>
-    <div class="field"><label for="f_market">Market</label><select id="f_market"></select></div>
     <div class="field">
       <label for="f_city">Google measurement location</label>
       <select id="f_city" aria-describedby="f_cityHint"><option value="">Choose a market first</option></select>
       <p class="hint" id="f_cityHint" role="status">A supported Google location is required before continuing.</p>
     </div>
-    <details id="siteOptional" class="setup-optional"><summary>Optional: other brand names and competitors</summary>
+
     <div class="field"><label for="f_aliases">Also known as, comma separated</label><input id="f_aliases" placeholder="Shortenings, misspellings, the legal name" /></div>
     <div class="field">
       <label for="f_rivals">Competitors (optional)</label>
@@ -190,6 +190,6 @@
 <script src="/countries.js"></script>
 <script src="/demo-handoff.js?v=119"></script>
 <script src="/product-tour.js?v=1"></script>
-<script src="/app.js?v=124"></script>
+<script src="/app.js?v=125"></script>
 <script src="/context-help.js?v=93" defer></script></body>
 </html>

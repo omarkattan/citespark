@@ -28,7 +28,7 @@ test('Analytics preflight distinguishes partial, covered, missing and disconnect
  const project={id:28,name:'Bank'};
  for(const [state,expected] of [['partial',/Requested 2026-07-04 to 2026-10-01/],['ready',/requested period is covered/],['needs_sync',/Sync first/],['error',/Sync first/]]){
  const html=reportPreparationHtml(project,[],{state,connected:true,from:'2026-07-04',to:'2026-10-01',coveredFrom:'2026-07-04',coveredTo:'2026-09-30',days:90,why:'Sync first'});
- assert.match(html,expected);assert.match(html,/data-report-sync-ga4="28"/);assert.ok(html.indexOf('Analytics report coverage')<html.indexOf('<h2>Selected recommendations'));
+ assert.match(html,expected);assert.match(html,/data-report-sync-ga4="28"/);assert.ok(html.indexOf('1. Choose recommendations to include')<html.indexOf('Analytics report coverage'));
  }
  const html=reportPreparationHtml(project,[],{state:'disconnected',why:'<img src=x>'});assert.doesNotMatch(html,/data-report-sync-ga4|<img/);assert.match(html,/Review Analytics connection/);
 });

@@ -282,7 +282,7 @@ function rateClass(rate) {
 }
 
 const VIEW_SECTION = {overview:'overview', questions:'questions', actions:'opportunities', assigned:'opportunities',
-  searchDemand:'evidence', competitorReview:'evidence', answers:'evidence', connections:'settings', trends:'evidence', rivals:'evidence', sources:'evidence', pages:'evidence', landscape:'evidence', traffic:'evidence', setup:'settings', billing:'settings'};
+  searchDemand:'evidence', competitorReview:'evidence', answers:'evidence', connections:'settings', firstMeasurement:'settings', reportGuide:'opportunities', trends:'evidence', rivals:'evidence', sources:'evidence', pages:'evidence', landscape:'evidence', traffic:'evidence', setup:'settings', billing:'settings'};
 const SECTION_DEFAULT = {overview:'overview',questions:'questions',opportunities:'actions',evidence:'searchDemand',settings:'setup'};
 
 function syncNavigation() {
@@ -375,12 +375,25 @@ async function viewOverview() {
       <span class="hint">Prepare an executive brief or a full report using the button above.</span></div>`;
 }
 
-const SETUP_VIEWS={website:'setup',sources:'connections',questions:'questions',measurement:'setup',complete:'overview'};
+const SETUP_VIEWS={website:'setup',sources:'connections',questions:'questions',measurement:'firstMeasurement',recommendations:'actions',report:'reportGuide',complete:'overview'};
 function setupJourney() {
   const saved=state.setupStep;
-  if(saved==='complete')return '';
-  const active=state.view==='connections'||['searchDemand','traffic'].includes(state.view)?'sources':state.view==='questions'?'questions':saved==='measurement'?'measurement':'website';
-  return `<section class="panel setup-journey" aria-label="Project setup"><p class="eyebrow">Project setup</p><nav aria-label="Setup steps">${[['website','1. Website'],['sources','2. Connect sources'],['questions','3. Review questions'],['measurement','4. First measurement']].map(([step,label])=>`<button class="ghost" data-setup-step="${step}" ${active===step?'aria-current="step"':''}>${label}</button>`).join('')}</nav><p class="hint">Your place is saved for this project. Connections are optional.</p><p id="setupProgressError" class="error" role="alert"></p>${active==='website'?'<button data-setup-step="sources">Next: connect sources</button>':active==='sources'?'<button data-setup-step="questions">Continue to questions</button> <button class="ghost" data-setup-step="questions">Connect later</button>':active==='questions'?'<button data-setup-step="measurement">Next: review first measurement</button>':'<p>Confirm your questions, market and engines below. Review the estimated cost before starting. Completing setup does not run any checks.</p><button data-start-first-cycle>Review cost and run</button> <button class="ghost" data-setup-step="complete">Finish setup without running</button>'}</section>`;
+  if(!saved||saved==='complete')return '';
+  const measured=Boolean(state.overview?.cycle && state.overview?.runs>0);
+  const active=({setup:'website',connections:'sources',searchDemand:'sources',traffic:'sources',questions:'questions',firstMeasurement:'measurement',actions:'recommendations',reportGuide:'report'})[state.view]||saved;
+  const steps=[['website','Website'],['sources','Sources (optional)'],['questions','Questions'],['measurement','Measurement'],['recommendations','Recommendations'],['report','Report']];
+  const copy={website:'Check the saved business details, then continue.',sources:'Connect Google data if you have it. You can continue with website suggestions and connect sources later.',questions:'Read each suggested question. Edit the wording or pause anything your customers would not ask. These suggestions are not measured AI search demand.',measurement:state.measurementRunning?'Your measurement is running. We will take you to the results when it finishes. You can return later and resume here.':'Check the short summary below, then review the cost before starting.',recommendations:'Open one question review below. Read its saved answer, record a decision, then preview and include that decision in your report. One answer is an early observation, not proof that a page needs changing.',report:'Prepare your report, check the preview, then save a fixed version. Open the saved version and use Print / save PDF to give it to your client.'};
+  const next=active==='website'?'<button data-setup-step="sources">Next: optional sources</button>':active==='sources'?'<button data-setup-step="questions">Continue to questions</button>':active==='questions'?'<button data-setup-step="measurement">Next: review measurement</button>':active==='measurement'?(state.measurementRunning?'<button disabled>Measurement in progress</button>':measured?'<button data-setup-step="recommendations">Next: review recommendations</button>':'<button data-start-first-cycle>Review cost and run</button>'):active==='recommendations'?'<button data-setup-step="report">Next: prepare your report</button>':'';
+  return `<section class="panel setup-journey" aria-label="Project setup"><p class="eyebrow">Your first report · Step ${steps.findIndex(([s])=>s===active)+1} of 6</p><nav aria-label="Setup steps">${steps.map(([step,label],i)=>`<button class="ghost" data-setup-step="${step}" ${active===step?'aria-current="step"':''} ${!measured&&['recommendations','report'].includes(step)?'disabled':''}>${i+1}. ${label}</button>`).join('')}</nav><p>${copy[active]||copy[saved]||''}</p><p class="hint">Your place is saved. You can leave and return at any time.</p><p id="setupProgressError" class="error" role="alert"></p>${next}</section>`;
+}
+async function viewFirstMeasurement() {
+  const d=await api(`/api/projects/${state.projectId}/run-scope`);
+  if(!d||d.error)return `<div class="notice"><h2>Check your measurement settings</h2><p>${esc(d?.error||'The estimate could not be loaded. Please try again.')}</p><button data-open-view="setup">Review settings</button></div>`;
+  const p=state.overview.project;
+  return `<section class="panel"><h2>Ready for your first measurement</h2><dl><dt>Website</dt><dd>${esc(p.domain)}</dd><dt>Questions</dt><dd>${d.all} active questions · ${d.checksAll} answer checks</dd><dt>Market</dt><dd>${esc(typeof COUNTRIES!=='undefined'?COUNTRIES.find(([code])=>code===p.market)?.[1]||p.market:p.market)}</dd><dt>Engines</dt><dd>${(p.engines||[]).map(e=>esc(ENGINE_LABEL[e]||e)).join(', ')}</dd><dt>Estimated provider cost</dt><dd>$${Number(d.costAll).toFixed(2)}</dd></dl><p>Your first results will show whether your brand was named, which sources were cited, and which questions need review. Results cover this question sample.</p><p class="hint">The next screen confirms the cost before any checks start. Connected Google accounts are optional.</p><button class="ghost" data-setup-step="questions">Edit questions</button> <button class="ghost" data-open-view="setup">Advanced measurement settings</button></section>`;
+}
+async function viewReportGuide() {
+  return `<section class="panel"><h2>Prepare a report you can share</h2><ol><li>Review the decisions you selected. Include only recommendations supported by the evidence.</li><li>Preview the full report or the shorter executive brief.</li><li>Save a fixed report version, open it and use Print / save PDF.</li></ol><a class="btn" href="/api/projects/${state.projectId}/report/prepare" target="_blank" rel="noopener">Open report preparation</a><p class="hint">Report preparation opens in another tab. No new AI checks run when you open it. The PDF can be shared with people who do not have Cited access.</p><button class="ghost" data-setup-step="recommendations">Back to recommendations</button><hr><p>When you have checked and saved your report, finish this guide. Your questions, results and reports remain available.</p><button class="ghost" data-setup-step="complete">Finish guide</button></section>`;
 }
 async function saveSetupStep(step) {
  const result=await api(`/api/projects/${state.projectId}/setup-progress`,{method:'POST',body:{step}});
@@ -403,7 +416,7 @@ async function viewConnections() {
   return `<div class="panel"><h2>Connect your data</h2><p>Start with Search Console to inform your question list. You can connect either source now or later.</p></div>
     <div class="panel"><h2>1. Google Search Console</h2><p>Find questions and opportunities from your actual Google search data.</p><p role="status">${status(gsc,gsc?.siteUrl)}</p><button data-open-view="searchDemand">${gsc?.siteUrl?'Review search demand':'Set up Search Console'}</button><p class="hint">Google search demand is not AI question volume. Review suggested wording before adding questions.</p></div>
     <div class="panel"><h2>2. Google Analytics 4</h2><p>See identifiable visits and recorded actions from AI referrals.</p><p role="status">${status(ga4,ga4?.propertyName||ga4?.propertyId)}</p><button class="ghost" data-open-view="traffic">${ga4?.propertyId?'Review AI referral traffic':'Set up Analytics'}</button><p class="hint">Search Console and Analytics can use different Google accounts.</p></div>
-    <div class="panel"><h2>${state.setupStep==='complete'?'Keep your questions relevant':'Next: review your questions'}</h2><p>${state.setupStep==='complete'?'Review new Search Console suggestions and update your question list before your next measurement.':'Website suggestions are already available. Add relevant Search Console suggestions, then review wording, market and engines before starting a measurement.'}</p><button ${state.setupStep==='complete'?'data-open-view="questions"':'data-setup-step="questions"'}>Review questions</button></div>`;
+    ${state.setupStep==='complete'?'<div class="panel"><h2>Keep your questions relevant</h2><p>Review new source suggestions before your next measurement.</p><button data-open-view="questions">Review questions</button></div>':''}`;
 }
 
 async function viewSearchDemand() {
@@ -479,7 +492,7 @@ function decisionPanel(t) {
 }
 function reviewReason(task) {
   const e=task.evidence || {};
-  if(task.type==='content_gap' && Number.isInteger(e.runs) && e.runs>0 && e.own_rate===0) return `The brand was not named in ${e.runs} measured answers. Check the question and cited pages before proposing a change.`;
+  if(task.type==='content_gap' && Number.isInteger(e.runs) && e.runs>0 && e.own_rate===0) return e.runs===1?'One saved answer did not name the brand. Review it as an early observation before proposing any change.':`The brand was not named in ${e.runs} measured answers. Check the question and cited pages before proposing a change.`;
   if(task.type==='entity_authority') return 'Your website was cited, but brand naming was limited. Check whether naming the brand is relevant to this answer.';
   if(task.type==='engine_gap') return 'Engines gave different results. Compare their answers before deciding whether there is a content issue.';
   if(task.type==='competitor_comparison') return 'A tracked competitor appeared more often on some questions. Review those specific comparisons.';
@@ -547,7 +560,7 @@ async function viewActions() {
    * and it sat below an early return, so filtering to an empty view removed
    * it altogether.
    */
-  const reportBar = `<details class="panel fold" open><summary>Reports and downloads</summary><div class="reportbar">
+  const reportBar = `<details class="panel fold" ${state.setupStep==='complete'?'open':''}><summary>Reports and downloads</summary><div class="reportbar">
     <div class="reportbar-text">
       <b>Client report</b>
       <span>Leave the dates empty for everything measured so far, or set a period to report on one month.</span>
@@ -586,7 +599,7 @@ async function viewActions() {
   const intro = `<div class="panel queue-intro"><h2>Your work queue</h2><p>Start with one buyer question. Related checks are grouped so you can review its answers once. Due work and work in progress come first, then ready actions, further investigation and no-change decisions.</p><p class="hint">The status tabs and Focus counts refer to saved checks. Each keeps its notes and owner. Completion records work done, not a visibility improvement.</p>${opportunityFilters(data.tasks, kind, data.focusCounts)}<label class="queue-filter">Review decision <select id="opportunityDecision">${[['all','All decisions'],['ready','Ready to implement'],['investigate','Needs investigation'],['no_change','No change needed']].map(([value,label])=>`<option value="${value}"${value===(state.opportunityDecision || 'all')?' selected':''}>${label}</option>`).join('')}</select></label><p class="hint">Decision and completion are separate. Ready means reviewed, not implemented. Counts follow the selected decision filter.</p></div>`;
   const total = filter === 'active' ? c.open + c.doing : filter === 'all' ? c.total : c[filter];
   const resultCount = `<p class="hint" id="queueCount">${queueCountText(tasks,total)}</p>`;
-  return reportBar + intro + bar + resultCount + `<div id="opportunityQueue">${tasks.length ? reviewGroups(tasks).map(group=>reviewGroupCard(group)).join('') : '<div class="empty"><h2>No tasks match this focus</h2><p>Choose another review decision, focus or status above.</p></div>'}</div>` + suppressedPanel;
+  return reportBar + intro + bar + resultCount + `<div id="opportunityQueue">${tasks.length ? reviewGroups(tasks).map(group=>reviewGroupCard(group)).join('') : c.total ? '<div class="empty"><h2>No tasks match this focus</h2><p>Choose another review decision, focus or status above.</p></div>' : `<div class="empty"><h2>No evidence reviews yet</h2><p>${state.overview?.runs?'Prepare reviews using your saved answers. This does not run more AI checks. If no rule applies, inspect the answers and record only conclusions the evidence supports.':'Run your first measurement to collect answers for review.'}</p>${state.overview?.runs?'<button data-rebuild-actions>Prepare reviews from saved answers</button> <button class="ghost" data-open-view="answers">Inspect saved answers</button>':'<button data-setup-step="measurement">Review first measurement</button>'}</div>`}</div>` + suppressedPanel;
 }
 
 const STATUS_LABEL = { open: 'To do', doing: 'In progress', done: 'Done', dismissed: 'Dismissed' };
@@ -838,10 +851,10 @@ function taskCard(t, compact = false, selectionReason = '', grouped = false) {
   const review = REVIEW_GUIDANCE[t.type];
   const sourceReview = ['source_gap', 'competitor_page'].includes(t.type);
   const questionReview = t.type === 'content_gap';
-  const questionTitle = `Review visibility for: ${ev.prompt || 'this buyer question'}`;
+  const questionTitle = `${ev.preliminary?'Review first answer':'Review visibility'} for: ${ev.prompt || 'this buyer question'}`;
   const knownRuns = Number.isInteger(ev.runs) && ev.runs > 0;
   const questionObservation = knownRuns && ev.own_rate === 0
-    ? `You were not named in ${ev.runs} measured answers stored with this task.`
+    ? ev.runs===1 ? 'Your brand was not named in the one measured answer. This first sample does not establish a reliable absence rate or prove that content is missing.' : `You were not named in ${ev.runs} measured answers stored with this task.`
     : 'Review the stored answers. A complete answer count was not recorded with this task.';
   const competitorReview = t.type === 'competitor_comparison';
   const competitorTitle = `Review where ${ev.competitor || 'a tracked competitor'} appears more often`;
@@ -1596,7 +1609,7 @@ async function viewQuestions() {
   const advancedActive = typeof qState !== 'undefined' && (['state','persona','cluster','intent'].some(k => qState[k] && qState[k] !== 'all') || (qState.sort && qState.sort !== 'opportunity'));
   return `<div class="panel question-list-panel">
     <div class="panel-head">
-      <h2>Your questions</h2><button class="btn" data-question-add>Add questions</button><button class="ghost" data-start-first-cycle>Review cost and run</button>
+      <h2>Your questions</h2><button class="btn" data-question-add>Add questions</button>${!state.setupStep||state.setupStep==='complete'?'<button class="ghost" data-start-first-cycle>Review cost and run</button>':''}
       <div class="spacer"></div>
       <span class="meta" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">filled tick = you were named</span>
     </div>
@@ -2030,8 +2043,7 @@ async function renderFigures() {
       <div class="label">Status</div>
       <div class="value dim">Not measured yet</div>
       <div class="sub">Nothing has been asked for this site.</div>
-      <button class="ghost" data-start-first-cycle style="margin-top:10px">Start the first measurement</button>
-      <div class="sub" style="margin-top:6px">Opens the run menu at the top right, where you can price the cycle before it runs.</div>
+      ${state.setupStep&&state.setupStep!=='complete'?'<div class="sub">Follow the steps below to prepare your first report.</div>':'<button class="ghost" data-start-first-cycle style="margin-top:10px">Review first measurement</button>'}
     </div>`;
     return;
   }
@@ -2082,7 +2094,7 @@ async function render() {
   syncNavigation();
   $('view').innerHTML = '<div class="empty">Loading</div>';
   const fn = {
-    competitorReview: viewCompetitorReview, overview: viewOverview, connections: viewConnections, answers: viewAnswerEvidence, actions: viewActions, assigned: viewAssigned, pages: viewPages, questions: viewQuestions, rivals: viewRivals,
+    firstMeasurement: viewFirstMeasurement, reportGuide: viewReportGuide, competitorReview: viewCompetitorReview, overview: viewOverview, connections: viewConnections, answers: viewAnswerEvidence, actions: viewActions, assigned: viewAssigned, pages: viewPages, questions: viewQuestions, rivals: viewRivals,
     searchDemand: viewSearchDemand, sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling,
     trends: viewTrends, landscape: viewLandscape
   }[view];
@@ -2094,7 +2106,7 @@ async function render() {
     return;
   }
   if (renderId !== state.renderId) return;
-  $('view').innerHTML = (['setup','connections','questions','searchDemand','traffic'].includes(view)?setupJourney():'') + html;
+  $('view').innerHTML = setupJourney() + html;
   if (view === 'setup') {
     recalcEstimate();
     // The select is rendered empty but for the country option, then filled
@@ -2131,9 +2143,9 @@ async function loadProject(id) {
   state.overview = await api(`/api/projects/${id}/overview`);
   const progress=await api(`/api/projects/${id}/setup-progress`).catch(()=>null);
   const measured=Boolean(state.overview.cycle && state.overview.runs>0);
-  state.setupStep=measured?'complete':progress?.step||'sources';
-  if(!measured)state.view=SETUP_VIEWS[state.setupStep]||'connections';
-  else if(finishingSetup && ['setup','connections','questions','searchDemand','traffic'].includes(state.view))state.view='overview';
+  state.setupStep=progress?.step||(measured?'complete':'sources');
+  if(measured && ['website','sources','questions','measurement'].includes(state.setupStep))state.setupStep='recommendations';
+  if(state.setupStep!=='complete' && (!finishingSetup || !measured || ['setup','firstMeasurement','connections','questions','searchDemand','traffic'].includes(state.view)))state.view=SETUP_VIEWS[state.setupStep]||'connections';
   const p = state.overview.project;
   $('brandTitle').textContent = p.brand_name;
   $('brandDek').textContent = state.overview.cycle
@@ -2179,7 +2191,7 @@ async function loadProjectList(selectId) {
     $('brandTitle').textContent = 'No sites yet';
     $('brandDek').textContent = 'Add your first site to start measuring what the answer engines say about it.';
     $('figures').innerHTML = '';
-    $('view').innerHTML = `<div class="empty"><h2>Nothing tracked yet</h2><p>Press <b>Add site</b> in the top bar. Give us the domain, what the business does and who it sells to, and we will write the question set for you.</p></div>`;
+    $('view').innerHTML = `<div class="empty"><h2>Start with your website</h2><p>Add your domain, review suggested customer questions, then run a measurement. We will guide you through the results and help you prepare your first report.</p><button data-add-first-site>Add my first site</button></div>`;
     return false;
   }
   // Prefer, in order: an explicit choice, whatever is already open, the URL,
@@ -2252,6 +2264,7 @@ async function boot() {
    * the work rather than after.
    */
   state.emailVerified = me.emailVerified !== false;
+  state.userId = me.userId;
 
   const tour = window.CitedTour?.create({
     userId: me.userId,
@@ -2264,6 +2277,10 @@ async function boot() {
   await refreshUsagePill();
   showDemoHandoff();
 
+  if(!returned && state.projectId) {
+    const requestedView = new URL(requestedSourceUrl, location.origin).searchParams.get('view');
+    if(VIEW_SECTION[requestedView]) { state.view=requestedView; await render(); }
+  }
   if(!returned) {
     const destination=reportSourceDestination(requestedSourceUrl,state.projectId);
     if(destination){state.view=destination;await render();}
@@ -2384,6 +2401,7 @@ function syncLocationChoice(select, hint) {
   select._locationError = error;
   select.setAttribute('aria-invalid', error && !select._locationLoading ? 'true' : 'false');
   if (save) save.disabled = Boolean(error || save._saving);
+  if (error && !select._locationLoading && select.id==='f_city') doc.getElementById('siteOptional').open=true;
   if (hint) {
     hint.classList.toggle('warn', Boolean(error));
     hint.setAttribute('role', error ? 'alert' : 'status');
@@ -2420,7 +2438,7 @@ async function fillCities(iso, select, hint, selected = '') {
   data ||= { error: 'Location support could not be checked. Retry before continuing.' };
   const cities = data.cities || [];
   const ORDER = ['Province', 'State', 'Region', 'County', 'City', 'Municipality', 'Town', 'District', 'Borough', 'Neighborhood'];
-  const PLURAL = { Province: 'Emirates and provinces', State: 'States', Region: 'Regions', County: 'Counties', City: 'Cities', Municipality: 'Municipalities', Town: 'Towns', District: 'Districts', Borough: 'Boroughs', Neighborhood: 'Neighbourhoods' };
+  const PLURAL = { Province: iso === 'AE' ? 'Emirates' : 'Regions and provinces', State: 'States', Region: 'Regions', County: 'Counties', City: 'Cities', Municipality: 'Municipalities', Town: 'Towns', District: 'Districts', Borough: 'Boroughs', Neighborhood: 'Neighbourhoods' };
   const groups = new Map();
   for (const city of cities) { const type = city.type || 'Other'; if (!groups.has(type)) groups.set(type, []); groups.get(type).push(city); }
   const ranked = [...groups].sort((a,b) => (ORDER.indexOf(a[0]) < 0 ? 99 : ORDER.indexOf(a[0])) - (ORDER.indexOf(b[0]) < 0 ? 99 : ORDER.indexOf(b[0])));
@@ -2450,7 +2468,9 @@ const ENGINE_LABEL = {
  * whether the brand came back named, turns the wait into the product.
  */
 function showProgress(phase, done, total, recent = []) {
+  const justStarted = !state.measurementRunning;
   state.measurementRunning = true;
+  if (justStarted) { const guide=document.querySelector('.setup-journey'); if(guide)guide.outerHTML=setupJourney(); }
   if (!state.overview?.cycle) {
     $('brandDek').textContent = 'Your first measurement is in progress. The status above shows what is happening.';
     renderFigures();
@@ -2526,7 +2546,7 @@ function answerSampleLabel(s) {
 function headline(s) {
   if (s.visibility === null || s.visibility === undefined) return 'Visibility is unmeasured because no successful matched answers are available.';
   if (s.visibility === 0) {
-    return `No engine named you in any of the ${answerSampleLabel(s)}. Every action below exists to change that.`;
+    return `No engine named you in any of the ${answerSampleLabel(s)}. Review the saved answers before deciding what to change. A first sample does not explain the absence or prove a content problem.`;
   }
   if (s.delta !== null && Math.round(s.delta * 100) <= -10) {
     return `You slipped ${Math.abs(Math.round(s.delta * 100))} points since the last cycle. The decline actions below are worth reading first.`;
@@ -2680,7 +2700,8 @@ async function pollCycle() {
  * so the trend keeps comparing like with like.
  */
 async function reviewProjectRun() {
-  if (!state.projectId || document.getElementById('projectRunReview')) return;
+  if (!state.projectId || state.measurementRunning || document.getElementById('projectRunReview')) return;
+  if (!(await refreshVerification())) return;
   const projectId = state.projectId;
   const dialog = document.createElement('dialog');
   dialog.id = 'projectRunReview';
@@ -2704,12 +2725,11 @@ async function reviewProjectRun() {
     if (!d || d.error) throw new Error(d?.error || 'Could not load the measurement estimate. Close and try again.');
     const valid = ['all','unrun','checksAll','checksUnrun','costAll','costUnrun'].every(k => Number.isFinite(d[k]) && d[k] >= 0);
     if (!valid) throw new Error('The measurement estimate is incomplete. Close and try again.');
-    options.innerHTML = `<p>Only this site will run. Paused questions are excluded.</p>
+    options.innerHTML = `<p>Only this site will run. Paused questions are excluded.</p><p>Market: ${esc(state.overview.project.market)} · ${(state.overview.project.engines||[]).map(e=>esc(ENGINE_LABEL[e]||e)).join(', ')}</p>
       <p>${d.all} active questions · ${d.checksAll} answer checks · estimated $${d.costAll.toFixed(2)}</p>
       <button class="btn" data-run-confirm="all" ${!d.all ? 'disabled' : ''}>Run active questions</button>
-      <p>${d.unrun} questions never asked · ${d.checksUnrun} answer checks · estimated $${d.costUnrun.toFixed(2)}</p>
-      <button class="ghost" data-run-confirm="unrun" ${!d.unrun ? 'disabled' : ''}>Run only questions never asked</button>
-      <p class="hint">Starting uses answer checks and may incur provider costs. Estimates are not a guaranteed final cost.</p><p role="alert" data-run-error></p>`;
+      ${d.unrun>0 && d.unrun<d.all ? `<p>${d.unrun} questions never asked · ${d.checksUnrun} answer checks · estimated $${d.costUnrun.toFixed(2)}</p><button class="ghost" data-run-confirm="unrun">Run only questions never asked</button>` : ''}
+      ${Number.isFinite(state.billing?.usage?.limit)?`<p>${Math.max(0,state.billing.usage.limit-state.billing.usage.calls)} answer checks remain in your current allowance.</p>`:''}<p class="hint">Starting uses answer checks and may incur provider costs. Estimates are not a guaranteed final cost.</p><p role="alert" data-run-error></p>`;
     for (const button of options.querySelectorAll('[data-run-confirm]')) button.addEventListener('click', async () => {
       if (state.projectId !== projectId) {options.querySelector('[data-run-error]').textContent = 'The selected site changed. Close and review again.'; return;}
       if ($('runBtn').disabled) {options.querySelector('[data-run-error]').textContent = 'A measurement is already starting or running.'; return;}
@@ -2762,7 +2782,7 @@ async function startCycle(only = null) {
   setTimeout(tick, 1200);
 }
 
-$('runBtn').addEventListener('click', (e) => {
+$('runBtn').addEventListener('click', async (e) => {
   // The caret is a child span, so a tap landing on it bubbles to the
   // document handler that closes the menu, and the control appears dead.
   e.stopPropagation();
@@ -2774,6 +2794,7 @@ $('runBtn').addEventListener('click', (e) => {
    * The block is enforced server side, but discovering it only after
    * choosing what to run means learning about it at the worst moment.
    */
+  if (state.emailVerified === false) await refreshVerification();
   if (state.emailVerified === false) {
     const bar = $('verifyBar');
     if (bar) {
@@ -3820,8 +3841,8 @@ document.addEventListener('input', (e) => {
 document.addEventListener('click', async (e) => {
   if (e.target.id === 'resendVerify') {
     e.target.disabled = true;
-    await api('/api/verify/resend', { method: 'POST' });
-    e.target.textContent = 'Sent';
+    try { const result=await api('/api/verify/resend', { method: 'POST' }); if(!result||result.error)throw new Error(result?.error||'Could not resend the email.'); e.target.textContent='Sent'; }
+    catch(error){toast(error.message,'bad');e.target.disabled=false;}
     return;
   }
 
@@ -5811,8 +5832,31 @@ function showVerifyBar(me) {
   }
   bar.hidden = false;
   bar.innerHTML = `Confirm your email to run cycles. We sent a link to <b>${esc(me.email || 'your address')}</b>.
-    <button class="ghost" id="resendVerify">Send it again</button>`;
+    <button class="ghost" id="checkVerify">I’ve confirmed my email</button> <button class="ghost" id="resendVerify">Send it again</button>`;
 }
+
+async function refreshVerification() {
+  if (state.emailVerified !== false) return true;
+  try {
+    const me=await api('/api/me');
+    if (!me?.signedIn || me.userId!==state.userId) { toast('Your sign-in changed. Refresh this page before continuing.','bad'); return false; }
+    state.emailVerified=me.emailVerified!==false;
+    showVerifyBar(me);
+    $('runBtn').classList.toggle('needs-verify',!state.emailVerified);
+    if(state.emailVerified) $('runBtn').title='Choose what to run for this site';
+    return state.emailVerified;
+  } catch { toast('Could not check email confirmation. Try again.','bad'); return false; }
+}
+window.addEventListener('focus',()=>{if(state.emailVerified===false)void refreshVerification();});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.emailVerified===false)void refreshVerification();});
+document.addEventListener('click',async event=>{
+  const add=event.target.closest('[data-add-first-site]');if(add){$('addSiteBtn').click();return;}
+  const check=event.target.closest('#checkVerify');if(check){check.disabled=true;const verified=await refreshVerification();if(!verified){check.disabled=false;toast('Email confirmation is not recorded yet. Use the link in your email, then check again.','bad');}return;}
+  const rebuild=event.target.closest('[data-rebuild-actions]');if(!rebuild)return;
+  rebuild.disabled=true;rebuild.textContent='Preparing reviews…';
+  try { const result=await api(`/api/projects/${state.projectId}/rebuild`,{method:'POST'});if(!result?.ok)throw new Error(result?.error||'Could not prepare reviews.');await render();toast(`${result.count} evidence reviews prepared from saved answers.`); }
+  catch(error){toast(error.message,'bad');rebuild.disabled=false;rebuild.textContent='Prepare reviews from saved answers';}
+});
 
 async function refreshUsagePill() {
   const b = await api('/api/billing');

@@ -290,13 +290,13 @@ const SYSTEM = `You read a company's homepage and fill in a short setup form. Re
   "brandName": string,        // what customers call them, no tagline, no legal suffix unless they always use it
   "aliases": string[],        // other names people use, including shortenings and the legal name. Empty array if none.
   "category": string,         // what the business does, 2 to 6 words, lowercase, e.g. "seo and digital marketing agency"
-  "qualifier": string,        // who the customer is, specific, e.g. "uk ecommerce brands turning over 1m to 20m"
+  "qualifier": string,        // who the customer is, using only page-supported needs and market, or empty if unstated
   "market": string,           // ISO 3166-1 alpha-2 country code of their main market
   "competitors": [{"name": string, "domain": string}]  // up to 5 genuine direct competitors you are confident exist. Empty array if unsure.
 }
 
 Rules:
-- qualifier is the most important field. Be specific about sector, size and location. Never write "small business" if the page gives you anything better.
+- qualifier describes the customer using only evidence on the supplied page. For consumer brands, use relevant shopping needs and a supported market. For business services, use the stated business audience. Do not invent profession, age, gender, income, company size or customer restrictions. If the page does not identify an audience, leave qualifier empty for the user to fill in.
 - Only list competitors you actually know exist with the correct domain. An empty array is far better than an invented one.
 - Infer market from addresses, currency, phone format or spelling.`;
 
@@ -324,7 +324,7 @@ export async function discoverSite(domainInput) {
     brandName: guessBrand(signals, domain),
     aliases: [],
     category: 'business',
-    qualifier: 'small business',
+    qualifier: '',
     market: 'GB',
     competitors: []
   };

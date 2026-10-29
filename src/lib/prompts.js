@@ -1,4 +1,5 @@
 import { complete, parseJsonArray } from './anthropic.js';
+import { isBuyerQuestion, containsSearchBrand, queryKey } from './gsc-query-integrity.js';
 
 /**
  * Generate the tracked prompt set for a project.
@@ -27,6 +28,7 @@ const SYSTEM = `You write the question sets used to measure whether a brand appe
 Rules:
 - Use clear, natural phrasing in the requested language. Preserve the intended question and do not invent dialect or force extra qualifiers.
 - Write questions exactly as a real buyer would type them into ChatGPT, as concise, natural questions. Avoid padding questions to meet a word count.
+- Every item must be a complete question, not a keyword heading such as "Best skincare for dry skin" or "How to treat pigmentation". Use wording such as "Which skincare products suit dry skin?" or "How can I choose skincare for pigmentation?".
 - Never include the brand's own name. We are measuring unprompted recall.
 - Use the stated business activity and customer as the scope, not the literal meaning of its brand name. A wealth manager called The Family Office is not automatically a service for establishing or operating a family office.
 - Do not invent services, eligibility requirements or customer segments beyond the supplied context.
@@ -39,13 +41,13 @@ Rules:
 const TEMPLATES = [
   { t: 'What is the best {category} for {qualifier}?', cluster: 'best-of', intent: 'commercial' },
   { t: 'Which {category} companies are worth considering in {market}?', cluster: 'discovery', intent: 'discovery' },
-  { t: 'How do I choose a {category} provider without getting burned?', cluster: 'selection', intent: 'problem' },
-  { t: 'What fees should I compare when choosing a {category} provider?', cluster: 'pricing', intent: 'commercial' },
+  { t: 'What should I compare when choosing {category}?', cluster: 'selection', intent: 'problem' },
+  { t: 'How much should I budget for {category}?', cluster: 'pricing', intent: 'commercial' },
   { t: 'Who are the top rated {category} specialists in {market}?', cluster: 'best-of', intent: 'discovery' },
-  { t: 'What questions should I ask before hiring a {category}?', cluster: 'selection', intent: 'problem' },
+  { t: 'What should I check before paying for {category}?', cluster: 'selection', intent: 'problem' },
   { t: 'Which {category} businesses have the strongest track record?', cluster: 'proof', intent: 'comparison' },
-  { t: 'Is it better to hire a {category} or build the team in house?', cluster: 'comparison', intent: 'comparison' },
-  { t: 'What does a good {category} report actually include?', cluster: 'process', intent: 'problem' },
+  { t: 'How can I compare the quality of different {category}?', cluster: 'comparison', intent: 'comparison' },
+  { t: 'What evidence should I look for when comparing {category}?', cluster: 'process', intent: 'problem' },
   { t: 'How long does {category} take to show results?', cluster: 'process', intent: 'problem' }
 ];
 
@@ -104,7 +106,7 @@ Write ${count} questions this buyer would ask an AI assistant about "${topic}".`
     .slice(0, count);
 }
 
-export async function generatePrompts({ brand, domain, category, market = 'the UK', qualifier = 'small business', count = 20, language = 'en' }) {
+export async function generatePrompts({ brand, domain, category, market = 'the UK', qualifier = 'customers looking for this offering', count = 20, language = 'en' }) {
   const system = `${languageRule(language)}\n\n${SYSTEM}`;
   const ask = `Current date: ${new Date().toISOString().slice(0, 10)}
 Current year: ${new Date().getUTCFullYear()}
@@ -119,8 +121,11 @@ Write ${count} questions.`;
   const parsed = parseJsonArray(raw);
 
   if (parsed && parsed.length) {
+    const seen = new Set();
     const suggestions = parsed
-      .filter((p) => p && typeof p.text === 'string' && p.text.length > 10)
+      .filter((p) => p && isBuyerQuestion(p.text) && !/^how\s+to\b/i.test(p.text.trim()))
+      .filter((p) => !containsSearchBrand(p.text, [brand, domain]))
+      .filter((p) => { const key = queryKey(p.text); if (seen.has(key)) return false; seen.add(key); return true; })
       .filter((p) => matchesLanguage(p.text, language))
       .filter((p) => !hasUnrequestedYear(p.text))
       .map((p) => ({

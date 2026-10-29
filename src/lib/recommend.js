@@ -313,7 +313,7 @@ export function evaluateRules({
     const topQuery = fanOut[0]?.query || null;
 
     /* Rule 1: invisible on a question that matters */
-    if (ownRate === 0 && p.owned.runs >= 2) {
+    if (ownRate === 0 && p.owned.runs >= 1) {
       const rivals = [...p.competitors.values()]
         .filter((c) => rate(c.hits, c.runs) >= 0.5)
         .map((c) => c.name)
@@ -322,9 +322,11 @@ export function evaluateRules({
       out.push(
         rec({
           type: 'content_gap',
-          title: `Invisible for: "${p.text}"`,
+          title: p.owned.runs === 1 ? `Review first answer: "${p.text}"` : `Review missing mentions: "${p.text}"`,
           action:
-            `You were not named in ${p.owned.runs} measured answers. This does not establish why. ` +
+            (p.owned.runs === 1
+              ? 'Your brand was not named in the one measured answer for this question. This is a first-sample observation, not a reliable absence rate or evidence of a content gap. '
+              : `You were not named in ${p.owned.runs} measured answers. This does not establish why. `) +
             (topQuery ? `The stored search trace includes "${topQuery}". A search trace does not establish your ranking or explain source selection. ` : '') +
             'Read the original answers and cited pages, confirm the question fits your buyers, and identify any specific missing information on your relevant page. ' +
             'Update that page only if the review supports a change. Pause irrelevant questions. Record what you reviewed and use a later measurement to check the outcome.',
@@ -335,6 +337,7 @@ export function evaluateRules({
             runs: p.owned.runs,
             own_rate: 0,
             cluster: p.cluster,
+            ...(p.owned.runs === 1 ? { preliminary: true, run_id: p.owned.sampleRun } : {}),
             queries: topQuery ? fanOut.map((f) => f.query) : undefined
           }
         })
