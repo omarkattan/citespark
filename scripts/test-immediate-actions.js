@@ -8,18 +8,30 @@ const cycle='2026-10-29T00:00:00.000Z';
 const rec=(id,q)=>({type:'content_gap',action:'One measured answer did not name the brand.',evidence:{prompt_id:id,prompt:q,runs:1,own_rate:0}});
 const answers=[{id:100,prompt_id:1,measurement_id:60,engine:'chatgpt',mentioned:false,response_text:'The best choice depends on the ingredients, price and your personal needs.'}];
 const pages=[{id:'page-1',url:'https://skincycles.com/products/serum',title:'SkinCycles serum',text:'SkinCycles serum. Pack size 30 ml. Use two drops every evening. The price is shown at checkout.',read_at:cycle}];
-const valid={prompt_id:1,title:'Explain the total routine cost',mode:'improve',page_id:'page-1',page_quote:'Pack size 30 ml. Use two drops every evening.',answer_id:100,answer_quote:'The best choice depends on the ingredients, price and your personal needs.',rationale:'Help buyers compare the pack size and stated usage before choosing.',change:'Beside the price, explain what is included and how the stated usage relates to the pack size. Ask the product owner to approve the calculation before publishing.',suggested_questions:['What is included in the SkinCycles serum price?'],completion:'Record the approved facts and the updated page URL.'};
+const valid={prompt_id:1,title:'Explain the total routine cost',mode:'improve',page_id:'page-1',page_excerpt_id:'page-1-1',page_quote:'Pack size 30 ml. Use two drops every evening.',answer_id:100,answer_excerpt_id:'answer-100-1',answer_quote:'The best choice depends on the ingredients, price and your personal needs.',rationale:'Help buyers compare the pack size and stated usage before choosing.',change:'Beside the price, explain what is included and how the stated usage relates to the pack size. Ask the product owner to approve the calculation before publishing.',suggested_questions:['What is included in the SkinCycles serum price?'],completion:'Record the approved facts and the updated page URL.'};
 test('chooses distinct buying needs before informational questions without using estimated volume',()=>{
  const recs=[rec(1,'How do I reduce pigmentation?'),rec(2,'What does a skincare routine cost?'),rec(3,'Which skincare brand is best?'),rec(4,'How do these serums compare?')];
  const a=recs.map(r=>({prompt_id:r.evidence.prompt_id}));assert.deepEqual(selectActionCandidates(recs,a).map(r=>r.evidence.prompt_id),[2,3,4]);assert.equal(buyingIntent('ما تكلفة الروتين؟').kind,'pricing');
 });
 test('attaches a grounded edit with exact supplied page and answer evidence',async()=>{
  const out=await prepareActionPlans(project,[rec(1,'How much should skincare cost?')],answers,{cycle,pages,generate:async()=>JSON.stringify([valid])});
- const p=out[0].evidence.action_plan;assert.equal(p.generation,'page-grounded');assert.equal(p.page,pages[0].url);assert.equal(p.evidence.answer_id,100);assert.equal(p.evidence.page_quote,valid.page_quote);assert.equal(p.mode,'improve');assert.equal(out[0].review_decision,undefined);
+ const p=out[0].evidence.action_plan;assert.equal(p.generation,'page-grounded');assert.equal(p.page,pages[0].url);assert.equal(p.evidence.answer_id,100);assert.equal(p.evidence.page_quote,pages[0].text);assert.equal(p.mode,'improve');assert.equal(out[0].review_decision,undefined);
 });
 test('fabricated quotes, page IDs, answer IDs and promised outcomes are rejected',()=>{
  const fallback=fallbackActionPlan(project,rec(1,'How much should skincare cost?'),answers[0],pages,{cycle});
  for(const bad of [{page_quote:'This page has no prices.'},{page_id:'invented'},{answer_id:999},{answer_quote:'Not in the answer at all'},{change:'This content will increase your visibility immediately and produce qualified leads.'}])assert.equal(validatedActionPlan({...valid,...bad},fallback,answers[0],pages),fallback);
+});
+test('quote validation accepts whitespace formatting differences while keeping the same words',()=>{
+ const fallback=fallbackActionPlan(project,rec(1,'How much should skincare cost?'),answers[0],pages,{cycle});
+ const p=validatedActionPlan({...valid,answer_quote:valid.answer_quote.replace('depends on','depends\n on')},fallback,answers[0],pages);assert.equal(p.generation,'page-grounded');
+});
+test('unknown excerpt references cannot create supporting evidence',async()=>{
+ const out=await prepareActionPlans(project,[rec(1,'How much should skincare cost?')],answers,{cycle,pages,generate:async()=>JSON.stringify([{...valid,page_excerpt_id:'not-supplied',page_quote:pages[0].text}])});
+ assert.equal(out[0].evidence.action_plan.generation,'guided-check');assert.equal(out[0].evidence.action_plan.draft_status,'page_quote');
+});
+test('drafted prices and invented routine totals are rejected even when the source reference is valid',()=>{
+ const fallback=fallbackActionPlan(project,rec(1,'How much should skincare cost?'),answers[0],pages,{cycle});
+ assert.equal(validatedActionPlan({...valid,change:'Add a complete routine price of £400–600 based on these products and describe the final cost to shoppers.'},fallback,answers[0],pages),fallback);
 });
 test('no verified page produces a specific check without claiming a content gap or inventing a URL',async()=>{
  let generated=0;const out=await prepareActionPlans(project,[rec(1,'How much should skincare cost?')],answers,{cycle,pages:[],generate:async()=>{generated++;}});

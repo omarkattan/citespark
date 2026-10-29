@@ -25,6 +25,11 @@ async function appFixture(decision={}){
 test('first results show concrete actions before the collapsed evidence queue, with no extra requests',async()=>{
  const f=await appFixture(),d=f.w.document;assert.match(d.querySelector('.action-plan h3').textContent,/Explain the routine price/);assert.ok(d.querySelector('.plan-page a').href.endsWith('/products/serum'));assert.equal(d.querySelector('#opportunityQueue').closest('details').open,false);assert.ok(f.requests.every(r=>r.method==='GET'));f.dom.window.close();
 });
+test('completion leads with the next actions and keeps measurement detail available without covering them',async()=>{
+ const f=await appFixture(),d=f.w.document;
+ f.w.showReport({visibility:0,measuredAnswers:1,openActions:1,recommendations:1,spend:.05,billable:1,topActions:[{title:'Old generic guidance'}]});
+ assert.equal(d.querySelector('#cycleReport h2').textContent,'Your actions are ready');assert.equal(d.querySelector('#cycleReport details').open,false);assert.equal(d.querySelector('#cycleReport [data-report-goto=actions]').textContent,'Review my next actions');assert.doesNotMatch(d.getElementById('cycleReport').textContent,/Old generic guidance/);f.dom.window.close();
+});
 test('one click fills a complete editable action, saving still requires explicit report preview',async()=>{
  const f=await appFixture(),d=f.w.document;d.querySelector('[data-use-action-plan]').click();await settle();
  assert.equal(d.getElementById('decision-page-99').value,plan.page);assert.match(d.getElementById('decision-change-99').value,/approved pack size/);assert.match(d.getElementById('decision-evidence-99').value,/measurements\/60#run-100/);assert.equal(d.getElementById('decision-stage-99').value,'investigate');assert.equal(d.activeElement.id,'decision-stage-99');assert.equal(d.querySelector('#opportunityQueue').closest('details').open,true);assert.ok(f.requests.every(r=>r.method==='GET'));

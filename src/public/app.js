@@ -454,7 +454,7 @@ function opportunityKind(task) {
 // Presentation grouping only. Persisted task IDs and their work history stay separate.
 function immediateActionSection(tasks, {offerPrepare=false}={}) {
   const current=state.overview?.cycle ? new Date(state.overview.cycle).toISOString() : null;
-  const selected=(tasks||[]).filter(t=>[1,2].includes(t.evidence?.action_plan?.version) && (!t.status||['open','doing'].includes(t.status)) && t.review_decision?.stage!=='no_change' && (!current || new Date(t.evidence.action_plan.cycle).toISOString()===current)).sort((a,b)=>(a.evidence.action_plan.position||99)-(b.evidence.action_plan.position||99)).slice(0,3);
+  const selected=(tasks||[]).filter(t=>[1,2,3].includes(t.evidence?.action_plan?.version) && (!t.status||['open','doing'].includes(t.status)) && t.review_decision?.stage!=='no_change' && (!current || new Date(t.evidence.action_plan.cycle).toISOString()===current)).sort((a,b)=>(a.evidence.action_plan.position||99)-(b.evidence.action_plan.position||99)).slice(0,3);
   state.immediateActions=new Map(selected.map(t=>[String(t.id),t]));
   if(!selected.length)return offerPrepare&&state.overview?.runs?`<section class="panel"><h2>Get specific next actions</h2><p>Use your saved answers and relevant website pages to prepare up to three suggested actions. This does not repeat your AI answer checks.</p><button data-rebuild-actions>Prepare my actions</button><p class="hint">Page checks and drafting can take about a minute. Suggestions remain editable before you save or include them in a report.</p></section>`:'';
   const safeLink=(url,label)=>{try{const u=new URL(url,location.origin);if(!['https:','http:'].includes(u.protocol)||u.username||u.password)return esc(label);return `<a href="${esc(u.href)}" target="_blank" rel="noopener">${esc(label)}</a>`;}catch{return esc(label);}};
@@ -2674,6 +2674,7 @@ function failureNote(s) {
 }
 
 function showReport(s) {
+  const specific=state.immediateActions?.size||0;
   const sources = s.topSources?.length
     ? `<p class="report-lede" style="margin-top:14px;font-size:13.5px;color:var(--ink-3)">
          Most cited sources this cycle: ${s.topSources.map((x) => `<b>${esc(x.domain)}</b>`).join(', ')}.
@@ -2683,7 +2684,8 @@ function showReport(s) {
   $('cycleReport').innerHTML = `
     <div class="report">
       <button class="report-close" aria-label="Dismiss" data-close-report>&times;</button>
-      <div class="report-top"><h2>Cycle finished</h2></div>
+      <div class="report-top"><h2>${specific?'Your actions are ready':'Cycle finished'}</h2></div>
+      ${specific?`<p>Your measurement is saved. Start with the ${specific} specific action${specific===1?'':'s'} below.</p><details><summary>Measurement details and cost</summary>`:''}
       <p class="report-lede">${headline(s)}</p>
       ${failureNote(s)}
 
@@ -2710,11 +2712,11 @@ function showReport(s) {
         </div>
       </div>
 
-      ${s.topActions?.length ? `<ul class="report-list">${s.topActions.map((a) => `<li>${esc(a.title)}</li>`).join('')}</ul>` : ''}
+      ${!specific && s.topActions?.length ? `<ul class="report-list">${s.topActions.map((a) => `<li>${esc(a.title)}</li>`).join('')}</ul>` : ''}
       ${sources}
-
+      ${specific?'</details>':''}
       <div class="report-actions" style="margin-top:16px">
-        <button data-report-goto="actions">See all ${s.openActions} actions</button>
+        <button data-report-goto="actions">${specific?'Review my next actions':`See all ${s.openActions} actions`}</button>
         <button class="ghost" data-report-goto="questions">Question by question</button>
         <button class="ghost" data-report-goto="sources">Who gets cited</button>
       </div>
@@ -2958,6 +2960,7 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('[data-goto-setup]')) document.querySelector('.tab[data-view="setup"]').click();
   const goto = e.target.closest('[data-report-goto]');
   if (goto) {
+    $('cycleReport').hidden=true;
     document.querySelector(`.tab[data-view="${goto.dataset.reportGoto}"]`).click();
     document.querySelector('.tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
