@@ -1,7 +1,7 @@
 import {verifiedEnough} from './billing.js';
 import {many,one,query} from '../db/index.js';
 import {readActionPages,readOwnPage,ownPageUrl} from './action-pages.js';
-import {onceContentJob,recordedCompletion,workflowError} from './content-cost.js';
+import {onceContentJob,recordedCompletion,workflowError,draftingCost} from './content-cost.js';
 import {approvedFacts,factsHash,FACT_SCHEMA,FAQ_SCHEMA,extractedFacts,reviewedFacts,validateGeneratedFaq,validateFaqEdit,validateImplementation,FACT_SYSTEM,FAQ_SYSTEM} from './faq-content.js';
 import {matchedRecheckScope} from './faq-recheck.js';
 import {reaskPrompt} from '../jobs/runCycle.js';
@@ -14,12 +14,11 @@ const parse=value=>{try{return JSON.parse(value);}catch{return null;}};
 const reviewFor=id=>one('SELECT * FROM brand_fact_reviews WHERE project_id=$1',[id]);
 const draftFor=(projectId,recId)=>one('SELECT * FROM faq_workflows WHERE project_id=$1 AND recommendation_id=$2',[projectId,recId]);
 async function costsFor(id){
- const row=await one(`SELECT COALESCE(SUM(estimated_cost_usd),0)::float AS estimated_usd,
- COUNT(*) FILTER(WHERE usage IS NOT NULL)::int AS recorded_calls,
- COUNT(*) FILTER(WHERE estimated_cost_usd IS NULL AND (usage IS NOT NULL OR kind IN ('brand_facts','faq_draft','immediate_actions')))::int AS unknown_cost_calls
- FROM content_jobs WHERE project_id=$1`,[id]);
+ const records=await many("SELECT kind,status,model,usage,estimated_cost_usd,started_at FROM content_jobs WHERE project_id=$1 AND kind IN ('brand_facts','faq_draft','immediate_actions') ORDER BY id DESC",[id]);
+ const calls=records.map(r=>({...r,estimated_cost_usd:r.estimated_cost_usd==null?draftingCost(r.model,r.usage):Number(r.estimated_cost_usd)}));
+ const row={estimated_usd:calls.reduce((n,r)=>n+(r.estimated_cost_usd||0),0),recorded_calls:calls.filter(r=>r.usage).length,unknown_cost_calls:calls.filter(r=>r.estimated_cost_usd==null).length};
  const answer=await one('SELECT COALESCE(SUM(cost_usd),0)::float AS usd FROM runs WHERE project_id=$1',[id]);
- return {...row,answer_usd:answer.usd,note:'Drafting: estimated API cost from recorded tokens since this feature was released, not an invoice. Earlier drafting and other AI analysis are not included. Unknown costs are not counted as zero.'};
+ return {...row,calls:calls.slice(0,20),answer_usd:answer.usd,note:'Drafting: estimated API cost from recorded tokens since this feature was released, not an invoice. Earlier drafting and other AI analysis are not included. Unknown costs are not counted as zero.'};
 }
 async function saveHistory(row,userId){await query(`INSERT INTO faq_workflow_history(workflow_id,revision,snapshot,saved_by)
  VALUES($1,$2,$3::jsonb,$4) ON CONFLICT(workflow_id,revision) DO NOTHING`,[row.id,row.revision,JSON.stringify(row),userId]);}

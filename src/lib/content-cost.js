@@ -12,7 +12,7 @@ export function draftingCost(model,usage) {
   const cache=usage.cache_creation || {}, hour=Number(cache.ephemeral_1h_input_tokens||0), total=Number(usage.cache_creation_input_tokens||0);
   if(hour>total)return null;
   // Nonstandard geography/service pricing is intentionally not guessed.
-  if(usage.inference_geo && usage.inference_geo!=='global')return null;
+  if(usage.inference_geo && !['global','not_available'].includes(usage.inference_geo))return null;
   return (Number(usage.input_tokens)*3+Number(usage.output_tokens)*15+Number(usage.cache_read_input_tokens||0)*0.3+(total-hour)*3.75+hour*6)/1e6;
 }
 export const workflowError=(message,status=400)=>Object.assign(new Error(message),{status});

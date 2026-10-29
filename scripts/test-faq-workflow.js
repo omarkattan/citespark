@@ -32,7 +32,7 @@ const completion=async(prompt,options)=>{
 };
 const costs=vm.runInNewContext(`(()=>{${stripped(read('../src/lib/content-cost.js'))};return {onceContentJob,recordedCompletion};})()`,{one,query,complete:completion,randomUUID:()=>crypto.randomUUID(),console});
 const routes=new Map(),app={};for(const method of ['get','post','put'])app[method]=(path,...handlers)=>routes.set(method.toUpperCase()+' '+path,handlers);
-const ctx={...core,...costs,many,one,query,ownPageUrl,workflowError,console,verifiedEnough:async()=>true,
+const ctx={...core,...costs,many,one,query,ownPageUrl,workflowError,draftingCost,console,verifiedEnough:async()=>true,
  readActionPages:async()=>[{id:'page-1',url:'https://example.org/products/serum',text:'The Example serum comes in a 30 ml bottle.',read_at:'2026-10-29'}],readOwnPage:async()=>null,
  matchedRecheckScope:async(_p,_d,id)=>id?{comparable:true,before:[{engine:'chatgpt',usable:1,named:0,cited:0}],after:[{engine:'chatgpt',usable:1,named:1,cited:1}]}:{eligible:true,calls:1,estimated_usd:.03,counts:{chatgpt:1}},
  reaskPrompt:async()=>{rechecks++;return {measurementId:62,spend:.02,results:[]};}};
@@ -56,6 +56,7 @@ test('facts preserve exact source passages, reject invented excerpts and require
 });
 test('cost estimates count input/output and cache use, unknown models are unknown',()=>{
  assert.equal(draftingCost('claude-sonnet-4-5-20250929',{input_tokens:1000,output_tokens:100}),.0045);
+ assert.equal(draftingCost('claude-sonnet-4-5-20250929',{input_tokens:1000,output_tokens:100,inference_geo:'not_available'}),.0045);
  assert.equal(draftingCost('unknown',{input_tokens:1000,output_tokens:100}),null);
  assert.equal(draftingCost('claude-sonnet-4-5',{input_tokens:-1,output_tokens:100}),null);
  assert.equal(draftingCost('claude-sonnet-4-5',{input_tokens:0,output_tokens:0,cache_read_input_tokens:1000}),.0003);
