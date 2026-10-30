@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const STEPS = [
-    {title:'Welcome to Cited',copy:'Find out when AI names your business, which sources it uses, and what you can improve. This quick tour shows you the path from your first site to a useful report.',path:'About 2 minutes. Skip now and return with “Take a tour”.'},
+    {title:'Welcome to Cited',copy:'Find out when AI names your business, which sources it uses, and what you can improve. This quick tour shows you the path from your first site to a useful report.',path:'About 2 minutes. Skip now and return with “Start guided tour”.'},
     {title:'Start with your website',copy:'Add your domain, describe what your business does and choose your market. Cited suggests buyer questions for you to review.',path:'Add site → website and market',targets:['#addSiteBtn']},
     {title:'Bring in your search and traffic data',copy:'Connect Search Console to find relevant Google searches, and Analytics to see visits from AI assistants. You can connect these now or come back later.',path:'Settings → Connections',targets:['[data-view="connections"]','[data-section="settings"]']},
     {title:'Choose the questions that matter',copy:'Review suggested questions, improve their wording and pause anything irrelevant. Include the buying and comparison questions your customers would ask. Google search evidence is shown separately from AI results.',path:'Questions → review, edit or add',targets:['[data-section="questions"]']},
