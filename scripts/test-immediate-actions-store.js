@@ -22,7 +22,7 @@ INSERT INTO reporting_runs SELECT i,i,39,'chatgpt','A saved answer with factual 
 INSERT INTO mentions SELECT i,1,false FROM generate_series(5,11) i;
 INSERT INTO recommendations(project_id,fingerprint,type,title,action,evidence,review_decision,notes,assignee) VALUES(39,'content_gap:1','content_gap','Existing title','Original guidance','{"prompt_id":1}','{"stage":"ready","change":"Approved human edit"}','Human notes','content owner');
 INSERT INTO report_review_notes VALUES(1,39,'Fixed report copy');`);
-const ctx=vm.createContext({many:async(sql,p)=>(await db.query(sql,p)).rows,query:(sql,p)=>db.query(sql,p),ownPageUrl,pageMatch,console,
+const ctx=vm.createContext({Date,many:async(sql,p)=>(await db.query(sql,p)).rows,query:(sql,p)=>db.query(sql,p),ownPageUrl,pageMatch,console,
  readActionPages:async()=>[{id:'page-1',url:'https://example.org/products/serum',title:'Routine serum cost',text:'Our routine serum comes in a labelled pack with clear usage instructions.',read_at:'2026-10-29'}],
  complete:async()=>{generations++;return '[]';},recordedCompletion:async(_id,_kind,prompt)=>{generations++;const packet=JSON.parse(prompt);return JSON.stringify(packet.candidates.map(c=>({prompt_id:c.prompt_id,title:'Check the specific serum option',mode:'verify',page_id:'page-1',page_excerpt_id:'page-1-1',answer_id:c.answer.id,answer_excerpt_id:c.answer.excerpts[0].id,change:'Check whether the current serum usage instructions answer this specific buyer question.',rationale:'Help buyers find the relevant approved product information.',completion:'Check the product facts and record the chosen page.',suggested_questions:[]})));},parseJsonArray:JSON.parse});
 const source=readFileSync(new URL('../src/lib/immediate-actions.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replace(/export /g,'');vm.runInContext(source,ctx);
@@ -37,5 +37,30 @@ test('stored measurement creates all ten actions, preserves human work and repor
 test('dismissed, no-change and suppressed actions are not regenerated as suggested next actions',async()=>{
  await db.exec(`UPDATE recommendations SET status='dismissed' WHERE fingerprint='content_gap:1';UPDATE recommendations SET review_decision='{"stage":"no_change"}' WHERE fingerprint='content_gap:2';INSERT INTO recommendation_suppressions VALUES(39,'content_gap:3');`);
  const rows=await ctx.attachImmediateActions(project,recs(),cycle);assert.equal(rows.filter(r=>r.evidence.action_plan).length,7);assert.equal(generations,4);
+});
+
+test('older open cards and sibling rule cards receive analysis without a new measurement or overwriting reviews',async()=>{
+ await db.exec(`INSERT INTO entities VALUES(3,41,'owned');
+ INSERT INTO prompts VALUES(20,'Which older serum is best?'),(21,'Which current serum is best?'),(22,'Which unmeasured serum is best?');
+ INSERT INTO reporting_runs VALUES(20,20,41,'chatgpt','An older saved answer with useful product evidence.',59,'2026-10-28',true),(21,21,41,'chatgpt','A current saved answer with useful product evidence.',61,'2026-10-30',true);
+ INSERT INTO mentions VALUES(20,3,false),(21,3,false);
+ INSERT INTO recommendations(project_id,fingerprint,type,title,action,evidence,notes,review_decision) VALUES
+ (41,'content_gap:20','content_gap','Older task','Keep old context','{"prompt_id":20,"prompt":"Which older serum is best?"}','Keep my notes','{}'),
+ (41,'citable_asset:21','citable_asset','Sibling task','Keep sibling context','{"prompt_id":21,"prompt":"Which current serum is best?"}',null,'{"stage":"investigate","change":"Human review"}'),
+ (41,'entity_authority:21','entity_authority','Declined task','No edit','{"prompt_id":21,"prompt":"Which current serum is best?"}',null,'{"stage":"no_change"}'),
+ (41,'content_gap:22','content_gap','Unmeasured task','Waiting for answer','{"prompt_id":22,"prompt":"Which unmeasured serum is best?"}',null,'{}');`);
+ const fresh=()=>[{type:'content_gap',title:'Current task',action:'Review current answer',evidence:{prompt_id:21,prompt:'Which current serum is best?'}}];
+ const before=generations;let progress;
+ const rows=await ctx.attachImmediateActions({...project,id:41},fresh(),new Date('2026-10-30'),{onProgress:p=>progress=p});
+ assert.equal(generations,before+1);assert.equal(progress.total,3);assert.equal(progress.grounded,2);assert.equal(progress.blocked,1);
+ const stored=(await db.query('SELECT * FROM recommendations WHERE project_id=41')).rows;
+ const old=stored.find(r=>r.fingerprint==='content_gap:20');assert.equal(old.evidence.action_plan.evidence.answer_id,20);assert.match(old.evidence.action_plan.cycle,/2026-10-28/);assert.equal(old.notes,'Keep my notes');
+ const sibling=stored.find(r=>r.fingerprint==='citable_asset:21');assert.equal(sibling.evidence.action_plan.evidence.answer_id,21);assert.equal(sibling.review_decision.change,'Human review');
+ assert.equal(stored.find(r=>r.fingerprint==='entity_authority:21').evidence.action_plan,undefined);
+ assert.equal(stored.find(r=>r.fingerprint==='content_gap:22').evidence.action_preparation.state,'no_answer');
+ assert.equal(rows.filter(r=>r.evidence.action_plan).length,3);
+ await db.exec(`UPDATE recommendations SET evidence=evidence-'action_plan' WHERE project_id=41 AND fingerprint='citable_asset:21'`);
+ await ctx.attachImmediateActions({...project,id:41},fresh(),new Date('2026-10-30'));
+ assert.equal(generations,before+1);assert.equal((await db.query("SELECT evidence FROM recommendations WHERE project_id=41 AND fingerprint='citable_asset:21'")).rows[0].evidence.action_plan.generation,'page-grounded');
 });
 test.after(()=>db.close());
