@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/styles.css?v=20261002-report-journey-80" />
-<link rel="stylesheet" href="/product-tour.css?v=1" />
+<link rel="stylesheet" href="/product-tour.css?v=2" />
 <link rel="stylesheet" href="/immediate-actions.css?v=3" />
 <link rel="stylesheet" href="/faq-workflow.css?v=2" />
 </head>
@@ -20,8 +20,8 @@
     <a class="wordmark" href="/" title="Cited home"><svg width="26" height="26" viewBox="0 0 40 40" role="img" aria-hidden="true">
         <path d="M15 8H9v24h6M25 8h6v24h-6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M20 11l2.6 6.4L29 20l-6.4 2.6L20 29l-2.6-6.4L11 20l6.4-2.6z" fill="var(--you)"/>
-      </svg><span class="wordmark-text">Cit<em>ed</em></span><span class="beta" title="Cited is in beta. Things will change, and your feedback shapes what changes.">beta</span></a>
-    <button class="ghost tour-launch" id="takeTourBtn" type="button" disabled aria-haspopup="dialog">Take a tour</button>
+      </svg><span class="wordmark-text">Cit<em>ed</em></span></a>
+    <button class="tour-launch" id="takeTourBtn" type="button" disabled aria-haspopup="dialog" title="See how to go from setup to specific actions in about 2 minutes"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="m10 8 6 4-6 4V8Z" fill="currentColor"/></svg><span>Start guided tour</span></button>
     <div class="meta" id="cycleMeta"></div>
     <div class="spacer"></div>
     <select id="projectPicker" style="width:auto;min-width:200px"></select>
@@ -108,7 +108,7 @@
   <form method="dialog">
     <h2>What would you change?</h2>
     <p class="dek" style="margin:8px 0 18px;font-size:13.5px">
-      Cited is in beta and we read everything. We will attach which screen you were on so you do not have to explain.
+      We read every message. We will attach which screen you were on so you do not have to explain.
     </p>
 
     <div class="field">
@@ -191,7 +191,7 @@
 
 <script src="/countries.js"></script>
 <script src="/demo-handoff.js?v=119"></script>
-<script src="/product-tour.js?v=1"></script>
+<script src="/product-tour.js?v=2"></script>
 <script src="/faq-workflow.js?v=3"></script>
 <script src="/app.js?v=136"></script>
 <script src="/context-help.js?v=93" defer></script></body>
