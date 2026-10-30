@@ -10,4 +10,6 @@ The authenticated preparation request returns immediately and exposes progress. 
 
 Cards distinguish **Not analysed yet**, **Analysis incomplete**, **Specific check**, **Suggested edit** and **Keep and check**. Saved human review decisions remain visible and are never automatically promoted to ready. Failed analysis explains that the page review did not finish. Existing notes, owners, statuses, approved FAQ content and report copies are retained.
 
-Validation: 36 focused tests cover all-question batching, exact source references, invalid claims, partial-save recovery, caching, failed-batch retries, progress, duplicate starts, project access, email verification, expanded cards, unsaved edits and report preservation. JavaScript syntax checks also pass. No new dependencies or schema migration.
+Validation: 37 focused tests cover all-question batching, exact source references, invalid claims, partial-save recovery, caching, failed-batch retries, progress, duplicate starts, project access, email verification, expanded cards, unsaved edits and report preservation. JavaScript syntax checks also pass. No new dependencies or schema migration.
+
+Live verification: Render served commit 8d3226a. SkinCycles preparation completed all ten question plans. All ten cards expose a specific action and FAQ drafting entry point; the pricing FAQ and saved ingredient-review decision remained intact. The answer-check allowance stayed at 20/40. A follow-up UI correction prevents an old incomplete machine draft from showing a failure warning over a human-approved action.

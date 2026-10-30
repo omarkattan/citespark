@@ -102,3 +102,13 @@ test('preparing remaining actions shows progress, prevents duplicate starts and 
  await new Promise(r=>setTimeout(r,2700));for(let i=0;i<30&&d.querySelector('[data-rebuild-actions]').disabled;i++)await settle();
  assert.match(d.querySelector('[data-rebuild-actions]').textContent,/Refresh suggested actions/);assert.equal(d.getElementById('decision-change-4').value,'My unsaved review');assert.ok(!f.requests.some(r=>r.path.includes('/run'))||f.requests.filter(r=>r.path.includes('/run')).every(r=>r.method==='GET'));f.dom.window.close();
 });
+
+
+test('a human-approved action does not inherit an incomplete machine-analysis warning',async()=>{
+ const tasks=actionList();tasks[0].evidence.action_plan={...plan,generation:'guided-check',draft_status:'failed'};
+ tasks[0].review_decision={stage:'ready',title:'Approved page update',page:plan.page,change:'Approved factual copy.',evidence:'Verified by reviewer.',reviewed_at:'2026-10-30'};
+ const f=await appFixture({}, {tasks}),card=f.w.document.querySelector('[data-plan-id="1"]');
+ assert.match(card.querySelector('.plan-badge').textContent,/Ready to implement/);
+ assert.equal(card.querySelector('.plan-analysis-note'),null);
+ assert.equal(card.querySelector('.plan-change').textContent,'Approved factual copy.');f.dom.window.close();
+});
