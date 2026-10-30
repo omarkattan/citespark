@@ -4,6 +4,7 @@ import {complete,parseJsonArray} from './anthropic.js';
 import {readActionPages,readOwnPage,ownPageUrl,pageMatch} from './action-pages.js';
 
 export const ACTION_PLAN_VERSION=4;
+export const QUESTION_ACTION_TYPES=['content_gap','citable_asset','sentiment_correction','entity_authority','answer_review'];
 const text=(v,max=4000)=>typeof v==='string'?v.trim().slice(0,max):'';
 const stamp=v=>v instanceof Date?v.toISOString():String(v||'');
 const isArabic=q=>/[\u0600-\u06ff]/.test(q);
@@ -18,7 +19,7 @@ export function selectActionCandidates(recs,answers,limit=Infinity) {
   const available=new Map(answers.map(a=>[Number(a.prompt_id),a]));
   const unique=new Map();
   const order={content_gap:0,citable_asset:1,sentiment_correction:2,entity_authority:3,answer_review:4};
-  for(const rec of recs){const id=Number(rec.evidence?.prompt_id);if(!available.has(id)||!(rec.type in order))continue;const current=unique.get(id);if(!current||order[rec.type]<order[current.type])unique.set(id,rec);}
+  for(const rec of recs){const id=Number(rec.evidence?.prompt_id);if(!available.has(id)||!(rec.type in order))continue;const answer=available.get(id);if(answer.question&&rec.evidence.prompt&&answer.question!==rec.evidence.prompt)continue;const current=unique.get(id);if(!current||order[rec.type]<order[current.type])unique.set(id,rec);}
   const sorted=[...unique.values()].sort((a,b)=>buyingIntent(b.evidence.prompt).rank-buyingIntent(a.evidence.prompt).rank||order[a.type]-order[b.type]||Number(a.evidence.prompt_id)-Number(b.evidence.prompt_id));
   const chosen=[],kinds=new Set();
   for(const r of sorted){const kind=buyingIntent(r.evidence.prompt).kind;if(chosen.length<limit&&!kinds.has(kind)){chosen.push(r);kinds.add(kind);}}
@@ -115,8 +116,13 @@ export async function prepareActionPlans(project,recs,answers,{cycle,pages,readP
   const byPrompt=new Map(answers.map(a=>[Number(a.prompt_id),a]));
   const pending=[];
   for(const rec of chosen){const a=byPrompt.get(Number(rec.evidence.prompt_id));const prior=cached.find(c=>Number(c.evidence?.prompt_id)===Number(rec.evidence.prompt_id)&&c.evidence?.action_plan?.generation==='page-grounded')?.evidence?.action_plan;
-    if(prior?.version===ACTION_PLAN_VERSION && prior.generation==='page-grounded' && prior.question===rec.evidence.prompt && prior.evidence?.answer_id===a.id && prior.measurement_id===a.measurement_id && stamp(prior.cycle)===stamp(cycle))rec.evidence={...rec.evidence,action_plan:{...prior}};else pending.push(rec);
+    if(prior?.version===ACTION_PLAN_VERSION && prior.generation==='page-grounded' && prior.question===rec.evidence.prompt && prior.evidence?.answer_id===a.id && prior.measurement_id===a.measurement_id && stamp(prior.cycle)===stamp(a.cycle_date||cycle))rec.evidence={...rec.evidence,action_plan:{...prior}};else pending.push(rec);
   }
+  // Several rule cards may refer to one question. Share its verified analysis with
+  // every eligible sibling, including when the primary plan came from the cache.
+  const sharePlans=batch=>{const plans=new Map(batch.map(r=>[Number(r.evidence.prompt_id),r.evidence.action_plan]));const related=[];
+    for(const rec of recs){const plan=plans.get(Number(rec.evidence?.prompt_id));if(plan&&QUESTION_ACTION_TYPES.includes(rec.type)&&rec.evidence.prompt===plan.question){rec.evidence={...rec.evidence,action_plan:{...plan}};delete rec.evidence.action_preparation;related.push(rec);}}return related;};
+  const reused=chosen.filter(r=>!pending.includes(r));if(reused.length)await onBatch(sharePlans(reused));
   let done=chosen.length-pending.length;
   const progress=()=>onProgress({total:chosen.length,done,grounded:chosen.filter(r=>r.evidence?.action_plan?.generation==='page-grounded').length});
   progress();
@@ -127,38 +133,53 @@ export async function prepareActionPlans(project,recs,answers,{cycle,pages,readP
     const packet={business:{brand:project.brand_name||project.name,domain:project.domain,category:project.category,audience:project.qualifier,market:project.market},candidates:batch.map(r=>{const a=byPrompt.get(Number(r.evidence.prompt_id));return {prompt_id:r.evidence.prompt_id,question:r.evidence.prompt,observation:r.action,answer:{id:a.id,engine:a.engine,mentioned:a.mentioned,excerpts:evidenceExcerpts(a.response_text,`answer-${a.id}`)}};}),pages:sourcePages.map(p=>({id:p.id,url:p.url,title:p.title,excerpts:evidenceExcerpts(p.text,p.id,14000)}))};
     let generated=[],generationStatus=sourcePages.length?'empty_response':'page_unavailable',provider=null;
     if(sourcePages.length)try{const raw=await generate(JSON.stringify(packet),{system:SYSTEM,maxTokens:5000,timeoutMs:60000,outputSchema:ACTION_OUTPUT_SCHEMA,onResponse:metadata=>{provider=metadata;},onFailure:reason=>{generationStatus=reason;}});generated=parseJsonArray(raw)||[];if(provider?.stop_reason&&provider.stop_reason!=='end_turn'){generated=[];generationStatus=provider.stop_reason;}else if(raw&&!generated.length)generationStatus='invalid_json';}catch{generationStatus='request_failed';}
-    for(const rec of batch){const a=byPrompt.get(Number(rec.evidence.prompt_id));const fallback=fallbackActionPlan(project,rec,a,sourcePages,{cycle});const raw=referenceDraft(generated.find(r=>Number(r?.prompt_id)===Number(rec.evidence.prompt_id)),a,sourcePages);const plan=validatedActionPlan(raw,fallback,a,sourcePages);
+    for(const rec of batch){const a=byPrompt.get(Number(rec.evidence.prompt_id));const fallback=fallbackActionPlan(project,rec,a,sourcePages,{cycle:a.cycle_date||cycle});const raw=referenceDraft(generated.find(r=>Number(r?.prompt_id)===Number(rec.evidence.prompt_id)),a,sourcePages);const plan=validatedActionPlan(raw,fallback,a,sourcePages);
       if(plan.page&&!ownPageUrl(plan.page,project.domain)){plan.page='';plan.page_status='unavailable';plan.mode='verify';}
       plan.draft_status=plan===fallback?(generated.length? actionPlanValidation(raw,a,sourcePages):generationStatus):'grounded';
       plan.position=chosen.indexOf(rec)+1;
       if(provider)plan.provider=provider;
       rec.evidence={...rec.evidence,action_plan:plan};
     }
-    await onBatch(batch);done+=batch.length;progress();
+    await onBatch(sharePlans(batch));done+=batch.length;progress();
   }
   chosen.forEach((rec,index)=>{if(rec.evidence.action_plan)rec.evidence.action_plan.position=index+1;});
+  sharePlans(chosen);
   return recs;
 }
 const preparing=new Map();
 export async function attachImmediateActions(project,recs,cycle,{refresh=false,onProgress=()=>{}}={}) {
   if(preparing.has(project.id))return preparing.get(project.id);
   const work=(async()=>{
-    const answers=await many(`SELECT DISTINCT ON (r.prompt_id) r.id,r.prompt_id,r.engine,r.response_text,r.measurement_id,p.text AS question,m.mentioned
+    const answers=await many(`SELECT DISTINCT ON (r.prompt_id) r.id,r.prompt_id,r.engine,r.response_text,r.measurement_id,r.cycle_date,p.text AS question,m.mentioned
       FROM reporting_runs r JOIN prompts p ON p.id=r.prompt_id
       JOIN mentions m ON m.run_id=r.id AND m.entity_id=(SELECT id FROM entities WHERE project_id=$1 AND kind='owned' ORDER BY id LIMIT 1)
-      WHERE r.project_id=$1 AND r.cycle_date=$2 AND r.ok AND NULLIF(trim(r.response_text),'') IS NOT NULL
-      ORDER BY r.prompt_id,r.id DESC`,[project.id,cycle]);
+      WHERE r.project_id=$1 AND r.ok AND (r.cycle_date=$2 OR EXISTS(
+        SELECT 1 FROM recommendations saved WHERE saved.project_id=$1 AND saved.status IN ('open','doing')
+        AND saved.evidence->>'prompt_id'=r.prompt_id::text)) AND NULLIF(trim(r.response_text),'') IS NOT NULL
+      ORDER BY r.prompt_id,r.cycle_date DESC,r.id DESC`,[project.id,cycle]);
     // A positive result can warrant keeping accurate content current. It must not be sold as a gap.
-    const cached=await many(`SELECT fingerprint,status,review_decision,evidence FROM recommendations WHERE project_id=$1`,[project.id]);
+    const cached=await many(`SELECT * FROM recommendations WHERE project_id=$1`,[project.id]);
     const suppressed=new Set((await many('SELECT fingerprint FROM recommendation_suppressions WHERE project_id=$1',[project.id])).map(r=>r.fingerprint));
     const eligible=r=>{const fingerprint=`${r.type}:${r.evidence.prompt_id}`;const stored=cached.find(c=>c.fingerprint===fingerprint);return !suppressed.has(fingerprint)&&!['done','dismissed'].includes(stored?.status)&&stored?.review_decision?.stage!=='no_change';};
     const candidates=recs.filter(eligible);
-    for(const a of answers)if(!recs.some(r=>Number(r.evidence?.prompt_id)===Number(a.prompt_id))){const r={type:'answer_review',title:`Check the answer to: ${a.question}`,action:'Check the recorded brand description against approved information. Keep accurate content and record only a supported correction.',target_url:null,impact:0,effort:1,priority:0,evidence:{prompt_id:a.prompt_id,prompt:a.question,run_id:a.id}};if(eligible(r))candidates.push(r);}
-    const selected=new Set(selectActionCandidates(candidates,answers));
-    const final=candidates.filter(r=>recs.includes(r)||selected.has(r));
+    // Include existing open question work even when this cycle's rules no longer
+    // emit it. Keep the original answer date and all human fields intact.
+    for(const stored of cached)if(['open','doing'].includes(stored.status)&&QUESTION_ACTION_TYPES.includes(stored.type)&&stored.evidence?.prompt_id&&eligible(stored)&&!candidates.some(r=>`${r.type}:${r.evidence?.prompt_id}`===stored.fingerprint))candidates.push({...stored,evidence:{...stored.evidence}});
+    const byPrompt=new Map(answers.map(a=>[Number(a.prompt_id),a]));
+    for(const rec of candidates)if(!rec.evidence.prompt&&byPrompt.has(Number(rec.evidence.prompt_id)))rec.evidence={...rec.evidence,prompt:byPrompt.get(Number(rec.evidence.prompt_id)).question};
+    for(const a of answers)if(![...recs,...cached,...candidates].some(r=>Number(r.evidence?.prompt_id)===Number(a.prompt_id))){const r={type:'answer_review',title:`Check the answer to: ${a.question}`,action:'Check the recorded brand description against approved information. Keep accurate content and record only a supported correction.',target_url:null,impact:0,effort:1,priority:0,evidence:{prompt_id:a.prompt_id,prompt:a.question,run_id:a.id}};if(eligible(r))candidates.push(r);}
+    const final=candidates;
+    const blocked=new Set();
+    for(const rec of final){if(!QUESTION_ACTION_TYPES.includes(rec.type)||!rec.evidence?.prompt_id)continue;const a=byPrompt.get(Number(rec.evidence.prompt_id));
+      if(a&&(!a.question||a.question===rec.evidence.prompt))continue;
+      const reason=a?'question_changed':'no_answer';blocked.add(Number(rec.evidence.prompt_id));
+      rec.evidence={...rec.evidence,action_preparation:{state:reason,checked_at:new Date().toISOString()}};
+      await query(`UPDATE recommendations SET evidence=jsonb_set(evidence,'{action_preparation}',$3::jsonb),updated_at=now()
+        WHERE project_id=$1 AND fingerprint=$2 AND status IN ('open','doing') AND COALESCE(review_decision->>'stage','')<>'no_change'`,[project.id,`${rec.type}:${rec.evidence.prompt_id}`,JSON.stringify(rec.evidence.action_preparation)]);
+    }
     const pageCache=new Map();
     const readPage=(url,domain)=>{if(!pageCache.has(url))pageCache.set(url,readOwnPage(url,domain));return pageCache.get(url);};
-    await prepareActionPlans(project,final,answers,{cycle,cached:refresh?[]:cached,onProgress,
+    await prepareActionPlans(project,final,answers,{cycle,cached:refresh?[]:cached,onProgress:progress=>onProgress({...progress,total:progress.total+blocked.size,done:progress.done+blocked.size,blocked:blocked.size}),
       readPages:(domain,questions)=>readActionPages(domain,questions,{readPage}),
       generate:(prompt,options)=>recordedCompletion(project.id,'immediate_actions',prompt,options),
       onBatch:async batch=>{for(const rec of batch)await query(`INSERT INTO recommendations
@@ -166,9 +187,9 @@ export async function attachImmediateActions(project,recs,cycle,{refresh=false,o
         SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,now()
         WHERE NOT EXISTS(SELECT 1 FROM recommendation_suppressions s WHERE s.project_id=$1 AND s.fingerprint=$2)
         ON CONFLICT(project_id,fingerprint) DO UPDATE SET
-        evidence=jsonb_set(recommendations.evidence,'{action_plan}',EXCLUDED.evidence->'action_plan'),updated_at=now()
+        evidence=jsonb_set(recommendations.evidence-'action_preparation','{action_plan}',EXCLUDED.evidence->'action_plan'),updated_at=now()
         WHERE recommendations.status IN ('open','doing') AND COALESCE(recommendations.review_decision->>'stage','')<>'no_change'
-        AND recommendations.evidence->>'prompt'=EXCLUDED.evidence->>'prompt'`,
+        AND (recommendations.evidence->>'prompt' IS NULL OR recommendations.evidence->>'prompt'=EXCLUDED.evidence->>'prompt')`,
         [project.id,`${rec.type}:${rec.evidence.prompt_id}`,rec.type,rec.title,rec.action,rec.target_url||null,rec.impact||0,rec.effort||1,rec.priority||0,JSON.stringify(rec.evidence)]);}
 
     });
