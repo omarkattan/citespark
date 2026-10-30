@@ -482,9 +482,11 @@ function actionCardPlan(task) {
 function actionPlanCard(task,i) {
   const plan=actionCardPlan(task),decision=savedDecisionPreview(task)?task.review_decision:null;
   const grounded=Boolean(task.evidence?.action_plan),evidence=plan.evidence||{};
-  const label=decision?decisionLabel(decision.stage):!grounded?'Needs investigation':plan.mode==='retain'?'Keep and check':plan.mode==='improve'?'Suggested edit':'Specific check';
+  const incomplete=plan.generation==='guided-check';
+  const eligible=Boolean(task.evidence?.prompt_id)&&['content_gap','citable_asset','sentiment_correction','entity_authority','answer_review'].includes(task.type);
+  const label=decision?decisionLabel(decision.stage):incomplete?'Analysis incomplete':!grounded?(eligible?'Not analysed yet':'Evidence review'):plan.mode==='retain'?'Keep and check':plan.mode==='improve'?'Suggested edit':'Specific check';
   const safeLink=(url,text)=>{try{const u=new URL(url,location.origin);if(!['https:','http:'].includes(u.protocol)||u.username||u.password)return esc(text);return `<a href="${esc(u.href)}" target="_blank" rel="noopener">${esc(text)}</a>`;}catch{return esc(text);}};
-  return `<article class="action-plan" data-plan-id="${task.id}" dir="auto"><span class="plan-badge">${i+1}. ${esc(label)}</span>${plan.question?`<p class="plan-question">Question: ${esc(plan.question)}</p>`:`<p class="plan-question">${esc(TYPE_LABEL[task.type]||'Evidence review')}</p>`}<h3>${esc(decision?.title||plan.title)}</h3>${grounded?`<button class="faq-quick" data-draft-faq="${task.id}" data-project-id="${state.projectId}">Draft this FAQ</button>`:''}<p class="plan-change">${esc(decision?.change||plan.change)}</p><p class="plan-page"><b>${grounded||decision?.page?'Page':'Page to review'}</b><br>${(decision?.page||plan.page)?safeLink(decision?.page||plan.page,decision?.page||plan.page):'Choose the relevant existing page. A matching page could not be verified.'}</p><p><b>Why this action</b><br>${esc(decision?.purpose||plan.rationale)}</p>${!decision&&plan.suggested_questions?.length?`<details><summary>Suggested questions for this page</summary><ul>${plan.suggested_questions.map(q=>`<li>${esc(q)}</li>`).join('')}</ul><p class="hint">Editorial suggestions, not measured question demand.</p></details>`:''}<details><summary>View supporting evidence</summary><p>${esc(evidence.observation)}</p>${decision?.evidence?`<blockquote>${esc(decision.evidence)}</blockquote>`:''}${evidence.answer_url?safeLink(evidence.answer_url,'Open the measured answer'):task.evidence?.prompt_id?`<button class="ghost" data-see-answer="${task.evidence.prompt_id}">Read the answers</button><div class="answers" data-answers hidden></div>`:''}${evidence.answer_quote?`<blockquote>${esc(evidence.answer_quote)}</blockquote>`:''}${evidence.page_quote?`<p>Read from the page on ${esc(shortDate(evidence.page_read_at))}:</p><blockquote>${esc(evidence.page_quote)}</blockquote>`:'<p>Check the relevant website page before proposing an edit.</p>'}<p>Page excerpts are a limited check, not a full site audit. Suggested edits need factual approval.</p></details><div class="plan-use"><button data-use-action-plan="${task.id}">${decision?'Open saved action':'Review and save action'}</button></div></article>`;
+  return `<article class="action-plan" data-plan-id="${task.id}" dir="auto"><span class="plan-badge">${i+1}. ${esc(label)}</span>${plan.question?`<p class="plan-question">Question: ${esc(plan.question)}</p>`:`<p class="plan-question">${esc(TYPE_LABEL[task.type]||'Evidence review')}</p>`}<h3>${esc(decision?.title||plan.title)}</h3>${incomplete?`<p class="plan-analysis-note">${plan.draft_status==='page_unavailable'?'The website pages could not be read. Check the relevant page or try preparation again.':'A supported page-specific suggestion could not be completed. Try preparation again or review the linked evidence manually.'}</p>`:!grounded&&eligible?'<p class="plan-analysis-note">The detailed page review has not run for this question. Use Prepare remaining actions above.</p>':''}${grounded?`<button class="faq-quick" data-draft-faq="${task.id}" data-project-id="${state.projectId}">Draft this FAQ</button>`:''}<p class="plan-change">${esc(decision?.change||plan.change)}</p><p class="plan-page"><b>${grounded||decision?.page?'Page':'Page to review'}</b><br>${(decision?.page||plan.page)?safeLink(decision?.page||plan.page,decision?.page||plan.page):'Choose the relevant existing page. A matching page could not be verified.'}</p><p><b>Why this action</b><br>${esc(decision?.purpose||plan.rationale)}</p>${!decision&&plan.suggested_questions?.length?`<details><summary>Suggested questions for this page</summary><ul>${plan.suggested_questions.map(q=>`<li>${esc(q)}</li>`).join('')}</ul><p class="hint">Editorial suggestions, not measured question demand.</p></details>`:''}<details><summary>View supporting evidence</summary><p>${esc(evidence.observation)}</p>${decision?.evidence?`<blockquote>${esc(decision.evidence)}</blockquote>`:''}${evidence.answer_url?safeLink(evidence.answer_url,'Open the measured answer'):task.evidence?.prompt_id?`<button class="ghost" data-see-answer="${task.evidence.prompt_id}">Read the answers</button><div class="answers" data-answers hidden></div>`:''}${evidence.answer_quote?`<blockquote>${esc(evidence.answer_quote)}</blockquote>`:''}${evidence.page_quote?`<p>Read from the page on ${esc(shortDate(evidence.page_read_at))}:</p><blockquote>${esc(evidence.page_quote)}</blockquote>`:'<p>Check the relevant website page before proposing an edit.</p>'}<p>Page excerpts are a limited check, not a full site audit. Suggested edits need factual approval.</p></details><div class="plan-use"><button data-use-action-plan="${task.id}">${decision?'Open saved action':'Review and save action'}</button></div></article>`;
 }
 function immediateActionSection(tasks, {offerPrepare=false,total=null}={}) {
   const current=state.overview?.cycle ? new Date(state.overview.cycle).toISOString() : null;
@@ -493,9 +495,10 @@ function immediateActionSection(tasks, {offerPrepare=false,total=null}={}) {
   const expanded=allActionCardsOpen(),selected=expanded?[...shortlist,...active.filter(t=>!shortlist.includes(t))]:shortlist;
   state.immediateActions=new Map(active.map(t=>[String(t.id),t]));
   const count=total??active.length;
+  const pending=active.some(t=>t.evidence?.prompt_id&&['content_gap','citable_asset','sentiment_correction','entity_authority','answer_review'].includes(t.type)&&t.review_decision?.stage!=='no_change'&&t.evidence?.action_plan?.generation!=='page-grounded');
   const toggle=(expanded||count>shortlist.length)?`<button class="btn" data-action-cards-toggle aria-expanded="${expanded}" aria-controls="actionPlanGrid">${expanded?'Show first 3 actions':`View all actions (${count})`}</button>`:'';
-  if(!selected.length)return offerPrepare&&state.overview?.runs?`<section class="panel immediate-actions" aria-label="Specific next actions"><h2>Get specific next actions</h2><p>Use your saved answers and relevant website pages to prepare up to three suggested actions. This does not repeat your AI answer checks.</p><div class="action-card-controls">${toggle}<button class="ghost" data-rebuild-actions>Prepare my actions</button></div><p class="hint">Page checks and drafting can take about a minute. Suggestions remain editable before you save or include them in a report.</p></section>`:'';
-  return `<section class="immediate-actions" aria-label="Specific next actions"><header><div><p class="eyebrow">${expanded?'Your action list':'Start here'}</p><h2>${expanded?`All ${selected.length} open actions`:`Your next ${selected.length===1?'action':selected.length+' actions'}`}</h2><p>${expanded?'Every saved open action, including work that still needs investigation. Review the evidence before making changes.':'Start with these suggestions, or view every open action below. The order is an editorial starting point, not a forecast of results.'}</p></div><div class="action-card-controls">${toggle}<button class="ghost" data-rebuild-actions title="Recheck pages and draft suggestions using the saved answers. No new answer checks.">Refresh suggested actions</button></div></header><p class="action-card-count" role="status">Showing ${selected.length} of ${count} open actions</p><div class="action-plan-grid" id="actionPlanGrid">${selected.map(actionPlanCard).join('')}</div></section>`;
+  if(!selected.length)return offerPrepare&&state.overview?.runs?`<section class="panel immediate-actions" aria-label="Specific next actions"><h2>Get specific next actions</h2><p>Use your saved answers and relevant website pages to prepare a specific action for each eligible question. This does not repeat your AI answer checks.</p><div class="action-card-controls">${toggle}<button class="ghost" data-rebuild-actions>Prepare my actions</button></div><p class="hint">Page checks and drafting run in small batches. Progress is saved as each batch finishes. Suggestions remain editable before you save or include them in a report.</p></section>`:'';
+  return `<section class="immediate-actions" aria-label="Specific next actions"><header><div><p class="eyebrow">${expanded?'Your action list':'Start here'}</p><h2>${expanded?`All ${selected.length} open actions`:`Your next ${selected.length===1?'action':selected.length+' actions'}`}</h2><p>${expanded?'Every saved open action, including work that still needs investigation. Review the evidence before making changes.':'Start with these suggestions, or view every open action below. The order is an editorial starting point, not a forecast of results.'}</p></div><div class="action-card-controls">${toggle}<button class="ghost" data-rebuild-actions data-refresh-actions="${!pending}" title="Review website pages and prepare specific actions for every eligible question. Uses AI drafting, with no new answer checks.">${pending?'Prepare remaining actions':'Refresh suggested actions'}</button></div></header><p class="action-card-count" role="status">Showing ${selected.length} of ${count} open actions</p><p class="action-preparation-status" data-action-preparation role="status"></p><div class="action-plan-grid" id="actionPlanGrid">${selected.map(actionPlanCard).join('')}</div></section>`;
 }
 document.addEventListener('click',async event=>{
   const button=event.target.closest('[data-action-cards-toggle]');if(!button||button.disabled)return;
@@ -515,7 +518,7 @@ document.addEventListener('click',async event=>{
 });
 
 function actionPlanDecision(plan) {
-  return {stage:'investigate',title:plan.title,page:plan.page||'',evidence:[plan.evidence.observation,plan.evidence.answer_url?new URL(plan.evidence.answer_url,location.origin).href:'',`Answer excerpt: ${plan.evidence.answer_quote}`,plan.evidence.page_quote?`Page excerpt (${plan.page}): ${plan.evidence.page_quote}`:'Page coverage still needs checking.'].filter(Boolean).join('\n'),change:plan.change+(plan.suggested_questions?.length?'\n\nSuggested questions (editorial, not measured demand):\n'+plan.suggested_questions.map(q=>'• '+q).join('\n'):''),purpose:plan.rationale,suggested_owner:'Website content owner (suggested, unassigned)',completion:plan.completion,follow_up:plan.follow_up};
+  return {stage:'investigate',title:plan.title,page:plan.page||'',evidence:[plan.evidence.observation,plan.evidence.answer_url?new URL(plan.evidence.answer_url,location.origin).href:'',plan.evidence.answer_quote?`Answer excerpt: ${plan.evidence.answer_quote}`:'',plan.evidence.page_quote?`Page excerpt (${plan.page}): ${plan.evidence.page_quote}`:'Page coverage still needs checking.'].filter(Boolean).join('\n'),change:plan.change+(plan.suggested_questions?.length?'\n\nSuggested questions (editorial, not measured demand):\n'+plan.suggested_questions.map(q=>'• '+q).join('\n'):''),purpose:plan.rationale,suggested_owner:'Website content owner (suggested, unassigned)',completion:plan.completion,follow_up:plan.follow_up};
 }
 document.addEventListener('click',async event=>{
   const button=event.target.closest('[data-use-action-plan]');if(!button)return;
@@ -2212,6 +2215,7 @@ async function render() {
   }
   if (renderId !== state.renderId) return;
   $('view').innerHTML = setupJourney() + html;
+  if(['overview','actions'].includes(view))void resumeActionPreparation(state.projectId);
   if (view === 'setup') {
     recalcEstimate();
     // The select is rendered empty but for the country option, then filled
@@ -5987,10 +5991,52 @@ document.addEventListener('click',async event=>{
   const add=event.target.closest('[data-add-first-site]');if(add){$('addSiteBtn').click();return;}
   const check=event.target.closest('#checkVerify');if(check){check.disabled=true;const verified=await refreshVerification();if(!verified){check.disabled=false;toast('Email confirmation is not recorded yet. Use the link in your email, then check again.','bad');}return;}
   const rebuild=event.target.closest('[data-rebuild-actions]');if(!rebuild)return;
-  rebuild.disabled=true;const previousLabel=rebuild.textContent;rebuild.textContent='Checking pages and preparing actions…';
-  try { const result=await api(`/api/projects/${state.projectId}/rebuild`,{method:'POST',body:{refreshActions:true}});if(!result?.ok)throw new Error(result?.error||'Could not prepare reviews.');await render();toast(`Your actions are ready. Open a suggested action to review and save it.`); }
-  catch(error){toast(error.message,'bad');rebuild.disabled=false;rebuild.textContent=previousLabel;}
+  if(rebuild.dataset.checkActionProgress){delete rebuild.dataset.checkActionProgress;await watchActionPreparation(state.projectId);return;}
+  const projectId=state.projectId,previousLabel=rebuild.textContent;rebuild.disabled=true;rebuild.textContent='Starting page reviews…';
+  try {
+    const result=await api(`/api/projects/${projectId}/rebuild`,{method:'POST',body:{refreshActions:rebuild.dataset.refreshActions==='true'}});
+    if(!result?.ok)throw new Error(result?.error||'Could not prepare reviews.');
+    sessionStorage.setItem(`cited.action-preparation.${projectId}`,'running');
+    await watchActionPreparation(projectId);
+  }catch(error){if(state.projectId===projectId)toast(error.message,'bad');}
+  finally{if(rebuild.isConnected){rebuild.disabled=false;rebuild.textContent=previousLabel;}}
 });
+
+const actionPreparationWatches=new Map();
+function showActionPreparation(progress){
+  const message=progress.total==null?'Finding eligible questions and saved answers…':`Reviewed ${progress.done} of ${progress.total} questions. Checking website pages and preparing specific actions…`;
+  document.querySelectorAll('[data-rebuild-actions]').forEach(button=>{button.disabled=true;button.textContent=progress.total==null?'Preparing actions…':`Preparing actions · ${progress.done}/${progress.total}`;});
+  document.querySelectorAll('[data-action-preparation]').forEach(el=>el.textContent=message+' You can leave and return. Saved batches are kept.');
+}
+async function watchActionPreparation(projectId,initial=null){
+  if(actionPreparationWatches.has(projectId))return actionPreparationWatches.get(projectId);
+  const work=(async()=>{
+    let progress=initial;
+    while(state.projectId===projectId){
+      progress=progress||await api(`/api/projects/${projectId}/rebuild-status`,{readTimeoutMs:15000});
+      if(!progress||progress.error)throw Error(progress?.error||'Could not check preparation progress. Reopen this site to check saved work.');
+      if(progress.phase==='running'){
+        sessionStorage.setItem(`cited.action-preparation.${projectId}`,'running');showActionPreparation(progress);
+        await new Promise(resolve=>setTimeout(resolve,2500));progress=null;continue;
+      }
+      sessionStorage.removeItem(`cited.action-preparation.${projectId}`);
+      if(['overview','actions'].includes(state.view))await refreshTaskCounts();
+      if(progress.phase==='done'){
+        const missing=Math.max(0,(progress.total||0)-(progress.grounded||0));
+        toast(missing?`${progress.grounded} of ${progress.total} questions have detailed suggestions. ${missing} need another attempt or manual review.`:`Detailed actions are ready for all ${progress.total||0} eligible questions.`,missing?'bad':'ok');
+      }else toast(progress.error||'Preparation was interrupted. Saved batches are kept. Prepare remaining actions to continue.','bad');
+      return progress;
+    }
+  })().catch(error=>{if(state.projectId===projectId){document.querySelectorAll('[data-rebuild-actions]').forEach(b=>{b.disabled=false;b.textContent='Check preparation progress';b.dataset.checkActionProgress='true';});toast(error.message,'bad');}}).finally(()=>actionPreparationWatches.delete(projectId));
+  actionPreparationWatches.set(projectId,work);return work;
+}
+async function resumeActionPreparation(projectId){
+  if(actionPreparationWatches.has(projectId))return;
+  try{const progress=await api(`/api/projects/${projectId}/rebuild-status`,{readTimeoutMs:10000});
+    if(state.projectId!==projectId)return;
+    if(progress?.phase==='running'||sessionStorage.getItem(`cited.action-preparation.${projectId}`)==='running')void watchActionPreparation(projectId,progress);
+  }catch{/* The saved cards remain usable when the progress check is unavailable. */}
+}
 
 async function refreshUsagePill() {
   const b = await api('/api/billing');

@@ -1,7 +1,7 @@
 import {recordedCompletion} from './content-cost.js';
-import {many} from '../db/index.js';
+import {many,query} from '../db/index.js';
 import {complete,parseJsonArray} from './anthropic.js';
-import {readActionPages,ownPageUrl,pageMatch} from './action-pages.js';
+import {readActionPages,readOwnPage,ownPageUrl,pageMatch} from './action-pages.js';
 
 export const ACTION_PLAN_VERSION=4;
 const text=(v,max=4000)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -14,7 +14,7 @@ export function buyingIntent(question) {
   if(/best|choos|buy|brand|recommend|provider|service|أفضل|افضل|شراء|اختيار|شرك/.test(q))return {kind:'selection',rank:3};
   return {kind:'answer',rank:1};
 }
-export function selectActionCandidates(recs,answers,limit=3) {
+export function selectActionCandidates(recs,answers,limit=Infinity) {
   const available=new Map(answers.map(a=>[Number(a.prompt_id),a]));
   const unique=new Map();
   const order={content_gap:0,citable_asset:1,sentiment_correction:2,entity_authority:3,answer_review:4};
@@ -109,30 +109,38 @@ export function validatedActionPlan(raw,fallback,answer,pages) {
     page:page?.url||'',page_title:page?.title||'',page_status:page?'inspected':'unavailable',
     evidence:{...fallback.evidence,answer_quote:answerQuote,page_quote:page? pageQuote:'',page_read_at:page?.read_at||null}};
 }
-export async function prepareActionPlans(project,recs,answers,{cycle,pages,readPages=readActionPages,generate=complete,cached=[]}={}) {
+export async function prepareActionPlans(project,recs,answers,{cycle,pages,readPages=readActionPages,generate=complete,cached=[],onBatch=async()=>{},onProgress=()=>{}}={}) {
   const chosen=selectActionCandidates(recs,answers);
-  if(!chosen.length)return recs;
+  if(!chosen.length){onProgress({total:0,done:0,grounded:0});return recs;}
   const byPrompt=new Map(answers.map(a=>[Number(a.prompt_id),a]));
   const pending=[];
-  for(const rec of chosen){const a=byPrompt.get(Number(rec.evidence.prompt_id));const prior=cached.find(c=>Number(c.evidence?.prompt_id)===Number(rec.evidence.prompt_id))?.evidence?.action_plan;
-    if(prior?.version===ACTION_PLAN_VERSION && prior.question===rec.evidence.prompt && prior.evidence?.answer_id===a.id && prior.measurement_id===a.measurement_id && prior.cycle===stamp(cycle))rec.evidence={...rec.evidence,action_plan:prior};else pending.push(rec);
+  for(const rec of chosen){const a=byPrompt.get(Number(rec.evidence.prompt_id));const prior=cached.find(c=>Number(c.evidence?.prompt_id)===Number(rec.evidence.prompt_id)&&c.evidence?.action_plan?.generation==='page-grounded')?.evidence?.action_plan;
+    if(prior?.version===ACTION_PLAN_VERSION && prior.generation==='page-grounded' && prior.question===rec.evidence.prompt && prior.evidence?.answer_id===a.id && prior.measurement_id===a.measurement_id && stamp(prior.cycle)===stamp(cycle))rec.evidence={...rec.evidence,action_plan:{...prior}};else pending.push(rec);
   }
-  if(!pending.length)return recs;
-  const sourcePages=pages||await readPages(project.domain,pending.map(r=>r.evidence.prompt)).catch(()=>[]);
-  const packet={business:{brand:project.brand_name||project.name,domain:project.domain,category:project.category,audience:project.qualifier,market:project.market},candidates:pending.map(r=>{const a=byPrompt.get(Number(r.evidence.prompt_id));return {prompt_id:r.evidence.prompt_id,question:r.evidence.prompt,observation:r.action,answer:{id:a.id,engine:a.engine,mentioned:a.mentioned,excerpts:evidenceExcerpts(a.response_text,`answer-${a.id}`)}};}),pages:sourcePages.map(p=>({id:p.id,url:p.url,title:p.title,excerpts:evidenceExcerpts(p.text,p.id,14000)}))};
-  let generated=[],generationStatus=sourcePages.length?'empty_response':'page_unavailable',provider=null;
-  if(sourcePages.length)try{const raw=await generate(JSON.stringify(packet),{system:SYSTEM,maxTokens:5000,timeoutMs:60000,outputSchema:ACTION_OUTPUT_SCHEMA,onResponse:metadata=>{provider=metadata;},onFailure:reason=>{generationStatus=reason;}});generated=parseJsonArray(raw)||[];if(provider?.stop_reason&&provider.stop_reason!=='end_turn'){generated=[];generationStatus=provider.stop_reason;}else if(raw&&!generated.length)generationStatus='invalid_json';}catch{generationStatus='request_failed';}
-  for(const rec of pending){const a=byPrompt.get(Number(rec.evidence.prompt_id));const fallback=fallbackActionPlan(project,rec,a,sourcePages,{cycle});const raw=referenceDraft(generated.find(r=>Number(r?.prompt_id)===Number(rec.evidence.prompt_id)),a,sourcePages);const plan=validatedActionPlan(raw,fallback,a,sourcePages);
-    if(plan.page&&!ownPageUrl(plan.page,project.domain)){plan.page='';plan.page_status='unavailable';plan.mode='verify';}
-    plan.draft_status=plan===fallback?(generated.length? actionPlanValidation(raw,a,sourcePages):generationStatus):'grounded';
-    if(provider)plan.provider=provider;
-    rec.evidence={...rec.evidence,action_plan:plan};
+  let done=chosen.length-pending.length;
+  const progress=()=>onProgress({total:chosen.length,done,grounded:chosen.filter(r=>r.evidence?.action_plan?.generation==='page-grounded').length});
+  progress();
+  // Three is a provider-request batch size, never a limit on the questions analysed.
+  for(let offset=0;offset<pending.length;offset+=3){
+    const batch=pending.slice(offset,offset+3);
+    const sourcePages=pages||await readPages(project.domain,batch.map(r=>r.evidence.prompt)).catch(()=>[]);
+    const packet={business:{brand:project.brand_name||project.name,domain:project.domain,category:project.category,audience:project.qualifier,market:project.market},candidates:batch.map(r=>{const a=byPrompt.get(Number(r.evidence.prompt_id));return {prompt_id:r.evidence.prompt_id,question:r.evidence.prompt,observation:r.action,answer:{id:a.id,engine:a.engine,mentioned:a.mentioned,excerpts:evidenceExcerpts(a.response_text,`answer-${a.id}`)}};}),pages:sourcePages.map(p=>({id:p.id,url:p.url,title:p.title,excerpts:evidenceExcerpts(p.text,p.id,14000)}))};
+    let generated=[],generationStatus=sourcePages.length?'empty_response':'page_unavailable',provider=null;
+    if(sourcePages.length)try{const raw=await generate(JSON.stringify(packet),{system:SYSTEM,maxTokens:5000,timeoutMs:60000,outputSchema:ACTION_OUTPUT_SCHEMA,onResponse:metadata=>{provider=metadata;},onFailure:reason=>{generationStatus=reason;}});generated=parseJsonArray(raw)||[];if(provider?.stop_reason&&provider.stop_reason!=='end_turn'){generated=[];generationStatus=provider.stop_reason;}else if(raw&&!generated.length)generationStatus='invalid_json';}catch{generationStatus='request_failed';}
+    for(const rec of batch){const a=byPrompt.get(Number(rec.evidence.prompt_id));const fallback=fallbackActionPlan(project,rec,a,sourcePages,{cycle});const raw=referenceDraft(generated.find(r=>Number(r?.prompt_id)===Number(rec.evidence.prompt_id)),a,sourcePages);const plan=validatedActionPlan(raw,fallback,a,sourcePages);
+      if(plan.page&&!ownPageUrl(plan.page,project.domain)){plan.page='';plan.page_status='unavailable';plan.mode='verify';}
+      plan.draft_status=plan===fallback?(generated.length? actionPlanValidation(raw,a,sourcePages):generationStatus):'grounded';
+      plan.position=chosen.indexOf(rec)+1;
+      if(provider)plan.provider=provider;
+      rec.evidence={...rec.evidence,action_plan:plan};
+    }
+    await onBatch(batch);done+=batch.length;progress();
   }
   chosen.forEach((rec,index)=>{if(rec.evidence.action_plan)rec.evidence.action_plan.position=index+1;});
   return recs;
 }
 const preparing=new Map();
-export async function attachImmediateActions(project,recs,cycle,{refresh=false}={}) {
+export async function attachImmediateActions(project,recs,cycle,{refresh=false,onProgress=()=>{}}={}) {
   if(preparing.has(project.id))return preparing.get(project.id);
   const work=(async()=>{
     const answers=await many(`SELECT DISTINCT ON (r.prompt_id) r.id,r.prompt_id,r.engine,r.response_text,r.measurement_id,p.text AS question,m.mentioned
@@ -148,8 +156,23 @@ export async function attachImmediateActions(project,recs,cycle,{refresh=false}=
     for(const a of answers)if(!recs.some(r=>Number(r.evidence?.prompt_id)===Number(a.prompt_id))){const r={type:'answer_review',title:`Check the answer to: ${a.question}`,action:'Check the recorded brand description against approved information. Keep accurate content and record only a supported correction.',target_url:null,impact:0,effort:1,priority:0,evidence:{prompt_id:a.prompt_id,prompt:a.question,run_id:a.id}};if(eligible(r))candidates.push(r);}
     const selected=new Set(selectActionCandidates(candidates,answers));
     const final=candidates.filter(r=>recs.includes(r)||selected.has(r));
-    await prepareActionPlans(project,final,answers,{cycle,cached:refresh?[]:cached,generate:(prompt,options)=>recordedCompletion(project.id,'immediate_actions',prompt,options)});
+    const pageCache=new Map();
+    const readPage=(url,domain)=>{if(!pageCache.has(url))pageCache.set(url,readOwnPage(url,domain));return pageCache.get(url);};
+    await prepareActionPlans(project,final,answers,{cycle,cached:refresh?[]:cached,onProgress,
+      readPages:(domain,questions)=>readActionPages(domain,questions,{readPage}),
+      generate:(prompt,options)=>recordedCompletion(project.id,'immediate_actions',prompt,options),
+      onBatch:async batch=>{for(const rec of batch)await query(`INSERT INTO recommendations
+        (project_id,fingerprint,type,title,action,target_url,impact,effort,priority,evidence,updated_at)
+        SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,now()
+        WHERE NOT EXISTS(SELECT 1 FROM recommendation_suppressions s WHERE s.project_id=$1 AND s.fingerprint=$2)
+        ON CONFLICT(project_id,fingerprint) DO UPDATE SET
+        evidence=jsonb_set(recommendations.evidence,'{action_plan}',EXCLUDED.evidence->'action_plan'),updated_at=now()
+        WHERE recommendations.status IN ('open','doing') AND COALESCE(recommendations.review_decision->>'stage','')<>'no_change'
+        AND recommendations.evidence->>'prompt'=EXCLUDED.evidence->>'prompt'`,
+        [project.id,`${rec.type}:${rec.evidence.prompt_id}`,rec.type,rec.title,rec.action,rec.target_url||null,rec.impact||0,rec.effort||1,rec.priority||0,JSON.stringify(rec.evidence)]);}
+
+    });
     return [...recs,...final.filter(r=>!recs.includes(r))];
-  })().catch(error=>{console.warn('Immediate actions unavailable:',error.message);return recs;}).finally(()=>preparing.delete(project.id));
+  })().finally(()=>preparing.delete(project.id));
   preparing.set(project.id,work);return work;
 }

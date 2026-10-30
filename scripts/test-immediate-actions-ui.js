@@ -10,11 +10,13 @@ async function appFixture(decision={},options={}){
  w.scrollTo=()=>{};w.HTMLElement.prototype.scrollIntoView=()=>{};
  const project={id:39,name:'SkinCycles',brand_name:'SkinCycles',domain:'skincycles.com',market:'GB',engines:['chatgpt']};
  const task={id:99,type:'content_gap',status:'open',title:'Review first answer',evidence:{prompt_id:1,prompt:plan.question,runs:1,own_rate:0,action_plan:plan},review_decision:decision};
- const tasks=options.tasks||[task];
+ const tasks=options.tasks||[task],preparation=options.preparation;
  w.fetch=async(path,options={})=>{requests.push({path,method:options.method||'GET',body:options.body});let data;
  if(path==='/api/me')data={signedIn:true,userId:7,emailVerified:true};else if(path==='/api/projects')data=[project];else if(path==='/api/billing')data=null;
  else if(path.endsWith('/overview'))data={project,cycle:'2026-10-29',runs:1,engines:[]};else if(path.endsWith('/setup-progress'))data={step:'recommendations'};
  else if(path.endsWith('/run-scope'))data={all:1,unrun:0,checksAll:1,checksUnrun:0,costAll:.03,costUnrun:0};else if(path.endsWith('/cycle-status'))data={phase:'idle'};
+ else if(path.endsWith('/rebuild-status'))data=preparation?.started?{phase:preparation.complete?'done':'running',done:preparation.complete?10:3,total:10,grounded:preparation.complete?10:3}:{phase:'idle'};
+ else if(path.endsWith('/rebuild')){preparation.started=true;data={ok:true,phase:'running'};}
  else if(path.includes('/recommendations?')){const offset=Number(new URL(path,'https://cited.test').searchParams.get('offset')||0);data={tasks:tasks.slice(offset,offset+100),nextOffset:offset+100<tasks.length?offset+100:null,counts:{open:tasks.length,doing:0,done:0,dismissed:0,total:tasks.length},people:[]};}
  else if(path.endsWith('/review-decision'))data={...JSON.parse(options.body),reviewed_at:'2026-10-29'};
  else if(path.endsWith('/report-note-preview'))data={current:null,proposed:{title:plan.title,notes:plan.change},canInclude:true,version:'v1'};
@@ -76,7 +78,7 @@ async function expandedFixture(count=10){const f=await appFixture({}, {tasks:act
 test('view all exposes every action as a card and preserves editors through collapse without spending',async()=>{
  const f=await expandedFixture(),d=f.w.document;
  assert.equal(d.querySelectorAll('.action-plan').length,10);assert.match(d.querySelector('.immediate-actions h2').textContent,/All 10 open actions/);assert.equal(d.querySelectorAll('.action-plan [data-draft-faq]').length,3);
- assert.match(d.querySelector('[data-plan-id="4"] .plan-badge').textContent,/Needs investigation/);
+ assert.match(d.querySelector('[data-plan-id="4"] .plan-badge').textContent,/Not analysed yet/);
  d.getElementById('decision-change-4').value='Keep my unsaved wording';d.querySelector('[data-use-action-plan="4"]').click();await settle();assert.equal(d.getElementById('decision-change-4').value,'Keep my unsaved wording');
  d.querySelector('[data-action-cards-toggle]').click();for(let i=0;i<20&&d.querySelectorAll('.action-plan').length!==3;i++)await settle();
  assert.equal(d.querySelectorAll('.action-plan').length,3);assert.equal(d.getElementById('decision-change-4').value,'Keep my unsaved wording');assert.ok(f.requests.every(r=>r.method==='GET'));f.dom.window.close();
@@ -88,4 +90,15 @@ test('all cards reach past the 100-row API page and an extra card opens a comple
 });
 test('expansion failure leaves the shortlist and unsaved decisions available for retry',async()=>{
  const f=await appFixture({}, {tasks:actionList()}),d=f.w.document;f.w.fetch=async()=>{throw Error('Connection lost');};d.getElementById('decision-change-4').value='Keep my work';d.querySelector('[data-action-cards-toggle]').click();await settle();await settle();assert.equal(d.querySelectorAll('.action-plan').length,3);assert.equal(d.querySelector('[data-action-cards-toggle]').disabled,false);assert.equal(d.getElementById('decision-change-4').value,'Keep my work');assert.match(d.body.textContent,/Connection lost/);f.dom.window.close();
+});
+
+test('preparing remaining actions shows progress, prevents duplicate starts and retains unsaved decisions',async()=>{
+ const preparation={started:false,complete:false};const f=await appFixture({}, {tasks:actionList(),preparation}),d=f.w.document;
+ d.getElementById('decision-change-4').value='My unsaved review';
+ const button=d.querySelector('[data-rebuild-actions]');assert.match(button.textContent,/Prepare remaining actions/);button.click();button.click();
+ for(let i=0;i<30&&!d.querySelector('[data-action-preparation]').textContent;i++)await settle();
+ assert.match(d.querySelector('[data-action-preparation]').textContent,/Reviewed 3 of 10/);assert.equal(f.requests.filter(r=>r.path.endsWith('/rebuild')).length,1);assert.equal(JSON.parse(f.requests.find(r=>r.path.endsWith('/rebuild')).body).refreshActions,false);
+ preparation.complete=true;f.tasks.forEach(t=>t.evidence.action_plan={...plan,question:t.evidence.prompt,generation:'page-grounded'});
+ await new Promise(r=>setTimeout(r,2700));for(let i=0;i<30&&d.querySelector('[data-rebuild-actions]').disabled;i++)await settle();
+ assert.match(d.querySelector('[data-rebuild-actions]').textContent,/Refresh suggested actions/);assert.equal(d.getElementById('decision-change-4').value,'My unsaved review');assert.ok(!f.requests.some(r=>r.path.includes('/run'))||f.requests.filter(r=>r.path.includes('/run')).every(r=>r.method==='GET'));f.dom.window.close();
 });

@@ -35,7 +35,7 @@ import { listSites as listGscSites, candidates as gscCandidates, importQuestions
 import { landscape, PLATFORMS, mentionsConfigured } from './lib/mentions.js';
 import {
   stripeEnabled, getStripe, getEntitlements, checkCanAddSite, checkCanAddQuestions,
-  createCheckoutSession, createPortalSession, handleWebhook, budgetForCycle, engineCosts
+  createCheckoutSession, createPortalSession, handleWebhook, budgetForCycle, engineCosts, verifiedEnough
 } from './lib/billing.js';
 import { MOCK, ENGINES, ENGINE_IDS, LOCATIONS } from './lib/dataforseo.js';
 
@@ -1924,12 +1924,28 @@ app.post('/api/run-all', requireAuth, wrap(async (req, res) => {
   res.json({ ok: true, started, skipped });
 }));
 
+const actionPreparations = new Map();
+app.get('/api/projects/:id/rebuild-status', requireAuth, wrap(async(req,res)=>{
+  const project=await assertProject(req,res);if(!project)return;
+  res.json(actionPreparations.get(project.id)||{phase:'idle'});
+}));
 app.post('/api/projects/:id/rebuild', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
-  const recs = await buildRecommendations(project.id,{refreshActionPlans:req.body?.refreshActions===true});
-  await persistRecommendations(project.id, recs);
-  res.json({ ok: true, count: recs.length });
+  if(actionPreparations.get(project.id)?.phase==='running')return res.status(202).json({ok:true,...actionPreparations.get(project.id)});
+  const org=await one('SELECT internal FROM orgs WHERE id=$1',[project.org_id]);
+  if(!org?.internal&&!(await verifiedEnough(project.org_id)))return res.status(403).json({error:'Confirm your email before preparing AI suggestions.'});
+  actionPreparations.set(project.id,{phase:'running',done:0,total:null,grounded:0,startedAt:Date.now()});
+  void (async()=>{
+    const recs=await buildRecommendations(project.id,{refreshActionPlans:req.body?.refreshActions===true,
+      onActionProgress:progress=>actionPreparations.set(project.id,{...actionPreparations.get(project.id),...progress})});
+    await persistRecommendations(project.id,recs);
+    actionPreparations.set(project.id,{...actionPreparations.get(project.id),phase:'done',count:recs.length,finishedAt:Date.now()});
+  })().catch(error=>{
+    console.error('Action preparation failed:',error.message);
+    actionPreparations.set(project.id,{...actionPreparations.get(project.id),phase:'failed',error:'Preparation stopped. Saved batches are kept. Try again to continue.',finishedAt:Date.now()});
+  });
+  res.status(202).json({ok:true,...actionPreparations.get(project.id)});
 }));
 
 /**

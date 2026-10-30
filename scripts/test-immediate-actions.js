@@ -11,7 +11,7 @@ const pages=[{id:'page-1',url:'https://skincycles.com/products/serum',title:'Ski
 const valid={prompt_id:1,title:'Explain the total routine cost',mode:'improve',page_id:'page-1',page_excerpt_id:'page-1-1',page_quote:'Pack size 30 ml. Use two drops every evening.',answer_id:100,answer_excerpt_id:'answer-100-1',answer_quote:'The best choice depends on the ingredients, price and your personal needs.',rationale:'Help buyers compare the pack size and stated usage before choosing.',change:'Beside the price, explain what is included and how the stated usage relates to the pack size. Ask the product owner to approve the calculation before publishing.',suggested_questions:['What is included in the SkinCycles serum price?'],completion:'Record the approved facts and the updated page URL.'};
 test('chooses distinct buying needs before informational questions without using estimated volume',()=>{
  const recs=[rec(1,'How do I reduce pigmentation?'),rec(2,'What does a skincare routine cost?'),rec(3,'Which skincare brand is best?'),rec(4,'How do these serums compare?')];
- const a=recs.map(r=>({prompt_id:r.evidence.prompt_id}));assert.deepEqual(selectActionCandidates(recs,a).map(r=>r.evidence.prompt_id),[2,3,4]);assert.equal(buyingIntent('ما تكلفة الروتين؟').kind,'pricing');
+ const a=recs.map(r=>({prompt_id:r.evidence.prompt_id}));assert.deepEqual(selectActionCandidates(recs,a).map(r=>r.evidence.prompt_id),[2,3,4,1]);assert.deepEqual(selectActionCandidates(recs,a,3).map(r=>r.evidence.prompt_id),[2,3,4]);assert.equal(buyingIntent('ما تكلفة الروتين؟').kind,'pricing');
 });
 test('attaches a grounded edit with exact supplied page and answer evidence',async()=>{
  const out=await prepareActionPlans(project,[rec(1,'How much should skincare cost?')],answers,{cycle,pages,generate:async()=>JSON.stringify([valid])});
@@ -80,4 +80,23 @@ test('HTML parsing omits executable content and only follows relevant observed l
  const html='<title>SkinCycles</title><script>Fake price 123456</script><nav>Unrelated menu</nav><main>Our skincare products. '+('Approved product information. '.repeat(6))+'</main><a href="/products/serum">Skincare serum</a><a href="https://evil.com">Skincare serum</a><a href="/checkout">Price</a>';
  const page=pageFromHtml(html,'https://skincycles.com/',project.domain);assert.doesNotMatch(page.text,/123456|Unrelated menu/);assert.equal(page.links.length,1);
  const reads=[];const result=await readActionPages(project.domain,['Which skincare serum is best?'],{readPage:async url=>{reads.push(url);return url.endsWith('/')?page:pages[0];}});assert.equal(reads.length,2);assert.equal(result.length,2);
+});
+
+const multiRecs=()=>Array.from({length:10},(_,i)=>rec(i+1,`Which serum option suits buyer need ${i+1}?`));
+const multiAnswers=()=>multiRecs().map((r,i)=>({...answers[0],prompt_id:i+1,id:100+i}));
+function packetDraft(prompt){const packet=JSON.parse(prompt);return JSON.stringify(packet.candidates.map(c=>({...valid,prompt_id:c.prompt_id,title:'Review the specific serum option '+c.prompt_id,answer_id:c.answer.id,answer_excerpt_id:c.answer.excerpts[0].id,page_id:packet.pages[0].id,page_excerpt_id:packet.pages[0].excerpts[0].id})));}
+test('every eligible question is analysed in bounded batches with distinct evidence and saved progress',async()=>{
+ const sizes=[],reads=[],saved=[],progress=[];
+ const out=await prepareActionPlans(project,multiRecs(),multiAnswers(),{cycle,readPages:async(_domain,qs)=>{reads.push(qs);return pages;},generate:async p=>{sizes.push(JSON.parse(p).candidates.length);return packetDraft(p);},onBatch:async b=>saved.push(b.map(r=>r.evidence.prompt_id)),onProgress:p=>progress.push(p)});
+ assert.deepEqual(sizes,[3,3,3,1]);assert.deepEqual(reads.map(q=>q.length),sizes);assert.equal(saved.flat().length,10);assert.ok(out.every(r=>r.evidence.action_plan.generation==='page-grounded'));
+ assert.equal(new Set(out.map(r=>r.evidence.action_plan.evidence.answer_id)).size,10);assert.deepEqual(progress.map(p=>p.done),[0,3,6,9,10]);assert.equal(progress.at(-1).grounded,10);
+});
+test('interrupted preparation resumes completed batches and retries failed analysis instead of caching it as complete',async()=>{
+ const saved=[];let calls=0;
+ await assert.rejects(prepareActionPlans(project,multiRecs(),multiAnswers(),{cycle,pages,generate:async p=>{calls++;return packetDraft(p);},onBatch:async b=>{saved.push(...b);if(saved.length===3)throw Error('Interrupted after checkpoint');}}),/Interrupted/);
+ assert.equal(calls,1);
+ const out=await prepareActionPlans(project,multiRecs(),multiAnswers(),{cycle,pages,cached:saved,generate:async p=>{calls++;return calls===2?'[]':packetDraft(p);}});
+ assert.equal(calls,4);assert.equal(out.filter(r=>r.evidence.action_plan.generation==='page-grounded').length,7);
+ const retry=await prepareActionPlans(project,multiRecs(),multiAnswers(),{cycle,pages,cached:out,generate:async p=>{calls++;assert.equal(JSON.parse(p).candidates.length,3);return packetDraft(p);}});
+ assert.equal(calls,5);assert.ok(retry.every(r=>r.evidence.action_plan.generation==='page-grounded'));
 });
