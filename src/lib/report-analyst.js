@@ -242,7 +242,7 @@ export function analystOutputSchema(packet){
  return schema;
 }
 export async function requestAnalysis(packet,{fetcher=fetch,model=analystModel(),key=process.env.ANTHROPIC_API_KEY}={}){
- if(!key)throw new Error('Report analyst is not configured. Add the Anthropic API key in Render.');
+ if(!key)throw new Error('Report analysis is currently unavailable. Please contact support.');
  if(json(analysisRequestPacket(packet)).length>110000)throw new Error('Prepared evidence exceeds the analyst input limit. No AI request was made.');
  const response=await fetcher('https://api.anthropic.com/v1/messages',{method:'POST',signal:AbortSignal.timeout(90000),headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01'},body:json({model,max_tokens:ANALYST_MAX_OUTPUT_TOKENS,output_config:{...analystModelSettings(model).output_config,format:{type:'json_schema',schema:analystOutputSchema(packet)}},system:ANALYST_SYSTEM,messages:[{role:'user',content:json(analysisRequestPacket(packet))}]})});
  if(!response.ok)throw new Error(`Report analyst provider returned HTTP ${response.status}. No draft was published.`);

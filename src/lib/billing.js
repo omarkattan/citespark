@@ -359,7 +359,7 @@ export async function createCheckoutSession({ orgId, email, planId, interval, or
   if (!s) throw new Error('Billing is not configured on this deployment');
 
   const priceId = stripePriceId(planId, interval);
-  if (!priceId) throw new Error(`No Stripe price configured for ${planId} ${interval}ly`);
+  if (!priceId) throw new Error(`Billing is not configured for the ${planId} plan with ${interval} billing. Please contact support.`);
 
   const customerId = await ensureCustomer(orgId, email);
   return s.checkout.sessions.create({

@@ -46,7 +46,7 @@ export async function generateAnalysis(report,userId,{regenerate=false}={}){
   await db.query('SELECT pg_advisory_xact_lock(853001)');
   const existing=await db.query("SELECT * FROM report_analyst_drafts WHERE project_id=$1 AND evidence_hash=$2 AND status='draft' ORDER BY id DESC LIMIT 1",[report.project.id,hash]);
   if(existing.rows.length && !regenerate){validateAnalysis(existing.rows[0].analysis,packet);await db.query('COMMIT');return existing.rows[0];}
-  if(!process.env.ANTHROPIC_API_KEY)throw new Error('Report analyst is not configured. Add the Anthropic API key in Render.');
+  if(!process.env.ANTHROPIC_API_KEY)throw new Error('Report analysis is currently unavailable. Please contact support.');
   const pending=await db.query("SELECT 1 FROM report_analyst_drafts WHERE project_id=$1 AND status='generating' AND created_at>now()-interval '3 minutes'",[report.project.id]);
   if(pending.rows.length)throw new Error('An analysis is already running. Wait a moment, then refresh this page.');
   const count=await db.query("SELECT count(*)::int AS total,count(*) FILTER(WHERE project_id=$1)::int AS project FROM report_analyst_drafts WHERE created_at>now()-interval '24 hours'",[report.project.id]);

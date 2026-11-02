@@ -5904,7 +5904,7 @@ async function viewBilling() {
         <button class="int-b ${yearly ? 'is-on' : ''}" data-interval="year">Yearly &middot; 2 months free</button>
       </div>
     </div>
-    ${b.stripeEnabled ? '' : '<p class="notice" style="margin-bottom:16px">Billing is not configured on this deployment, so everything runs on the Free plan. Add your Stripe keys to enable upgrades.</p>'}
+    ${b.stripeEnabled ? '' : '<p class="notice" style="margin-bottom:16px">Paid upgrades are currently unavailable. You can continue using the Free plan or contact support for help.</p>'}
     <div class="plans">${cards}</div>
     <p class="hint" style="margin-top:16px">
       One answer check is one question put to one engine, once. Questions multiply by engines and by runs, which is why the
