@@ -383,7 +383,7 @@ function setupJourney() {
   const measured=Boolean(state.overview?.cycle && state.overview?.runs>0);
   const active=({setup:'website',connections:'sources',searchDemand:'sources',traffic:'sources',questions:'questions',firstMeasurement:'measurement',actions:'recommendations',reportGuide:'report'})[state.view]||saved;
   const steps=[['website','Website'],['sources','Sources (optional)'],['questions','Questions'],['measurement','Measurement'],['recommendations','Recommendations'],['report','Report']];
-  const copy={website:'Check the saved business details, then continue.',sources:'Connect Google data if you have it. You can continue with website suggestions and connect sources later.',questions:'Read each suggested question. Edit the wording or pause anything your customers would not ask. These suggestions are not measured AI search demand.',measurement:state.measurementRunning?'Your measurement is running. We will take you to the results when it finishes. You can return later and resume here.':'Check the short summary below, then review the cost before starting.',recommendations:'Start with your suggested actions below. Open one, check the page and proposed change, then save your decision. Preview it before including it in your report.',report:'Prepare your report, check the preview, then save a fixed version. Open the saved version and use Print / save PDF to give it to your client.'};
+  const copy={website:'Check your website address, brand name and country below. Correct anything that is wrong, save your changes, then click Next: optional sources.',sources:'Choose a source below and follow its numbered instructions. After signing in to Google, choose your website to finish connecting. No access yet? Click Continue to questions to skip this step.',questions:'Read the suggested questions below. Keep questions your customers would ask, edit wording that does not fit and pause anything irrelevant. When your list is ready, click Next: review measurement. Suggestions are not measured AI search demand.',measurement:state.measurementRunning?'Your measurement is running. We will take you to the results when it finishes. You can return later and resume here.':'Check the short summary below, then review the cost before starting.',recommendations:'Start with your suggested actions below. Open one, check the page and proposed change, then save your decision. Preview it before including it in your report.',report:'Prepare your report, check the preview, then save a fixed version. Open the saved version and use Print / save PDF to give it to your client.'};
   const next=active==='website'?'<button data-setup-step="sources">Next: optional sources</button>':active==='sources'?'<button data-setup-step="questions">Continue to questions</button>':active==='questions'?'<button data-setup-step="measurement">Next: review measurement</button>':active==='measurement'?(state.measurementRunning?'<button disabled>Measurement in progress</button>':measured?'<button data-setup-step="recommendations">Next: review recommendations</button>':'<button data-start-first-cycle>Review cost and run</button>'):active==='recommendations'?'<button data-setup-step="report">Next: prepare your report</button>':'';
   return `<section class="panel setup-journey" aria-label="Project setup"><p class="eyebrow">Your first report · Step ${steps.findIndex(([s])=>s===active)+1} of 6</p><nav aria-label="Setup steps">${steps.map(([step,label],i)=>`<button class="ghost" data-setup-step="${step}" ${active===step?'aria-current="step"':''} ${!measured&&['recommendations','report'].includes(step)?'disabled':''}>${i+1}. ${label}</button>`).join('')}</nav><p>${copy[active]||copy[saved]||''}</p><p class="hint">Your place is saved. You can leave and return at any time.</p><p id="setupProgressError" class="error" role="alert"></p>${next}</section>`;
 }
@@ -408,15 +408,35 @@ document.addEventListener('click',async event=>{
  catch(error){const el=$('setupProgressError');if(el)el.textContent=error.message;button.disabled=false;}
 });
 
+function sourceSetupGuide(kind, connection = {}) {
+  const gsc = kind === 'gsc';
+  const name = gsc ? 'Search Console' : 'Google Analytics';
+  const selected = gsc ? connection.siteUrl : connection.propertyId;
+  const ready = connection.connected && selected && !connection.error;
+  const step = ready ? 3 : connection.connected ? 2 : 1;
+  const domain = esc(state.overview?.project?.domain || 'your website');
+  return `<section aria-label="${name} connection guide" class="source-guide">
+    <p class="eyebrow">${connection.error ? 'Connection needs checking' : ready ? 'Connection complete' : `Step ${step} of 3`}</p>
+    <h3>${connection.error ? 'Check the connection before continuing' : ready ? 'Your website is connected' : step === 2 ? 'Now choose your website' : 'Start with your Google account'}</h3>
+    ${connection.error ? '<p>We could not check your connection. Use the retry button below. You can also skip this optional step and return later.</p>' : `<ol>
+      <li${step === 1 ? ' aria-current="step"' : ''}><b>Sign in to Google.</b> Click <b>${gsc ? 'Connect Search Console' : 'Connect Google Analytics'}</b> below. Choose the Google account you use for ${domain}, review the requested access and approve it to return to Cited.</li>
+      <li${step === 2 ? ' aria-current="step"' : ''}><b>Choose your website.</b> A “property” is your website’s record in ${name}. ${gsc ? 'Click <b>Choose Search Console property</b> if the list is not already open. Find your website address' : 'Find the property that measures your website in the list'} and click <b>Use this</b>. Signing in alone does not finish the connection.</li>
+      <li${step === 3 ? ' aria-current="step"' : ''}><b>${gsc ? 'Find questions.' : 'View your traffic.'}</b> ${gsc ? 'Once your website address appears, click <b>Find questions people already ask</b>. Review the suggestions, tick the ones you want and click <b>Add selected questions</b>.' : 'After you choose a property, Cited imports the data. Wait for a last-updated date and the traffic results. An empty report does not mean the connection failed.'}</li>
+    </ol>`}
+    ${ready ? `<p role="status"><b>Selected website:</b> ${esc(gsc ? connection.siteUrl : connection.propertyName || connection.propertyId)}. ${gsc ? 'Next, review the suggested questions before adding them.' : 'Connection saved. Check the import status below to see whether data is ready.'}</p>` : `<details><summary>Not sure which account or website to choose?</summary><p>Use the Google account your business or agency uses for ${name}. If your website is missing, try another account or ask the person who manages your website to give that Google account access.</p><p>You can send them: “Please give my Google account access to ${name} for ${domain} so I can connect it to Cited.”</p><p>If your business does not use ${name}, skip this for now. Cited can start with questions suggested from your website.</p></details>`}
+  </section>`;
+}
+
 async function viewConnections() {
   const [gsc,ga4]=await Promise.all([
     api(`/api/projects/${state.projectId}/gsc`).catch(()=>null),
     api(`/api/projects/${state.projectId}/ga4`).catch(()=>null)
   ]);
   const status=(data,property)=>!data||data.error?'Status unavailable':property?`Property selected: ${esc(property)}`:data.connected?'Account connected. Choose a property.':'Not connected. Optional.';
-  return `<div class="panel"><h2>Connect your data</h2><p>Start with Search Console to inform your question list. You can connect either source now or later.</p></div>
+  return `<div class="panel"><h2>Connect your data</h2><p>These connections are optional. Start with Search Console if you want ideas from Google searches. Add Analytics if you want to see visits from AI tools. Each button below opens a step-by-step guide. You will need a Google account with access to your website’s data.</p></div>
     <div class="panel"><h2>1. Google Search Console</h2><p>Find questions and opportunities from your actual Google search data.</p><p role="status">${status(gsc,gsc?.siteUrl)}</p><button data-open-view="searchDemand">${gsc?.siteUrl?'Review search demand':'Set up Search Console'}</button><p class="hint">Google search demand is not AI question volume. Review suggested wording before adding questions.</p></div>
     <div class="panel"><h2>2. Google Analytics 4</h2><p>See identifiable visits and recorded actions from AI referrals.</p><p role="status">${status(ga4,ga4?.propertyName||ga4?.propertyId)}</p><button class="ghost" data-open-view="traffic">${ga4?.propertyId?'Review AI referral traffic':'Set up Analytics'}</button><p class="hint">Search Console and Analytics can use different Google accounts.</p></div>
+    <div class="panel"><h3>Don’t have access yet?</h3><p>You can create your question list from your website and connect these sources later. Return here using Sources in the setup steps.</p><button class="ghost" data-setup-step="questions">Skip sources for now and review questions</button></div>
     ${state.setupStep==='complete'?'<div class="panel"><h2>Keep your questions relevant</h2><p>Review new source suggestions before your next measurement.</p><button data-open-view="questions">Review questions</button></div>':''}`;
 }
 
@@ -1444,6 +1464,7 @@ function questionSourceLabel(source) {
 
 function gscQuestionPanel(gsc = {}, expanded = false) {
   return `    <details class="panel fold" id="gscPanel" ${expanded?'open':''}><summary>Import from Google Search Console ${gsc.siteUrl ? `&middot; ${esc(gsc.siteUrl)}` : gsc.connected ? '&middot; choose a property' : gsc.error ? '&middot; status unavailable' : '&middot; connect an account'}</summary>
+      ${sourceSetupGuide('gsc', gsc)}
       <div class="panel-head">
         <h2>From Search Console</h2>
         <div class="spacer"></div>
@@ -1942,6 +1963,7 @@ async function viewTraffic() {
         </svg>
       </div>
       <h2>Connect Google Analytics</h2>
+      ${sourceSetupGuide('ga4', conn)}
       <p class="dek" style="max-width:56ch">
         See recorded sessions and conversions attributed to AI referrals. Search Console works separately and does not require an Analytics connection.
       </p>
@@ -1953,14 +1975,14 @@ async function viewTraffic() {
       ${reuse}
       ${conn.configured
         ? `<button id="ga4Connect">${others.length ? 'Connect a different Google account' : 'Connect Google Analytics'}</button>`
-        : `<p class="notice" style="margin:0">Google sign-in is not configured on this deployment. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</p>`}
+        : `<p class="notice" style="margin:0">Google sign-in is temporarily unavailable. Please contact Cited support, or skip this optional step and continue to your questions.</p>`}
       <p class="error" id="ga4Error" role="alert"></p>
     </div>` + searchPanel;
   }
 
   /* connected but no property chosen yet */
   if (!conn.propertyId) {
-    return `<div class="panel">
+    return `<div class="panel">${sourceSetupGuide('ga4', conn)}
       <div class="panel-head">
         <h2>Choose a property</h2>
         <div class="spacer"></div>
@@ -1987,7 +2009,7 @@ async function viewTraffic() {
     const projectId = state.projectId;
     ga4RefreshPoll = setTimeout(() => { if (state.view === 'traffic' && state.projectId === projectId) render(); }, 4000);
   }
-  return `<div class="panel"><div class="panel-head"><h2>Google Analytics</h2><div class="spacer"></div><button class="ghost" id="ga4Sync" ${busy ? 'disabled' : ''}>${busy ? 'Importing…' : failed ? 'Retry' : 'Refresh now'}</button><button class="ghost" id="ga4Reconnect">Change account</button><button class="ghost" id="ga4Disconnect">Disconnect</button></div><div class="conn-status"><span class="tag ok">Connected</span><span class="tag">${esc(conn.propertyName || `property ${conn.propertyId}`)}</span><span class="tag">${conn.syncedAt ? `Last updated ${esc(shortDate(conn.syncedAt))}` : 'First import pending'}</span><button class="ghost" id="ga4Change">Change property</button></div><p role="status">${message}</p><p class="error" id="ga4Error" role="alert">${failed ? esc(conn.refresh.error || 'Please reconnect Google if access has expired.') : ''}</p></div><div class="panel">${conn.syncedAt ? rows?.html || '<p>Traffic could not be loaded. This does not mean there were zero visits.</p>' : '<p>Your traffic results will appear after the first successful import.</p>'}</div>` + searchPanel;
+  return `<div class="panel">${sourceSetupGuide('ga4', conn)}<div class="panel-head"><h2>Google Analytics</h2><div class="spacer"></div><button class="ghost" id="ga4Sync" ${busy ? 'disabled' : ''}>${busy ? 'Importing…' : failed ? 'Retry' : 'Refresh now'}</button><button class="ghost" id="ga4Reconnect">Change account</button><button class="ghost" id="ga4Disconnect">Disconnect</button></div><div class="conn-status"><span class="tag ok">Connected</span><span class="tag">${esc(conn.propertyName || `property ${conn.propertyId}`)}</span><span class="tag">${conn.syncedAt ? `Last updated ${esc(shortDate(conn.syncedAt))}` : 'First import pending'}</span><button class="ghost" id="ga4Change">Change property</button></div><p role="status">${message}</p><p class="error" id="ga4Error" role="alert">${failed ? esc(conn.refresh.error || 'Please reconnect Google if access has expired.') : ''}</p></div><div class="panel">${conn.syncedAt ? rows?.html || '<p>Traffic could not be loaded. This does not mean there were zero visits.</p>' : '<p>Your traffic results will appear after the first successful import.</p>'}</div>` + searchPanel;
 }
 
 async function loadGa4Properties() {
@@ -1997,7 +2019,7 @@ async function loadGa4Properties() {
   const d = await res.json();
   if (!res.ok) { box.innerHTML = `<p class="error">${esc(d.error)}</p>`; return; }
   if (!d.properties.length) {
-    box.innerHTML = `<p class="hint">That Google account cannot see any GA4 properties. Connect a different account, or ask for read access.</p>`;
+    box.innerHTML = `<p class="hint">No websites were found for this Google account. Use “Connect a different one” below to try your business or agency account, or ask your website manager to give this account access to Analytics.</p>`;
     return;
   }
   box.innerHTML =
@@ -5041,7 +5063,7 @@ async function loadGscSites() {
 
   if (!res.ok) { body.innerHTML = gscError(d); return; }
   if (!d.sites.length) {
-    body.innerHTML = '<p class="hint">That Google account cannot see any Search Console properties.</p>';
+    body.innerHTML = '<p class="notice">No websites were found for this Google account. Try the account your business or agency uses for Search Console, or ask your website manager to give it access.</p><button id="gscGrant">Connect Search Console with another account</button><button class="ghost" data-open-view="connections">Back to sources</button>';
     return;
   }
   body.innerHTML = `<p class="teardown-label">Which property</p>` +
@@ -6529,5 +6551,6 @@ function showDemoHandoff(){
 
  };
 }
+
 
 
