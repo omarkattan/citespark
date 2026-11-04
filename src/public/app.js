@@ -445,7 +445,7 @@ async function viewSearchDemand() {
     api(`/api/projects/${state.projectId}/gsc`).catch(()=>({error:true})),
     api(`/api/projects/${state.projectId}/demand`).catch(()=>null)
   ]);
-  return `<div class="panel"><h2>Search demand</h2><p>Use actual Google queries to find questions worth measuring. Search demand and AI visibility remain separate.</p><button class="ghost" data-open-view="connections">All connections</button> <button class="ghost" data-open-view="questions">Review tracked questions</button></div>${gscQuestionPanel(gsc||{error:true},true)}${demandSection(demand)}`;
+  return `<div class="panel"><h2>Search demand</h2><p>Search Console shows searches where your website already appears. It can miss questions such as who the best providers are in your niche. Start with discovery questions in Questions, then use these Google queries for additional ideas.</p><button class="ghost" data-open-view="connections">All connections</button> <button class="ghost" data-open-view="questions">Review tracked questions</button></div>${gscQuestionPanel(gsc||{error:true},true)}${demandSection(demand)}`;
 }
 
 async function viewAnswerEvidence() {
@@ -1491,14 +1491,14 @@ function gscQuestionPanel(gsc = {}, expanded = false) {
 }
 
 function questionTools(p, scope, gsc = {}) {
-  return `<details class="panel question-add" id="questionAdd"><summary>Add questions and connect sources</summary>
-    <div class="panel"><h2>Add questions</h2><p class="hint">Write a buyer question, start from a topic, use suggestions from your site, or import from the sources below.</p>
+  return `<details class="panel question-add" id="questionAdd" ${state.setupStep==='questions'?'open':''}><summary>Add questions and connect sources</summary>
+    <div class="panel"><h2>Start with discovery questions</h2><p>Would an AI assistant recommend your business to someone looking for what you offer? Click <b>Suggest discovery questions</b> for ideas based on your niche and market, then review the wording. For an agency, this could be “Who are the best SEO agencies in Dubai?” Other businesses get questions about their own category.</p><p class="hint">These are suggested buyer questions, not measured search volumes. GSC adds ideas from searches where your website already appears, so it can miss discovery opportunities.</p>
       <div class="qcompose question-compose"><input id="q_text" aria-label="Question or topic" placeholder="A buyer question or topic" autocomplete="off" />
       <button id="q_add">Add as written</button><button class="ghost" id="q_topic">Suggest from topic</button></div>
       <p class="hint">Add as written keeps your wording. Topic suggestions follow your input language: English or Arabic.</p>
       <div class="qcompose question-compose"><label for="q_site_language">Site suggestion language</label>
       <select id="q_site_language"><option value="en"${p.language === 'ar' ? '' : ' selected'}>English</option><option value="ar"${p.language === 'ar' ? ' selected' : ''}>Arabic</option></select>
-      <button class="ghost" id="q_generate">Suggest from site</button></div>
+      <button class="ghost" id="q_generate">Suggest discovery questions</button></div>
       <div id="qTopicPanel"></div><p class="error" id="setupError" role="alert"></p>
     </div>
     <details class="panel fold" id="personaPanel">
@@ -6551,6 +6551,7 @@ function showDemoHandoff(){
 
  };
 }
+
 
 
 

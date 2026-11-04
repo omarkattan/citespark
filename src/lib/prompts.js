@@ -33,7 +33,10 @@ Rules:
 - Use the stated business activity and customer as the scope, not the literal meaning of its brand name. A wealth manager called The Family Office is not automatically a service for establishing or operating a family office.
 - Do not invent services, eligibility requirements or customer segments beyond the supplied context.
 - Prefer evergreen wording without a year. If a current-year qualifier is essential, use the supplied current year, never a past or future year.
-- Cover a spread of intent: category discovery, comparison, "best X for Y" with a qualifier, problem-led, and pricing or process questions.
+- Lead with unbranded category discovery and provider/product shortlisting. At least half of the set, and the first five questions (or all if fewer than five are requested), must ask an assistant to recommend, name, shortlist or compare relevant businesses, providers or products. Label these intent "discovery" or "comparison". General advice such as "What should I consider?" is not provider discovery.
+- Match the actual niche: for a marketing agency ask "Who are the best [actual service] agencies in [market]?"; for a shop ask where to buy its actual products; for a bank ask which banks offer the relevant service. Use the business's actual category, supported services, customer and market. Never make every business an agency.
+- Vary the buying situation and supported service rather than repeating the same best-provider question with synonyms. Do not invent services or audiences.
+- Place problem education, pricing and process questions after discovery and shortlisting.
 - Include location or sector qualifiers where the business is local or vertical.
 - Return ONLY a JSON array. Each item: {"text": string, "cluster": string, "intent": "discovery"|"comparison"|"commercial"|"problem"}
 - No preamble, no markdown fences.`;
@@ -50,6 +53,25 @@ const TEMPLATES = [
   { t: 'What evidence should I look for when comparing {category}?', cluster: 'process', intent: 'problem' },
   { t: 'How long does {category} take to show results?', cluster: 'process', intent: 'problem' }
 ];
+
+export function discoveryFirst(suggestions, { category, market, brand, domain, language = 'en', count = 20 }) {
+  const isRecommendation = p => /\b(best|top[- ]rated|recommend|shortlist|worth considering|where (?:can|should) I buy)\b|أفضل|افضل|ترشح|تنصح|توصي/u.test(p.text.toLowerCase());
+  const leading = suggestions.filter(isRecommendation);
+  // Ensure a new project can test unprompted provider discovery even if the model
+  // returns only education questions. These are suggestions, never GSC evidence.
+  if (!leading.length && category && market) {
+    const text = language === 'ar'
+      ? `بمن تنصح في مجال ${category} في ${market}؟`
+      : `Who would you recommend for ${category} in ${market}?`;
+    if (matchesLanguage(text, language) && !containsSearchBrand(text, [brand, domain])) {
+      leading.push({text, cluster:'provider-discovery', intent:'discovery', ai_search_volume:null});
+    }
+  }
+  const seen = new Set();
+  return [...leading, ...suggestions.filter(p => !isRecommendation(p))].filter(p => {
+    const key = queryKey(p.text); if (seen.has(key)) return false; seen.add(key); return true;
+  }).slice(0, count);
+}
 
 function templateSet({ category, market, qualifier }) {
   return TEMPLATES.map((row, i) => ({
@@ -135,14 +157,14 @@ Write ${count} questions.`;
         ai_search_volume: null
       }))
       .slice(0, count);
-    if (suggestions.length) return suggestions;
+    if (suggestions.length) return discoveryFirst(suggestions, {category, market, brand, domain, language, count});
   }
 
   if (raw || language === 'ar') {
     throw new Error('No usable questions were returned in the selected language. Please try again.');
   }
-  return templateSet({ category, market, qualifier })
-    .filter(p => matchesLanguage(p.text, language)).slice(0, count);
+  return discoveryFirst(templateSet({ category, market, qualifier })
+    .filter(p => matchesLanguage(p.text, language)), {category, market, brand, domain, language, count});
 }
 
 /** New site suggestions are current discovery questions, not historical studies.
@@ -153,3 +175,4 @@ export function hasUnrequestedYear(text, currentYear = new Date().getUTCFullYear
   return [...String(text).matchAll(/\b(?:in|for|during|of|year)\s+(?:the year\s+)?(20\d{2})\b(?!\s*(?:dollars|USD|SAR|AED|riyals|dirhams)\b)/gi)]
     .some(m => Number(m[1]) !== currentYear);
 }
+
