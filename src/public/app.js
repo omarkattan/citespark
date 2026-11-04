@@ -2545,7 +2545,7 @@ async function fillCities(iso, select, hint, selected = '') {
   const request = {};
   select._cityRequest = request;
   select._locationCountry = country;
-  const cacheKey = country === 'US' && selected ? `${country}:${selected}` : country;
+  const cacheKey = selected ? `${country}:${selected}` : country;
   select._locationCacheKey = cacheKey;
   select._locationLoading = true;
   select._locationData = null;
@@ -2556,7 +2556,7 @@ async function fillCities(iso, select, hint, selected = '') {
   if (!/^[A-Z]{2}$/.test(country)) data = { error: 'Choose a market before continuing.' };
   if (!data) {
     try {
-      const query = country === 'US' && selected ? `?selected=${encodeURIComponent(selected)}` : '';
+      const query = selected ? `?selected=${encodeURIComponent(selected)}` : '';
       data = await api(`/api/locations/${country}${query}`, { readTimeoutMs: 15000 });
       if (data && !data.error && !data.unavailable) cityCache.set(cacheKey, data);
     } catch { data = { error: 'Location support could not be checked. Retry before continuing.' }; }
@@ -2564,18 +2564,18 @@ async function fillCities(iso, select, hint, selected = '') {
   if (select._cityRequest !== request) return;
   data ||= { error: 'Location support could not be checked. Retry before continuing.' };
   // Also filter here for cached responses from before the server update.
-  const cities = (data.cities || []).filter(city => country !== 'US' || /^state$/i.test(String(city.type || '').trim()) || city.name === selected);
+  const cities = (data.cities || []).filter(city => /^city$/i.test(String(city.type || '').trim()) || (selected && city.name === selected));
   data = { ...data, cities };
-  const ORDER = ['Province', 'State', 'Region', 'County', 'City', 'Municipality', 'Town', 'District', 'Borough', 'Neighborhood'];
-  const PLURAL = { Province: iso === 'AE' ? 'Emirates' : 'Regions and provinces', State: 'States', Region: 'Regions', County: 'Counties', City: 'Cities', Municipality: 'Municipalities', Town: 'Towns', District: 'Districts', Borough: 'Boroughs', Neighborhood: 'Neighbourhoods' };
-  const groups = new Map();
-  for (const city of cities) { const type = city.type || 'Other'; if (!groups.has(type)) groups.set(type, []); groups.get(type).push(city); }
-  const ranked = [...groups].sort((a,b) => (ORDER.indexOf(a[0]) < 0 ? 99 : ORDER.indexOf(a[0])) - (ORDER.indexOf(b[0]) < 0 ? 99 : ORDER.indexOf(b[0])));
-  select.innerHTML = `<option value="" ${data.countryLocation ? '' : 'disabled'}>${data.countryLocation ? 'The whole country' : 'Choose a verified Google location'}</option>` + ranked.map(([type, places]) => `<optgroup label="${esc(PLURAL[type] || type)}">${places.map(c => `<option value="${esc(c.name)}">${esc(c.label)}</option>`).join('')}</optgroup>`).join('');
+  const cityOptions = cities.filter(city => /^city$/i.test(String(city.type || '').trim()));
+  const savedOptions = cities.filter(city => !/^city$/i.test(String(city.type || '').trim()));
+  const options = places => places.map(c => `<option value="${esc(c.name)}">${esc(c.label)}</option>`).join('');
+  select.innerHTML = `<option value="" ${data.countryLocation ? '' : 'disabled'}>${data.countryLocation ? 'The whole country' : 'Choose a verified city'}</option>` +
+    (cityOptions.length ? `<optgroup label="Cities">${options(cityOptions)}</optgroup>` : '') +
+    (savedOptions.length ? `<optgroup label="Current saved location">${options(savedOptions)}</optgroup>` : '');
   // Retain an unavailable saved choice as an explicit error, never silently widen it.
   if (selected && !cities.some(c => c.name === selected)) select.insertAdjacentHTML('beforeend', `<option value="${esc(selected)}" disabled>${esc(selected)} (not verified)</option>`);
   select.value = selected;
-  select.disabled = !cities.length;
+  select.disabled = !cities.length && !data.countryLocation;
   select._locationLoading = false;
   select._locationData = data;
   select.onchange = () => syncLocationChoice(select, hint);
@@ -6529,4 +6529,5 @@ function showDemoHandoff(){
 
  };
 }
+
 

@@ -16,24 +16,24 @@ function ui(api) {
   vm.runInContext(app.slice(start,app.indexOf('const ENGINE_LABEL',start)),context);
   return {dom,context,select:document.getElementById('f_city'),hint:document.getElementById('hint'),save:document.getElementById('siteSave')};
 }
-test('large US response renders only states and allows state selection',async()=>{
+test('large US response renders only cities and allows city selection',async()=>{
   const u=ui(async()=>({countryLocation:'United States',cities:places}));
   await u.context.fillCities('US',u.select,u.hint);
-  assert.equal(u.select.options.length,4);
+  assert.equal(u.select.options.length,2);
   assert.equal(u.select.disabled,false);
   assert.equal(u.save.disabled,false);
-  u.select.value=states[0].name;
+  u.select.value=city.name;
   u.select.dispatchEvent(new u.dom.window.Event('change'));
   assert.equal(u.save.disabled,false);
-  assert.match(u.hint.textContent,/California,United States/);
+  assert.match(u.hint.textContent,/Austin,Texas,United States/);
 });
-test('existing verified city is retained, invalid saved choice is blocked, new setup remains states only',async()=>{
+test('existing verified state is retained, invalid saved choice is blocked, new setup remains cities only',async()=>{
   const urls=[];const u=ui(async url=>{urls.push(url);return {countryLocation:'United States',cities:places};});
-  await u.context.fillCities('US',u.select,u.hint,city.name);
-  assert.equal(u.select.value,city.name);assert.equal(u.save.disabled,false);
-  assert.ok(urls[0].includes(encodeURIComponent(city.name)));
+  await u.context.fillCities('US',u.select,u.hint,states[0].name);
+  assert.equal(u.select.value,states[0].name);assert.equal(u.save.disabled,false);
+  assert.ok(urls[0].includes(encodeURIComponent(states[0].name)));
   await u.context.fillCities('US',u.select,u.hint);
-  assert.equal(u.select.options.length,4);assert.equal(u.select.value,'');
+  assert.equal(u.select.options.length,2);assert.equal(u.select.value,'');
   await u.context.fillCities('US',u.select,u.hint,'Unknown');
   assert.equal(u.select.value,'Unknown');assert.equal(u.save.disabled,true);
 });
@@ -49,13 +49,38 @@ test('late US response cannot replace a newer market selection',async()=>{
   pending['/api/locations/US']({countryLocation:'United States',cities:places});await us;
   assert.match(u.hint.textContent,/United Kingdom/);assert.equal(u.select.options.length,1);
 });
-test('location endpoint sends compact US list while validating any retained location against provider list',async()=>{
+test('location endpoint filters every country to cities and validates retained locations',async()=>{
   let handler;const start=server.indexOf("app.get('/api/locations/:country'");
   const source=server.slice(start,server.indexOf('\n}));',start)+5).replace("const { googleLocations } = await import('./lib/dataforseo.js');",'');
   vm.runInNewContext(source,{app:{get:(path,...handlers)=>handler=handlers.at(-1)},requireAuth:()=>{},wrap:x=>x,LOCATIONS:{US:'United States',AE:'United Arab Emirates'},googleLocations:async()=>places});
   const run=async(country,selected)=>{let body;await handler({params:{country},query:{selected}},{json:value=>body=value});return body;};
-  assert.equal((await run('US')).cities.length,3);
-  assert.equal((await run('US',city.name)).cities.length,4);
-  assert.equal((await run('US','Unknown')).cities.length,3);
-  assert.equal((await run('AE')).cities.length,places.length);
+  assert.equal((await run('US')).cities.length,1);
+  assert.equal((await run('US',states[0].name)).cities.length,2);
+  assert.equal((await run('US','Unknown')).cities.length,1);
+  assert.equal((await run('AE')).cities.length,1);
+});
+
+
+test('every market shows only cities and preserves a saved region separately',async()=>{
+  for (const country of ['AE','GB','FR','DE','IN']) {
+    const region={name:`Region,${country}`,label:'Region',type:'Province'};
+    const city={name:`City,${country}`,label:'City',type:'City'};
+    const urls=[];
+    const u=ui(async url=>{urls.push(url);return {countryLocation:country,cities:[region,city,{name:'District',label:'District',type:'District'}]};});
+    await u.context.fillCities(country,u.select,u.hint,region.name);
+    assert.equal(u.select.value,region.name);
+    assert.equal(u.save.disabled,false);
+    assert.equal(u.select.querySelectorAll('optgroup')[1].label,'Current saved location');
+    assert.ok(urls[0].includes(encodeURIComponent(region.name)));
+    await u.context.fillCities(country,u.select,u.hint);
+    assert.equal(u.select.options.length,2);
+    assert.equal(u.select.value,'');
+    assert.equal(u.select.querySelector('optgroup').label,'Cities');
+  }
+});
+test('country without cities remains selectable',async()=>{
+  const u=ui(async()=>({countryLocation:'United Kingdom',cities:[]}));
+  await u.context.fillCities('GB',u.select,u.hint);
+  assert.equal(u.select.disabled,false);
+  assert.equal(u.save.disabled,false);
 });
