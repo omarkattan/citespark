@@ -38,13 +38,26 @@
       if(closed)return;
       const width=window.innerWidth,height=window.innerHeight,pad=12,gap=16;
       const box=target()?.getBoundingClientRect();
-      const w=card.offsetWidth,h=card.offsetHeight;
+      // Reset a previous short-screen constraint before measuring this step.
+      card.style.maxHeight='';
+      const w=card.offsetWidth;let h=card.offsetHeight;
       let left=(width-w)/2,top=(height-h)/2,highlight=false;
-      if(box && box.bottom>0 && box.top<height){
+      if(box && box.bottom>0 && box.top<height && box.right>0 && box.left<width){
         left=Math.min(Math.max(pad,box.left),width-w-pad);
         if(box.bottom+gap+h<=height-pad){top=box.bottom+gap;highlight=true;}
         else if(box.top-gap-h>=pad){top=box.top-gap-h;highlight=true;}
-        else {left=(width-w)/2;}
+        else if(box.right+gap+w<=width-pad){left=box.right+gap;top=Math.max(pad,Math.min(box.top,height-h-pad));highlight=true;}
+        else if(box.left-gap-w>=pad){left=box.left-gap-w;top=Math.max(pad,Math.min(box.top,height-h-pad));highlight=true;}
+        else {
+          // Keep the control visible on narrow screens; scroll the explanation
+          // in the larger free space instead of dropping its spotlight.
+          const below=height-pad-box.bottom-gap,above=box.top-gap-pad;
+          const room=Math.max(below,above);
+          if(room>0){
+            card.style.maxHeight=`${room}px`;h=card.offsetHeight;
+            top=below>=above?box.bottom+gap:box.top-gap-h;highlight=true;
+          }
+        }
       }
       card.style.left=`${Math.max(pad,left)}px`;card.style.top=`${Math.max(pad,Math.min(top,height-h-pad))}px`;
       spot.hidden=!highlight;shade.hidden=highlight;

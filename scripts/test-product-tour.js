@@ -22,7 +22,7 @@ function fixture({status='pending',userId=7,project=false,storage,blocked=false,
 test('new accounts automatically see the welcome tour and existing accounts only see the CTA',()=>{
  for(const status of ['pending','not_required','completed','skipped']){
   const f=fixture({status});f.tour.autoStart();assert.equal(f.get('#citedTour').open,status==='pending');
-  assert.equal(f.get('#takeTourBtn').disabled,false);assert.equal(f.get('#takeTourBtn').textContent,'Take a tour');f.close();
+  assert.equal(f.get('#takeTourBtn').disabled,false);assert.equal(f.get('#takeTourBtn').textContent.trim(),'Start guided tour');f.close();
  }
 });
 test('all eight steps work without a project and finish by explicitly opening Add site',()=>{
@@ -62,6 +62,25 @@ test('focus is contained and another modal is never displaced',()=>{
  const f=fixture();f.get('#siteDialog').showModal();assert.equal(f.tour.start(),false);f.get('#siteDialog').close();f.tour.start();
  f.get('.tour-next').focus();f.get('#citedTour').dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'Tab',bubbles:true,cancelable:true}));assert.equal(f.w.document.activeElement,f.get('.tour-close'));
  f.get('#citedTour').dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'Tab',shiftKey:true,bubbles:true,cancelable:true}));assert.equal(f.w.document.activeElement,f.get('.tour-next'));f.close();
+});
+test('step 4 keeps Questions highlighted without covering it across viewport sizes',()=>{
+ for(const [width,height,left,top] of [[1363,936,221,244],[1363,650,221,244],[900,650,700,244],[390,650,120,244],[390,400,120,244]]){
+  const f=fixture({storage:{'cited.product-tour.v1.7':JSON.stringify({status:'in_progress',step:3})}});
+  Object.assign(f.w,{innerWidth:width,innerHeight:height});
+  const target=f.get('[data-section="questions"]'),card=f.get('.tour-card');
+  const box={left,top,right:left+100,bottom:top+37,width:100,height:37};
+  target.getClientRects=()=>[box];target.getBoundingClientRect=()=>box;
+  Object.defineProperty(card,'offsetWidth',{get:()=>Math.min(420,f.w.innerWidth-24)});
+  Object.defineProperty(card,'offsetHeight',{get:()=>Math.min(431,parseFloat(card.style.maxHeight)||f.w.innerHeight-24)});
+  f.tour.autoStart();
+  assert.equal(f.get('.tour-spotlight').hidden,false,`${width}x${height}`);
+  assert.equal(f.get('.tour-shade').hidden,true);
+  const x=parseFloat(card.style.left),y=parseFloat(card.style.top);
+  assert.ok(x>=12&&x+card.offsetWidth<=width-12);
+  assert.ok(y>=12&&y+card.offsetHeight<=height-12);
+  assert.ok(x>=box.right+16||x+card.offsetWidth<=box.left-16||y>=box.bottom+16||y+card.offsetHeight<=box.top-16,'explanation must not obscure Questions');
+  f.get('.tour-back').click();assert.equal(card.style.maxHeight,'','constraint resets for the next step');f.close();
+ }
 });
 test('boot does not make a project-null request and offers onboarding to an empty account',async()=>{
  let started=0;const paths=[];
