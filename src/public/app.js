@@ -2532,7 +2532,7 @@ function syncLocationChoice(select, hint) {
     hint.textContent = error || `Verified Google location: ${select.value || data.countryLocation}. Applies to Google AI Mode and AI Overviews.`;
     if (error && !select._locationLoading) {
       const retry = doc.createElement('button'); retry.type = 'button'; retry.className = 'ghost'; retry.textContent = 'Retry location lookup';
-      retry.addEventListener('click', () => { cityCache.delete(select._locationCountry); fillCities(select._locationCountry, select, hint, select.value); });
+      retry.addEventListener('click', () => { cityCache.delete(select._locationCacheKey); fillCities(select._locationCountry, select, hint, select.value); });
       hint.appendChild(retry);
     }
   }
@@ -2545,22 +2545,27 @@ async function fillCities(iso, select, hint, selected = '') {
   const request = {};
   select._cityRequest = request;
   select._locationCountry = country;
+  const cacheKey = country === 'US' && selected ? `${country}:${selected}` : country;
+  select._locationCacheKey = cacheKey;
   select._locationLoading = true;
   select._locationData = null;
   select.disabled = true;
   select.innerHTML = '<option value="">Checking Google locations</option>';
   syncLocationChoice(select, hint);
-  let data = cityCache.get(country);
+  let data = cityCache.get(cacheKey);
   if (!/^[A-Z]{2}$/.test(country)) data = { error: 'Choose a market before continuing.' };
   if (!data) {
     try {
-      data = await api(`/api/locations/${country}`, { readTimeoutMs: 15000 });
-      if (data && !data.error && !data.unavailable) cityCache.set(country, data);
+      const query = country === 'US' && selected ? `?selected=${encodeURIComponent(selected)}` : '';
+      data = await api(`/api/locations/${country}${query}`, { readTimeoutMs: 15000 });
+      if (data && !data.error && !data.unavailable) cityCache.set(cacheKey, data);
     } catch { data = { error: 'Location support could not be checked. Retry before continuing.' }; }
   }
   if (select._cityRequest !== request) return;
   data ||= { error: 'Location support could not be checked. Retry before continuing.' };
-  const cities = data.cities || [];
+  // Also filter here for cached responses from before the server update.
+  const cities = (data.cities || []).filter(city => country !== 'US' || /^state$/i.test(String(city.type || '').trim()) || city.name === selected);
+  data = { ...data, cities };
   const ORDER = ['Province', 'State', 'Region', 'County', 'City', 'Municipality', 'Town', 'District', 'Borough', 'Neighborhood'];
   const PLURAL = { Province: iso === 'AE' ? 'Emirates' : 'Regions and provinces', State: 'States', Region: 'Regions', County: 'Counties', City: 'Cities', Municipality: 'Municipalities', Town: 'Towns', District: 'Districts', Borough: 'Boroughs', Neighborhood: 'Neighbourhoods' };
   const groups = new Map();
@@ -6524,3 +6529,4 @@ function showDemoHandoff(){
 
  };
 }
+

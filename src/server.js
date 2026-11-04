@@ -1052,7 +1052,14 @@ app.get('/api/locations/:country', requireAuth, wrap(async (req, res) => {
   const { googleLocations } = await import('./lib/dataforseo.js');
   const countryLocation = LOCATIONS[iso] || null;
   try {
-    res.json({ country: iso, countryLocation, cities: await googleLocations(iso) });
+    const places = await googleLocations(iso);
+    // US setup needs states, not tens of thousands of counties and cities.
+    // Keep an existing project's verified choice without widening its coverage.
+    const selected = typeof req.query.selected === 'string' ? req.query.selected : '';
+    const cities = iso === 'US'
+      ? places.filter(place => /^state$/i.test(String(place.type || '').trim()) || place.name === selected)
+      : places;
+    res.json({ country: iso, countryLocation, cities });
   } catch {
     res.json({ country: iso, countryLocation, cities: [], unavailable: 'Location lookup unavailable. Retry before selecting a city.' });
   }
@@ -3835,3 +3842,4 @@ app.listen(port, () => {
     console.warn('MOCK_MODE is off but DATAFORSEO_LOGIN is not set. Every cycle will fail.');
   }
 });
+
