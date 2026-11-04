@@ -157,9 +157,11 @@
 
     <div class="field"><label for="f_category">What the business does</label><input id="f_category" placeholder="What the business does, in a few words" /></div>
     <div class="field">
-      <label for="f_qualifier">Who the customer is</label>
-      <input id="f_qualifier" placeholder="Who buys from you and what they need" />
-      <p class="hint">Use details you know, such as “UK shoppers looking for skincare for dry or sensitive skin”. Leave out assumptions about age, income or occupation.</p>
+      <label for="f_qualifier">Typical customers</label>
+      <p class="hint" id="f_customerHint">Scan your site for suggestions. Choose any that fit, or add your own below.</p>
+      <fieldset id="f_customerSuggestions" hidden aria-describedby="f_customerHint"><legend>Suggested customers</legend><div id="f_customerOptions"></div></fieldset>
+      <textarea id="f_qualifier" rows="3" aria-describedby="f_customerHelp" placeholder="Who buys from you and what they need, one customer group per line"></textarea>
+      <p class="hint" id="f_customerHelp">Your choices appear here. Edit them or add your own, one per line. We’ll use these to suggest buyer questions. Leave out assumptions about age, income or occupation.</p>
     </div>
     <div class="field"><label for="f_market">Market</label><select id="f_market"></select></div>
     <details id="siteOptional" class="setup-optional"><summary>Optional: brand matching, competitors and Google location</summary>    <div class="field">
@@ -193,6 +195,6 @@
 <script src="/demo-handoff.js?v=119"></script>
 <script src="/product-tour.js?v=3"></script>
 <script src="/faq-workflow.js?v=3"></script>
-<script src="/app.js?v=136"></script>
+<script src="/app.js?v=137"></script>
 <script src="/context-help.js?v=93" defer></script></body>
 </html>

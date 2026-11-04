@@ -50,7 +50,7 @@ test('latest country request wins when city responses arrive out of order',async
 test('scan refreshes cities for the inferred country and clears stale competitor suggestions',async()=>{
  const {document,dom}=harness();const cities=[];document.getElementById('f_domain').value='example.com';document.getElementById('f_rivals').value='Old competitor';
  let complete;const done=new Promise(r=>complete=r);
- const h=vm.createContext({document,$:id=>document.getElementById(id),window:{DEFAULT_COUNTRY:'AE',countryOptions:country=>`<option value="${country}">${country}</option>`},fillCities:country=>cities.push(country),fetch:async()=>({ok:true,json:async()=>({domain:'example.com',brandName:'Example',market:'GB',competitors:[],confident:true})})});
+ const h=vm.createContext({document,$:id=>document.getElementById(id),window:{DEFAULT_COUNTRY:'AE',countryOptions:country=>`<option value="${country}">${country}</option>`},showCustomerSuggestions:()=>{},fillCities:country=>cities.push(country),fetch:async()=>({ok:true,json:async()=>({domain:'example.com',brandName:'Example',market:'GB',competitors:[],confident:true})})});
  const btn=document.getElementById('f_scan');const add=btn.addEventListener.bind(btn);btn.addEventListener=(name,fn)=>add(name,async e=>{await fn(e);complete();});
  vm.runInContext(app.slice(app.indexOf("$('f_scan').addEventListener"),app.indexOf("$('siteCancel').addEventListener")),h);
  btn.click();await done;assert.deepEqual(cities,['GB']);assert.equal(document.getElementById('f_rivals').value,'');assert.equal(btn.disabled,false);

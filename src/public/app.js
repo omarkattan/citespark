@@ -5669,7 +5669,41 @@ document.addEventListener('click', (e) => {
   if (e.target.id === 'fbClose') $('feedbackDialog').close();
 });
 
+function setupCustomerLines(){
+  return [...new Set($('f_qualifier').value.split('\n').map(v=>v.trim()).filter(Boolean))];
+}
+function syncCustomerSuggestions(){
+  const chosen=new Set(setupCustomerLines().map(v=>v.toLowerCase()));
+  $('f_customerOptions')?.querySelectorAll('input').forEach(input=>{input.checked=chosen.has(input.value.toLowerCase());});
+}
+function showCustomerSuggestions(values=[]){
+  const list=$('f_customerOptions'),group=$('f_customerSuggestions');
+  if(!list||!group)return;
+  list.replaceChildren();
+  const seen=new Set();
+  for(const text of (Array.isArray(values)?values:[])){
+    if(typeof text!=='string'||!text.trim()||text.trim().length>160||seen.has(text.trim().toLowerCase()))continue;
+    const value=text.trim();seen.add(value.toLowerCase());
+    const label=document.createElement('label'),input=document.createElement('input');
+    label.style.cssText='display:flex;align-items:flex-start;gap:8px;margin:10px 0;font-weight:400;text-transform:none;letter-spacing:normal';
+    input.type='checkbox';input.value=value;input.style.cssText='width:auto;flex:none;margin-top:3px';
+    label.append(input,document.createTextNode(value));list.append(label);
+    input.addEventListener('change',()=>{
+      const lines=setupCustomerLines().filter(v=>v.toLowerCase()!==value.toLowerCase());
+      if(input.checked)lines.push(value);
+      $('f_qualifier').value=lines.join('\n');syncCustomerSuggestions();
+    });
+    if(seen.size===5)break;
+  }
+  group.hidden=!list.childElementCount;
+  $('f_customerHint').textContent=group.hidden?'Scan your site for suggestions, or add your own below.':'Suggested from your website. Choose any that fit, then edit or add your own below.';
+  syncCustomerSuggestions();
+}
+$('f_qualifier').addEventListener('input',syncCustomerSuggestions);
+$('f_domain').addEventListener('input',()=>showCustomerSuggestions());
+
 $('addSiteBtn').addEventListener('click', () => {
+  showCustomerSuggestions();
   state.demoSetupDomain=null;
   $('demoQuestionSelection')?.remove();
   $('f_ambiguous').checked = false;
@@ -5693,6 +5727,7 @@ $('f_scan').addEventListener('click', async () => {
   const btn = $('f_scan');
   const note = $('f_scanned');
   const domain = $('f_domain').value.trim();
+  const customerBeforeScan=$('f_qualifier').value;
   if (!domain) { note.className = 'hint warn'; note.textContent = 'Enter a domain first.'; return; }
 
   btn.disabled = true;
@@ -5709,12 +5744,16 @@ $('f_scan').addEventListener('click', async () => {
     });
     const d = await res.json();
     if (!res.ok) throw new Error(d.error || 'Could not read that site');
+    if($('f_domain').value.trim()!==domain){note.textContent='The domain changed. Scan again for suggestions for this site.';return;}
 
     $('f_domain').value = d.domain;
     $('f_brand').value = d.brandName || '';
     $('f_aliases').value = (d.aliases || []).join(', ');
     $('f_category').value = d.category || '';
-    $('f_qualifier').value = d.qualifier || '';
+    const customers=Array.isArray(d.customerSuggestions)?d.customerSuggestions:[];
+    // Keep the user's selections and any edits made while the scan was running.
+    if(!$('f_qualifier').value.trim() && !customerBeforeScan.trim() && !customers.length)$('f_qualifier').value=d.qualifier||'';
+    showCustomerSuggestions(customers.length?customers:(d.qualifier?[d.qualifier]:[]));
     $('f_market').innerHTML = window.countryOptions(d.market || window.DEFAULT_COUNTRY);
     fillCities($('f_market').value, $('f_city'), $('f_cityHint'));
     $('f_rivals').value = (d.competitors || []).map((c) => `${c.name}${c.domain ? ', ' + c.domain : ''}`).join('\n');
@@ -5759,7 +5798,7 @@ $('siteSave').addEventListener('click', async () => {
         aliases: $('f_aliases').value.split(',').map((x) => x.trim()).filter(Boolean),
         domain: $('f_domain').value,
         category: $('f_category').value,
-        qualifier: $('f_qualifier').value,
+        qualifier: setupCustomerLines().join('; '),
         market: $('f_market').value,
         locationName: $('f_city').value,
         competitors: parseRivals($('f_rivals').value)

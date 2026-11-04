@@ -291,12 +291,14 @@ const SYSTEM = `You read a company's homepage and fill in a short setup form. Re
   "aliases": string[],        // other names people use, including shortenings and the legal name. Empty array if none.
   "category": string,         // what the business does, 2 to 6 words, lowercase, e.g. "seo and digital marketing agency"
   "qualifier": string,        // who the customer is, using only page-supported needs and market, or empty if unstated
+  "customerSuggestions": string[], // 3 to 5 distinct, short customer groups or needs supported by the page; fewer or empty if evidence is limited
   "market": string,           // ISO 3166-1 alpha-2 country code of their main market
   "competitors": [{"name": string, "domain": string}]  // up to 5 genuine direct competitors you are confident exist. Empty array if unsure.
 }
 
 Rules:
 - qualifier describes the customer using only evidence on the supplied page. For consumer brands, use relevant shopping needs and a supported market. For business services, use the stated business audience. Do not invent profession, age, gender, income, company size or customer restrictions. If the page does not identify an audience, leave qualifier empty for the user to fill in.
+- customerSuggestions are options for the user to review, not verified customer data. Use concrete needs or audiences tied to the supplied products/services, such as "Shoppers looking for skincare for dry skin". Do not invent demographic traits or make three paraphrases of the same group. Each option must stand alone and be at most 160 characters.
 - Only list competitors you actually know exist with the correct domain. An empty array is far better than an invented one.
 - Infer market from addresses, currency, phone format or spelling.`;
 
@@ -325,6 +327,7 @@ export async function discoverSite(domainInput) {
     aliases: [],
     category: 'business',
     qualifier: '',
+    customerSuggestions: [],
     market: 'GB',
     competitors: []
   };
@@ -343,7 +346,7 @@ export async function discoverSite(domainInput) {
     .filter(Boolean)
     .join('\n');
 
-  const raw = await complete(brief, { system: SYSTEM, maxTokens: 900 });
+  const raw = await complete(brief, { system: SYSTEM, maxTokens: 1200 });
   const parsed = parseJsonArray(raw)?.[0];
 
   if (!parsed || typeof parsed.brandName !== 'string') {
@@ -360,6 +363,7 @@ export async function discoverSite(domainInput) {
     aliases: Array.isArray(parsed.aliases) ? parsed.aliases.map(String).filter(Boolean).slice(0, 6) : [],
     category: String(parsed.category || fallback.category).trim(),
     qualifier: String(parsed.qualifier || fallback.qualifier).trim(),
+    customerSuggestions: normaliseCustomerSuggestions(parsed.customerSuggestions),
     market: /^[A-Za-z]{2}$/.test(parsed.market || '') ? parsed.market.toUpperCase() : 'GB',
     competitors: Array.isArray(parsed.competitors)
       ? parsed.competitors
@@ -369,6 +373,16 @@ export async function discoverSite(domainInput) {
       : [],
     signals: summarise(signals)
   };
+}
+
+export function normaliseCustomerSuggestions(value) {
+  const seen=new Set();
+  return (Array.isArray(value)?value:[]).filter(v=>typeof v==='string')
+    .map(v=>v.replace(/\s+/g,' ').trim()).filter(v=>{
+      const key=v.toLowerCase();
+      if(!v||v.length>160||seen.has(key))return false;
+      seen.add(key);return true;
+    }).slice(0,5);
 }
 
 function summarise(s) {
