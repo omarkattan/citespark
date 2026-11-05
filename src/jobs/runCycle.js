@@ -1,3 +1,4 @@
+import { loadRecovery, inheritRecovery } from '../lib/measurement-recovery.js';
 import {matchedRecheckScope} from '../lib/faq-recheck.js';
 import { assertMeasurementLocation } from '../lib/measurement-location.js';
 import { estimateEngineCosts } from '../lib/measurement-cost.js';
@@ -52,6 +53,7 @@ async function pooled(items, worker, limit = CONCURRENCY, onError = () => {}) {
  * a spike that never happened.
  */
 export async function runCycleForProject(projectId, options = {}) {
+  if (options.previewRecovery) return collectProject(projectId, options, () => {});
   const release = await lockMeasurements(projectId);
   let batch;
   try {
@@ -61,7 +63,8 @@ export async function runCycleForProject(projectId, options = {}) {
     throw err;
   } finally { await release(); }
 }
-async function collectProject(projectId, { cycleDate, onProgress, only = null, force = false } = {}, registerBatch) {
+async function collectProject(projectId, { cycleDate, onProgress, only = null, force = false, recoverFrom = null, previewRecovery = false } = {}, registerBatch) {
+  if ((recoverFrom && only) || (previewRecovery && !recoverFrom)) throw new Error('Recovery cannot be combined with a partial scan.');
   const project = await one('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!project) throw new Error(`No project ${projectId}`);
   await assertMeasurementLocation({ ...project, engines: enginesFor(project) });
@@ -115,7 +118,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
     [projectId]
   );
 
-  if (priorCycle?.questions) {
+  if (priorCycle?.questions && !recoverFrom) {
     const grew = Math.abs(prompts.length - priorCycle.questions) / priorCycle.questions;
     const runsChanged = priorCycle.runs && priorCycle.runs !== project.runs_per_cycle;
     const parts = [];
@@ -179,10 +182,25 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
      GROUP BY engine, model HAVING COUNT(*) >= 5`, []);
   const perCall = estimateEngineCosts(budget.engines, ENGINE_CFG, projectModels, priced, modelPrices);
 
+  const chosenModel = {};
+  for (const eng of budget.engines) {
+    if (ENGINE_CFG[eng]?.kind === 'llm') {
+      chosenModel[eng] = await resolveModel(eng, ENGINE_CFG[eng], projectModels[eng] || null);
+    }
+  }
+
+  const ceiling = Number(process.env.MAX_OUTPUT_TOKENS || 2000);
+  const settings = measurementSettings(project, chosenModel, budget.engines, budget.runs, ceiling, entities);
+  const recovery = recoverFrom ? await loadRecovery(pool, projectId, recoverFrom, prompts, settings) : null;
+  if (recovery && recovery.jobs.length > budget.maxCalls) throw new Error('The remaining allowance cannot cover this recovery. Nothing was requested.');
+
   // Missing model history uses a planning allowance, not a price guarantee.
   const FALLBACK = 0.03;
-  const estimate = prompts.length * budget.runs *
+  const estimate = recovery ? recovery.jobs.reduce((sum, j) => sum + (perCall.get(j.engine) || FALLBACK), 0) : prompts.length * budget.runs *
     budget.engines.reduce((sum, e) => sum + (perCall.get(e) || FALLBACK), 0);
+
+  if (previewRecovery) return { sourceId: recovery.sourceId, planned: recovery.plan.length,
+    retained: recovery.inheritIds.length, retry: recovery.jobs.length, reasons: recovery.reasons, estimatedCost: estimate };
 
   console.log(`Estimated cost: $${estimate.toFixed(2)} (from matching cost history or a planning allowance), cap $${CAP.toFixed(2)}`);
 
@@ -207,8 +225,8 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
     return { runs: 0, spend: 0, recommendations: 0, cycle, blocked: true, reason };
   }
 
-  const jobs = [];
-  for (const prompt of prompts) {
+  const jobs = recovery ? [...recovery.jobs] : [];
+  for (const prompt of recovery ? [] : prompts) {
     for (const engine of budget.engines) {
       for (let i = 0; i < budget.runs; i++) {
         jobs.push({ prompt, engine, runIndex: i });
@@ -267,19 +285,12 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
    * where the models silently switched cost real money and left no record,
    * so now the record writes itself before the first call is made.
    */
-  const chosenModel = {};
-  for (const eng of budget.engines) {
-    if (ENGINE_CFG[eng]?.kind === 'llm') {
-      chosenModel[eng] = await resolveModel(eng, ENGINE_CFG[eng], projectModels[eng] || null);
-    }
-  }
-
-  const ceiling = Number(process.env.MAX_OUTPUT_TOKENS || 2000);
   const batch = await startMeasurement(projectId, cycle,
-    measurementSettings(project, chosenModel, budget.engines, budget.runs, ceiling, entities));
+    settings);
   registerBatch(batch);
   await query('UPDATE measurement_batches SET collection_plan=$2::jsonb WHERE id=$1',
-    [batch.id, JSON.stringify(jobs.map(j=>({prompt_id:j.prompt.id,text:j.prompt.text,source:j.prompt.source,engine:j.engine,run_index:j.runIndex})))]);
+    [batch.id, JSON.stringify(recovery ? recovery.plan : jobs.map(j=>({prompt_id:j.prompt.id,text:j.prompt.text,source:j.prompt.source,engine:j.engine,run_index:j.runIndex})))]);
+  if (recovery) await inheritRecovery(pool, batch, recovery);
   if (only) await inheritMeasurement(batch, batch.settings);
   let persistenceErrors = 0;
 
@@ -437,7 +448,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
 
   await recordUsage(project.org_id, billable, spend);
   if (persistenceErrors) throw new Error('Some answers could not be saved. The prior completed measurement remains visible.');
-  if (!done) throw new Error('No answer records completed. The prior measurement remains visible.');
+  if (!done && !recovery?.inheritIds.length) throw new Error('No answer records completed. The prior measurement remains visible.');
   await finishMeasurement(batch.id, 'completed');
   registerBatch(null);
   report({ phase: 'thinking' });
@@ -529,6 +540,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
     ...requestCounts(jobs.length, attemptsPerEngine), billable, failed
   });
   summary.measurementId = batch.id;
+  if (recovery) summary.recovery = {sourceId: recovery.sourceId, retained: recovery.inheritIds.length, requested: jobs.length, reasons: recovery.reasons};
   if (!(await comparableSettings(projectId))) { summary.change = null; summary.delta = null; summary.comparisonReason = 'No comparable change available. Daily charts use the latest completed run per day, and settings must match.'; }
   console.log(
     `Done. ${done}/${jobs.length} usable runs (${billable} billed), $${spend.toFixed(4)} spent, ${recs.length} recommendations.`
