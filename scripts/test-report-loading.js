@@ -9,6 +9,8 @@ test('loading shell keeps only supported options and escapes the project name',(
  const html=reportLoadingHtml({id:31,name:'<script>oops</script>'},{from:'2026-10-01',to:'2026-10-02',view:'ceo',format:'csv',redirect:'https://evil.test'});
  assert.match(html,/from=2026-10-01&amp;to=2026-10-02&amp;view=ceo/);assert.doesNotMatch(html,/<script>oops|evil.test|format=csv/);assert.match(html,/No new AI checks/);
  assert.equal(reportRange({from:'2026-99-01',to:'2026-02-30'}).size,0);
+ assert.match(html,/<h1>Preparing your report\.<\/h1>/);
+ assert.doesNotMatch(html,/Your evidence, ready to share|>beta<\/span>/);
 });
 test('preparation passes chosen dates to both formats',()=>{
  const html=reportPreparationHtml({id:31,name:'Arada'},[],undefined,undefined,{from:'2026-10-01',to:'2026-10-02'});

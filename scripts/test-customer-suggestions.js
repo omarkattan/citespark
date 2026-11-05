@@ -10,7 +10,7 @@ function fixture(){
  const dom=new JSDOM(index,{url:'https://cited.test/app',runScripts:'outside-only'}),w=dom.window;
  const calls=[];let scan={domain:'example.com',brandName:'Example',customerSuggestions:['Shoppers with dry skin','Shoppers with sensitive skin'],confident:true};
  w.HTMLDialogElement.prototype.close=function(){this.open=false;};w.scrollTo=()=>{};
- Object.assign(w,{$:id=>w.document.getElementById(id),state:{},fillCities:()=>{},syncLocationChoice:()=>true,parseRivals:()=>[],loadProjectList:async()=>{},render:async()=>{},toast:()=>{},countryOptions:()=>'<option value="GB">UK</option>',DEFAULT_COUNTRY:'GB'});
+ Object.assign(w,{$:id=>w.document.getElementById(id),state:{},fillCities:()=>{},syncLocationChoice:()=>{w.document.getElementById('siteSave').disabled=false;return true;},parseRivals:()=>[],loadProjectList:async()=>{},render:async()=>{},toast:()=>{},countryOptions:()=>'<option value="GB">UK</option>',DEFAULT_COUNTRY:'GB'});
  w.fetch=async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return {ok:true,json:async()=>url==='/api/discover'?scan:{project:{id:1}}};};
  w.eval(app.slice(app.indexOf('function setupCustomerLines()'),app.indexOf('/* ---------- plan and usage ---------- */')));
  w.document.getElementById('siteSave').disabled=false;

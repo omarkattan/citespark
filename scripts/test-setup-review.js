@@ -10,15 +10,15 @@ function harness(api=async()=>({all:20,unrun:2,checksAll:120,checksUnrun:12,cost
  const dom=new JSDOM(index);const document=dom.window.document;
  dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
  dom.window.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new dom.window.Event('close'));};
- const calls=[];const state={projectId:26};document.getElementById('brandTitle').textContent='Sandstorm';document.getElementById('runBtn').disabled=false;
- const h=vm.createContext({document,state,esc,$:id=>document.getElementById(id),api,startCycle:async only=>calls.push({id:state.projectId,only})});
+ const calls=[];const state={projectId:26,overview:{project:{market:'AE',engines:['chatgpt']}}};document.getElementById('brandTitle').textContent='Sandstorm';document.getElementById('runBtn').disabled=false;
+ const h=vm.createContext({document,state,esc,ENGINE_LABEL:{chatgpt:'ChatGPT'},refreshVerification:async()=>true,$:id=>document.getElementById(id),api,startCycle:async only=>calls.push({id:state.projectId,only})});
  vm.runInContext(app.slice(app.indexOf('async function reviewProjectRun()'),app.indexOf('async function startCycle(')),h);
  return {h,document,calls,state,dom};
 }
 test('setup retains all field IDs and keeps advanced options collapsed',()=>{
  const {document}=harness();assert.equal(document.getElementById('siteOptional').open,false);
- for(const id of ['f_aliases','f_rivals'])assert.ok(document.getElementById('siteOptional').contains(document.getElementById(id)));
- for(const id of ['f_domain','f_brand','f_category','f_qualifier','f_market','f_city'])assert.equal(document.getElementById('siteOptional').contains(document.getElementById(id)),false);
+ for(const id of ['f_aliases','f_rivals','f_city'])assert.ok(document.getElementById('siteOptional').contains(document.getElementById(id)));
+ for(const id of ['f_domain','f_brand','f_category','f_qualifier','f_market'])assert.equal(document.getElementById('siteOptional').contains(document.getElementById(id)),false);
 });
 test('review displays site and estimates without starting a run or offering all sites',async()=>{
  const {h,document,calls}=harness();await h.reviewProjectRun();const dialog=document.getElementById('projectRunReview');assert.ok(dialog.open);assert.match(dialog.textContent,/Sandstorm/);assert.match(dialog.textContent,/120 answer checks · estimated \$1.67/);assert.equal(calls.length,0);assert.doesNotMatch(dialog.textContent,/Run every site/);
@@ -37,7 +37,7 @@ test('empty scope disables both launch choices',async()=>{
  const {h,document}=harness(async()=>({all:0,unrun:0,checksAll:0,checksUnrun:0,costAll:0,costUnrun:0}));await h.reviewProjectRun();for(const b of document.querySelectorAll('[data-run-confirm]'))assert.equal(b.disabled,true);
 });
 test('late scope responses cannot reopen a cancelled review',async()=>{
- let resolve;const {h,document,calls}=harness(()=>new Promise(r=>resolve=r));const pending=h.reviewProjectRun();document.querySelector('[data-run-cancel]').click();resolve({all:20});await pending;assert.equal(document.getElementById('projectRunReview'),null);assert.equal(calls.length,0);
+ let resolve;const {h,document,calls}=harness(()=>new Promise(r=>resolve=r));const pending=h.reviewProjectRun();await new Promise(r=>setImmediate(r));document.querySelector('[data-run-cancel]').click();resolve({all:20});await pending;assert.equal(document.getElementById('projectRunReview'),null);assert.equal(calls.length,0);
 });
 test('latest country request wins when city responses arrive out of order',async()=>{
  const {document}=harness();const pending={};const h=vm.createContext({esc,cityCache:new Map(),api:url=>new Promise(resolve=>pending[url]=resolve)});
@@ -50,7 +50,7 @@ test('latest country request wins when city responses arrive out of order',async
 test('scan refreshes cities for the inferred country and clears stale competitor suggestions',async()=>{
  const {document,dom}=harness();const cities=[];document.getElementById('f_domain').value='example.com';document.getElementById('f_rivals').value='Old competitor';
  let complete;const done=new Promise(r=>complete=r);
- const h=vm.createContext({document,$:id=>document.getElementById(id),window:{DEFAULT_COUNTRY:'AE',countryOptions:country=>`<option value="${country}">${country}</option>`},showCustomerSuggestions:()=>{},fillCities:country=>cities.push(country),fetch:async()=>({ok:true,json:async()=>({domain:'example.com',brandName:'Example',market:'GB',competitors:[],confident:true})})});
+ const h=vm.createContext({document,$:id=>document.getElementById(id),window:{DEFAULT_COUNTRY:'AE',countryOptions:country=>`<option value="${country}">${country}</option>`},showCustomerSuggestions:()=>{},syncLocationChoice:()=>true,fillCities:country=>cities.push(country),fetch:async()=>({ok:true,json:async()=>({domain:'example.com',brandName:'Example',market:'GB',competitors:[],confident:true})})});
  const btn=document.getElementById('f_scan');const add=btn.addEventListener.bind(btn);btn.addEventListener=(name,fn)=>add(name,async e=>{await fn(e);complete();});
  vm.runInContext(app.slice(app.indexOf("$('f_scan').addEventListener"),app.indexOf("$('siteCancel').addEventListener")),h);
  btn.click();await done;assert.deepEqual(cities,['GB']);assert.equal(document.getElementById('f_rivals').value,'');assert.equal(btn.disabled,false);

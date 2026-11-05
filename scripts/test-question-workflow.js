@@ -60,10 +60,11 @@ test('failed audit write rolls back the replacement and old active state',async(
  assert.equal((await one('SELECT COUNT(*)::int AS n FROM prompts WHERE revises_prompt_id=$1',[old.id])).n,0);
 });
 test('GSC imports retain original-query versus model-rewritten provenance',async()=>{
- const code=readFileSync(new URL('../src/lib/gsc.js',import.meta.url),'utf8');
- const start=code.indexOf('export async function importQuestions(');
- const h=vm.createContext({one,Date});vm.runInContext(code.slice(start).replace('export ',''),h);
- await h.importQuestions(project.id,[{text:'Which agencies serve buyers in Dubai?',source:'gsc+model',impressions:150,cluster:'agency',examples:['digital agency dubai']},{text:'How do digital agencies set their fees?',source:'gsc',impressions:0,examples:['How do digital agencies set their fees?']}]);
+ const {importQuestions}=await import('../src/lib/gsc.js');
+ const {sealCandidate}=await import('../src/lib/search-evidence.js');
+ const candidates=[{text:'Which agencies serve buyers in Dubai?',source:'gsc+model',impressions:150,cluster:'digital agency dubai',examples:['digital agency dubai']},{text:'How do digital agencies set their fees?',source:'gsc',impressions:0,cluster:'How do digital agencies set their fees?',examples:['How do digital agencies set their fees?']}];
+ const chosen=candidates.map(c=>({evidenceToken:sealCandidate(project.id,{...c,groupingMethod:'exact-normalized-v1',language:'en',querySet:c.examples},{property:'sc-domain:example.com'})}));
+ await importQuestions(project.id,chosen,database);
  const rows=(await db.query("SELECT source,origin_details,ai_search_volume FROM prompts WHERE source IN ('gsc+model','gsc-query') ORDER BY id")).rows;
  assert.equal(rows.length,2);assert.equal(rows[0].source,'gsc+model');assert.equal(rows[1].source,'gsc-query');assert.equal(rows[1].ai_search_volume,0);
  assert.equal(rows[0].origin_details.property,'sc-domain:example.com');assert.deepEqual(rows[0].origin_details.queryExamples,['digital agency dubai']);
@@ -71,16 +72,16 @@ test('GSC imports retain original-query versus model-rewritten provenance',async
 const app=readFileSync(new URL('../src/public/app.js',import.meta.url),'utf8');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 test('all entry points are available even before the first question exists',async()=>{
- const h=vm.createContext({esc,helpDot:()=>'',state:{projectId:1,overview:{project:{}}},api:async(path)=>path.endsWith('/prompts')?[]:path.endsWith('/run-scope')?{all:0,checksAll:0,costAll:0}:{},searchBox:()=>'',pct:x=>x});
+ const h=vm.createContext({esc,helpDot:()=>'',state:{projectId:1,overview:{project:{}}},api:async(path)=>path.endsWith('/prompts')?[]:path.endsWith('/run-scope')?{all:0,checksAll:0,costAll:0}:{},searchBox:()=>'',pct:x=>x,sourceSetupGuide:()=>''});
  const a=app.indexOf('function questionSourceLabel('),b=app.indexOf('async function viewRivals(',a);vm.runInContext(app.slice(a,b),h);
  const html=await h.viewQuestions();
- for(const id of ['q_add','q_topic','q_generate','gscLoad','gscBody','suggestPersonas','personaList','promptList'])assert.match(html,new RegExp(`id="${id}"`));
+ for(const id of ['q_add','q_topic','q_generate','gscGrant','gscBody','suggestPersonas','personaList','promptList'])assert.match(html,new RegExp(`id="${id}"`));
  assert.match(html,/connect an account/);assert.doesNotMatch(html,/Add some in Setup/);
 });
 test('source badges and paused revisions retain visible provenance without promising a run',async()=>{
  const rows=[{id:1,text:'Which supplier should I choose?',source:'gsc+model',active:false,replacedBy:2,originDetails:{property:'sc-domain:example.com',queryExamples:['supplier <choice>']},citations:[]},
  {id:2,text:'Which UAE supplier should I choose?',source:'persona',active:true,revisesPromptId:1,originDetails:{baseSource:'gsc+model'},citations:[]}];
- const h=vm.createContext({esc,helpDot:()=>'',state:{projectId:1,overview:{project:{}}},api:async(path)=>path.endsWith('/prompts')?rows:path.endsWith('/run-scope')?{all:1,checksAll:6,costAll:0.08}:{},searchBox:()=>'',pct:x=>x});
+ const h=vm.createContext({esc,helpDot:()=>'',state:{projectId:1,overview:{project:{}}},api:async(path)=>path.endsWith('/prompts')?rows:path.endsWith('/run-scope')?{all:1,checksAll:6,costAll:0.08}:{},searchBox:()=>'',pct:x=>x,sourceSetupGuide:()=>''});
  const a=app.indexOf('function questionSourceLabel('),b=app.indexOf('async function viewRivals(',a);vm.runInContext(app.slice(a,b),h);
  const html=await h.viewQuestions();
  assert.match(html,/GSC-derived, AI rephrased/);assert.match(html,/based on GSC-derived, AI rephrased/);

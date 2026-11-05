@@ -25,7 +25,8 @@ import {
 } from './lib/ga4.js';
 import { signState, readState } from './lib/tokens.js';
 import { reviseQuestion } from './lib/question-revisions.js';
-import { generatePrompts } from './lib/prompts.js';
+import { generatePrompts, baselineCoverage } from './lib/prompts.js';
+import { reviewQuestionItems, importQuestionItems, setSelectedQuestionStatus } from './lib/question-import.js';
 import { discoverSite } from './lib/discover.js';
 import { PLANS, PLAN_ORDER, planFor } from './lib/plans.js';
 import { proposeQuestions, runDemo, checkLimits, hashIp, DEMO_CONFIG } from './lib/demo.js';
@@ -1056,7 +1057,9 @@ app.get('/api/locations/:country', requireAuth, wrap(async (req, res) => {
     // Offer whole-country coverage and cities consistently in every market.
     // Keep an existing project's verified choice without widening its coverage.
     const selected = typeof req.query.selected === 'string' ? req.query.selected : '';
-    const cities = places.filter(place => /^city$/i.test(String(place.type || '').trim()) || (selected && place.name === selected));
+    const seen = new Set();
+    const cities = places.filter(place => /^city$/i.test(String(place.type || '').trim()) || (selected && place.name === selected))
+      .filter(place=>{const key=String(place.name||'').normalize('NFKC').trim().toLowerCase();if(!key||seen.has(key))return false;seen.add(key);return true;});
     res.json({ country: iso, countryLocation, cities });
   } catch {
     res.json({ country: iso, countryLocation, cities: [], unavailable: 'Location lookup unavailable. Retry before selecting a city.' });
@@ -1144,7 +1147,7 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
   if(generate !== false && remaining>0){
     try{
       const prompts=await generatePrompts({brand:project.brand_name,domain:project.domain,category:project.category,market:MARKET_NAMES[project.market]||project.market,qualifier:project.qualifier,count:remaining});
-      if(prompts.length<remaining)questionGenerationWarning=`Your site is saved. ${prompts.length} usable question suggestions were returned. Review them and add more relevant questions if needed.`;
+      if(!baselineCoverage(prompts,remaining).complete)questionGenerationWarning=`Your site is saved. ${prompts.length} usable question suggestions were returned. Review them and add more relevant questions if needed.`;
       for(const p of prompts.slice(0,remaining)){
         const inserted=await query(`INSERT INTO prompts(project_id,text,cluster,intent,ai_search_volume) VALUES($1,$2,$3,$4,$5) ON CONFLICT(project_id,text) DO NOTHING`,[project.id,p.text,p.cluster,p.intent,p.ai_search_volume]);
         added+=inserted.rowCount;
@@ -1545,6 +1548,11 @@ app.patch('/api/prompts/:promptId', requireAuth, wrap(async (req, res) => {
 app.patch('/api/projects/:id/prompts/bulk', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
+  if(typeof req.body?.active==='boolean'){
+    const ent=await getEntitlements(req.session.orgId);
+    try{return res.json(await setSelectedQuestionStatus({projectId:project.id,orgId:req.session.orgId,ids:req.body.ids,active:req.body.active,limit:ent.plan.questions},pool));}
+    catch(error){if(error.status)return res.status(error.status).json({error:error.message,upgrade:error.status===402});throw error;}
+  }
 
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean).slice(0, 500) : [];
   if (!ids.length) return res.status(400).json({ error: 'Nothing selected' });
@@ -1601,6 +1609,7 @@ app.post('/api/projects/:id/generate-prompts', requireAuth, wrap(async (req, res
   if (!project) return;
   const language = req.body?.language ?? (project.language === 'ar' ? 'ar' : 'en');
   if (!['en', 'ar'].includes(language)) return res.status(400).json({ error: 'Choose English or Arabic for site suggestions.' });
+  const requestedCount=Math.min(30,Math.max(5,Math.floor(Number(req.body?.count)||20)));
   const ent = await getEntitlements(req.session.orgId);
   const active = await one('SELECT COUNT(*)::int AS n FROM prompts WHERE project_id = $1 AND active', [project.id]);
   const room = ent.plan.questions - active.n;
@@ -1620,22 +1629,28 @@ app.post('/api/projects/:id/generate-prompts', requireAuth, wrap(async (req, res
       category: project.category,
       market: MARKET_NAMES[project.market] || project.market,
       qualifier: project.qualifier,
-      count: Math.min(30, Math.max(5, Number(req.body?.count) || 10))
+      count: requestedCount
     });
   } catch (error) {
     return res.status(502).json({ error: error.message || 'Could not generate questions. Please try again.' });
   }
-  let added = 0;
-  for (const p of prompts) {
-    if (added >= room) break;
-    const row = await one(
-      `INSERT INTO prompts (project_id, text, cluster, intent, ai_search_volume)
-       VALUES ($1,$2,$3,$4,$5) ON CONFLICT (project_id, text) DO NOTHING RETURNING id`,
-      [project.id, p.text, p.cluster, p.intent, p.ai_search_volume]
-    );
-    if (row) added++;
-  }
-  res.json({ ok: true, added, suggested: prompts.length, room });
+  if(!prompts.length)return res.status(502).json({error:'No usable questions came back. Add your own questions or try again.'});
+  const existing=await many('SELECT text FROM prompts WHERE project_id=$1',[project.id]);
+  return res.json({questions:reviewQuestionItems(prompts,existing),coverage:baselineCoverage(prompts,requestedCount),room,language});
+}));
+
+// Preview is read-only. Saving is an explicit, transactional selection.
+app.post('/api/projects/:id/prompts/import-preview',requireAuth,wrap(async(req,res)=>{
+ const project=await assertProject(req,res);if(!project)return;
+ const existing=await many('SELECT text FROM prompts WHERE project_id=$1',[project.id]);
+ try{return res.json({questions:reviewQuestionItems(req.body?.items,existing)});}
+ catch(error){return res.status(400).json({error:error.message});}
+}));
+app.post('/api/projects/:id/prompts/import',requireAuth,wrap(async(req,res)=>{
+ const project=await assertProject(req,res);if(!project)return;
+ const ent=await getEntitlements(req.session.orgId);
+ try{return res.json(await importQuestionItems({projectId:project.id,orgId:req.session.orgId,items:req.body?.items,source:req.body?.source,limit:ent.plan.questions},pool));}
+ catch(error){if(error.status)return res.status(error.status).json({error:error.message,upgrade:error.status===402});throw error;}
 }));
 
 /* ---------------- public demo ---------------- */
