@@ -1791,7 +1791,7 @@ app.get('/api/projects/:id/run-scope', requireAuth, wrap(async (req, res) => {
     await one(
       `SELECT COUNT(*)::int AS n FROM prompts p
        WHERE p.project_id = $1 AND p.active
-         AND NOT EXISTS (SELECT 1 FROM reporting_runs r WHERE r.prompt_id = p.id AND r.ok)`,
+         AND NOT EXISTS (SELECT 1 FROM reporting_runs r WHERE r.project_id = $1 AND r.prompt_id = p.id AND r.ok)`,
       [project.id]
     )
   ).n;
@@ -1847,7 +1847,7 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
   const active = await one(
     only === 'unrun'
       ? `SELECT COUNT(*)::int AS n FROM prompts p WHERE p.project_id = $1 AND p.active
-         AND NOT EXISTS (SELECT 1 FROM reporting_runs r WHERE r.prompt_id = p.id AND r.ok)`
+         AND NOT EXISTS (SELECT 1 FROM reporting_runs r WHERE r.project_id = $1 AND r.prompt_id = p.id AND r.ok)`
       : 'SELECT COUNT(*)::int AS n FROM prompts WHERE project_id = $1 AND active',
     [project.id]
   );
