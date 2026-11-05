@@ -79,7 +79,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
       ? await many(
           `SELECT p.* FROM prompts p
            WHERE p.project_id = $1 AND p.active
-             AND NOT EXISTS (SELECT 1 FROM reporting_runs r WHERE r.prompt_id = p.id AND r.ok)
+             AND NOT EXISTS (SELECT 1 FROM reporting_runs r WHERE r.project_id = $1 AND r.prompt_id = p.id AND r.ok)
            ORDER BY p.id`,
           [projectId]
         )

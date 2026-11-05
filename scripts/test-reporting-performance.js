@@ -31,6 +31,17 @@ test('project reads preserve snapshots and avoid global membership deduplication
   assert.ok(scannedRuns<100,`small-site query scanned ${scannedRuns} runs`);
   const oldPlan=(await db.query('EXPLAIN (ANALYZE,FORMAT JSON) SELECT MAX(cycle_date) FROM previous_reporting_runs WHERE project_id=51')).rows[0]['QUERY PLAN'][0];
   console.log(JSON.stringify({fixtureRuns:20001,beforeMs:oldPlan['Execution Time'],afterMs:plan['Execution Time'],scannedRuns}));
+  // A larger question import must not rescan other projects for every new prompt.
+  await db.exec(`INSERT INTO prompts(id,project_id,text)
+    SELECT 1000+n,51,'New buyer question '||n FROM generate_series(1,200) n; ANALYZE;`);
+  const unseenSql=`SELECT COUNT(*)::int AS n FROM prompts p WHERE p.project_id=$1 AND p.active
+    AND NOT EXISTS (SELECT 1 FROM reporting_runs r WHERE r.project_id=$1 AND r.prompt_id=p.id AND r.ok)`;
+  assert.equal((await db.query(unseenSql,[51])).rows[0].n,200);
+  const unseenPlan=(await db.query('EXPLAIN (ANALYZE,FORMAT JSON) '+unseenSql,[51])).rows[0]['QUERY PLAN'][0];
+  const unseenNodes=[];const collect=n=>{unseenNodes.push(n);for(const p of n.Plans||[])collect(p);};collect(unseenPlan.Plan);
+  const unseenScanned=unseenNodes.filter(n=>n['Relation Name']==='runs').reduce((n,p)=>n+(p['Actual Rows']+(p['Rows Removed by Filter']||0))*(p['Actual Loops']||0),0);
+  assert.ok(unseenScanned<500,`new-question estimate scanned ${unseenScanned} runs`);
+  console.log(JSON.stringify({newQuestions:200,scopeMs:unseenPlan['Execution Time'],scannedRuns:unseenScanned}));
   // Exercise an upgrade on populated data, not just a fresh installation.
   await db.exec(`CREATE OR REPLACE VIEW reporting_runs AS SELECT r.* FROM runs r
    JOIN measurement_answers a ON a.run_id=r.id JOIN published_measurements b ON b.id=a.measurement_id;`);
