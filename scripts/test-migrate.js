@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {applySchema,retryableMigrationError} from '../src/db/migrate.js';
 
-function fixture({failAt,code,message,recorded=false}={}) {
+function fixture({failAt,code,message,recorded=false,previousHash}={}) {
   const calls=[],releases=[];let connects=0;
   const pool={connect:async()=>{const id=++connects;return {
     query:async(sql,params)=>{
       calls.push({id,sql,params});
       if(id===1&&sql===failAt)throw Object.assign(new Error(message||'test failure'),{code});
-      return {rows:sql.startsWith('SELECT schema_hash')&&recorded?[{schema_hash:'saved'}]:[]};
+      return {rows:sql.includes('ORDER BY applied_at')&&previousHash?[{schema_hash:previousHash}]:sql.startsWith('SELECT schema_hash')&&recorded?[{schema_hash:'saved'}]:[]};
     },release:destroy=>releases.push({id,destroy})
   };}};
   return {pool,calls,releases};
@@ -21,6 +21,28 @@ test('a terminated migration rolls back and retries the whole schema on a fresh 
  assert.ok(f.calls.some(c=>c.id===1&&c.sql==='ROLLBACK'));
  assert.equal(f.calls.filter(c=>c.sql==='test schema').length,2);
  assert.equal(f.calls.filter(c=>c.sql.startsWith('INSERT INTO cited_schema_migrations')).length,1);
+});
+test('targeted upgrades roll back all steps on a lock failure and record only the successful retry',async()=>{
+ const {createHash}=await import('node:crypto');
+ const hash=createHash('sha256').update('test schema').digest('hex');
+ const f=fixture({previousHash:'previous',failAt:'replace view',code:'55P03'});
+ const upgrades=[{name:'reporting',from:'previous',to:hash,steps:[{name:'index',sql:'create index'},{name:'view',sql:'replace view'}]}];
+ const result=await applySchema(f.pool,'test schema',{...opts,upgrades});
+ assert.equal(result.attempts,2);
+ assert.equal(f.calls.filter(c=>c.sql==='create index').length,2);
+ assert.ok(f.calls.some(c=>c.id===1&&c.sql==='ROLLBACK'));
+ assert.equal(f.calls.filter(c=>c.sql.startsWith('INSERT INTO cited_schema_migrations')).length,1);
+ assert.ok(!f.calls.some(c=>c.sql==='test schema'));
+});
+test('targeted upgrades require both the latest source receipt and exact target hash',async()=>{
+ const {createHash}=await import('node:crypto');
+ const hash=createHash('sha256').update('test schema').digest('hex');
+ for(const [previousHash,to] of [['unknown',hash],['previous','different target']]) {
+  const f=fixture({previousHash});
+  await applySchema(f.pool,'test schema',{...opts,upgrades:[{from:'previous',to,steps:[{name:'wrong',sql:'wrong delta'}]}]});
+  assert.ok(f.calls.some(c=>c.sql==='test schema'));
+  assert.ok(!f.calls.some(c=>c.sql==='wrong delta'));
+ }
 });
 test('an unchanged schema does not rerun old ALTER statements or backfills',async()=>{
  const f=fixture({recorded:true});const result=await applySchema(f.pool,'test schema',opts);

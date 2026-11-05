@@ -7,13 +7,13 @@ export function retryableMigrationError(error) {
     /connection (?:terminated|closed|lost)|connection timeout|timeout exceeded when trying to connect/i.test(error?.message||'');
 }
 
-// The complete schema and its receipt commit together. A deployment with the
-// same schema skips the old ALTER/backfill statements. An interrupted attempt
-// rolls back and retries on a fresh connection, never a half-finished client.
-export async function applySchema(pool,sql,{attempts=3,sleep=delay,log=console.log}={}) {
+// A reviewed upgrade applies only the changes between two exact schema hashes.
+// Fresh installs and unrecognised versions retain the full-schema path. Either
+// path commits with its receipt, or rolls back and retries on a fresh connection.
+export async function applySchema(pool,sql,{attempts=3,sleep=delay,log=console.log,upgrades=[]}={}) {
   const hash=createHash('sha256').update(sql).digest('hex');
   for(let attempt=1;attempt<=attempts;attempt++) {
-    let client,failed=false;
+    let client,failed=false,stage='connect';
     try {
       client=await pool.connect();
       await client.query('BEGIN');
@@ -28,7 +28,21 @@ export async function applySchema(pool,sql,{attempts=3,sleep=delay,log=console.l
         log('Schema unchanged. No schema statements reapplied.');
         return {applied:false,hash,attempts:attempt};
       }
-      await client.query(sql);
+      const latest=await client.query('SELECT schema_hash FROM cited_schema_migrations ORDER BY applied_at DESC, schema_hash LIMIT 1');
+      const upgrade=upgrades.find(item=>item.from===latest.rows[0]?.schema_hash && item.to===hash);
+      if(upgrade) {
+        log(`Applying targeted schema upgrade: ${upgrade.name}.`);
+        for(const step of upgrade.steps) {
+          stage=step.name;
+          log(`Migration step: ${stage}.`);
+          await client.query(step.sql);
+        }
+      } else {
+        stage='full schema';
+        log('Applying full schema (no matching targeted upgrade).');
+        await client.query(sql);
+      }
+      stage='record schema receipt';
       await client.query('INSERT INTO cited_schema_migrations(schema_hash) VALUES($1)',[hash]);
       await client.query('COMMIT');
       log('Schema applied and recorded.');
@@ -36,8 +50,9 @@ export async function applySchema(pool,sql,{attempts=3,sleep=delay,log=console.l
     } catch(error) {
       failed=true;
       if(client)await client.query('ROLLBACK').catch(()=>{});
+      log(`Migration failed during ${stage} (${error.code||'connection_closed'}).`);
       if(!retryableMigrationError(error)||attempt===attempts)throw error;
-      log(`Migration connection or lock interrupted (${error.code||'connection_closed'}). Retrying ${attempt+1}/${attempts}.`);
+      log(`Migration connection or lock interrupted. Retrying ${attempt+1}/${attempts}.`);
     } finally {
       client?.release(failed);
     }
