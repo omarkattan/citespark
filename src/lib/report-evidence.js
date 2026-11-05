@@ -13,6 +13,7 @@ export function summariseEvidence(rows, { maxTokens = 2000, coverage = null } = 
       measured: 0, named: 0, cited: 0, failed: 0, unmeasured: 0, possiblyTruncated: 0, engines: new Set() });
     const q = questions.get(row.prompt_id);
     q.originDetails = row.origin_details || q.originDetails || {};
+    q.cluster = row.cluster || q.cluster || null;
     if (!row.ok) { totals.failed++; q.failed++; continue; }
     if (!hasAnswerText(row.response_text)) {
       totals.unmeasured++; q.unmeasured++;
@@ -63,7 +64,7 @@ export async function reportEvidence(projectId, period, many) {
          (SELECT COALESCE(jsonb_agg(jsonb_build_object('url',to_jsonb(c)->>'url','owned',
            lower(regexp_replace(c.domain, '^www\\.', '')) = lower(regexp_replace(pr.domain, '^www\\.', '')))), '[]'::jsonb)
            FROM citations c WHERE c.run_id=r.id) AS source_links,
-         p.text, p.source, to_jsonb(p)->'origin_details' AS origin_details, m.mentioned,
+         p.text, p.source, to_jsonb(p)->>'cluster' AS cluster, to_jsonb(p)->'origin_details' AS origin_details, m.mentioned,
          EXISTS (SELECT 1 FROM citations c WHERE c.run_id=r.id
            AND lower(regexp_replace(c.domain, '^www\\.', '')) = lower(regexp_replace(pr.domain, '^www\\.', ''))) AS cited
   FROM reporting_runs r JOIN latest l ON r.cycle_date=l.day
@@ -78,7 +79,9 @@ export async function reportEvidence(projectId, period, many) {
   const engineCoverage = engineNames.map(engine => {
     const subset = rows.filter(r=>r.engine===engine);
     const facts = summariseEvidence(subset).totals;
-    return {engine, measured:facts.measured, failed:facts.failed, unmeasured:facts.unmeasured};
+    const plan=batches[0]?.collection_plan;
+    const scoped=Array.isArray(plan)?coverageFor(subset,{...batches[0],collection_plan:plan.filter(p=>p.engine===engine)}):null;
+    return {engine, measured:facts.measured, named:facts.named, cited:facts.cited, failed:facts.failed, unmeasured:facts.unmeasured, ...(scoped?{expectedChecks:scoped.expected,missingChecks:scoped.missing}:{})};
   });
   return { ...result, priorities: reportActions(result, rows), engineCoverage, localeWarnings: historicalGoogleWarnings(batches[0], result.questions), measurement: batches[0] || null, cycle: rows[0]?.cycle_date || null };
 }

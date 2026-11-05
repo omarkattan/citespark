@@ -22,3 +22,15 @@ test('progress distinguishes absent, present, unmeasured and failed answers',()=
  const html=$('cycleFeed').innerHTML;
  assert.match(html,/>unmeasured</);assert.match(html,/>not named</);assert.match(html,/>named</);assert.match(html,/>no answer</);
 });
+
+test('a failed progress read reconnects without finishing or starting another run',async()=>{
+ const source=readFileSync(new URL('../src/public/app.js',import.meta.url),'utf8');
+ const start=source.indexOf('async function pollCycle('),end=source.indexOf('\n}',start)+2;
+ const elements={cycleLabel:{textContent:'Asking the engines'},cycleBar:{hidden:false}};
+ let reads=0,shows=0,hides=0;
+ const c=vm.createContext({$:id=>elements[id],state:{projectId:74},api:async()=>{if(++reads===1)throw Error('Temporary connection loss');return {phase:'asking',done:20,total:1200};},showProgress:()=>shows++,hideProgress:()=>hides++});
+ vm.runInContext(source.slice(start,end),c);
+ assert.equal(await c.pollCycle(),false);assert.match(elements.cycleLabel.textContent,/Reconnecting/);assert.equal(hides,0);
+ assert.equal(await c.pollCycle(),false);assert.equal(shows,1);assert.equal(reads,2);
+ c.api=async()=>{c.state.projectId=75;throw Error('Lost');};assert.equal(await c.pollCycle(),true);
+});
