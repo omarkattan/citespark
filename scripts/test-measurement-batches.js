@@ -110,9 +110,9 @@ const collectSource=jobSource.slice(jobSource.indexOf('async function collectPro
  .replace("  const { resolveModel, ENGINES: ENGINE_CFG } = await import('../lib/dataforseo.js');",'')
  .replace("const { teardownTopCited } = await import('../lib/teardown.js');",'const teardownTopCited=async()=>({torn:0});');
 const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
-async function collectionFixture(failSave=false){
+async function collectionFixture(failSave=false, options={}){
  const events=[],inserts=[];let registered;
- const deps={assertMeasurementLocation,estimateEngineCosts,requestCounts,one:async(sql,params)=>{
+ const deps={pool:{},loadRecovery:async()=>({sourceId:97,plan:[{prompt_id:1,engine:'gemini',run_index:0},{prompt_id:2,engine:'gemini',run_index:0}],inheritIds:[99],jobs:[{prompt:{id:1,text:'Q'},engine:'gemini',runIndex:0}],reasons:{missing:1,failed:0,incomplete:0}}),inheritRecovery:async()=>events.push('inherit'),assertMeasurementLocation,estimateEngineCosts,requestCounts,one:async(sql,params)=>{
   if(sql.includes('FROM projects'))return {id:27,org_id:1,market:'GB',brand_name:'Acme',engines:['gemini'],runs_per_cycle:1};
   if(sql.includes('INSERT INTO runs')){inserts.push(params);if(failSave)throw Error('write failed');return {id:1};}
   return null;
@@ -125,7 +125,7 @@ async function collectionFixture(failSave=false){
  analyseRun:async()=>[{entity_id:1,mentioned:true}],hasAnthropic:false,isWrapper:()=>false,resolveAll:async()=>new Map(),domainOf:()=>null,
  recordUsage:async()=>events.push('usage'),finishMeasurement:async(id,status)=>events.push(status),
  buildRecommendations:async()=>[],persistRecommendations:async()=>{},summarise:async()=>({}),comparableSettings:async()=>false};
- const run=new AsyncFunction(...Object.keys(deps),'register',`${collectSource}; return collectProject(27,{},register);`);
+ const run=new AsyncFunction(...Object.keys(deps),'register',`${collectSource}; return collectProject(27,${JSON.stringify(options)},register);`);
  let error;try{await run(...Object.values(deps),b=>{registered=b;});}catch(e){error=e;}
  return {events,inserts,error,registered};
 }
@@ -136,4 +136,13 @@ test('full collector attaches each answer to its batch and publishes only after 
 test('a persistence failure leaves the batch unpublished and accounts for provider spend',async()=>{
  const r=await collectionFixture(true);assert.match(r.error.message,/could not be saved/);
  assert.deepEqual(r.events,['start','ask','usage']);assert.equal(r.registered.id,123);
+});
+
+test('recovery collector bills only requested slots and keeps the inherited sample',async()=>{
+ const r=await collectionFixture(false,{recoverFrom:97});assert.equal(r.error,undefined);
+ assert.equal(r.inserts.length,1);assert.deepEqual(r.events,['start','inherit','ask','usage','completed']);
+});
+test('recovery preview makes no provider requests or measurement writes',async()=>{
+ const r=await collectionFixture(false,{recoverFrom:97,previewRecovery:true});assert.equal(r.error,undefined);
+ assert.deepEqual(r.events,[]);assert.deepEqual(r.inserts,[]);
 });
