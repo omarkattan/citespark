@@ -1,4 +1,4 @@
-import {reportVisualCss,reportVisualOverview,comparisonVisual} from './report-visuals.js';
+import {reportVisualCss,reportVisualOverview,comparisonVisual,reportRate} from './report-visuals.js';
 import {reportNavigationCss,reportContents,reportBackToContents} from './report-navigation.js';
 import {trafficReportHtml} from './traffic-html.js';
 import {collectionDisplayText} from './collection-display.js';
@@ -8,7 +8,7 @@ import {decisionReportText,DECISION_LABELS} from './recommendation-decision.js';
 const esc=v=>collectionDisplayText(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date=v=>v?new Date(v).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}):'Not recorded';
 const ratio=(n,d)=>d>0&&n!=null?`${n} / ${d}`:'Not measured';
-const pct=(n,d)=>d>0&&n!=null?`${Math.round(n/d*100)}%`:'Not measured';
+const pct=reportRate;
 export const reportActionAnchor=(note,index)=>'selected-action-'+encodeURIComponent(String(note.recommendation_id??index));
 export function reportViewUrl(r,view='full',anchor=''){
  const params=new URLSearchParams();

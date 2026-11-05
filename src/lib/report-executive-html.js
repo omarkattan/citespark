@@ -1,4 +1,4 @@
-import {reportVisualCss,reportVisualOverview} from './report-visuals.js';
+import {reportVisualCss,reportVisualOverview,reportRate} from './report-visuals.js';
 import {analystFindingsHtml} from './report-analyst-html.js';
 import {reportNavigationCss,reportContents,reportBackToContents} from './report-navigation.js';
 import {trafficReportHtml} from './traffic-html.js';
@@ -11,7 +11,7 @@ import { evidenceUrl } from './report-actions.js';
 import { questionRole, reviewShortlist } from './search-evidence.js';
 const esc = value => collectionDisplayText(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date = value => value ? new Date(value).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}) : 'No measurement';
-const share = (n,d) => d ? `${Math.round(n/d*100)}%` : 'Not measured';
+const share=reportRate;
 const engineLabel = value => ({ai_mode:'Google AI Mode',ai_overview:'Google AI Overview',chatgpt:'ChatGPT',claude:'Claude',perplexity:'Perplexity',gemini:'Gemini'}[value] || value);
 const source = value => /gsc/i.test(value || '') ? 'Search Console-derived' : value === 'generated' ? 'Site suggestion' : ['manual','custom'].includes(value) ? 'Manually selected' : value || 'Not recorded';
 function actionEvidence(p, r) {

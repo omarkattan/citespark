@@ -79,7 +79,9 @@ export async function reportEvidence(projectId, period, many) {
   const engineCoverage = engineNames.map(engine => {
     const subset = rows.filter(r=>r.engine===engine);
     const facts = summariseEvidence(subset).totals;
-    return {engine, measured:facts.measured, named:facts.named, cited:facts.cited, failed:facts.failed, unmeasured:facts.unmeasured};
+    const plan=batches[0]?.collection_plan;
+    const scoped=Array.isArray(plan)?coverageFor(subset,{...batches[0],collection_plan:plan.filter(p=>p.engine===engine)}):null;
+    return {engine, measured:facts.measured, named:facts.named, cited:facts.cited, failed:facts.failed, unmeasured:facts.unmeasured, ...(scoped?{expectedChecks:scoped.expected,missingChecks:scoped.missing}:{})};
   });
   return { ...result, priorities: reportActions(result, rows), engineCoverage, localeWarnings: historicalGoogleWarnings(batches[0], result.questions), measurement: batches[0] || null, cycle: rows[0]?.cycle_date || null };
 }
