@@ -2881,7 +2881,15 @@ function showReport(s) {
 
 async function pollCycle() {
   const projectId=state.projectId;
-  const status = await api(`/api/projects/${projectId}/cycle-status`);
+  let status;
+  try { status = await api(`/api/projects/${projectId}/cycle-status`, {readTimeoutMs:10000}); }
+  catch {
+    if(projectId!==state.projectId)return true;
+    // A failed status read is not a failed measurement. Keep polling the same run.
+    if($('cycleBar'))$('cycleBar').hidden=false;
+    if($('cycleLabel'))$('cycleLabel').textContent='Reconnecting to measurement…';
+    return false;
+  }
   if(projectId!==state.projectId)return true;
   if (!status) return true;
 
