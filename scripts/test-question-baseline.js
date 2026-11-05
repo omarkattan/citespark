@@ -60,3 +60,35 @@ test('general advice using best is not counted as provider discovery',()=>{
  assert.equal(isProviderDiscovery('كيف أختار أفضل إطارات للسيارة؟'),false);
  assert.equal(isProviderDiscovery('Who are the best tyre shops in Dubai?'),true);
 });
+test('provider and price adjectives do not claim service scope or actual cost coverage',()=>{
+ for(const text of [
+  'What are the best car service centres in Dubai?',
+  'Which garages offer competitive prices in Dubai?',
+  'ما هي أفضل ورش صيانة السيارات في دبي وأبوظبي؟',
+  'من يقدم خدمات صيانة السيارات الشاملة بأسعار تنافسية في دبي؟',
+  'أين أقارن أنواع الإطارات المختلفة وأسعارها قبل الشراء؟'
+ ]) {
+  const coverage=baselineCoverage([{text}],20);
+  assert.ok(coverage.missing.includes('what is included'),text);
+  assert.ok(coverage.missing.includes('cost/budget'),text);
+ }
+ for(const text of ['What does a full car service include?','ما الذي تشمله خدمة صيانة السيارة؟','ماذا تتضمن خدمة فحص السيارة؟']) {
+  assert.ok(baselineCoverage([{text}],20).covered.includes('what is included'),text);
+ }
+ for(const text of ['How much should I expect to pay for tyre fitting?','What is the price of wheel alignment?','كم تبلغ تكلفة صيانة السيارة؟','ما هي تكلفة ضبط زوايا العجلات؟']) {
+  assert.ok(baselineCoverage([{text}],20).covered.includes('cost/budget'),text);
+ }
+});
+test('Arabic repair explicitly fills scope and cost gaps before claiming complete coverage',async()=>{
+ let calls=0;
+ const initial=arabic.map(t=>t.startsWith('ما الذي')?'ما هي أفضل ورش صيانة السيارات في دبي؟':t.startsWith('كم تكلفة')?'من يقدم خدمات صيانة السيارات بأسعار تنافسية في دبي؟':t);
+ const output=await generatePrompts({...config,language:'ar'},{completeText:async(prompt)=>{
+  if(++calls===1)return json(initial);
+  assert.match(prompt,/Missing buyer needs: what is included, cost\/budget/);
+  return json(['ما الذي تشمله خدمة صيانة السيارة؟','كم تبلغ تكلفة صيانة السيارة؟']);
+ }});
+ assert.equal(calls,2);
+ assert.equal(baselineCoverage(output,10).complete,true);
+ assert.ok(output.some(p=>p.text==='كم تبلغ تكلفة صيانة السيارة؟'));
+ assert.ok(output.some(p=>p.text==='ما الذي تشمله خدمة صيانة السيارة؟'));
+});
