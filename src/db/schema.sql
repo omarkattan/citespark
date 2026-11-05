@@ -672,8 +672,20 @@ CREATE OR REPLACE VIEW measurement_answers AS
  SELECT measurement_id,id AS run_id FROM runs WHERE measurement_id IS NOT NULL
  UNION SELECT measurement_id,run_id FROM measurement_members;
 CREATE OR REPLACE VIEW reporting_runs AS
- SELECT r.* FROM runs r JOIN measurement_answers a ON a.run_id=r.id
- JOIN published_measurements b ON b.id=a.measurement_id;
+ -- Keep project and measurement predicates on each indexed branch. Joining
+ -- through measurement_answers forced a global UNION/deduplication of run IDs
+ -- before a small project's overview, question list or report could load.
+ SELECT r.* FROM published_measurements b
+ JOIN runs r ON r.measurement_id=b.id AND r.project_id=b.project_id
+ UNION ALL
+ SELECT r.* FROM published_measurements b
+ JOIN measurement_members m ON m.measurement_id=b.id
+ JOIN runs r ON r.id=m.run_id AND r.project_id=b.project_id
+ WHERE r.measurement_id IS DISTINCT FROM b.id;
+CREATE INDEX IF NOT EXISTS measurement_published_lookup
+ ON measurement_batches(project_id,cycle_date,completed_at DESC,id DESC)
+ WHERE status='completed' AND purpose='monitoring';
+CREATE INDEX IF NOT EXISTS measurement_members_run ON measurement_members(run_id,measurement_id);
 
 -- Batch 30: planned checks are metadata, separate from model/detection settings.
 ALTER TABLE measurement_batches ADD COLUMN IF NOT EXISTS collection_plan JSONB;

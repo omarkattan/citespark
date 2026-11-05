@@ -20,8 +20,8 @@ test('mutations are not timed out or retried and body settings stay intact',asyn
 test('view failure displays retry and an outdated view cannot replace a newer one',async()=>{
  const document=new JSDOM('<main id="view"></main>').window.document;
  const state={view:'overview'};const noop=()=>{};
- const h=vm.createContext({document,state,$:id=>document.getElementById(id),syncNavigation:noop,viewOverview:async()=>{throw Error('Failed');}});
- for(const name of ['viewConnections','viewAnswerEvidence','viewActions','viewAssigned','viewPages','viewQuestions','viewRivals','viewSources','viewTraffic','viewSetup','viewBilling','viewTrends','viewLandscape'])h[name]=noop;
+ const h=vm.createContext({document,state,clearTimeout,ga4RefreshPoll:null,window:{scrollY:0},setupJourney:()=>'',resumeActionPreparation:noop,$:id=>document.getElementById(id),syncNavigation:noop,viewOverview:async()=>{throw Error('Failed');}});
+ for(const name of ['viewFirstMeasurement','viewReportGuide','viewCompetitorReview','viewSearchDemand','viewConnections','viewAnswerEvidence','viewActions','viewAssigned','viewPages','viewQuestions','viewRivals','viewSources','viewTraffic','viewSetup','viewBilling','viewTrends','viewLandscape'])h[name]=noop;
  vm.runInContext(src.slice(src.indexOf('async function render()'),src.indexOf('async function loadProject(')),h);
  await h.render();assert.match(document.body.textContent,/This view could not be loaded/);assert.ok(document.querySelector('[data-retry-view]'));
  let reject;h.viewOverview=()=>new Promise((_,r)=>reject=r);const pending=h.render();state.renderId++;document.getElementById('view').textContent='New view';reject(Error('Old failure'));await pending;assert.equal(document.body.textContent,'New view');

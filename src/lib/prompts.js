@@ -37,6 +37,8 @@ Rules:
 - Match the actual niche: for a marketing agency ask "Who are the best [actual service] agencies in [market]?"; for a shop ask where to buy its actual products; for a bank ask which banks offer the relevant service. Use the business's actual category, supported services, customer and market. Never make every business an agency.
 - Vary the buying situation and supported service rather than repeating the same best-provider question with synonyms. Do not invent services or audiences.
 - Place problem education, pricing and process questions after discovery and shortlisting.
+- For sets of at least 10, cover all of these buyer needs: best providers/products; who/which to shortlist; where to buy or book; what the service includes; when it is needed; why choose one option over another; how to choose; and how much it costs. Use natural questions, not mechanically repeated prefixes. Include the buyer's main supported services and locations. Do not introduce adjacent services such as hybrid diagnostics unless the context explicitly supports them.
+- At least one question must explicitly ask who/which providers or products are best. Avoid vague questions about a provider's track record without naming the category or service.
 - Include location or sector qualifiers where the business is local or vertical.
 - Return ONLY a JSON array. Each item: {"text": string, "cluster": string, "intent": "discovery"|"comparison"|"commercial"|"problem"}
 - No preamble, no markdown fences.`;
@@ -54,8 +56,38 @@ const TEMPLATES = [
   { t: 'How long does {category} take to show results?', cluster: 'process', intent: 'problem' }
 ];
 
+export function isProviderDiscovery(text) {
+  const value=String(text||'').toLowerCase().trim();
+  if (/^(?:how|what) (?:can|should|do|would) i (?:choose|find|select|compare|check)|^(?:كيف|ما الذي)\s/u.test(value)) return false;
+  return /\b(?:best|top[- ]rated|recommend|shortlist|worth considering)\b|أفضل|افضل|ترشح|تنصح|توصي/u.test(value)
+    || /^(?:who|which|where)\b.*\b(?:provide|providers?|offer|garages?|shops?|centres?|centers?|banks?|agencies|companies|buy|book|find|get|specialis|specializ)/u.test(value)
+    || /^(?:من|أي|اي|أين|اين)\s.*(?:يقدم|يوفر|ورش|مراكز|شركات|بنوك|وكالات|شراء|أشتري|اشتري|أحجز|احجز|أجد|اجد)/u.test(value);
+}
+
+/** Wording coverage, not a claim of service relevance or measured demand. */
+export function baselineCoverage(items, requested = items.length) {
+  const texts=items.map(p=>String(p.text||'').toLowerCase().trim());
+  const tests={
+    'best providers/products':t=>isProviderDiscovery(t)&&/\bbest\b|أفضل|افضل/u.test(t),
+    'who/which to shortlist':t=>/^(?:who|which)\b|^(?:من|أي|اي)\s/u.test(t)&&isProviderDiscovery(t),
+    'where to buy/book':t=>/^where\b|^(?:أين|اين)\s/u.test(t),
+    'what is included':t=>/^what\b|^(?:ما|ماذا)\s/u.test(t),
+    'when it is needed':t=>/^when\b|^متى\s/u.test(t),
+    'why choose an option':t=>/^why\b|^لماذا\s/u.test(t),
+    'how to choose/use':t=>/^how\b(?!\s+much)|^كيف\s/u.test(t),
+    'cost/budget':t=>/\b(?:cost|price|budget|how much)\b|تكلفة|تكلف|أسعار|اسعار|سعر|ميزانية|^كم\s/u.test(t)
+  };
+  const covered=Object.keys(tests).filter(key=>texts.some(tests[key]));
+  const missing=Object.keys(tests).filter(key=>!covered.includes(key));
+  const discovery=texts.filter(isProviderDiscovery).length;
+  const minimumDiscovery=Math.ceil(requested/2);
+  const required=requested>=10?missing:missing.filter(x=>x==='best providers/products');
+  return {covered,missing:required,discovery,minimumDiscovery,requested,total:items.length,
+    complete:items.length>=requested&&required.length===0&&discovery>=minimumDiscovery};
+}
+
 export function discoveryFirst(suggestions, { category, market, brand, domain, language = 'en', count = 20 }) {
-  const isRecommendation = p => /\b(best|top[- ]rated|recommend|shortlist|worth considering|where (?:can|should) I buy)\b|أفضل|افضل|ترشح|تنصح|توصي/u.test(p.text.toLowerCase());
+  const isRecommendation = p => isProviderDiscovery(p.text);
   const leading = suggestions.filter(isRecommendation);
   // Ensure a new project can test unprompted provider discovery even if the model
   // returns only education questions. These are suggestions, never GSC evidence.
@@ -115,7 +147,7 @@ Market: ${market}
 
 Write ${count} questions this buyer would ask an AI assistant about "${topic}".`;
 
-  const raw = await complete(ask, { system, maxTokens: 900 });
+  const raw = await complete(ask, { system, maxTokens: 900, timeoutMs:45000 });
   const parsed = parseJsonArray(raw) || [];
 
   return parsed
@@ -128,7 +160,8 @@ Write ${count} questions this buyer would ask an AI assistant about "${topic}".`
     .slice(0, count);
 }
 
-export async function generatePrompts({ brand, domain, category, market = 'the UK', qualifier = 'customers looking for this offering', count = 20, language = 'en' }) {
+export async function generatePrompts({ brand, domain, category, market = 'the UK', qualifier = 'customers looking for this offering', count = 20, language = 'en' }, {completeText = complete} = {}) {
+  count=Math.min(30,Math.max(1,Math.floor(Number(count)||20)));
   const system = `${languageRule(language)}\n\n${SYSTEM}`;
   const ask = `Current date: ${new Date().toISOString().slice(0, 10)}
 Current year: ${new Date().getUTCFullYear()}
@@ -139,12 +172,13 @@ Typical customer: ${qualifier}
 
 Write ${count} questions.`;
 
-  const raw = await complete(ask, { system, maxTokens: 2000 });
+  const raw = await completeText(ask, { system, maxTokens: Math.min(6000, count*180), timeoutMs:45000 });
   const parsed = parseJsonArray(raw);
 
   if (parsed && parsed.length) {
-    const seen = new Set();
-    const suggestions = parsed
+    const clean = input => {
+      const seen = new Set();
+      return input
       .filter((p) => p && isBuyerQuestion(p.text) && !/^how\s+to\b/i.test(p.text.trim()))
       .filter((p) => !containsSearchBrand(p.text, [brand, domain]))
       .filter((p) => { const key = queryKey(p.text); if (seen.has(key)) return false; seen.add(key); return true; })
@@ -156,8 +190,34 @@ Write ${count} questions.`;
         intent: ['discovery', 'comparison', 'commercial', 'problem'].includes(p.intent) ? p.intent : 'commercial',
         ai_search_volume: null
       }))
-      .slice(0, count);
-    if (suggestions.length) return discoveryFirst(suggestions, {category, market, brand, domain, language, count});
+      ;
+    };
+    let suggestions = clean(parsed);
+    let coverage=baselineCoverage(suggestions.slice(0,count),count);
+    // A bounded repair asks for missing buyer needs, never silently invents
+    // a full baseline or starts another measurement.
+    if (!coverage.complete) {
+      let extra;
+      try { extra=await completeText(`${ask}\n\nReview these existing suggestions: ${JSON.stringify(suggestions)}\nMissing buyer needs: ${coverage.missing.join(', ')||'none'}. Current provider-discovery questions: ${coverage.discovery}, required: ${coverage.minimumDiscovery}. Write up to ${count} additional, distinct questions to fill the gaps and reach ${count} usable questions. Keep to explicitly supported services and translate category/location naturally for Arabic.`,{system,maxTokens:Math.min(6000,count*180),timeoutMs:45000}); } catch { /* Keep usable suggestions and surface incomplete coverage. */ }
+      suggestions=clean([...suggestions,...(parseJsonArray(extra)||[])]);
+    }
+    if (suggestions.length) {
+      const ordered=discoveryFirst(suggestions,{category,market,brand,domain,language,count:suggestions.length});
+      // Reserve the W/cost needs before filling remaining slots with discovery.
+      const selected=[];
+      const discovery=ordered.filter(p=>isProviderDiscovery(p.text));
+      for(const need of ['best providers/products','who/which to shortlist','where to buy/book']){
+        const match=discovery.find(p=>!selected.includes(p)&&baselineCoverage([p],10).covered.includes(need));
+        if(match&&selected.length<count)selected.push(match);
+      }
+      for(const p of discovery)if(!selected.includes(p)&&selected.length<Math.ceil(count/2))selected.push(p);
+      if(count>=10)for(const need of baselineCoverage(selected,count).missing){
+        const match=ordered.find(p=>!selected.includes(p)&&baselineCoverage([p],10).covered.includes(need));
+        if(match&&selected.length<count)selected.push(match);
+      }
+      for(const p of ordered)if(!selected.includes(p)&&selected.length<count)selected.push(p);
+      return discoveryFirst(selected,{category,market,brand,domain,language,count});
+    }
   }
 
   if (raw || language === 'ar') {

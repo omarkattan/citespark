@@ -48,12 +48,12 @@ function toast(message, kind = 'ok') {
 }
 
 async function api(path, options = {}) {
-  const { readTimeoutMs = 0, ...opts } = options;
+  const { readTimeoutMs = 20000, ...opts } = options;
   if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
     opts.body = JSON.stringify(opts.body);
     opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
   }
-  // Opt-in read deadline only. Never time out or automatically retry a mutation.
+  // Reads have a deadline. Never time out or automatically retry a mutation.
   const bounded = readTimeoutMs > 0 && (opts.method || 'GET').toUpperCase() === 'GET';
   const controller = bounded ? new AbortController() : null;
   if (controller) opts.signal = controller.signal;
@@ -61,7 +61,9 @@ async function api(path, options = {}) {
   const request = async () => {
     const res = await fetch(path, opts);
     if (res.status === 401) { window.location.href = '/login'; return null; }
-    return res.json();
+    const body = await res.json();
+    if (!res.ok && (opts.method || 'GET').toUpperCase() === 'GET') throw new Error(body?.error || `This section could not be loaded (${res.status}).`);
+    return body;
   };
   try {
     return bounded ? await Promise.race([request(), new Promise((_, reject) => {
@@ -287,6 +289,8 @@ const SECTION_DEFAULT = {overview:'overview',questions:'questions',opportunities
 
 function syncNavigation() {
   const section = VIEW_SECTION[state.view] || 'overview';
+  const eyebrow = document.querySelector('main > .eyebrow');
+  if (eyebrow) eyebrow.textContent = ({overview:'What to do next',questions:'Buyer questions',opportunities:'Your next actions',evidence:'Measurement evidence',settings:'Site settings'})[section];
   for (const button of document.querySelectorAll('[data-section]')) {
     if (button.dataset.section === section) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
@@ -1232,10 +1236,13 @@ function panelFold(title, body, { open = true, help = null, sub = null } = {}) {
 async function loadPersonas() {
   const box = $('personaList');
   if (!box) return;
-  const d = await api(`/api/projects/${state.projectId}/personas`);
+  const projectId=state.projectId;
+  const d = await api(`/api/projects/${projectId}/personas`);
+  if(projectId!==state.projectId || !box.isConnected)return;
   const rows = d?.personas || [];
 
-  const lift = await api(`/api/projects/${state.projectId}/personas/lift`).catch(() => null);
+  const lift = await api(`/api/projects/${projectId}/personas/lift`).catch(() => null);
+  if(projectId!==state.projectId || !box.isConnected)return;
   const byId = new Map((lift?.lift || []).map((l) => [l.personaId, l]));
 
   box.innerHTML = (rows.length
@@ -1490,15 +1497,24 @@ function gscQuestionPanel(gsc = {}, expanded = false) {
     </details>`;
 }
 
+function showQuestionPreview(data,source,projectId) {
+  const questions=data.questions || [];
+  state.questionPreview={questions,source,projectId};
+  const coverage=data.coverage;
+  const note=coverage ? `<p class="hint">${coverage.total} of ${coverage.requested} requested suggestions. ${coverage.discovery} ask for provider/product discovery (target ${coverage.minimumDiscovery}). ${coverage.missing.length?`Coverage still to add: ${esc(coverage.missing.join(', '))}.`:'All baseline question types are represented.'} Check service and location relevance before adding.</p>` : '';
+  $('qTopicPanel').innerHTML=`<div class="pq-preview"><h3>Review questions before adding</h3>${note}<p class="hint">Nothing has been added or measured. Choose the questions that fit the business. Each active question uses checks when you next run a measurement.</p>${questions.map((q,i)=>`<label class="pq${q.duplicate||q.error?' is-dupe':''}"><input type="checkbox" data-topicq="${i}" ${q.duplicate||q.error?'disabled':'checked'} /><span dir="auto">${esc(q.text)}${q.duplicate?'<i>Already tracked, including paused questions</i>':q.error?`<i>${esc(q.error)}</i>`:''}</span></label>`).join('')}<div class="inline-form"><button id="q_topic_add">Add selected</button><button class="ghost" id="q_topic_cancel">Cancel</button></div></div>`;
+}
+
 function questionTools(p, scope, gsc = {}) {
   return `<details class="panel question-add" id="questionAdd" ${state.setupStep==='questions'?'open':''}><summary>Add questions and connect sources</summary>
     <div class="panel"><h2>Start with discovery questions</h2><p>Would an AI assistant recommend your business to someone looking for what you offer? Click <b>Suggest discovery questions</b> for ideas based on your niche and market, then review the wording. For an agency, this could be “Who are the best SEO agencies in Dubai?” Other businesses get questions about their own category.</p><p class="hint">These are suggested buyer questions, not measured search volumes. GSC adds ideas from searches where your website already appears, so it can miss discovery opportunities.</p>
       <div class="qcompose question-compose"><input id="q_text" aria-label="Question or topic" placeholder="A buyer question or topic" autocomplete="off" />
       <button id="q_add">Add as written</button><button class="ghost" id="q_topic">Suggest from topic</button></div>
-      <p class="hint">Add as written keeps your wording. Topic suggestions follow your input language: English or Arabic.</p>
+      <p class="hint">Add as written keeps your wording. Topic suggestions return up to 8 questions in your input language. Site suggestions check best-provider, who/which, what, where, when, why, how and cost coverage.</p>
       <div class="qcompose question-compose"><label for="q_site_language">Site suggestion language</label>
       <select id="q_site_language"><option value="en"${p.language === 'ar' ? '' : ' selected'}>English</option><option value="ar"${p.language === 'ar' ? ' selected' : ''}>Arabic</option></select>
       <button class="ghost" id="q_generate">Suggest discovery questions</button></div>
+      <details><summary>Import a question set</summary><label for="q_bulk_text">Paste one question per line, or a JSON array with text, cluster, intent, language and city</label><textarea id="q_bulk_text" rows="6" maxlength="250000"></textarea><p class="hint">Up to 500 questions. Review duplicates and wording before adding. No answer checks run on import.</p><button class="ghost" id="q_bulk_preview">Preview import</button></details>
       <div id="qTopicPanel"></div><p class="error" id="setupError" role="alert"></p>
     </div>
     <details class="panel fold" id="personaPanel">
@@ -1533,10 +1549,15 @@ function questionSearchEvidence(origin = {}) {
 }
 
 async function viewQuestions() {
-  const prompts = (await api(`/api/projects/${state.projectId}/prompts`)) || [];
+  const projectId = state.projectId;
+  const [prompts, scope, gsc] = await Promise.all([
+    api(`/api/projects/${projectId}/prompts`),
+    api(`/api/projects/${projectId}/run-scope`).catch(() => null),
+    api(`/api/projects/${projectId}/gsc`).catch(() => ({error:true}))
+  ]);
+  if (state.projectId !== projectId) return '';
+  if (!Array.isArray(prompts)) throw new Error('The question list was unavailable.');
   state.questionRows = new Map(prompts.map(p => [String(p.id), p]));
-  const scope = await api(`/api/projects/${state.projectId}/run-scope`).catch(() => null);
-  const gsc = await api(`/api/projects/${state.projectId}/gsc`).catch(() => ({error: true}));
   const tools = questionTools(state.overview?.project || {}, scope, gsc || {error: true});
   const brand = state.overview?.project?.brand_name;
   const rows = prompts
@@ -1575,7 +1596,7 @@ async function viewQuestions() {
           <div class="q-actions">
             ${p.measured ? `<button class="btn" data-see-answer="${p.id}">Read answers</button>` : ''}
             <button class="ghost" data-brief="${p.id}">Review content brief</button>
-            <button class="ghost" data-question-edit="${p.id}">Edit wording</button><details class="question-more"><summary>More actions</summary><div class="q-actions">
+            ${p.replacedBy ? '' : `<button class="ghost" data-question-edit="${p.id}">Edit wording</button>`}<details class="question-more"><summary>More actions</summary><div class="q-actions">
               ${p.measured ? `<button class="ghost" data-reask="${p.id}">Ask again now</button><span class="hint">Starts immediately and uses answer checks.</span>` : ''}
               ${p.replacedBy ? '<span class="tag">Superseded by a newer revision</span>' : `<button class="ghost" data-question-toggle="${p.id}">${p.active ? 'Pause' : 'Resume'}</button>`}
             </div></details>
@@ -1667,7 +1688,7 @@ async function viewQuestions() {
       </select>
       <input id="qBulkCluster" placeholder="Set topic, e.g. asset classes" />
       <button class="btn" id="qBulkApply">Apply</button>
-      <button class="ghost" id="qBulkClear">Clear selection</button>
+      <button class="ghost" id="qBulkPause">Pause selected</button><button class="ghost" id="qBulkResume">Resume selected</button><button class="ghost" id="qBulkClear">Clear selection</button>
     </div>`;
 
   const filters = `
@@ -2186,7 +2207,7 @@ async function renderFigures() {
       return `<div class="figure">
         <div class="label">${esc(ENGINE_LABEL[e.engine] || e.engine)}</div>
         <div class="value ${thin ? 'dim' : ''}" ${thin ? `title="Only ${e.runs} answers came back from this engine against ${typical} from the busiest. Too few to compare."` : ''}>${thin ? '&mdash;' : pct(e.rate)}</div>
-        <div class="sub">${thin ? `only ${e.runs} of ${typical} answers` : `${e.runs} runs`}</div>
+        <div class="sub">${thin ? `only ${e.runs} of ${typical} answers` : `${e.runs} answers`}</div>
       </div>`;
     })
     .join('');
@@ -2220,9 +2241,21 @@ document.addEventListener('click', event => {
 async function render() {
   clearTimeout(ga4RefreshPoll);
   const view = state.view;
+  const projectId = state.projectId;
+  const container = $('view');
+  const preserve = container.dataset.renderedProject === String(projectId) && container.dataset.renderedView === view;
+  const readQuestionDraft = () => preserve && view === 'questions' ? {
+    open: $('questionAdd')?.open, text: $('q_text')?.value, language: $('q_site_language')?.value,
+    bulkText: $('q_bulk_text')?.value, bulkOpen: $('q_bulk_text')?.closest('details')?.open, preview: $('qTopicPanel')?.innerHTML,
+    selected: [...document.querySelectorAll('[data-topicq]')].map(el=>el.checked),
+    rows: [...document.querySelectorAll('[data-qsel]:checked')].map(el=>el.dataset.qsel),
+    editors: [...document.querySelectorAll('.question-editor:not([hidden])')].map(el=>({id:el.id,html:el.innerHTML,text:el.querySelector('textarea')?.value})),
+    scrollY: window.scrollY
+  } : null;
   const renderId = state.renderId = (state.renderId || 0) + 1;
   syncNavigation();
-  $('view').innerHTML = '<div class="empty">Loading</div>';
+  container.setAttribute('aria-busy','true');
+  if (!preserve) {delete container.dataset.renderedProject;delete container.dataset.renderedView;container.innerHTML = '<div class="empty" role="status">Loading</div>';}
   const fn = {
     firstMeasurement: viewFirstMeasurement, reportGuide: viewReportGuide, competitorReview: viewCompetitorReview, overview: viewOverview, connections: viewConnections, answers: viewAnswerEvidence, actions: viewActions, assigned: viewAssigned, pages: viewPages, questions: viewQuestions, rivals: viewRivals,
     searchDemand: viewSearchDemand, sources: viewSources, traffic: viewTraffic, setup: viewSetup, billing: viewBilling,
@@ -2231,12 +2264,18 @@ async function render() {
   let html;
   try { html = await fn(); }
   catch (error) {
-    if (renderId !== state.renderId) return;
-    $('view').innerHTML = '<div class="notice" role="status"><h2>This view could not be loaded</h2><p>Your stored results are unchanged.</p><button class="ghost" data-retry-view>Try again</button></div>';
+    if (renderId !== state.renderId || projectId !== state.projectId || view !== state.view) return;
+    container.removeAttribute('aria-busy');
+    if (preserve) { toast('This view could not refresh. Your previously loaded information remains visible.','bad'); return; }
+    container.innerHTML = '<div class="notice" role="status"><h2>This view could not be loaded</h2><p>Your stored results are unchanged.</p><button class="ghost" data-retry-view>Try again</button></div>';
     return;
   }
-  if (renderId !== state.renderId) return;
+  if (renderId !== state.renderId || projectId !== state.projectId || view !== state.view) return;
+  container.removeAttribute('aria-busy');
+  const questionDraft=readQuestionDraft();
   $('view').innerHTML = setupJourney() + html;
+  container.dataset.renderedProject = String(projectId);
+  container.dataset.renderedView = view;
   if(['overview','actions'].includes(view))void resumeActionPreparation(state.projectId);
   if (view === 'setup') {
     recalcEstimate();
@@ -2249,7 +2288,7 @@ async function render() {
     // Preserve filters on edits, reset when switching projects.
     if (state.questionFilterProject !== state.projectId) Object.assign(qState, { state: 'all', persona: 'all', cluster: 'all', intent: 'all', sort: 'opportunity', text: '', activity: 'active', origin: 'all' });
     state.questionFilterProject = state.projectId;
-    loadPersonas();
+    void loadPersonas().catch(()=>{if(projectId===state.projectId && $('personaList'))$('personaList').innerHTML='<p class="hint">Buyer types could not be loaded. Refresh this section to try again.</p>';});
     for (const el of document.querySelectorAll('[data-select-group]')) {
       const key = el.dataset.selectGroup;
       el.value = qState[key] || 'all';
@@ -2258,6 +2297,18 @@ async function render() {
     if ($('promptFilter')) $('promptFilter').value = qState.text;
     if ($('qsort')) $('qsort').value = qState.sort;
     applyQuestionView();
+    if (questionDraft) {
+      if ($('questionAdd')) $('questionAdd').open=questionDraft.open;
+      if ($('q_text')) $('q_text').value=questionDraft.text || '';
+      if ($('q_site_language')) $('q_site_language').value=questionDraft.language || 'en';
+      if ($('q_bulk_text')) { $('q_bulk_text').value=questionDraft.bulkText || ''; $('q_bulk_text').closest('details').open=questionDraft.bulkOpen; }
+      if ($('qTopicPanel')) $('qTopicPanel').innerHTML=questionDraft.preview || '';
+      document.querySelectorAll('[data-topicq]').forEach((el,i)=>{el.checked=Boolean(questionDraft.selected[i]);});
+      document.querySelectorAll('[data-qsel]').forEach(el=>{el.checked=questionDraft.rows.includes(el.dataset.qsel);});
+      for(const draft of questionDraft.editors){const editor=$(draft.id);if(editor){editor.innerHTML=draft.html;editor.hidden=false;const text=editor.querySelector('textarea');if(text)text.value=draft.text||'';}}
+      refreshBulkBar();
+      window.scrollTo({top:questionDraft.scrollY});
+    }
   }
   if (view === 'traffic' && $('ga4Props')) loadGa4Properties();
   if (['overview', 'actions'].includes(view) && state.people?.length) {
@@ -2280,18 +2331,25 @@ document.addEventListener('click',async event=>{
   if(state.projectId)await loadProject(state.projectId);else location.reload();
 });
 async function loadProject(id) {
-  const finishingSetup=state.projectId===id && state.setupStep && state.setupStep!=='complete';
+  const sameProject=state.projectId===id;
+  const viewAtStart=state.view;
+  const loadId=state.projectLoadId=(state.projectLoadId||0)+1;
+  state.renderId=(state.renderId||0)+1;
   state.projectId = id;
   let overview;
   try { overview=await api(`/api/projects/${id}/overview`,{readTimeoutMs:20000}); }
-  catch(error) { state.overview=null;showProjectLoadError(error.message);return false; }
+  catch(error) { if(loadId!==state.projectLoadId)return false;state.overview=null;showProjectLoadError(error.message);return false; }
+  if(loadId!==state.projectLoadId)return false;
   if(!overview?.project || overview.error) { state.overview=null;showProjectLoadError(overview?.error||'The site response was incomplete. Please try again.');return false; }
   state.overview=overview;
   const progress=await api(`/api/projects/${id}/setup-progress`).catch(()=>null);
+  if(loadId!==state.projectLoadId)return false;
   const measured=Boolean(state.overview.cycle && state.overview.runs>0);
   state.setupStep=progress?.step||(measured?'complete':'sources');
   if(measured && ['website','sources','questions','measurement'].includes(state.setupStep))state.setupStep='recommendations';
-  if(state.setupStep!=='complete' && (!finishingSetup || !measured || ['setup','firstMeasurement','connections','questions','searchDemand','traffic'].includes(state.view)))state.view=SETUP_VIEWS[state.setupStep]||'connections';
+  // Resume the guide only on initial project entry. Background measurement
+  // completion and saves must not take someone out of Questions or Settings.
+  if(!sameProject && state.view===viewAtStart && state.setupStep!=='complete')state.view=SETUP_VIEWS[state.setupStep]||'connections';
   const p = state.overview.project;
   $('brandTitle').textContent = p.brand_name;
   $('brandDek').textContent = state.overview.cycle
@@ -2470,14 +2528,14 @@ async function boot() {
 
 document.querySelectorAll('.tab[data-view]').forEach((tab) => {
   tab.addEventListener('click', async () => {
-    state.view = tab.dataset.view==='setup'&&state.setupStep&&state.setupStep!=='complete'?(SETUP_VIEWS[state.setupStep]||'connections'):tab.dataset.view;
+    state.view = tab.dataset.view;
     await render();
   });
 });
 
 document.querySelectorAll('[data-section]').forEach(button => {
   button.addEventListener('click', async () => {
-    state.view = button.dataset.section==='settings'&&state.setupStep&&state.setupStep!=='complete'?(SETUP_VIEWS[state.setupStep]||'connections'):SECTION_DEFAULT[button.dataset.section];
+    state.view = SECTION_DEFAULT[button.dataset.section];
     await render();
   });
 });
@@ -2546,7 +2604,7 @@ function syncLocationChoice(select, hint) {
     : 'Country-level Google collection is not configured for this market. Choose a verified location below, or ask support to enable this market.';
   select._locationError = error;
   select.setAttribute('aria-invalid', error && !select._locationLoading ? 'true' : 'false');
-  if (save) save.disabled = Boolean(error || save._saving);
+  if (save) save.disabled = Boolean(error || save._saving || save._scanning);
   if (error && !select._locationLoading && select.id==='f_city') doc.getElementById('siteOptional').open=true;
   if (hint) {
     hint.classList.toggle('warn', Boolean(error));
@@ -2822,7 +2880,9 @@ function showReport(s) {
 }
 
 async function pollCycle() {
-  const status = await api(`/api/projects/${state.projectId}/cycle-status`);
+  const projectId=state.projectId;
+  const status = await api(`/api/projects/${projectId}/cycle-status`);
+  if(projectId!==state.projectId)return true;
   if (!status) return true;
 
   if (status.phase === 'failed') {
@@ -2832,14 +2892,15 @@ async function pollCycle() {
   }
   if (status.phase === 'done') {
     hideProgress();
-    await loadProject(state.projectId);
+    await loadProject(projectId);
     await refreshUsagePill();
+    if(projectId!==state.projectId)return true;
     if (status.summary) showReport(status.summary);
     return true;
   }
   if (status.phase === 'idle') {
     hideProgress();
-    await loadProject(state.projectId);
+    await loadProject(projectId);
     return true;
   }
   showProgress(status.phase, status.done || 0, status.total || 0, status.recent || []);
@@ -3833,6 +3894,19 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  if (['qBulkPause','qBulkResume'].includes(e.target.id)) {
+    const projectId=state.projectId;
+    const ids=[...document.querySelectorAll('[data-qsel]:checked')].map(b=>Number(b.dataset.qsel));
+    if(!ids.length)return;
+    e.target.disabled=true;
+    try {
+      const result=await api(`/api/projects/${projectId}/prompts/bulk`,{method:'PATCH',body:{ids,active:e.target.id==='qBulkResume'}});
+      if(result?.error)throw Error(result.error);
+      if(state.projectId===projectId){await render();toast(`${result.changed} questions updated. Earlier answers are preserved.`);}
+    }catch(error){toast(error.message,'bad');}finally{if(e.target.isConnected)e.target.disabled=false;}
+    return;
+  }
+
   const chip = e.target.closest('[data-group]');
   if (!chip) return;
   const group = chip.dataset.group;
@@ -3946,6 +4020,31 @@ document.addEventListener('mouseout', (e) => {
   wrap.querySelector('.readout')?.setAttribute('hidden', '');
   const cross = wrap.querySelector('.crosshair');
   if (cross) cross.style.display = 'none';
+});
+
+/** A download needs a visible outcome, including an expired session or timeout. */
+document.addEventListener('click', async event => {
+  const link=event.target.closest('#repCsv');
+  if(!link)return;
+  event.preventDefault();
+  if(link.dataset.downloading)return;
+  const label=link.textContent,projectId=state.projectId;
+  link.dataset.downloading='true';link.setAttribute('aria-disabled','true');link.textContent='Preparing data…';
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),60000);
+  try {
+    const response=await fetch(link.href,{signal:controller.signal,cache:'no-store'});
+    if(!response.ok)throw Error(`Data download failed (${response.status}). Please try again.`);
+    if(!response.headers.get('content-type')?.includes('text/csv'))throw Error('The server did not return a CSV file. Reload this page and try again.');
+    const blob=await response.blob(),url=URL.createObjectURL(blob),download=document.createElement('a');
+    download.href=url;download.download=`cited-${projectId}-data.csv`;
+    document.body.appendChild(download);download.click();download.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),30000);
+    toast('CSV download started.');
+  } catch(error) {
+    toast(error.name==='AbortError'?'The data download took too long. Try again. Your saved evidence is unchanged.':error.message,'bad');
+  } finally {
+    clearTimeout(timeout);delete link.dataset.downloading;link.removeAttribute('aria-disabled');link.textContent=label;
+  }
 });
 
 /** Keep the report links pointed at the chosen period. */
@@ -5470,89 +5569,66 @@ document.addEventListener('click', async (e) => {
     toast(gone ? `${gone} removed` : 'Removed');
   }
 
-  if (t.id === 'q_topic') {
-    const topic = $('q_text').value.trim();
-    if (topic.length < 3) return setupErr('Give it a topic — what a buyer would search for in your category.');
-
-    t.disabled = true;
-    t.textContent = 'Thinking';
-    const d = await api(`/api/projects/${state.projectId}/prompts/from-topic`, { method: 'POST', body: { topic } });
-    t.disabled = false;
-    t.textContent = 'Generate from topic';
-
-    if (d?.error) return setupErr(d.error);
-    setupErr('');
-
-    // Shown for approval. A generated question is a suggestion until someone
-    // who knows the business agrees with it.
-    $('qTopicPanel').innerHTML = `<div class="pq-preview">
-      <p class="hint" style="margin:0 0 10px">
-        Questions a buyer might ask about <b>${esc(d.topic)}</b>. Pick the ones worth tracking; each one is an answer
-        check on every cycle.
-      </p>
-      ${d.questions
-        .map(
-          (q, i) => `<label class="pq${q.duplicate ? ' is-dupe' : ''}">
-            <input type="checkbox" data-topicq="${i}" ${q.duplicate ? 'disabled' : 'checked'} />
-            <span>${esc(q.text)}${q.duplicate ? '<i class="pcp-brand">already tracked</i>' : ''}</span>
-          </label>`
-        )
-        .join('')}
-      <div class="inline-form" style="margin-top:12px">
-        <button class="btn" id="q_topic_add">Add selected</button>
-        <button class="ghost" id="q_topic_cancel">Cancel</button>
-      </div>
-    </div>`;
-    window.__topicQuestions = d.questions;
+  if (['q_topic','q_generate','q_bulk_preview'].includes(t.id)) {
+    const projectId=state.projectId, original=t.textContent;
+    if(state.questionBusy===projectId)return;
+    state.questionBusy=projectId;
+    t.disabled=true;
+    try {
+      let d,source;
+      if(t.id==='q_topic'){
+        const topic=$('q_text').value.trim();
+        if(topic.length<3)throw Error('Enter a topic first.');
+        t.textContent='Preparing 8 suggestions…';
+        d=await api(`/api/projects/${projectId}/prompts/from-topic`,{method:'POST',body:{topic}});source='topic';
+      }else if(t.id==='q_generate'){
+        t.textContent='Preparing baseline…';
+        d=await api(`/api/projects/${projectId}/generate-prompts`,{method:'POST',body:{count:20,language:$('q_site_language').value}});source='generated';
+      }else{
+        const text=$('q_bulk_text').value.trim();
+        const items=text.startsWith('[')?JSON.parse(text):text;
+        d=await api(`/api/projects/${projectId}/prompts/import-preview`,{method:'POST',body:{items}});source='custom';
+      }
+      if(d?.error)throw Error(d.error);
+      if(state.projectId!==projectId || state.view!=='questions')return;
+      showQuestionPreview(d,source,projectId);setupErr('');
+    }catch(error){if(state.projectId===projectId)setupErr(error.message);}
+    finally{if(state.questionBusy===projectId)state.questionBusy=null;const current=state.projectId===projectId?$(t.id):null;if(current){current.disabled=false;current.textContent=original;}}
     return;
   }
-
   if (t.id === 'q_topic_cancel') {
-    $('qTopicPanel').innerHTML = '';
-    return;
+    $('qTopicPanel').innerHTML='';state.questionPreview=null;return;
   }
-
   if (t.id === 'q_topic_add') {
-    const chosen = [...document.querySelectorAll('[data-topicq]:checked')].map(
-      (c) => window.__topicQuestions[Number(c.dataset.topicq)].text
-    );
-    if (!chosen.length) return setupErr('Pick at least one.');
-    t.disabled = true;
-    t.textContent = 'Adding';
-    let added = 0;
-    for (const text of chosen) {
-      const res = await fetch(`/api/projects/${state.projectId}/prompts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, source: 'topic' })
-      });
-      if (res.ok) added++;
-    }
-    await render();
-    // Says how many landed, not how many were asked for: a plan limit can
-    // stop some of them and silence would hide that.
-    toast(
-      added === chosen.length
-        ? `${added} question${added === 1 ? '' : 's'} added`
-        : `${added} of ${chosen.length} added. The rest were beyond this plan.`,
-      added === chosen.length ? 'ok' : 'bad'
-    );
+    const preview=state.questionPreview,projectId=state.projectId;
+    if(state.questionBusy===projectId)return;
+    if(!preview || preview.projectId!==projectId)return;
+    const items=[...document.querySelectorAll('[data-topicq]:checked')].map(c=>preview.questions[Number(c.dataset.topicq)]);
+    if(!items.length)return setupErr('Pick at least one question.');
+    state.questionBusy=projectId;
+    t.disabled=true;t.textContent='Adding…';
+    try{
+      const d=await api(`/api/projects/${projectId}/prompts/import`,{method:'POST',body:{items,source:preview.source}});
+      if(d?.error)throw Error(d.error);
+      if(state.projectId!==projectId)return;
+      state.questionPreview=null;if($('qTopicPanel'))$('qTopicPanel').innerHTML='';
+      await render();toast(`${d.added} questions added${d.duplicates?`, ${d.duplicates} duplicates skipped`:''}. No measurement started.`);
+    }catch(error){if(state.projectId===projectId)setupErr(error.message);}
+    finally{if(state.questionBusy===projectId)state.questionBusy=null;const current=state.projectId===projectId?$('q_topic_add'):null;if(current){current.disabled=false;current.textContent='Add selected';}}
     return;
   }
-
   if (t.id === 'q_add') {
-    const res = await fetch(`/api/projects/${state.projectId}/prompts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: $('q_text').value })
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      toast(json.error || 'Could not add that question', 'bad');
-      return setupErr(json.error);
-    }
-    await render();
-    toast('Question added. It will be asked on the next cycle.');
+    const projectId=state.projectId,text=$('q_text').value;
+    t.disabled=true;
+    try{
+      const res=await fetch(`/api/projects/${projectId}/prompts`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
+      const json=await res.json();if(!res.ok)throw Error(json.error||'Could not add that question');
+      if(state.projectId!==projectId)return;
+      if($('q_text')?.value===text)$('q_text').value='';
+      await render();toast('Question added. It will be asked on the next cycle.');
+    }catch(error){if(state.projectId===projectId)setupErr(error.message);}
+    finally{if(t.isConnected)t.disabled=false;}
+    return;
   }
 
   if (t.dataset.delPrompt) {
@@ -5590,20 +5666,6 @@ document.addEventListener('click', async (e) => {
     } finally {
       t.disabled = false;
     }
-  }
-
-  if (t.id === 'q_generate') {
-    t.disabled = true;
-    t.textContent = 'Writing';
-    const res = await fetch(`/api/projects/${state.projectId}/generate-prompts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ count: 10, language: $('q_site_language').value })
-    });
-    const json = await res.json();
-    await render();
-    if (!res.ok) { setupErr(json.error || 'Could not generate questions.'); return; }
-    if (json.added === 0) setupErr('Nothing new to add. Every suggestion was already on the list.');
   }
 
   if (t.id === 's_delete') {
@@ -5730,6 +5792,9 @@ $('f_qualifier').addEventListener('input',syncCustomerSuggestions);
 $('f_domain').addEventListener('input',()=>showCustomerSuggestions());
 
 $('addSiteBtn').addEventListener('click', () => {
+  if(state.billing && !state.billing.internal && state.projects?.length >= state.billing.plan.sites){
+    showUpgrade(`This account already uses all ${state.billing.plan.sites} site slots. Switch account or choose a plan with more sites.`);return;
+  }
   showCustomerSuggestions();
   state.demoSetupDomain=null;
   $('demoQuestionSelection')?.remove();
@@ -5759,6 +5824,8 @@ $('f_scan').addEventListener('click', async () => {
 
   btn.disabled = true;
   btn.textContent = 'Reading';
+  $('siteSave')._scanning = true;
+  $('siteSave').disabled = true;
   note.className = 'hint';
   note.textContent = 'Reading the homepage';
   $('siteError').textContent = '';
@@ -5799,11 +5866,14 @@ $('f_scan').addEventListener('click', async () => {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Scan site';
+    $('siteSave')._scanning = false;
+    syncLocationChoice($('f_city'), $('f_cityHint'));
   }
 });
 $('siteCancel').addEventListener('click', () => $('siteDialog').close());
 
 $('siteSave').addEventListener('click', async () => {
+  if ($('siteSave')._scanning) return;
   if(state.demoSetupDomain && $('f_domain').value.trim().toLowerCase()!==state.demoSetupDomain && document.querySelector('[data-demo-question]:checked')){
     $('siteError').textContent='These demo questions belong to '+state.demoSetupDomain+'. Restore that domain or uncheck the demo questions before continuing.';
     return;
@@ -6110,10 +6180,11 @@ async function refreshUsagePill() {
   state.billing = b;
   const pill = $('usagePill');
   pill.hidden = false;
+  pill.title='Account-wide checks and spending this month, across all sites. This is different from retained answers in the selected measurement.';
   // An internal account has no sold allowance, so showing one is misleading.
   pill.textContent = b.internal
-    ? `${b.plan.name} \u00b7 ${b.usage.calls} checks \u00b7 $${(b.usage.spend || 0).toFixed(2)}`
-    : `${b.plan.name} \u00b7 ${b.usage.calls}/${b.usage.limit}`;
+    ? `${b.plan.name} \u00b7 ${b.usage.calls} checks this month \u00b7 $${(b.usage.spend || 0).toFixed(2)}`
+    : `${b.plan.name} \u00b7 ${b.usage.calls}/${b.usage.limit} checks this month`;
   pill.className = 'pill' + (b.usage.percent >= 90 ? ' over' : b.usage.percent >= 70 ? ' warn' : '');
 }
 
@@ -6471,12 +6542,15 @@ document.addEventListener('click', async e => {
   button.disabled = true;
   try {
     const editing = Boolean(button.dataset.questionSave);
+    const projectId=state.projectId;
     const res = await fetch(`/api/prompts/${id}${editing ? '/revise' : ''}`, {
       method: editing ? 'POST' : 'PATCH', headers: {'Content-Type':'application/json'},
       body: JSON.stringify(editing ? {text: $(`question-wording-${id}`).value, expectedText: question.text} : {active: !question.active})
     });
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'Could not save the question.');
+    if(projectId!==state.projectId)return;
+    if(editing && box)box.hidden=true;
     await render();
     toast(editing ? (result.unchanged ? 'No wording change to save.' : 'Revision saved. Earlier answers are preserved.') : (question.active ? 'Question paused.' : 'Question resumed.'));
   } catch (error) {
