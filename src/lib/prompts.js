@@ -38,6 +38,7 @@ Rules:
 - Vary the buying situation and supported service rather than repeating the same best-provider question with synonyms. Do not invent services or audiences.
 - Place problem education, pricing and process questions after discovery and shortlisting.
 - For sets of at least 10, cover all of these buyer needs: best providers/products; who/which to shortlist; where to buy or book; what the service includes; when it is needed; why choose one option over another; how to choose; and how much it costs. Use natural questions, not mechanically repeated prefixes. Include the buyer's main supported services and locations. Do not introduce adjacent services such as hybrid diagnostics unless the context explicitly supports them.
+- Include a direct service-scope question (what is included) and a direct price/budget question (how much it costs). A best-provider question starting with "what" or "ما" does not cover service scope. A provider offering competitive prices does not answer the cost question. Arabic examples: "ما الذي تشمله خدمة ...؟" and "كم تبلغ تكلفة ...؟". Use clear Arabic technical terms, such as "برمجة كمبيوتر المحرك", rather than awkward literal translations.
 - At least one question must explicitly ask who/which providers or products are best. Avoid vague questions about a provider's track record without naming the category or service.
 - Include location or sector qualifiers where the business is local or vertical.
 - Return ONLY a JSON array. Each item: {"text": string, "cluster": string, "intent": "discovery"|"comparison"|"commercial"|"problem"}
@@ -71,11 +72,11 @@ export function baselineCoverage(items, requested = items.length) {
     'best providers/products':t=>isProviderDiscovery(t)&&/\bbest\b|أفضل|افضل/u.test(t),
     'who/which to shortlist':t=>/^(?:who|which)\b|^(?:من|أي|اي)\s/u.test(t)&&isProviderDiscovery(t),
     'where to buy/book':t=>/^where\b|^(?:أين|اين)\s/u.test(t),
-    'what is included':t=>/^what\b|^(?:ما|ماذا)\s/u.test(t),
+    'what is included':t=>/^what\b.*\b(?:include[ds]?|involve[ds]?|covers?|included)\b|^(?:ما|ماذا)\s.*(?:[يت]شمل|[يت]تضمن|يتضمن|المشمول)/u.test(t),
     'when it is needed':t=>/^when\b|^متى\s/u.test(t),
     'why choose an option':t=>/^why\b|^لماذا\s/u.test(t),
     'how to choose/use':t=>/^how\b(?!\s+much)|^كيف\s/u.test(t),
-    'cost/budget':t=>/\b(?:cost|price|budget|how much)\b|تكلفة|تكلف|أسعار|اسعار|سعر|ميزانية|^كم\s/u.test(t)
+    'cost/budget':t=>/^(?:how much|what)\b.*\b(?:costs?|prices?|budget|pay|spend|charge[ds]?|fees?)\b|^how much (?:is|are)\b|^(?:كم|ما|ماذا)\s.*(?:تكلفة|تكلف|أسعار|اسعار|سعر|ميزاني|أدفع|ادفع|رسوم)|^بكم\s/u.test(t)
   };
   const covered=Object.keys(tests).filter(key=>texts.some(tests[key]));
   const missing=Object.keys(tests).filter(key=>!covered.includes(key));
