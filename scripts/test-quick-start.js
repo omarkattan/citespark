@@ -24,9 +24,9 @@ test('free controls allow signup, evidence preparation and checkout, but not pai
 const html=fs.readFileSync(new URL('../src/public/quick-start.html',import.meta.url),'utf8');
 const js=fs.readFileSync(new URL('../src/public/quick-start.js',import.meta.url),'utf8');
 const settle=()=>new Promise(r=>setImmediate(r));
-async function fixture({verified=true,used=false,advanced=false,failRun=false,thinking=false,incomplete=false,failDiscovery=false,failSuggestions=false,guidedCheck=false}={}){
- const dom=new JSDOM(html,{url:'https://cited.ae/quick-start',runScripts:'outside-only'});
- const w=dom.window,calls=[];let created=used,ran=used,savedQuestions=incomplete?list.slice(0,15):list;
+async function fixture({verified=true,used=false,advanced=false,failRun=false,thinking=false,incomplete=false,failDiscovery=false,failSuggestions=false,guidedCheck=false,existing=false,newLink=false,duplicate=false}={}){
+ const dom=new JSDOM(html,{url:'https://cited.ae/quick-start'+(newLink?'?new=1':''),runScripts:'outside-only'});
+ const w=dom.window,calls=[];let created=used||existing,ran=used,savedQuestions=incomplete?list.slice(0,15):list;
  w.countryOptions=()=>'<option value="AE">United Arab Emirates</option>';w.DEFAULT_COUNTRY='AE';w.print=()=>{};
  const project={id:1,brand_name:'Example',domain:'example.com',category:'accountants',market:'AE',quick_start:true};
  const billing={advanced,quickStart:{enabled:true,used},plan:{id:advanced?'starter':'free'}};
@@ -35,7 +35,7 @@ async function fixture({verified=true,used=false,advanced=false,failRun=false,th
   if(url==='/api/me')data={signedIn:true,emailVerified:verified};
   else if(url==='/api/billing')data=billing;
   else if(url==='/api/projects'&&!opts.method)data=created?[project]:[];
-  else if(url==='/api/projects'){created=true;data={project};}
+  else if(url==='/api/projects'){created=true;if(duplicate){status=409;data={error:'You are already tracking that domain'};}else data={project};}
   else if(url==='/api/discover'){if(failDiscovery){status=503;data={error:'Unavailable'};}else data={domain:'example.com',brandName:'Example',category:'accountants',market:'AE'};}
   else if(url.endsWith('/quick-start'))data={project,billing,questions:savedQuestions.map((text,id)=>({text,id:id+1})),claim:ran?{}:null,measurement:ran?{status:'completed'}:null};
   else if(url.endsWith('/quick-start/questions')){savedQuestions=JSON.parse(opts.body).questions;data={ok:true};}
@@ -168,5 +168,32 @@ test('unverified website checks are distinguished from grounded content recommen
  const {dom,w}=await fixture({used:true,guidedCheck:true});
  assert.match(w.document.getElementById('content').textContent,/Website verification is incomplete/);
  assert.match(w.document.getElementById('content').textContent,/not a confirmed content gap/);
+ dom.window.close();
+});
+
+test('free new link resumes saved questions without creating or running a project',async()=>{
+ const {dom,w,calls}=await fixture({existing:true,newLink:true});
+ assert.ok(w.document.getElementById('run'));
+ assert.equal(w.location.search,'?site=1');
+ assert.equal(calls.some(([u,b])=>u==='/api/projects'&&b),false);
+ assert.equal(calls.some(([u])=>u.endsWith('/run')),false);
+ dom.window.close();
+});
+test('re-entering an existing website resumes it before discovery, including case and www',async()=>{
+ const {dom,w,calls}=await fixture({existing:true,newLink:true,advanced:true});
+ w.document.getElementById('domain').value='https://WWW.Example.com/about';
+ w.document.getElementById('setup').dispatchEvent(new w.Event('submit',{cancelable:true}));await settle();await settle();
+ assert.ok(w.document.getElementById('run'));
+ assert.equal(calls.some(([u])=>u==='/api/discover'),false);
+ assert.equal(calls.some(([u,b])=>u==='/api/projects'&&b),false);
+ dom.window.close();
+});
+test('a duplicate returned during creation recovers the saved project',async()=>{
+ const {dom,w,calls}=await fixture({duplicate:true});
+ w.document.getElementById('domain').value='example.com';
+ w.document.getElementById('setup').dispatchEvent(new w.Event('submit',{cancelable:true}));await settle();await settle();
+ assert.ok(w.document.getElementById('run'));
+ assert.equal(w.document.getElementById('error').hidden,true);
+ assert.equal(calls.some(([u])=>u.endsWith('/run')),false);
  dom.window.close();
 });

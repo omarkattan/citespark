@@ -3,7 +3,7 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 const label=id=>({chatgpt:'ChatGPT',perplexity:'Perplexity',gemini:'Gemini',claude:'Claude',ai_mode:'Google AI Mode',ai_overview:'Google AI Overviews'}[id]||id);
 let projectId=Number(new URLSearchParams(location.search).get('site'))||null,billing,me,context,pollTimer,preparing=false,reportVisible=false;
 const safeLink=(url,title)=>{try{const u=new URL(url);return ['https:','http:'].includes(u.protocol)?`<a href="${esc(u.href)}" target="_blank" rel="noopener noreferrer">${esc(title||url)}</a>`:esc(title||url);}catch{return esc(title||url);}};
-async function api(path,body){const response=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(response.status===401){location.assign('/login');throw new Error('Please sign in.');}const value=await response.json();if(!response.ok)throw new Error(value.error||'This step could not finish. Please try again.');return value;}
+async function api(path,body){const response=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(response.status===401){location.assign('/login');throw new Error('Please sign in.');}const value=await response.json();if(!response.ok){const failure=new Error(value.error||'This step could not finish. Please try again.');failure.status=response.status;throw failure;}return value;}
 function revealNotice(node){node.tabIndex=-1;node.focus({preventScroll:true});node.scrollIntoView?.({block:'center',behavior:'smooth'});}
 function error(e){const message=e.message||String(e);$('error').textContent=message;const target=$('run-error')||$('error');$('error').hidden=target!==$('error');target.textContent=message;target.hidden=false;revealNotice(target);}
 function clearError(){$('error').hidden=true;if($('run-error'))$('run-error').hidden=true;}
@@ -24,8 +24,17 @@ async function act(button,fn){clearError();button.disabled=true;try{await fn();}
 const country=code=>{try{return new Intl.DisplayNames(['en'],{type:'region'}).of(code);}catch{return code;}};
 function businessFields(p={}){return `<div class="two"><div><label for="brand">Business name</label><input id="brand" required maxlength="150" value="${esc(p.brand_name)}"></div><div><label for="category">Products or services</label><input id="category" required maxlength="500" value="${esc(p.category)}"></div><div><label for="market">Customers’ country</label><select id="market">${window.countryOptions(p.market||window.DEFAULT_COUNTRY)}</select></div><div><label for="city">City or area</label><input id="city" placeholder="Optional" value="${esc(p.location_name)}"></div></div><label for="language">Question language</label><select id="language"><option value="en" ${p.language==='ar'?'':'selected'}>English</option><option value="ar" ${p.language==='ar'?'selected':''}>Arabic</option></select><label for="customer">Who you serve</label><textarea id="customer">${esc(p.qualifier)}</textarea>`;}
 function fields(){return {brandName:$('brand').value.trim(),category:$('category').value.trim(),market:$('market').value,language:$('language').value,qualifier:$('customer').value.trim(),locationName:$('city').value.trim()};}
+const domainKey=value=>String(value||'').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/^www\./,'').replace(/\/.*$/,'');
+async function resumeDomain(domain){
+ const projects=await api('/api/projects');
+ const existing=projects.find(p=>domainKey(p.domain)===domainKey(domain));
+ if(!existing)return false;
+ projectId=existing.id;history.replaceState({},'','/quick-start?site='+projectId);clearError();await load();return true;
+}
 async function createProject(details){
- const d=await api('/api/projects',{quickStart:true,...details,competitors:[]});
+ let d;
+ try{d=await api('/api/projects',{quickStart:true,...details,competitors:[]});}
+ catch(e){if(e.status===409&&await resumeDomain(details.domain))return;throw e;}
  projectId=d.project.id;history.replaceState({},'','/quick-start?site='+projectId);await load();
 }
 function setup(){
@@ -33,6 +42,8 @@ function setup(){
  $('content').innerHTML=`<div class="intro"><h1>Would AI recommend your business?</h1><p class="lead">Enter your website. We’ll find the buyer questions worth checking and prepare your first report.</p><form id="setup" class="panel"><label for="domain">Your website</label><input id="domain" required placeholder="yourbusiness.com" autocomplete="url" inputmode="url"><div class="actions"><button id="discover" type="submit">Continue</button></div><p class="muted" id="discovery-note">${billing.advanced?'Quick Start uses 20 questions across ChatGPT and Perplexity.':'Free report · No card required'}</p></form></div>`;
  $('setup').onsubmit=e=>{e.preventDefault();act($('discover'),async()=>{
   const domain=$('domain').value.trim();if(!domain)throw new Error('Enter your website first.');
+  $('discover').textContent='Checking your saved projects…';
+  if(await resumeDomain(domain))return;
   $('discover').textContent='Reading your website…';$('discovery-note').textContent='Finding your services and customers. This can take a minute.';
   let d;try{d=await api('/api/discover',{domain});}catch{manualBusiness(domain);return;}
   if(!d.brandName||!d.category){manualBusiness(d.domain||domain,d);return;}
@@ -100,7 +111,7 @@ async function report(){
 }
 async function load(){
  billing=await api('/api/billing');
- if(!projectId && new URLSearchParams(location.search).get('new')==='1' && (billing.advanced||!billing.quickStart?.used)){setup();return;}
+ if(!projectId && new URLSearchParams(location.search).get('new')==='1' && billing.advanced){setup();return;}
  if(!projectId){const projects=await api('/api/projects');if(projects.length){projectId=projects[0].id;history.replaceState({},'','/quick-start?site='+projectId);}else{setup();return;}}
  context=await api(`/api/projects/${projectId}/quick-start`);
  if(context.claim||context.measurement){waiting();await poll();}else await prepareQuestions();
