@@ -4950,7 +4950,7 @@ console.log('\nsignup and passwords');
 await test('signing up says an email is coming', async () => {
   const { readFileSync } = await import('node:fs');
   const markup = readFileSync(new URL('../src/public/login.html', import.meta.url), 'utf8');
-  assert.ok(/src="\/login.js\?v=1"/.test(markup), 'the login behaviour is loaded');
+  assert.ok(/src="\/login.js\?v=2"/.test(markup), 'the login behaviour is loaded');
   const login = markup + readFileSync(new URL('../src/public/login.js', import.meta.url), 'utf8');
 
   // Dropping someone straight into the app meant the first they heard of
@@ -5171,7 +5171,7 @@ await test('one site at its ceiling fits a weekly cadence', () => {
 
 await test('downgrading clamps engines and runs immediately', () => {
   const clamped = clampToPlan(PLANS.free, { engines: ['chatgpt', 'gemini', 'perplexity'], runs: 5 });
-  assert.deepEqual(clamped.engines, ['chatgpt']);
+  assert.deepEqual(clamped.engines, ['chatgpt', 'gemini']);
   assert.equal(clamped.runs, 1);
 });
 

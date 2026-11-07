@@ -9,7 +9,7 @@
     $('formTitle').textContent=mode==='login'?'Sign in':'Create an account';
     document.title=`${$('formTitle').textContent} | Cited`;
     $('submit').textContent=label();$('toggle').textContent=mode==='login'?'Create an account instead':'Sign in instead';
-    $('orgField').hidden=mode==='login';$('passwordHint').hidden=mode==='login';
+    $('orgField').hidden=true;$('forgot').hidden=mode==='register';$('authIntro').textContent=mode==='register'?'Get your free AI visibility report. 20 buyer questions, no card required.':'Sign in to view your reports and next actions.';$('passwordHint').hidden=mode==='login';
     $('password').autocomplete=mode==='login'?'current-password':'new-password';
     if(mode==='register')$('password').minLength=8;else $('password').removeAttribute('minlength');
     $('error').textContent='';$('error').className='error';
@@ -53,7 +53,7 @@
       const data=await post(`/api/${mode}`,{email,password:$('password').value,orgName:$('orgName').value.trim()});
       if(data.verificationSent){
         panel.innerHTML=`<h2>Check your email</h2><p class="sent-to">We sent a confirmation link to <b>${escapeHtml(email)}</b>.</p><p class="sent-note">You can add your website and review suggested questions now. Confirm your email before running your first measurement. The link works for two days.</p><div class="sent-actions"><a class="btn" href="/app">Next: add your website</a><button type="button" class="ghost" id="resend">Send it again</button></div><p class="sent-hint" id="resendMsg" role="status">Not arrived? Check spam, or request another link.</p>`;
-        busy=false;return;
+        busy=false;window.location.assign('/quick-start');return;
       }
       window.location.href='/app';
     }catch(error){$('error').textContent=error.message||'We could not connect. Please try again.';$('submit').disabled=false;$('submit').textContent=label();busy=false;}

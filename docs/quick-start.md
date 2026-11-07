@@ -1,0 +1,15 @@
+# Quick Start
+
+New signups enter the guided experience automatically. Existing projects retain their workspace. Paid/internal accounts can create a guided project at `/quick-start?new=1`, and open the advanced workspace without changing their subscription.
+
+The user enters a website. Discovery and question preparation run automatically. The next screen shows the business/location summary and three examples, with business corrections and all 20 questions behind optional controls. One Create my free report button runs ChatGPT + Perplexity once each. Incomplete generation gets a bounded automatic repair and an honest retry screen if still incomplete, never blank questions the user must complete. Business corrections atomically replace the pre-scan questions after regeneration succeeds. Quick Start generation targets at least 80% provider/product-shortlist questions. Email confirmation is required before spending. Signup proceeds directly to Quick Start with an email-confirmation banner. Measured results appear while action analysis is still running, then update automatically with up to three suggested actions. Results remain available with saved answer/citation evidence, without report assembly or editorial approval steps. Additional controls and ongoing monitoring require paid access for new free accounts. Existing free accounts keep their previous access until opting into Quick Start.
+
+A database claim, keyed by organisation rather than project, prevents a second free report even if the project is deleted. Starting/asking/thinking states prevent duplicate submissions. Provider failures remain missing evidence, never zero visibility. An interrupted report surfaces a support message rather than restarting paid requests automatically.
+
+Free scan provider planning allowance is about $0.70 at the current billing defaults (20 × ($0.02 + $0.015)); this is not the total cost. Question generation, classification, action preparation and retries may add costs. No subscription prices change in this release. Existing monthly usage limits remain a second spending backstop.
+
+Validation: `scripts/test-quick-start.js` exercises the actual browser script with API fixtures (signup entry, website discovery, question review, scan, report, evidence escaping, verification, returning accounts, and paid controls). `scripts/test-quick-start-store.js` executes the full schema and the actual question-save routes in PGlite, including cross-account isolation, duplicate claims and deletion persistence. Set JSDOM_MODULE and PGLITE_MODULE to installed modules, consistent with the repository's other integration tests.
+
+Deployment runs the existing migrate command. The upgrade uses a source/target schema hash and adds two boolean columns plus a small report claim table. No existing measurements or questions are rewritten.
+
+Revision validation: 33 focused UI/generation/regression checks and four database checks pass. The wider no-database suite reports 285 passing checks and the same nine pre-existing failures. The production browser audit is recorded separately in quick-start-ux-audit.md.

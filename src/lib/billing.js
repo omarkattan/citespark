@@ -116,10 +116,14 @@ export async function getEntitlements(orgId) {
     [orgId]
   );
 
+  const quickStartAccount = await one('SELECT quick_start_enabled FROM orgs WHERE id=$1',[orgId]);
+  const quickStartReport = await one('SELECT project_id,started_at,completed_at FROM quick_start_reports WHERE org_id=$1',[orgId]);
   const remaining = Math.max(0, plan.monthlyCalls - usage.calls);
   const budgetLeft = Math.max(0, (plan.monthlyBudgetUsd ?? Infinity) - usage.spend);
   return {
     plan,
+    quickStart: {enabled:Boolean(quickStartAccount?.quick_start_enabled), used:Boolean(quickStartReport), report:quickStartReport},
+    advanced: internal || plan.id !== 'free',
     status: sub.status,
     interval: sub.interval,
     cancelAtPeriodEnd: sub.cancel_at_period_end,
@@ -253,6 +257,7 @@ export async function budgetForCycle(orgId, { questions, engines, runs }) {
       entitlements: e
     };
   }
+  if (!e.advanced && e.quickStart.enabled && e.quickStart.used) return {ok:false,reason:'Your free Quick Start report has been used. Upgrade for repeat reports and ongoing monitoring.',entitlements:e};
   // Defensive, after a caller passed undefined and this line took the whole
   // request down. A budget check must degrade to "nothing allowed", never
   // throw: the throw turned a working feature into "something went wrong".

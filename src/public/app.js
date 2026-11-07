@@ -2239,6 +2239,7 @@ document.addEventListener('click', event => {
 });
 
 async function render() {
+  if(state.billing?.quickStart?.enabled && !state.billing.advanced && state.view!=='billing'){location.assign('/quick-start'+(state.projectId?'?site='+state.projectId:''));return;}
   clearTimeout(ga4RefreshPoll);
   const view = state.view;
   const projectId = state.projectId;
@@ -2477,6 +2478,14 @@ async function boot() {
     onAddSite: () => $('addSiteBtn').click()
   });
 
+  const entryBilling=await api('/api/billing');
+  state.billing=entryBilling;
+  const entryProjects=await api('/api/projects');
+  const requestedView=new URLSearchParams(location.search).get('view');
+  const entryProject=entryProjects?.find(p=>p.id===projectFromUrl())||entryProjects?.[0];
+  if(requestedView!=='billing' && ((!entryProjects?.length) || entryBilling?.quickStart?.enabled && !entryBilling?.advanced || entryProject?.quick_start && new URLSearchParams(location.search).get('mode')!=='advanced')){
+    location.replace('/quick-start'+(entryProject?'?site='+entryProject.id:''));return;
+  }
   await loadProjectList();
   await refreshUsagePill();
   showDemoHandoff();
@@ -5799,19 +5808,7 @@ function showCustomerSuggestions(values=[]){
 $('f_qualifier').addEventListener('input',syncCustomerSuggestions);
 $('f_domain').addEventListener('input',()=>showCustomerSuggestions());
 
-$('addSiteBtn').addEventListener('click', () => {
-  if(state.billing && !state.billing.internal && state.projects?.length >= state.billing.plan.sites){
-    showUpgrade(`This account already uses all ${state.billing.plan.sites} site slots. Switch account or choose a plan with more sites.`);return;
-  }
-  showCustomerSuggestions();
-  state.demoSetupDomain=null;
-  $('demoQuestionSelection')?.remove();
-  $('f_ambiguous').checked = false;
-  $('f_market').innerHTML = window.countryOptions(window.DEFAULT_COUNTRY);
-  $('siteDialog').showModal();
-  $('f_domain').focus();
-  fillCities(window.DEFAULT_COUNTRY, $('f_city'), $('f_cityHint'));
-});
+$('addSiteBtn').addEventListener('click', () => { location.assign('/quick-start?new=1'); });
 
 /**
  * Changing the country strands whatever city was chosen, so reload the list

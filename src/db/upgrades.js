@@ -26,3 +26,5 @@ export const schemaUpgrades=[{
  WHERE r.measurement_id IS DISTINCT FROM b.id`
   }]
 }];
+
+schemaUpgrades.push({"name": "Quick Start onboarding", "from": "941ece3b118d1518c0495a0daace6f2482d26d17cdd6a38b17093ab337d736a4", "to": "56769653484799cf4363bbf5ba00651a51e3366f116782dc7c4a627ce920b431", "steps": [{"name": "Quick Start account and report state", "sql": "\n-- Quick Start is opt-in for existing accounts and the default for new signups.\nALTER TABLE orgs ADD COLUMN IF NOT EXISTS quick_start_enabled BOOLEAN NOT NULL DEFAULT false;\nALTER TABLE projects ADD COLUMN IF NOT EXISTS quick_start BOOLEAN NOT NULL DEFAULT false;\nCREATE TABLE IF NOT EXISTS quick_start_reports (\n org_id INTEGER PRIMARY KEY REFERENCES orgs(id) ON DELETE CASCADE,\n project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,\n started_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n completed_at TIMESTAMPTZ\n);\n"}]});

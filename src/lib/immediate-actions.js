@@ -168,7 +168,8 @@ export async function attachImmediateActions(project,recs,cycle,{refresh=false,o
     const byPrompt=new Map(answers.map(a=>[Number(a.prompt_id),a]));
     for(const rec of candidates)if(!rec.evidence.prompt&&byPrompt.has(Number(rec.evidence.prompt_id)))rec.evidence={...rec.evidence,prompt:byPrompt.get(Number(rec.evidence.prompt_id)).question};
     for(const a of answers)if(![...recs,...cached,...candidates].some(r=>Number(r.evidence?.prompt_id)===Number(a.prompt_id))){const r={type:'answer_review',title:`Check the answer to: ${a.question}`,action:'Check the recorded brand description against approved information. Keep accurate content and record only a supported correction.',target_url:null,impact:0,effort:1,priority:0,evidence:{prompt_id:a.prompt_id,prompt:a.question,run_id:a.id}};if(eligible(r))candidates.push(r);}
-    const final=candidates;
+    const quickFree=project.quick_start && !(await (await import('./billing.js')).getEntitlements(project.org_id)).advanced;
+    const final=(quickFree || project.quick_start && !cached.length) ? candidates.slice(0,3) : candidates;
     const blocked=new Set();
     for(const rec of final){if(!QUESTION_ACTION_TYPES.includes(rec.type)||!rec.evidence?.prompt_id)continue;const a=byPrompt.get(Number(rec.evidence.prompt_id));
       if(a&&(!a.question||a.question===rec.evidence.prompt))continue;

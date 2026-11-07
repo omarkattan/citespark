@@ -161,9 +161,9 @@ Write ${count} questions this buyer would ask an AI assistant about "${topic}".`
     .slice(0, count);
 }
 
-export async function generatePrompts({ brand, domain, category, market = 'the UK', qualifier = 'customers looking for this offering', count = 20, language = 'en' }, {completeText = complete} = {}) {
+export async function generatePrompts({ brand, domain, category, market = 'the UK', qualifier = 'customers looking for this offering', count = 20, language = 'en', quickStart = false }, {completeText = complete} = {}) {
   count=Math.min(30,Math.max(1,Math.floor(Number(count)||20)));
-  const system = `${languageRule(language)}\n\n${SYSTEM}`;
+  const system = `${languageRule(language)}\n\n${SYSTEM}${quickStart ? "\nFor this Quick Start set, override the broad education and W/cost coverage requirements above. Make at least 80% of questions ask which providers or products to shortlist, recommend or compare. Use distinct, supported buying needs, services and locations. Avoid general educational questions and repeated synonyms. Include price or service-scope criteria in buying questions only where relevant." : ""}`;
   const ask = `Current date: ${new Date().toISOString().slice(0, 10)}
 Current year: ${new Date().getUTCFullYear()}
 Business: ${brand} (${domain})
@@ -194,7 +194,7 @@ Write ${count} questions.`;
       ;
     };
     let suggestions = clean(parsed);
-    let coverage=baselineCoverage(suggestions.slice(0,count),count);
+    let coverage=quickStart ? {complete:suggestions.length>=count && suggestions.filter(p=>isProviderDiscovery(p.text)).length>=Math.ceil(count*.8),missing:[],discovery:suggestions.filter(p=>isProviderDiscovery(p.text)).length,minimumDiscovery:Math.ceil(count*.8)} : baselineCoverage(suggestions.slice(0,count),count);
     // A bounded repair asks for missing buyer needs, never silently invents
     // a full baseline or starts another measurement.
     if (!coverage.complete) {
@@ -204,6 +204,8 @@ Write ${count} questions.`;
     }
     if (suggestions.length) {
       const ordered=discoveryFirst(suggestions,{category,market,brand,domain,language,count:suggestions.length});
+      if(quickStart && ordered.filter(p=>isProviderDiscovery(p.text)).length<Math.ceil(count*.8))throw new Error('Buyer-shortlist questions could not be prepared. Please try again.');
+      if(quickStart) return ordered.filter(p=>isProviderDiscovery(p.text)).concat(ordered.filter(p=>!isProviderDiscovery(p.text))).slice(0,count);
       // Reserve the W/cost needs before filling remaining slots with discovery.
       const selected=[];
       const discovery=ordered.filter(p=>isProviderDiscovery(p.text));

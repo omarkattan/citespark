@@ -857,3 +857,13 @@ CREATE TABLE IF NOT EXISTS faq_workflow_history (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS content_jobs_one_active ON content_jobs(project_id,kind)
  WHERE status='running' AND kind IN ('brand_facts','faq_draft','faq_recheck');
+
+-- Quick Start is opt-in for existing accounts and the default for new signups.
+ALTER TABLE orgs ADD COLUMN IF NOT EXISTS quick_start_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS quick_start BOOLEAN NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS quick_start_reports (
+ org_id INTEGER PRIMARY KEY REFERENCES orgs(id) ON DELETE CASCADE,
+ project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+ started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ completed_at TIMESTAMPTZ
+);
