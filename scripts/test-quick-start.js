@@ -197,3 +197,11 @@ test('a duplicate returned during creation recovers the saved project',async()=>
  assert.equal(calls.some(([u])=>u.endsWith('/run')),false);
  dom.window.close();
 });
+
+test('saved report offers a direct PDF link without running another scan',async()=>{
+ const {dom,w,calls}=await fixture({used:true});
+ const link=w.document.getElementById('download-pdf');
+ assert.equal(link.getAttribute('href'),'/api/projects/1/quick-start/report.pdf');
+ assert.ok(link.hasAttribute('download'));
+ assert.equal(calls.some(([u])=>u.endsWith('/run')),false);dom.window.close();
+});
