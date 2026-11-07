@@ -1,3 +1,4 @@
+import {mountQuickStart, quickStartMutationAllowed} from './lib/quick-start.js';
 import {mountContentWorkflow} from './lib/content-workflow.js';
 import { createGa4Refresh } from './lib/ga4-refresh.js';
 import { measurementLocation } from './lib/measurement-location.js';
@@ -172,6 +173,13 @@ async function assertProject(req, res) {
   return project;
 }
 
+app.use('/api',wrap(async(req,res,next)=>{
+  if (!req.session?.orgId || !['POST','PATCH','DELETE'].includes(req.method) || quickStartMutationAllowed(req.method,req.path)) return next();
+  const e=await getEntitlements(req.session.orgId);
+  if(e.quickStart.enabled && !e.advanced)return res.status(402).json({error:'Upgrade for ongoing monitoring and advanced tools. Your Quick Start report and evidence remain available.',upgrade:true});
+  next();
+}));
+mountQuickStart(app,{requireAuth,assertProject,getEntitlements,query,one,many,pool});
 mountContentWorkflow(app,{requireAuth,assertProject});
 
 /* ---------------- auth ---------------- */
@@ -206,7 +214,7 @@ app.post('/api/register', wrap(async (req, res) => {
   const existing = await one('SELECT id FROM users WHERE email = $1', [address]);
   if (existing) return res.status(409).json({ error: 'That email is already registered' });
 
-  const org = await one('INSERT INTO orgs (name) VALUES ($1) RETURNING id', [orgName || address.split('@')[1]]);
+  const org = await one('INSERT INTO orgs (name,quick_start_enabled) VALUES ($1,true) RETURNING id', [orgName || address.split('@')[1]]);
   const hash = await bcrypt.hash(password, 10);
   const user = await one(
     "INSERT INTO users (org_id, email, password_hash, product_tour_status) VALUES ($1,$2,$3,'pending') RETURNING id, org_id",
@@ -362,7 +370,7 @@ app.post('/api/product-tour', requireAuth, wrap(async (req, res) => {
 
 app.get('/api/projects', requireAuth, wrap(async (req, res) => {
   const rows = await many(
-    'SELECT id, name, domain, brand_name FROM projects WHERE org_id = $1 ORDER BY id',
+    'SELECT id, name, domain, brand_name, quick_start FROM projects WHERE org_id = $1 ORDER BY id',
     [req.session.orgId]
   );
   res.json(rows);
@@ -1096,11 +1104,13 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
   const setupEntitlements=await getEntitlements(req.session.orgId);
   if(demoQuestions.length>setupEntitlements.plan.questions)return res.status(402).json({error:'The selected questions exceed your plan allowance.',upgrade:true});
 
-  const startingEngines = ENGINE_IDS.slice(0, (await getEntitlements(req.session.orgId)).plan.engines);
+  const quickStart = req.body?.quickStart === true || setupEntitlements.quickStart?.enabled;
+  if(quickStart && !setupEntitlements.advanced && setupEntitlements.quickStart?.used)return res.status(402).json({error:'Your free Quick Start report has been used. Upgrade to scan another business.',upgrade:true});
+  const startingEngines = quickStart ? ['chatgpt','perplexity'] : ENGINE_IDS.slice(0, setupEntitlements.plan.engines);
 
   const marketCode = String(market || '').trim().toUpperCase();
   const city = { name: String(locationName || '').trim() || null };
-  const location = await measurementLocation({ market: marketCode, location_name: city.name, engines: startingEngines }, { requireGoogle: true });
+  const location = await measurementLocation({ market: marketCode, location_name: city.name, engines: startingEngines }, { requireGoogle: !quickStart });
   if (!location.ok) return res.status(422).json(location);
 
   const project = await one(
@@ -1120,6 +1130,11 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
     ]
   );
 
+  if (quickStart) {
+    if(!setupEntitlements.advanced)await query('UPDATE orgs SET quick_start_enabled=true WHERE id=$1',[req.session.orgId]);
+    await query("UPDATE projects SET quick_start=true,runs_per_cycle=1,auto_cycle=false,language=$2,setup_step='questions' WHERE id=$1",[project.id,req.body.language==='ar'?'ar':'en']);
+    Object.assign(project,{quick_start:true,language:req.body.language==='ar'?'ar':'en',runs_per_cycle:1});
+  }
   await query(
     `INSERT INTO entities (project_id, name, domain, kind, aliases, ambiguous_name) VALUES ($1,$2,$3,'owned',$4,$5)
      ON CONFLICT (project_id, name) DO NOTHING`,
@@ -1146,7 +1161,7 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
   let questionGenerationWarning=null;
   if(generate !== false && remaining>0){
     try{
-      const prompts=await generatePrompts({brand:project.brand_name,domain:project.domain,category:project.category,market:MARKET_NAMES[project.market]||project.market,qualifier:project.qualifier,count:remaining});
+      const prompts=await generatePrompts({brand:project.brand_name,domain:project.domain,category:project.category,market:project.location_name||MARKET_NAMES[project.market]||project.market,qualifier:project.qualifier,count:remaining,language:project.language,quickStart});
       if(!baselineCoverage(prompts,remaining).complete)questionGenerationWarning=`Your site is saved. ${prompts.length} usable question suggestions were returned. Review them and add more relevant questions if needed.`;
       for(const p of prompts.slice(0,remaining)){
         const inserted=await query(`INSERT INTO prompts(project_id,text,cluster,intent,ai_search_volume) VALUES($1,$2,$3,$4,$5) ON CONFLICT(project_id,text) DO NOTHING`,[project.id,p.text,p.cluster,p.intent,p.ai_search_volume]);
@@ -1842,6 +1857,11 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
   if (!location.ok) return res.status(422).json(location);
 
 
+  const runEntitlements=await getEntitlements(req.session.orgId);
+  if(project.quick_start && !runEntitlements.advanced){
+    const count=await one('SELECT COUNT(*)::int AS n FROM prompts WHERE project_id=$1 AND active',[project.id]);
+    if(count.n!==20)return res.status(422).json({error:'Review and save 20 buyer questions before running Quick Start.'});
+  }
   const only = req.body?.only === 'unrun' ? 'unrun' : null;
 
   const active = await one(
@@ -1859,7 +1879,7 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
 
   if (!budget.ok) return res.status(402).json({ error: budget.reason, upgrade: true });
 
-  if (cycles.get(project.id)?.phase === 'asking' || cycles.get(project.id)?.phase === 'thinking') {
+  if (['starting','asking','thinking'].includes(cycles.get(project.id)?.phase)) {
     return res.status(409).json({ error: 'A cycle is already running for this site.' });
   }
 
@@ -1882,6 +1902,7 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
     }
   })
     .then((summary) => {
+      if(summary.blocked){cycles.set(project.id,{phase:'failed',error:summary.reason});return;}
       cycles.set(project.id, { phase: 'done', done: summary.runs, total: summary.runs, summary, finishedAt: Date.now() });
     })
     .catch((err) => {
@@ -3800,6 +3821,8 @@ for (const page of ['privacy', 'terms', 'about']) {
 }
 
 // The product itself.
+app.get('/quick-start', (req,res) => { if(!req.session?.userId)return res.redirect('/login');res.sendFile(path.join(publicDir,'quick-start.html')); });
+
 app.get('/app', (req, res) => {
   if (!req.session?.userId) return res.redirect('/login');
   res.setHeader('Cache-Control', 'no-cache');

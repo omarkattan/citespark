@@ -54,19 +54,19 @@ export const PLANS = {
     name: 'Free',
     price: 0,
     priceAnnual: 0,
-    blurb: 'See where you stand on one domain.',
+    blurb: 'Your first AI visibility report, free. No card required.',
     sites: 1,
-    questions: 10,
-    engines: 1,
+    questions: 20,
+    engines: 2,
     runs: 1,
     cadence: 'manual',
     monthlyCalls: 40,
     monthlyBudgetUsd: 1.5,
     features: [
-      '1 site, 10 questions',
-      'ChatGPT only, 1 run per question',
-      'Run by hand whenever you like',
-      'Full action list, nothing held back'
+      '1 site, 20 suggested buyer questions',
+      'ChatGPT and Perplexity, one initial scan',
+      'Saved report with answers and citations',
+      'Three suggested next actions'
     ]
   },
   starter: {

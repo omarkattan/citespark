@@ -1,0 +1,151 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import {createRequire} from 'node:module';
+import {validateQuickQuestions,quickStartMutationAllowed} from '../src/lib/quick-start.js';
+import {generatePrompts,isProviderDiscovery} from '../src/lib/prompts.js';
+import {PLANS} from '../src/lib/plans.js';
+const require=createRequire(import.meta.url);
+const {JSDOM}=require(process.env.JSDOM_MODULE||'jsdom');
+const list=Array.from({length:20},(_,i)=>`Which providers offer service ${i+1} in Dubai?`);
+test('Quick Start requires 20 distinct questions',()=>{
+ assert.equal(validateQuickQuestions(list).length,20);
+ assert.throws(()=>validateQuickQuestions(list.slice(1)));
+ assert.throws(()=>validateQuickQuestions([...list.slice(1),list[1].toUpperCase()]));
+ assert.throws(()=>validateQuickQuestions([...list.slice(1),'']));
+});
+test('free controls allow signup, evidence preparation and checkout, but not paid mutations',()=>{
+ for(const path of ['/register','/login','/logout','/verify/resend','/billing/checkout','/projects/1/quick-start/questions','/projects/1/run'])assert.equal(quickStartMutationAllowed('POST',path),true,path);
+ for(const path of ['/projects/1/report/analyst','/projects/1/rebuild','/projects/1/personas/suggest','/prompts/1/reask','/run-all'])assert.equal(quickStartMutationAllowed('POST',path),false,path);
+ assert.equal(quickStartMutationAllowed('PATCH','/projects/1/models'),false);
+ assert.equal(PLANS.free.questions,20);assert.equal(PLANS.free.engines,2);assert.equal(PLANS.free.runs,1);
+});
+const html=fs.readFileSync(new URL('../src/public/quick-start.html',import.meta.url),'utf8');
+const js=fs.readFileSync(new URL('../src/public/quick-start.js',import.meta.url),'utf8');
+const settle=()=>new Promise(r=>setImmediate(r));
+async function fixture({verified=true,used=false,advanced=false,failRun=false,thinking=false,incomplete=false,failDiscovery=false,failSuggestions=false}={}){
+ const dom=new JSDOM(html,{url:'https://cited.ae/quick-start',runScripts:'outside-only'});
+ const w=dom.window,calls=[];let created=used,ran=used,savedQuestions=incomplete?list.slice(0,15):list;
+ w.countryOptions=()=>'<option value="AE">United Arab Emirates</option>';w.DEFAULT_COUNTRY='AE';w.print=()=>{};
+ const project={id:1,brand_name:'Example',domain:'example.com',category:'accountants',market:'AE',quick_start:true};
+ const billing={advanced,quickStart:{enabled:true,used},plan:{id:advanced?'starter':'free'}};
+ w.fetch=async(url,opts={})=>{
+  calls.push([url,opts.body&&JSON.parse(opts.body)]);let data,status=200;
+  if(url==='/api/me')data={signedIn:true,emailVerified:verified};
+  else if(url==='/api/billing')data=billing;
+  else if(url==='/api/projects'&&!opts.method)data=created?[project]:[];
+  else if(url==='/api/projects'){created=true;data={project};}
+  else if(url==='/api/discover'){if(failDiscovery){status=503;data={error:'Unavailable'};}else data={domain:'example.com',brandName:'Example',category:'accountants',market:'AE'};}
+  else if(url.endsWith('/quick-start'))data={project,billing,questions:savedQuestions.map((text,id)=>({text,id:id+1})),claim:ran?{}:null,measurement:ran?{status:'completed'}:null};
+  else if(url.endsWith('/quick-start/questions')){savedQuestions=JSON.parse(opts.body).questions;data={ok:true};}
+  else if(url.endsWith('/quick-start/suggestions')){data={questions:failSuggestions?list.slice(0,17):list};}
+  else if(url.endsWith('/quick-start/profile')){Object.assign(project,{brand_name:JSON.parse(opts.body).brandName,category:JSON.parse(opts.body).category});data={ok:true};}
+  else if(url.endsWith('/run')){if(failRun){status=402;data={error:'Your free report has already been used.'};}else{ran=true;data={ok:true};}}
+  else if(url.endsWith('/cycle-status'))data={phase:thinking?'thinking':'done'};
+  else if(url.endsWith('/overview'))data={project,cycle:'2026-11-07',visibility:.5,runs:40,engines:[{engine:'chatgpt',rate:.5,runs:20}],competitors:[]};
+  else if(url.endsWith('/prompts'))data=list.map((text,id)=>({id:id+1,text,runs:[{mentioned:true,cited:true}]}));
+  else if(url.includes('/recommendations?'))data={tasks:[]};
+  else if(url.endsWith('/competitor-review'))data={candidates:[]};
+  else if(url.endsWith('/answers'))data={runs:[{engine:'chatgpt',measured:true,mentioned:true,response_text:'Example <script>alert(1)</script>',citations:[{url:'javascript:alert(1)',domain:'unsafe'},{url:'https://example.com',domain:'example.com'}]}]};
+  else throw new Error('Unexpected request '+url);
+  return {status,ok:status===200,json:async()=>data};
+ };
+ await vm.runInContext(`(async()=>{${js}\n})()`,dom.getInternalVMContext());
+ return {dom,w,calls};
+}
+test('new account completes website → 20 questions → scan → evidence report',async()=>{
+ const {dom,w,calls}=await fixture();
+ w.document.getElementById('domain').value='example.com';
+ w.document.getElementById('setup').dispatchEvent(new w.Event('submit',{cancelable:true}));await settle();await settle();
+ assert.equal(w.document.getElementById('brand').value,'Example');
+ assert.equal(w.document.querySelector('#question-editor').open,false);
+ assert.equal(w.document.querySelector('#business-edit').hidden,true);
+ assert.equal(w.document.querySelectorAll('.question-samples li').length,3);
+ assert.equal(w.document.querySelectorAll('[data-question]').length,20);
+ w.document.getElementById('run').click();await settle();await settle();await settle();
+ assert.match(w.document.getElementById('content').textContent,/Your Quick Start report/);
+ assert.equal(calls.filter(([u])=>u.endsWith('/run')).length,1);
+ assert.equal(calls.find(([u])=>u.endsWith('/quick-start/questions'))[1].questions.length,20);
+ const evidence=w.document.querySelector('[data-evidence]');evidence.open=true;evidence.dispatchEvent(new w.Event('toggle'));await settle();
+ assert.equal(evidence.querySelector('script'),null);
+ assert.equal(evidence.querySelector('a[href^="javascript:"]'),null);
+ assert.match(evidence.textContent,/<script>/);
+ dom.window.close();
+});
+test('unverified account can prepare questions but cannot start the scan',async()=>{
+ const {dom,w,calls}=await fixture({verified:false});
+ w.document.getElementById('domain').value='example.com';
+ w.document.getElementById('setup').dispatchEvent(new w.Event('submit',{cancelable:true}));await settle();await settle();
+ w.document.getElementById('run').click();await settle();
+ assert.equal(calls.some(([u])=>u.endsWith('/run')),false);
+ assert.match(w.document.getElementById('error').textContent,/Confirm your email/);dom.window.close();
+});
+test('returning free account opens saved report, no automatic repeat charge',async()=>{
+ const {dom,w,calls}=await fixture({used:true});
+ assert.match(w.document.getElementById('content').textContent,/Your Quick Start report/);
+ assert.equal(calls.some(([u])=>u.endsWith('/run')),false);
+ assert.equal(w.document.querySelector('a[href*="mode=advanced"]'),null);dom.window.close();
+});
+test('paid account keeps the same simple report and can open advanced controls',async()=>{
+ const {dom,w}=await fixture({used:true,advanced:true});
+ assert.ok(w.document.querySelector('a[href*="mode=advanced"]'));dom.window.close();
+});
+
+test('incomplete suggestions are completed automatically without manual question fields',async()=>{
+ const {dom,w,calls}=await fixture({incomplete:true});
+ w.document.getElementById('domain').value='example.com';
+ w.document.getElementById('setup').dispatchEvent(new w.Event('submit',{cancelable:true}));
+ await settle();await settle();await settle();
+ assert.equal(w.document.querySelectorAll('[data-question]').length,20);
+ assert.equal(calls.filter(([u])=>u.endsWith('/quick-start/suggestions')).length,1);
+ assert.equal(calls.some(([u])=>u.endsWith('/run')),false);
+ dom.window.close();
+});
+test('failed automatic question preparation offers retry and never spends on a scan',async()=>{
+ const {dom,w,calls}=await fixture({incomplete:true,failSuggestions:true});
+ w.document.getElementById('domain').value='example.com';
+ w.document.getElementById('setup').dispatchEvent(new w.Event('submit',{cancelable:true}));
+ await settle();await settle();
+ assert.ok(w.document.getElementById('retry-questions'));
+ assert.equal(w.document.querySelector('[data-question]'),null);
+ assert.equal(calls.some(([u])=>u.endsWith('/run')),false);
+ dom.window.close();
+});
+test('saved results appear while action analysis runs, without restarting the scan',async()=>{
+ const {dom,w,calls}=await fixture({used:true,thinking:true});
+ assert.match(w.document.getElementById('content').textContent,/Your results are ready/);
+ assert.match(w.document.getElementById('content').textContent,/appear here automatically/);
+ assert.equal(calls.some(([u])=>u.endsWith('/run')),false);
+ dom.window.close();
+});
+test('unreadable website allows a concise manual fallback',async()=>{
+ const {dom,w,calls}=await fixture({failDiscovery:true});
+ w.document.getElementById('domain').value='example.com';
+ w.document.getElementById('setup').dispatchEvent(new w.Event('submit',{cancelable:true}));await settle();
+ assert.ok(w.document.getElementById('manual'));
+ assert.equal(calls.some(([u,b])=>u==='/api/projects'&&b),false);
+ dom.window.close();
+});
+test('declined run leaves the report button usable without a second run request',async()=>{
+ const {dom,w,calls}=await fixture({failRun:true});
+ w.document.getElementById('domain').value='example.com';
+ w.document.getElementById('setup').dispatchEvent(new w.Event('submit',{cancelable:true}));await settle();await settle();
+ w.document.getElementById('run').click();await settle();await settle();
+ assert.match(w.document.getElementById('error').textContent,/already been used/);
+ assert.equal(w.document.getElementById('run').disabled,false);
+ assert.equal(calls.filter(([u])=>u.endsWith('/run')).length,1);
+ dom.window.close();
+});
+
+test('Quick Start generation prioritises provider selection without mandatory education questions',async()=>{
+ const qs=list.map(text=>({text,cluster:'discovery',intent:'discovery'}));
+ let system;
+ const result=await generatePrompts({brand:'Example',domain:'example.com',category:'accountants',market:'Dubai',count:20,quickStart:true},{completeText:async(_,options)=>{system=options.system;return JSON.stringify(qs);}});
+ assert.equal(result.length,20);assert.ok(result.every(p=>isProviderDiscovery(p.text)));
+ assert.match(system,/at least 80%/);
+});
+test('Quick Start does not accept an educational question set after failed repair',async()=>{
+ const qs=Array.from({length:20},(_,i)=>({text:`How can I learn accounting topic ${i+1}?`,cluster:'education',intent:'problem'}));
+ await assert.rejects(generatePrompts({brand:'Example',domain:'example.com',category:'accountants',market:'Dubai',count:20,quickStart:true},{completeText:async()=>JSON.stringify(qs)}),/Buyer-shortlist/);
+});

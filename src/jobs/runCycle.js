@@ -60,6 +60,8 @@ export async function runCycleForProject(projectId, options = {}) {
     return await collectProject(projectId, options, value => { batch = value; });
   } catch (err) {
     if (batch) await finishMeasurement(batch.id, 'failed');
+    await query(`DELETE FROM quick_start_reports q WHERE q.project_id=$1 AND q.completed_at IS NULL
+      AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.project_id=q.project_id AND r.created_at>=q.started_at)`,[projectId]).catch(()=>{});
     throw err;
   } finally { await release(); }
 }
@@ -241,6 +243,10 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
       (MOCK ? ' (MOCK MODE, no spend)' : '')
   );
 
+  if (!budget.entitlements.advanced && budget.entitlements.quickStart.enabled) {
+    const claim=await one(`INSERT INTO quick_start_reports(org_id,project_id) VALUES($1,$2) ON CONFLICT(org_id) DO NOTHING RETURNING org_id`,[project.org_id,projectId]);
+    if(!claim)throw new Error('Your free Quick Start report has already started.');
+  }
   let spend = 0;
   let done = 0;
   let billable = 0;          // what we charge the customer's allowance for
@@ -545,6 +551,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
   console.log(
     `Done. ${done}/${jobs.length} usable runs (${billable} billed), $${spend.toFixed(4)} spent, ${recs.length} recommendations.`
   );
+  await query('UPDATE quick_start_reports SET completed_at=now() WHERE project_id=$1',[projectId]);
   report({ phase: 'done', summary });
   return summary;
 }
