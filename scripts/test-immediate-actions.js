@@ -100,3 +100,10 @@ test('interrupted preparation resumes completed batches and retries failed analy
  const retry=await prepareActionPlans(project,multiRecs(),multiAnswers(),{cycle,pages,cached:out,generate:async p=>{calls++;assert.equal(JSON.parse(p).candidates.length,3);return packetDraft(p);}});
  assert.equal(calls,5);assert.ok(retry.every(r=>r.evidence.action_plan.generation==='page-grounded'));
 });
+
+test('initial shortlist filters source reviews and duplicate questions before applying its cap',()=>{
+ const questionActions=[rec(1,'Which providers are best?'),rec(2,'How much does it cost?'),rec(3,'Which products compare well?')];
+ const candidates=[...Array.from({length:4},()=>({type:'source_gap',evidence:{domain:'example.com'}})),questionActions[0],{...questionActions[0],type:'citable_asset'},...questionActions.slice(1)];
+ const chosen=selectActionCandidates(candidates,questionActions.map(r=>({prompt_id:r.evidence.prompt_id})),3);
+ assert.equal(chosen.length,3);assert.equal(new Set(chosen.map(r=>r.evidence.prompt_id)).size,3);assert.ok(chosen.every(r=>r.type==='content_gap'));
+});
