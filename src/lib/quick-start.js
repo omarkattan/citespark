@@ -79,7 +79,9 @@ export function mountQuickStart(app,{requireAuth,assertProject,getEntitlements,q
   const existing=await many('SELECT text FROM prompts WHERE project_id=$1 AND active',[project.id]);
   const used=await one('SELECT 1 FROM quick_start_reports WHERE org_id=$1',[req.session.orgId]);
   if(used||!project.quick_start||existing.length>=20)return res.status(409).json({error:'Review your saved questions. Additional suggestions are only needed for an incomplete initial set.'});
-  const suggestions=await generate({brand:project.brand_name,domain:project.domain,category:project.category,market:project.location_name||new Intl.DisplayNames(['en'],{type:'region'}).of(project.market),qualifier:project.qualifier,language:project.language,count:20,quickStart:true});
+  let suggestions;
+  try { suggestions=await generate({brand:project.brand_name,domain:project.domain,category:project.category,market:project.location_name||new Intl.DisplayNames(['en'],{type:'region'}).of(project.market),qualifier:project.qualifier,language:project.language,count:20,quickStart:true}); }
+  catch(e){return res.status(503).json({error:/Buyer-shortlist/.test(e.message)?'We could not prepare enough buyer-shortlist questions. Please try again. Your business is saved.':'Question preparation is temporarily unavailable. Please try again. Your business is saved.'});}
   const key=text=>text.normalize('NFKC').toLowerCase().replace(/[?؟.!\s]+$/gu,'');
   const seen=new Set(existing.map(p=>key(p.text)));
   const fresh=suggestions.filter(p=>{const k=key(p.text);if(seen.has(k))return false;seen.add(k);return true;});

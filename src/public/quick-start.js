@@ -27,7 +27,7 @@ function setup(){
   if(!d.brandName||!d.category){manualBusiness(d.domain||domain,d);return;}
   $('discover').textContent='Preparing your questions…';
   await createProject({domain:d.domain||domain,brandName:d.brandName,category:d.category,market:d.market||window.DEFAULT_COUNTRY,language:'en',qualifier:(d.customerSuggestions||[]).join('; ')||d.qualifier||''});
- }).finally(()=>{if($('discover'))$('discover').textContent='Continue';});};
+ }).finally(()=>{if($('discover')){$('discover').textContent='Continue';$('discovery-note').textContent='Your website is ready to try again.';}});};
 }
 function manualBusiness(domain,d={}){
  $('content').innerHTML=`<h1>Tell us a little about your business.</h1><p>We couldn’t read enough from ${esc(domain)}. Add the details below so we can prepare useful questions.</p><form id="manual" class="panel">${businessFields({brand_name:d.brandName,category:d.category,market:d.market})}<button id="prepare" type="submit">Prepare my questions</button></form>`;

@@ -149,3 +149,7 @@ test('Quick Start does not accept an educational question set after failed repai
  const qs=Array.from({length:20},(_,i)=>({text:`How can I learn accounting topic ${i+1}?`,cluster:'education',intent:'problem'}));
  await assert.rejects(generatePrompts({brand:'Example',domain:'example.com',category:'accountants',market:'Dubai',count:20,quickStart:true},{completeText:async()=>JSON.stringify(qs)}),/Buyer-shortlist/);
 });
+
+test('software and Arabic product shortlist questions count as provider discovery',()=>{
+ for(const question of ['Which SEO gap analysis tools work with Ahrefs data?','Which platforms compare competitor keyword coverage?','Which software suits agencies with several clients?','أي أدوات تحليل فجوات الكلمات المفتاحية تناسب الوكالات؟'])assert.equal(isProviderDiscovery(question),true,question);
+});

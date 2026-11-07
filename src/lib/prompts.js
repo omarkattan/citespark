@@ -61,8 +61,8 @@ export function isProviderDiscovery(text) {
   const value=String(text||'').toLowerCase().trim();
   if (/^(?:how|what) (?:can|should|do|would) i (?:choose|find|select|compare|check)|^(?:كيف|ما الذي)\s/u.test(value)) return false;
   return /\b(?:best|top[- ]rated|recommend|shortlist|worth considering)\b|أفضل|افضل|ترشح|تنصح|توصي/u.test(value)
-    || /^(?:who|which|where)\b.*\b(?:provide|providers?|offer|garages?|shops?|centres?|centers?|banks?|agencies|companies|buy|book|find|get|specialis|specializ)/u.test(value)
-    || /^(?:من|أي|اي|أين|اين)\s.*(?:يقدم|يوفر|ورش|مراكز|شركات|بنوك|وكالات|شراء|أشتري|اشتري|أحجز|احجز|أجد|اجد)/u.test(value);
+    || /^(?:who|which|where)\b.*\b(?:provide|providers?|offer|garages?|shops?|centres?|centers?|banks?|agencies|companies|tools?|platforms?|software|products?|services?|buy|book|find|get|specialis|specializ)/u.test(value)
+    || /^(?:من|أي|اي|أين|اين)\s.*(?:يقدم|يوفر|ورش|مراكز|شركات|بنوك|وكالات|أدوات|ادوات|منصات|برامج|منتجات|شراء|أشتري|اشتري|أحجز|احجز|أجد|اجد)/u.test(value);
 }
 
 /** Wording coverage, not a claim of service relevance or measured demand. */
