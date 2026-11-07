@@ -24,7 +24,7 @@ test('free controls allow signup, evidence preparation and checkout, but not pai
 const html=fs.readFileSync(new URL('../src/public/quick-start.html',import.meta.url),'utf8');
 const js=fs.readFileSync(new URL('../src/public/quick-start.js',import.meta.url),'utf8');
 const settle=()=>new Promise(r=>setImmediate(r));
-async function fixture({verified=true,used=false,advanced=false,failRun=false,thinking=false,incomplete=false,failDiscovery=false,failSuggestions=false}={}){
+async function fixture({verified=true,used=false,advanced=false,failRun=false,thinking=false,incomplete=false,failDiscovery=false,failSuggestions=false,guidedCheck=false}={}){
  const dom=new JSDOM(html,{url:'https://cited.ae/quick-start',runScripts:'outside-only'});
  const w=dom.window,calls=[];let created=used,ran=used,savedQuestions=incomplete?list.slice(0,15):list;
  w.countryOptions=()=>'<option value="AE">United Arab Emirates</option>';w.DEFAULT_COUNTRY='AE';w.print=()=>{};
@@ -45,7 +45,7 @@ async function fixture({verified=true,used=false,advanced=false,failRun=false,th
   else if(url.endsWith('/cycle-status'))data={phase:thinking?'thinking':'done'};
   else if(url.endsWith('/overview'))data={project,cycle:'2026-11-07',visibility:.5,runs:40,engines:[{engine:'chatgpt',rate:.5,runs:20}],competitors:[]};
   else if(url.endsWith('/prompts'))data=list.map((text,id)=>({id:id+1,text,runs:[{mentioned:true,cited:true}]}));
-  else if(url.includes('/recommendations?'))data={tasks:[]};
+  else if(url.includes('/recommendations?'))data={tasks:guidedCheck?[{title:'Check the relevant page',evidence:{action_plan:{generation:'guided-check',title:'Check the relevant page',change:'Review this question against the page.'}}}]:[]};
   else if(url.endsWith('/competitor-review'))data={candidates:[]};
   else if(url.endsWith('/answers'))data={runs:[{engine:'chatgpt',measured:true,mentioned:true,response_text:'Example <script>alert(1)</script>',citations:[{url:'javascript:alert(1)',domain:'unsafe'},{url:'https://example.com',domain:'example.com'}]}]};
   else throw new Error('Unexpected request '+url);
@@ -152,4 +152,11 @@ test('Quick Start does not accept an educational question set after failed repai
 
 test('software and Arabic product shortlist questions count as provider discovery',()=>{
  for(const question of ['Which SEO gap analysis tools work with Ahrefs data?','Which platforms compare competitor keyword coverage?','Which software suits agencies with several clients?','أي أدوات تحليل فجوات الكلمات المفتاحية تناسب الوكالات؟'])assert.equal(isProviderDiscovery(question),true,question);
+});
+
+test('unverified website checks are distinguished from grounded content recommendations',async()=>{
+ const {dom,w}=await fixture({used:true,guidedCheck:true});
+ assert.match(w.document.getElementById('content').textContent,/Website verification is incomplete/);
+ assert.match(w.document.getElementById('content').textContent,/not a confirmed content gap/);
+ dom.window.close();
 });
