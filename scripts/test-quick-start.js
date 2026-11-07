@@ -79,7 +79,17 @@ test('unverified account can prepare questions but cannot start the scan',async(
  w.document.getElementById('setup').dispatchEvent(new w.Event('submit',{cancelable:true}));await settle();await settle();
  w.document.getElementById('run').click();await settle();
  assert.equal(calls.some(([u])=>u.endsWith('/run')),false);
- assert.match(w.document.getElementById('error').textContent,/Confirm your email/);dom.window.close();
+ const notice=w.document.getElementById('run-verify'),error=w.document.getElementById('run-error');
+ assert.equal(notice.hidden,false);
+ assert.ok(notice.closest('#ready'));
+ assert.ok(notice.querySelector('#resend'));
+ assert.match(error.textContent,/Confirm your email/);
+ assert.equal(error.hidden,false);
+ assert.equal(w.document.activeElement,error);
+ assert.equal(w.document.querySelectorAll('#resend').length,1);
+ assert.equal(w.document.querySelectorAll('[data-question]').length,20);
+ assert.equal(w.document.getElementById('run').disabled,false);
+ dom.window.close();
 });
 test('returning free account opens saved report, no automatic repeat charge',async()=>{
  const {dom,w,calls}=await fixture({used:true});
