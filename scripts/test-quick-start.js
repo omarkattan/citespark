@@ -205,3 +205,32 @@ test('saved report offers a direct PDF link without running another scan',async(
  assert.ok(link.hasAttribute('download'));
  assert.equal(calls.some(([u])=>u.endsWith('/run')),false);dom.window.close();
 });
+
+
+test('wallet and payment app buyer questions pass discovery checks in English and Arabic',()=>{
+ for(const q of [
+ 'Which apps can I use to send money internationally from the UAE?',
+ 'Which digital wallets support bill payments in Dubai?',
+ 'Which prepaid cards work for online shopping in the UAE?',
+ 'Which mobile applications support remittances from Dubai?',
+ 'أي تطبيقات تدعم إرسال الأموال من الإمارات؟',
+ 'أي محافظ رقمية تدعم دفع الفواتير في دبي؟',
+ 'أي بطاقات مسبقة الدفع تناسب التسوق عبر الإنترنت؟'
+ ])assert.equal(isProviderDiscovery(q),true,q);
+ for(const q of ['How can I send money to the Philippines from Dubai?','What is a digital wallet?','How do I choose a payment app?','كيف أرسل الأموال من الإمارات؟'])assert.equal(isProviderDiscovery(q),false,q);
+});
+test('Quick Start accepts a full payment-app shortlist without an unnecessary repair',async()=>{
+ const needs=['international transfers','local transfers','bill payments','mobile top-ups','online shopping','cashback','QR payments','salary payments','prepaid cards','budget tracking','merchant payments','recurring payments','transaction alerts','low transfer fees','multiple currencies','cash deposits','ATM withdrawals','payment requests','contactless purchases','family remittances'];
+ const qs=needs.map(need=>({text:`Which apps support ${need} in the UAE?`,intent:'discovery'}));let calls=0;
+ const result=await generatePrompts({brand:'Payit',domain:'payit.ae',category:'digital wallet',market:'UAE',count:20,quickStart:true},{completeText:async()=>{calls++;return JSON.stringify(qs);}});
+ assert.equal(result.length,20);assert.equal(calls,1);assert.ok(result.every(p=>isProviderDiscovery(p.text)));
+});
+test('Quick Start repair explicitly requests provider-selection wording and preserves supported needs',async()=>{
+ let calls=0;
+ const result=await generatePrompts({brand:'Payit',domain:'payit.ae',category:'digital wallet',market:'UAE',count:20,quickStart:true},{completeText:async prompt=>{
+  calls++;if(calls===1)return JSON.stringify(Array.from({length:20},(_,i)=>({text:`How can I learn payment topic ${i+1}?`} )));
+  assert.match(prompt,/direct provider or product selection/);assert.match(prompt,/Preserve supported services/);
+  return JSON.stringify(list.map(text=>({text})));
+ }});
+ assert.equal(result.length,20);assert.equal(calls,2);
+});

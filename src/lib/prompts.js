@@ -61,8 +61,8 @@ export function isProviderDiscovery(text) {
   const value=String(text||'').toLowerCase().trim();
   if (/^(?:how|what) (?:can|should|do|would) i (?:choose|find|select|compare|check)|^(?:كيف|ما الذي)\s/u.test(value)) return false;
   return /\b(?:best|top[- ]rated|recommend|shortlist|worth considering)\b|أفضل|افضل|ترشح|تنصح|توصي/u.test(value)
-    || /^(?:who|which|where)\b.*\b(?:provide|providers?|offer|garages?|shops?|centres?|centers?|banks?|agencies|companies|tools?|platforms?|software|products?|services?|buy|book|find|get|specialis|specializ)/u.test(value)
-    || /^(?:من|أي|اي|أين|اين)\s.*(?:يقدم|يوفر|ورش|مراكز|شركات|بنوك|وكالات|أدوات|ادوات|منصات|برامج|منتجات|شراء|أشتري|اشتري|أحجز|احجز|أجد|اجد)/u.test(value);
+    || /^(?:who|which|where)\b.*\b(?:provide|providers?|offer|garages?|shops?|centres?|centers?|banks?|agencies|companies|tools?|platforms?|software|apps?|applications?|wallets?|accounts?|cards?|products?|services?|buy|book|find|get|specialis|specializ)/u.test(value)
+    || /^(?:من|أي|اي|أين|اين)\s.*(?:يقدم|يوفر|ورش|مراكز|شركات|بنوك|وكالات|أدوات|ادوات|منصات|برامج|تطبيقات|تطبيق|محافظ|محفظة|حسابات|بطاقات|منتجات|شراء|أشتري|اشتري|أحجز|احجز|أجد|اجد)/u.test(value);
 }
 
 /** Wording coverage, not a claim of service relevance or measured demand. */
@@ -199,7 +199,7 @@ Write ${count} questions.`;
     // a full baseline or starts another measurement.
     if (!coverage.complete) {
       let extra;
-      try { extra=await completeText(`${ask}\n\nReview these existing suggestions: ${JSON.stringify(suggestions)}\nMissing buyer needs: ${coverage.missing.join(', ')||'none'}. Current provider-discovery questions: ${coverage.discovery}, required: ${coverage.minimumDiscovery}. Write up to ${count} additional, distinct questions to fill the gaps and reach ${count} usable questions. Keep to explicitly supported services and translate category/location naturally for Arabic.`,{system,maxTokens:Math.min(6000,count*180),timeoutMs:45000}); } catch { /* Keep usable suggestions and surface incomplete coverage. */ }
+      try { extra=await completeText(`${ask}\n\nReview these existing suggestions: ${JSON.stringify(suggestions)}\n${quickStart ? 'The final set needs at least '+Math.ceil(count*.8)+' direct provider or product selection questions. Rephrase relevant suggestions that ask how to do something into which apps, wallets, providers or products meet that same need. Preserve supported services, location and customer requirements. Use natural questions such as Which apps support [need] in [market]? or Who would you recommend for [service] in [market]? Do not repeat existing questions or invent product capabilities. Return additional questions, not answers.' : 'Missing buyer needs: '+(coverage.missing.join(', ')||'none')+'.'} Current provider-discovery questions: ${coverage.discovery}, required: ${coverage.minimumDiscovery}. Write up to ${count} additional, distinct questions to fill the gaps and reach ${count} usable questions. Keep to explicitly supported services and translate category/location naturally for Arabic.`,{system,maxTokens:Math.min(6000,count*180),timeoutMs:45000}); } catch { /* Keep usable suggestions and surface incomplete coverage. */ }
       suggestions=clean([...suggestions,...(parseJsonArray(extra)||[])]);
     }
     if (suggestions.length) {
