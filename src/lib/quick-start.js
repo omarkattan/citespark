@@ -5,7 +5,7 @@ export function quickStartMutationAllowed(method,path) {
   if (/^\/(?:login|logout|register|password\/(?:forgot|reset)|verify\/resend|product-tour|feedback|billing\/(?:checkout|portal)|demo\/[^/]+)$/.test(path)) return true;
   if(method==='POST' && ['/discover','/projects'].includes(path))return true;
   if(method==='DELETE' && /^\/projects\/\d+$/.test(path))return true;
-  return method==='POST' && /^\/projects\/\d+\/(?:run|quick-start\/(?:questions|suggestions|profile|assistant|competitors|preferences))$/.test(path);
+  return method==='POST' && /^\/projects\/\d+\/(?:run|quick-start\/(?:questions|suggestions|profile|assistant|competitors|competitor-suggestions|preferences))$/.test(path);
 }
 export function validateQuickQuestions(items) {
   if(!Array.isArray(items)||items.length!==20)throw new Error('Keep exactly 20 questions for your initial report.');

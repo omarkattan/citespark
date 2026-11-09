@@ -1,3 +1,4 @@
+import {discoverSite} from './discover.js';
 import {complete} from './anthropic.js';
 import {domainKey} from './competitor-review.js';
 import {canEmailOthers,notifyTo} from './notify.js';
@@ -20,13 +21,32 @@ export async function completionEmail(project,startedAt,{many,query,send=notifyT
   if(!sent)await query('UPDATE quick_start_preferences SET notified_at=NULL WHERE project_id=$1 AND user_id=$2',[project.id,person.user_id]);
  }
 }
-export function mountQuickControls(app,{requireAuth,assertProject,many,one,query,pool,validateQuestions,completeText=complete}){
+export function mountQuickControls(app,{requireAuth,assertProject,many,one,query,pool,validateQuestions,completeText=complete,discover=discoverSite}){
  const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(next);
  app.get('/api/projects/:id/quick-start/controls',requireAuth,wrap(async(req,res)=>{
   const project=await assertProject(req,res);if(!project)return;
   const preference=await one('SELECT email_when_done FROM quick_start_preferences WHERE project_id=$1 AND user_id=$2',[project.id,req.session.userId]);
   const entities=await many("SELECT name,domain FROM entities WHERE project_id=$1 AND kind='competitor' ORDER BY id",[project.id]);
   res.json({emailAvailable:canEmailOthers,emailWhenDone:!!preference?.email_when_done,competitors:project.quick_start_options?.competitors??entities,customCompetitors:Array.isArray(project.quick_start_options?.competitors)});
+ }));
+ app.post('/api/projects/:id/quick-start/competitor-suggestions',requireAuth,wrap(async(req,res)=>{
+  const project=await assertProject(req,res);if(!project)return;
+  const options=project.quick_start_options||{};
+  if(Array.isArray(options.competitors))return res.json({competitors:options.competitors});
+  if(Array.isArray(options.competitor_suggestions))return res.json({competitors:options.competitor_suggestions});
+  const tracked=await many("SELECT name,domain FROM entities WHERE project_id=$1 AND kind='competitor' ORDER BY id",[project.id]);
+  if(tracked.length)return res.json({competitors:tracked});
+  // Reserve one discovery attempt per project per ten minutes, including concurrent tabs.
+  const reserved=await one(`UPDATE projects SET quick_start_options=jsonb_set(quick_start_options,'{competitor_suggestions_requested_at}',to_jsonb(now()::text))
+    WHERE id=$1 AND (quick_start_options->>'competitor_suggestions_requested_at' IS NULL
+    OR (quick_start_options->>'competitor_suggestions_requested_at')::timestamptz < now()-interval '10 minutes') RETURNING id`,[project.id]);
+  if(!reserved)return res.json({competitors:[],message:'Competitor suggestions are being prepared or were recently attempted. You can add your own or try again later.'});
+  let items=[];
+  try{const found=await discover(project.domain);items=cleanCompetitors(found.competitors||[]).filter(c=>c.domain!==domainKey(project.domain)&&c.name.toLowerCase()!==String(project.brand_name).toLowerCase());}
+  catch{return res.status(503).json({error:'Competitor suggestions are temporarily unavailable. You can add competitors manually.'});}
+  // Suggestions are a draft. Do not overwrite an edited list or create tracked entities here.
+  if(items.length)await query("UPDATE projects SET quick_start_options=jsonb_set(quick_start_options,'{competitor_suggestions}',$2::jsonb) WHERE id=$1 AND NOT (quick_start_options ? 'competitors')",[project.id,JSON.stringify(items)]);
+  res.json({competitors:items,message:items.length?'Suggested direct competitors. Please review their relevance.':'No confident direct competitors were found. You can add the companies you know.'});
  }));
  app.post('/api/projects/:id/quick-start/preferences',requireAuth,wrap(async(req,res)=>{
   const project=await assertProject(req,res);if(!project)return;

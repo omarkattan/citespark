@@ -21,8 +21,8 @@ test('competitor validation rejects duplicate names and excessive lists',()=>{
  assert.throws(()=>cleanCompetitors([{name:'Example'},{name:'example'}]));assert.throws(()=>cleanCompetitors(Array(16).fill({name:'x'})));
  assert.equal(cleanCompetitors([{name:'Other',domain:'https://www.other.com/'}])[0].domain,'other.com');
 });
-const routes=new Map();let aiCalls=0;
-mountQuickControls({get:(p,...h)=>routes.set(p,h.at(-1)),post:(p,...h)=>routes.set(p,h.at(-1))},{requireAuth:()=>{},assertProject:async(req,res)=>{if(req.session.orgId!==1){res.status(404).json({error:'Not found'});return null;}return one('SELECT * FROM projects WHERE id=1');},many,one,query,pool:{connect:async()=>({query,release(){}})},validateQuestions:validateQuickQuestions,completeText:async()=>{aiCalls++;return JSON.stringify({items:Array.from({length:20},(_,i)=>`Who offers service ${i+1} in Dubai?`)});}});
+const routes=new Map();let aiCalls=0,discoverCalls=0;
+mountQuickControls({get:(p,...h)=>routes.set(p,h.at(-1)),post:(p,...h)=>routes.set(p,h.at(-1))},{requireAuth:()=>{},assertProject:async(req,res)=>{if(req.session.orgId!==1){res.status(404).json({error:'Not found'});return null;}return one('SELECT * FROM projects WHERE id=1');},many,one,query,pool:{connect:async()=>({query,release(){}})},discover:async()=>{discoverCalls++;return {competitors:[{name:'Other agency',domain:'otheragency.com'}]};},validateQuestions:validateQuickQuestions,completeText:async()=>{aiCalls++;return JSON.stringify({items:Array.from({length:20},(_,i)=>`Who offers service ${i+1} in Dubai?`)});}});
 async function request(tail,body,orgId=1){const res={code:200,status(c){this.code=c;return this;},json(b){this.body=b;}};await routes.get('/api/projects/:id/quick-start/'+tail)({params:{id:1},session:{userId:1,orgId},body},res,e=>{throw e;});return res;}
 test('AI returns a preview without altering questions and refuses cross-tenant access',async()=>{
  const body={scope:'questions',instruction:'Focus on Dubai',items:Array.from({length:20},(_,i)=>`Who offers service ${i+1} in UAE?`)};
@@ -44,4 +44,13 @@ test('future scans exclude removed competitors while retaining owned entities',(
  const entities=[{name:'Our brand',kind:'owned'},{name:'Clutch',kind:'competitor'},{name:'Agency',kind:'competitor'}];
  assert.deepEqual(selectedEntities({quick_start_options:{competitors:[{name:'agency'}]}},entities).map(e=>e.name),['Our brand','Agency']);
  assert.equal(selectedEntities({},entities).length,3);
+});
+
+test('competitor discovery is tenant scoped, cached and remains a draft',async()=>{
+ assert.equal((await request('competitor-suggestions',{},2)).code,404);assert.equal(discoverCalls,0);
+ const first=await request('competitor-suggestions',{});assert.equal(first.body.competitors[0].name,'Other agency');
+ await request('competitor-suggestions',{});assert.equal(discoverCalls,1);
+ assert.equal((await one("SELECT count(*)::int AS n FROM entities WHERE kind='competitor'")).n,0);
+ await query("UPDATE projects SET quick_start_options=jsonb_set(quick_start_options,'{competitors}','[]'::jsonb) WHERE id=1");
+ assert.deepEqual((await request('competitor-suggestions',{})).body.competitors,[]);assert.equal(discoverCalls,1);
 });

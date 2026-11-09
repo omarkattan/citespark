@@ -115,3 +115,16 @@ test('failed overview reads give an actionable retry instead of a permanent Load
  await f.ctx.loadProject(39);assert.match(f.w.document.getElementById('brandTitle').textContent,/could not be loaded/);assert.ok(f.w.document.querySelector('[data-retry-project]'));assert.equal(f.w.document.querySelector('img'),null);
  f.w.document.querySelector('[data-retry-project]').click();await settle();assert.equal(reads,2);assert.equal(f.w.document.getElementById('brandTitle').textContent,'SkinCycles');assert.equal(f.state.view,'reportGuide');f.close();
 });
+
+test('opening billing does not resume the setup guide or redirect free users',async()=>{
+ const f=fixture({refreshRunScope:()=>{},renderFigures:async()=>{},shortDate:()=>'',api:async path=>path.endsWith('/overview')?{cycle:'2026-11-09',runs:40,project:{name:'Example',brand_name:'Example'}}:{step:'report'}});
+ f.state.projectId=null;f.state.view='billing';
+ vm.runInContext(app.slice(app.indexOf('async function loadProject(id)'),app.indexOf('async function loadProjectList(')),f.ctx);
+ await f.ctx.loadProject(39);assert.equal(f.state.view,'billing');f.close();
+});
+test('billing deep link selects billing before project loading for free accounts',async()=>{
+ const state={view:'overview'},redirects=[],renders=[];
+ const ctx=vm.createContext({URL,URLSearchParams,state,location:{href:'https://cited.ae/app?view=billing&site=39',search:'?view=billing&site=39',replace:x=>redirects.push(x)},window:{},$:()=>null,handleGoogleReturn:()=>null,showVerifyBar:()=>{},projectFromUrl:()=>39,api:async path=>path==='/api/me'?{signedIn:true}:path==='/api/billing'?{quickStart:{enabled:true},advanced:false}:path==='/api/projects'?[{id:39,quick_start:true}]:{phase:'idle'},loadProjectList:async()=>{assert.equal(state.view,'billing');state.projectId=39;},refreshUsagePill:async()=>{},showDemoHandoff:()=>{},VIEW_SECTION:{billing:'settings'},render:async()=>renders.push(state.view),reportSourceDestination:()=>null});
+ vm.runInContext(app.slice(app.indexOf('async function boot()'),app.indexOf("document.querySelectorAll('.tab[data-view]')")),ctx);
+ await ctx.boot();assert.deepEqual(redirects,[]);assert.ok(renders.includes('billing'));
+});

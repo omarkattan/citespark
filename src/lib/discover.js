@@ -299,6 +299,7 @@ const SYSTEM = `You read a company's homepage and fill in a short setup form. Re
 Rules:
 - qualifier describes the customer using only evidence on the supplied page. For consumer brands, use relevant shopping needs and a supported market. For business services, use the stated business audience. Do not invent profession, age, gender, income, company size or customer restrictions. If the page does not identify an audience, leave qualifier empty for the user to fill in.
 - customerSuggestions are options for the user to review, not verified customer data. Use concrete needs or audiences tied to the supplied products/services, such as "Shoppers looking for skincare for dry skin". Do not invent demographic traits or make three paraphrases of the same group. Each option must stand alone and be at most 160 characters.
+- Competitors must offer the same core product or service in the relevant market. For agencies, exclude directories and review platforms such as Clutch, GoodFirms and DesignRush. Exclude publishers, marketplaces and aggregators unless the business itself competes in that category.
 - Only list competitors you actually know exist with the correct domain. An empty array is far better than an invented one.
 - Infer market from addresses, currency, phone format or spelling.`;
 

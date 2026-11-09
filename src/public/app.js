@@ -2350,7 +2350,7 @@ async function loadProject(id) {
   if(measured && ['website','sources','questions','measurement'].includes(state.setupStep))state.setupStep='recommendations';
   // Resume the guide only on initial project entry. Background measurement
   // completion and saves must not take someone out of Questions or Settings.
-  if(!sameProject && state.view===viewAtStart && state.setupStep!=='complete')state.view=SETUP_VIEWS[state.setupStep]||'connections';
+  if(!sameProject && state.view!=='billing' && state.view===viewAtStart && state.setupStep!=='complete')state.view=SETUP_VIEWS[state.setupStep]||'connections';
   const p = state.overview.project;
   $('brandTitle').textContent = p.brand_name;
   $('brandDek').textContent = state.overview.cycle
@@ -2486,11 +2486,13 @@ async function boot() {
   if(requestedView!=='billing' && ((!entryProjects?.length) || entryBilling?.quickStart?.enabled && !entryBilling?.advanced || entryProject?.quick_start && new URLSearchParams(location.search).get('mode')!=='advanced')){
     location.replace('/quick-start'+(entryProject?'?site='+entryProject.id:''));return;
   }
+  // Resolve the billing destination before project loading can render or resume setup.
+  if(requestedView==='billing')state.view='billing';
   await loadProjectList();
   await refreshUsagePill();
   showDemoHandoff();
 
-  if(!returned && state.projectId) {
+  if(!returned && (state.projectId || requestedView==='billing')) {
     const requestedView = new URL(requestedSourceUrl, location.origin).searchParams.get('view');
     if(VIEW_SECTION[requestedView]) { state.view=requestedView; await render(); }
   }

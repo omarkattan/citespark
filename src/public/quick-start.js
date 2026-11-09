@@ -33,7 +33,7 @@ async function resumeDomain(domain){
 }
 async function createProject(details){
  let d;
- try{d=await api('/api/projects',{quickStart:true,...details,competitors:[]});}
+ try{d=await api('/api/projects',{competitors:[],quickStart:true,...details});}
  catch(e){if(e.status===409&&await resumeDomain(details.domain))return;throw e;}
  projectId=d.project.id;history.replaceState({},'','/quick-start?site='+projectId);await load();
 }
@@ -48,7 +48,7 @@ function setup(){
   let d;try{d=await api('/api/discover',{domain});}catch{manualBusiness(domain);return;}
   if(!d.brandName||!d.category){manualBusiness(d.domain||domain,d);return;}
   $('discover').textContent='Preparing your questions…';
-  await createProject({domain:d.domain||domain,brandName:d.brandName,category:d.category,market:d.market||window.DEFAULT_COUNTRY,language:'en',qualifier:(d.customerSuggestions||[]).join('; ')||d.qualifier||''});
+  await createProject({domain:d.domain||domain,brandName:d.brandName,category:d.category,competitors:d.competitors||[],market:d.market||window.DEFAULT_COUNTRY,language:'en',qualifier:(d.customerSuggestions||[]).join('; ')||d.qualifier||''});
  }).finally(()=>{if($('discover')){$('discover').textContent='Continue';$('discovery-note').textContent='Your website is ready to try again.';}});};
 }
 function manualBusiness(domain,d={}){
@@ -156,12 +156,19 @@ function aiEditor(target,scope,read,apply){
 }
 async function competitorEditor(o,rivals,beforeScan=false){
  const target=$('competitor-editor');if(!target)return;
- try{await getControls();const selected=controls.customCompetitors?controls.competitors:(controls.competitors.length?controls.competitors:(rivals.candidates||[]).slice(0,15));
+ try{await getControls();let selected=controls.customCompetitors?controls.competitors:(controls.competitors.length?controls.competitors:(rivals.candidates||[]).slice(0,15));
+ let suggested=false,suggestionNote='';
+ if(beforeScan&&!controls.customCompetitors&&!selected.length){
+  target.innerHTML='<summary>Finding suggested competitors…</summary><p>Looking for direct competitors in your market. You can review the list before scanning.</p>';
+  try{const result=await api(`/api/projects/${projectId}/quick-start/competitor-suggestions`,{});selected=result.competitors||[];suggested=selected.length>0;suggestionNote=result.message||'';}catch(e){suggestionNote='We could not suggest competitors this time. You can add them below.';}
+ }
+
  const read=()=>target.querySelector('#competitor-lines').value.split('\n').filter(x=>x.trim()).map(line=>{const [name,domain='']=line.split('|');return {name:name.trim(),domain:domain.trim()};});
  target.innerHTML='<summary>'+ (beforeScan?'Review competitors before scanning (optional)':'Edit competitors or ask Cited') +'</summary><p>Remove directories such as Clutch if they are not direct competitors. Add up to 15 companies, one per line: Name | website.</p><textarea id="competitor-lines" rows="7" aria-label="Competitors"></textarea><div id="competitor-ai"></div><button type="button" id="save-competitors">Save competitors</button><p id="competitor-save-status" role="status" class="muted"></p>';
  $('competitor-save-status').textContent=beforeScan?'Add the competitors you already know. Your edits will be saved when you create the report, or you can save them now. The scan may also discover other companies.':'New competitors need a new scan for measurements. Saving this list does not run or charge for a scan.';
  const apply=items=>{$('competitor-lines').value=items.map(c=>`${c.name} | ${c.domain||''}`).join('\n');};apply(selected);aiEditor($('competitor-ai'),'competitors',read,apply);
- let saved=JSON.stringify(read());
+ if(beforeScan&&!controls.customCompetitors){target.open=true;$('competitor-save-status').textContent=selected.length?'Suggested competitors. Check that these are direct alternatives to your business, then edit or remove any. They will be included when you create your report.':suggestionNote||'No confident competitor suggestions were found. Add any competitors you know, or continue without them.';}
+ let saved=suggested?'':JSON.stringify(read());
  const save=async()=>{const items=read();if(JSON.stringify(items)===saved)return;await api(`/api/projects/${projectId}/quick-start/competitors`,{competitors:items});saved=JSON.stringify(items);$('competitor-save-status').textContent='Competitors saved for your next scan.';};
  $('save-competitors').onclick=()=>act($('save-competitors'),async()=>{await save();if(!beforeScan)await report();});
  if(!beforeScan&&controls.customCompetitors){$('competitor-results').innerHTML=controls.competitors.map(c=>{const measured=(o.competitors||[]).find(m=>m.name.toLowerCase()===c.name.toLowerCase());return `<p>${esc(c.name)} · ${measured?.rate!=null?`Named in ${Math.round(measured.rate*100)}% of its measured sample`:'Added for next scan · Not measured'}</p>`;}).join('')||'<p>No competitors selected.</p>';}

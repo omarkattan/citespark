@@ -24,7 +24,7 @@ test('free controls allow signup, evidence preparation and checkout, but not pai
 const html=fs.readFileSync(new URL('../src/public/quick-start.html',import.meta.url),'utf8');
 const js=fs.readFileSync(new URL('../src/public/quick-start.js',import.meta.url),'utf8');
 const settle=()=>new Promise(r=>setImmediate(r));
-async function fixture({verified=true,used=false,advanced=false,failRun=false,thinking=false,incomplete=false,failDiscovery=false,failSuggestions=false,guidedCheck=false,existing=false,newLink=false,duplicate=false,failCompetitors=false,zeroVisibility=false}={}){
+async function fixture({verified=true,used=false,advanced=false,failRun=false,thinking=false,incomplete=false,failDiscovery=false,failSuggestions=false,guidedCheck=false,existing=false,newLink=false,duplicate=false,failCompetitors=false,zeroVisibility=false,suggestCompetitors=false}={}){
  const dom=new JSDOM(html,{url:'https://cited.ae/quick-start'+(newLink?'?new=1':''),runScripts:'outside-only'});
  const w=dom.window,calls=[];let created=used||existing,ran=used,savedQuestions=incomplete?list.slice(0,15):list;
  w.countryOptions=()=>'<option value="AE">United Arab Emirates</option>';w.DEFAULT_COUNTRY='AE';w.print=()=>{};
@@ -36,8 +36,9 @@ async function fixture({verified=true,used=false,advanced=false,failRun=false,th
   else if(url==='/api/billing')data=billing;
   else if(url==='/api/projects'&&!opts.method)data=created?[project]:[];
   else if(url==='/api/projects'){created=true;if(duplicate){status=409;data={error:'You are already tracking that domain'};}else data={project};}
-  else if(url==='/api/discover'){if(failDiscovery){status=503;data={error:'Unavailable'};}else data={domain:'example.com',brandName:'Example',category:'accountants',market:'AE'};}
+  else if(url==='/api/discover'){if(failDiscovery){status=503;data={error:'Unavailable'};}else data={domain:'example.com',brandName:'Example',category:'accountants',market:'AE',competitors:suggestCompetitors?[{name:'Direct Agency',domain:'directagency.com'}]:[]};}
   else if(url.endsWith('/quick-start/controls'))data={emailAvailable:true,emailWhenDone:false,competitors:[],customCompetitors:false};
+  else if(url.endsWith('/quick-start/competitor-suggestions'))data={competitors:suggestCompetitors?[{name:'Direct Agency',domain:'directagency.com'}]:[]};
   else if(url.endsWith('/quick-start/competitors')){status=failCompetitors?422:200;data=failCompetitors?{error:'Check the competitor website address.'}:{ok:true};}
   else if(url.endsWith('/quick-start/preferences'))data={ok:true};
   else if(url.endsWith('/quick-start/assistant')){const body=JSON.parse(opts.body);data={items:body.items.map((x,i)=>i===0&&body.scope==='questions'?'Who are the best accountants for small businesses in Dubai?':x)};}
@@ -299,4 +300,18 @@ test('assistant has a personable Cited identity in both editors',async()=>{
  assert.equal(w.document.querySelector('#question-ai h3').textContent,'Ask Cited');
  assert.equal(w.document.querySelector('#competitor-ai h3').textContent,'Ask Cited');
  assert.match(w.document.querySelector('#question-ai label').textContent,/What would you like to change/);dom.window.close();
+});
+
+test('website discovery competitors are retained when creating a Quick Start project',async()=>{
+ const {dom,w,calls}=await fixture({suggestCompetitors:true});
+ w.document.getElementById('domain').value='example.com';w.document.getElementById('setup').dispatchEvent(new w.Event('submit',{cancelable:true}));await settle();await settle();
+ assert.deepEqual(calls.find(([path,body])=>path==='/api/projects'&&body)[1].competitors,[{name:'Direct Agency',domain:'directagency.com'}]);dom.window.close();
+});
+test('empty competitor lists receive automatic suggestions without typing to the assistant',async()=>{
+ const {dom,w,calls}=await fixture({existing:true,suggestCompetitors:true});await settle();
+ assert.match(w.document.getElementById('competitor-lines').value,/Direct Agency/);
+ assert.equal(w.document.getElementById('competitor-editor').open,true);
+ assert.equal(calls.some(([p])=>p.endsWith('/assistant')||p.endsWith('/run')),false);
+ w.document.getElementById('run').click();await settle();await settle();
+ assert.ok(calls.findIndex(([p])=>p.endsWith('/competitors'))<calls.findIndex(([p])=>p.endsWith('/run')));dom.window.close();
 });
