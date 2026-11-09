@@ -6015,7 +6015,7 @@ async function viewBilling() {
 
     <div class="usage-top">
       <div>
-        <div class="usage-big">${u.calls.toLocaleString()} <span>of ${u.limit.toLocaleString()}</span></div>
+        <div class="usage-big">${u.calls.toLocaleString()} <span>of ${u.limit==null?'unlimited':u.limit.toLocaleString()}</span></div>
         <div class="sub" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">answer checks used this month &middot; ${spent}</div>
       </div>
     </div>
@@ -6025,7 +6025,7 @@ async function viewBilling() {
       ${(u.budgetPercent || 0) > u.percent
         ? `Heavier surfaces such as ChatGPT use more of the allowance than Google's AI Overview does, so you are ${u.budgetPercent}% through this month's usage on ${u.percent}% of your checks. Switching a site to lighter surfaces makes the allowance go further.<br />`
         : ''}
-      ${u.remaining > 0
+      ${u.limit==null ? 'No monthly check limit applies to this internal account.' : u.remaining > 0
         ? `${u.remaining.toLocaleString()} left, resetting on the 1st. A cycle trims itself to fit rather than running you over.`
         : 'Allowance used for this month. Cycles are paused until the 1st, or upgrade to carry on now.'}
     </p>
