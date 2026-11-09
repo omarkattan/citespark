@@ -402,6 +402,16 @@ app.get('/api/projects/:id/overview', requireAuth, wrap(async (req, res) => {
     [project.id, cycle]
   );
 
+  const engineChecks = await many(
+    `SELECT r.engine, COUNT(*)::int AS attempted,
+       COUNT(*) FILTER (WHERE NOT r.ok)::int AS failed,
+       COUNT(*) FILTER (WHERE r.ok AND NOT EXISTS (
+         SELECT 1 FROM mentions m JOIN entities e ON e.id=m.entity_id
+         WHERE m.run_id=r.id AND e.kind='owned'))::int AS unmeasured
+     FROM reporting_runs r WHERE r.project_id=$1 AND r.cycle_date=$2 GROUP BY r.engine`,
+    [project.id,cycle]
+  );
+
   const competitors = await many(
     `SELECT e.name, e.kind, COUNT(*)::int AS runs, SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::int AS hits
      FROM reporting_runs r JOIN mentions m ON m.run_id = r.id JOIN entities e ON e.id = m.entity_id
@@ -430,6 +440,7 @@ app.get('/api/projects/:id/overview', requireAuth, wrap(async (req, res) => {
     visibility: own.runs ? own.hits / own.runs : null,
     avgOrdinal: own.avg_ordinal,
     runs: own.runs,
+    engineChecks,
     engines: engines.map((e) => ({ engine: e.engine, rate: e.runs ? e.hits / e.runs : 0, runs: e.runs })),
     competitors: competitors.map((c) => ({ name: c.name, kind: c.kind, rate: c.runs ? c.hits / c.runs : 0 })),
     history: (await comparableSettings(project.id) ? history : []).map((h) => ({ date: h.cycle_date, rate: Number(h.rate) })),

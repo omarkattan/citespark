@@ -24,7 +24,7 @@ test('free controls allow signup, evidence preparation and checkout, but not pai
 const html=fs.readFileSync(new URL('../src/public/quick-start.html',import.meta.url),'utf8');
 const js=fs.readFileSync(new URL('../src/public/quick-start.js',import.meta.url),'utf8');
 const settle=()=>new Promise(r=>setImmediate(r));
-async function fixture({verified=true,used=false,advanced=false,failRun=false,thinking=false,incomplete=false,failDiscovery=false,failSuggestions=false,guidedCheck=false,existing=false,newLink=false,duplicate=false}={}){
+async function fixture({verified=true,used=false,advanced=false,failRun=false,thinking=false,incomplete=false,failDiscovery=false,failSuggestions=false,guidedCheck=false,existing=false,newLink=false,duplicate=false,failCompetitors=false,zeroVisibility=false}={}){
  const dom=new JSDOM(html,{url:'https://cited.ae/quick-start'+(newLink?'?new=1':''),runScripts:'outside-only'});
  const w=dom.window,calls=[];let created=used||existing,ran=used,savedQuestions=incomplete?list.slice(0,15):list;
  w.countryOptions=()=>'<option value="AE">United Arab Emirates</option>';w.DEFAULT_COUNTRY='AE';w.print=()=>{};
@@ -38,6 +38,7 @@ async function fixture({verified=true,used=false,advanced=false,failRun=false,th
   else if(url==='/api/projects'){created=true;if(duplicate){status=409;data={error:'You are already tracking that domain'};}else data={project};}
   else if(url==='/api/discover'){if(failDiscovery){status=503;data={error:'Unavailable'};}else data={domain:'example.com',brandName:'Example',category:'accountants',market:'AE'};}
   else if(url.endsWith('/quick-start/controls'))data={emailAvailable:true,emailWhenDone:false,competitors:[],customCompetitors:false};
+  else if(url.endsWith('/quick-start/competitors')){status=failCompetitors?422:200;data=failCompetitors?{error:'Check the competitor website address.'}:{ok:true};}
   else if(url.endsWith('/quick-start/preferences'))data={ok:true};
   else if(url.endsWith('/quick-start/assistant')){const body=JSON.parse(opts.body);data={items:body.items.map((x,i)=>i===0&&body.scope==='questions'?'Who are the best accountants for small businesses in Dubai?':x)};}
   else if(url.endsWith('/quick-start'))data={project,billing,questions:savedQuestions.map((text,id)=>({text,id:id+1})),claim:ran?{}:null,measurement:ran?{status:'completed'}:null};
@@ -47,7 +48,7 @@ async function fixture({verified=true,used=false,advanced=false,failRun=false,th
   else if(url.endsWith('/run-scope'))data={checksAll:40,costAll:1.2};
   else if(url.endsWith('/run')){if(failRun){status=402;data={error:'Your free report has already been used.'};}else{ran=true;data={ok:true};}}
   else if(url.endsWith('/cycle-status'))data={phase:thinking?'thinking':'done'};
-  else if(url.endsWith('/overview'))data={project,cycle:'2026-11-07',visibility:.5,runs:40,engines:[{engine:'chatgpt',rate:.5,runs:20}],competitors:[]};
+  else if(url.endsWith('/overview'))data={project,cycle:'2026-11-07',visibility:.5,runs:40,engines:[{engine:'chatgpt',rate:zeroVisibility?0:.5,runs:20}],engineChecks:[{engine:'chatgpt',attempted:20,failed:0,unmeasured:0},{engine:'perplexity',attempted:20,failed:20,unmeasured:0}],competitors:[]};
   else if(url.endsWith('/prompts'))data=list.map((text,id)=>({id:id+1,text,runs:[{mentioned:true,cited:true}]}));
   else if(url.includes('/recommendations?'))data={tasks:guidedCheck?[{title:'Check the relevant page',evidence:{action_plan:{generation:'guided-check',title:'Check the relevant page',change:'Review this question against the page.'}}}]:[]};
   else if(url.endsWith('/competitor-review'))data={candidates:[]};
@@ -268,4 +269,34 @@ test('paid repeat scans require explicit confirmation before saving questions or
  w.document.getElementById('edit-report-questions').click();await settle();
  w.document.getElementById('run').click();await settle();
  assert.equal(calls.filter(([p])=>p.endsWith('/run')||p.endsWith('/questions')).length,0);dom.window.close();
+});
+
+test('known competitors are saved before the first scan without a separate save step',async()=>{
+ const {dom,w,calls}=await fixture({existing:true});await settle();
+ assert.match(w.document.getElementById('competitor-editor').textContent,/before scanning/);
+ w.document.getElementById('competitor-lines').value='Example agency | exampleagency.com';
+ w.document.getElementById('run').click();await settle();await settle();
+ const saved=calls.findIndex(([p])=>p.endsWith('/quick-start/competitors')),run=calls.findIndex(([p])=>p.endsWith('/run'));
+ assert.ok(saved>=0&&run>saved);assert.deepEqual(calls[saved][1],{competitors:[{name:'Example agency',domain:'exampleagency.com'}]});dom.window.close();
+});
+test('competitor save failure prevents starting a scan and preserves the editor',async()=>{
+ const {dom,w,calls}=await fixture({existing:true,failCompetitors:true});await settle();
+ w.document.getElementById('competitor-lines').value='Example agency | invalid';w.document.getElementById('run').click();await settle();
+ assert.equal(calls.filter(([p])=>p.endsWith('/run')).length,0);
+ assert.equal(w.document.getElementById('competitor-lines').value,'Example agency | invalid');dom.window.close();
+});
+test('coverage distinguishes measured zero, failed checks, unchecked engines and unsupported Grok',async()=>{
+ const {dom,w}=await fixture({used:true,zeroVisibility:true});await settle();
+ const text=w.document.getElementById('content').textContent;
+ assert.match(text,/ChatGPT.*Named in 0% of 20 measured answers/);
+ assert.match(text,/Perplexity.*no measured answers.*20 failed checks/);
+ assert.match(text,/Google AI Overviews.*Not checked in this report/);
+ assert.match(text,/Claude \(Anthropic\).*Not checked in this report/);
+ assert.match(text,/Grok.*Not currently supported/);dom.window.close();
+});
+test('assistant has a personable Cited identity in both editors',async()=>{
+ const {dom,w}=await fixture({existing:true});await settle();
+ assert.equal(w.document.querySelector('#question-ai h3').textContent,'Ask Cited');
+ assert.equal(w.document.querySelector('#competitor-ai h3').textContent,'Ask Cited');
+ assert.match(w.document.querySelector('#question-ai label').textContent,/What would you like to change/);dom.window.close();
 });
