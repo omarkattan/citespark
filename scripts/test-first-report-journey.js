@@ -134,6 +134,6 @@ test('billing renders actual package cards for free and unlimited accounts',asyn
  const plan={id:'free',name:'Free',price:0,sites:1,engines:2,runs:1};
  const ctx=vm.createContext({state:{interval:null},esc,renewLine:()=>'',api:async path=>path==='/api/billing'?{plan,usage:{calls:0,limit,remaining:40,percent:0},counts:{sites:1,questions:20},stripeEnabled:true}:{plans:[{...plan,monthlyCalls:40},{id:'starter',name:'Starter',price:79,priceAnnual:790,sites:1,questions:20,engines:3,runs:1,monthlyCalls:650,blurb:'Monitor your business'}]}});
  vm.runInContext(app.slice(app.indexOf('async function viewBilling()'),app.indexOf('async function goToStripe(')),ctx);
- const html=await ctx.viewBilling();assert.match(html,/Choose Starter/);assert.match(html,/\$79/);if(limit===null)assert.match(html,/unlimited/);
+ const html=await ctx.viewBilling();assert.match(html,/Choose Starter/);assert.ok(html.indexOf('<h2>Plans</h2>')<html.indexOf('<h2>Your plan</h2>'));assert.match(html,/\$79/);if(limit===null)assert.match(html,/unlimited/);
  }
 });

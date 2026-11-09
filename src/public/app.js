@@ -2274,7 +2274,7 @@ async function render() {
   if (renderId !== state.renderId || projectId !== state.projectId || view !== state.view) return;
   container.removeAttribute('aria-busy');
   const questionDraft=readQuestionDraft();
-  $('view').innerHTML = setupJourney() + html;
+  $('view').innerHTML = (view==='billing'?'':setupJourney()) + html;
   container.dataset.renderedProject = String(projectId);
   container.dataset.renderedView = view;
   if(['overview','actions'].includes(view))void resumeActionPreparation(state.projectId);
@@ -5992,7 +5992,7 @@ async function viewBilling() {
     })
     .join('');
 
-  return `
+  const accountHtml = `
   <div class="panel">
     <div class="panel-head">
       <h2>Your plan</h2>
@@ -6037,7 +6037,8 @@ async function viewBilling() {
       <span>${b.plan.runs} run${b.plan.runs > 1 ? 's' : ''} per question</span>
     </div>
   </div>
-
+`;
+  const plansHtml = `
   <div class="panel">
     <div class="panel-head">
       <h2>Plans</h2>
@@ -6055,6 +6056,7 @@ async function viewBilling() {
     </p>
     <p class="error" id="billingError" role="alert"></p>
   </div>`;
+  return plansHtml + accountHtml;
 }
 
 async function goToStripe(path, body) {
