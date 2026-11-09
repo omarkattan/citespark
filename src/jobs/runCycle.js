@@ -1,3 +1,4 @@
+import {selectedEntities} from '../lib/quick-start-selection.js';
 import { loadRecovery, inheritRecovery } from '../lib/measurement-recovery.js';
 import {matchedRecheckScope} from '../lib/faq-recheck.js';
 import { assertMeasurementLocation } from '../lib/measurement-location.js';
@@ -100,7 +101,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
       reason: only === 'unrun' ? 'Every active question has already been asked.' : 'This site has no active questions.'
     };
   }
-  const entities = await many('SELECT * FROM entities WHERE project_id = $1', [projectId]);
+  const entities = selectedEntities(project,await many('SELECT * FROM entities WHERE project_id = $1', [projectId]));
 
   /**
    * Record a material change in what is being measured, before measuring it.
@@ -680,7 +681,7 @@ async function collectRetry(promptId, { engine = null, matched = null } = {}, re
   const project = await one('SELECT * FROM projects WHERE id = $1', [prompt.project_id]);
   // ambiguous_name must travel with the entity or a re-ask would be counted
   // by a different rule from the cycle it sits in.
-  const entities = await many('SELECT id, name, aliases, domain, kind, ambiguous_name FROM entities WHERE project_id = $1', [project.id]);
+  const entities = selectedEntities(project,await many('SELECT id, name, aliases, domain, kind, ambiguous_name FROM entities WHERE project_id = $1', [project.id]));
   const ownedIds = new Set(entities.filter((e) => e.kind === 'owned').map((e) => e.id));
 
   const configured = enginesFor(project);

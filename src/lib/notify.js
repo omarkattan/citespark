@@ -167,9 +167,9 @@ export function notifyPaid({ email, plan, interval, amount }) {
  * task assignment, where the recipient is whoever the work was given to.
  */
 export function notifyTo(to, payload) {
-  if (!RESEND || !to) return;
+  if (!RESEND || !to) return Promise.resolve(false);
 
-  (async () => {
+  return (async () => {
     let emailed = false;
     let error = null;
     try {
@@ -198,6 +198,7 @@ export function notifyTo(to, payload) {
     } catch (err) {
       console.error('could not write notification log:', String(err.message || err));
     }
+    return emailed;
   })();
 }
 

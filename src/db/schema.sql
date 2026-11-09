@@ -867,3 +867,17 @@ CREATE TABLE IF NOT EXISTS quick_start_reports (
  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
  completed_at TIMESTAMPTZ
 );
+
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS quick_start_options JSONB NOT NULL DEFAULT '{}';
+CREATE TABLE IF NOT EXISTS quick_start_preferences (
+ project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+ user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+ email_when_done BOOLEAN NOT NULL DEFAULT false,
+ notified_at TIMESTAMPTZ,
+ PRIMARY KEY(project_id,user_id)
+);
+CREATE TABLE IF NOT EXISTS quick_start_ai_requests (
+ user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS quick_start_ai_requests_user ON quick_start_ai_requests(user_id,created_at);

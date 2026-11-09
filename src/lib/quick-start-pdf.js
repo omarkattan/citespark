@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 import PDFDocument from 'pdfkit';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
@@ -13,7 +14,7 @@ export async function quickStartPdf(project,evidence,actions=[]){
  const room=h=>{if(doc.y+h>doc.page.height-65)doc.addPage();};
  const para=(value,size=10,color='#243d32')=>{doc.font('body').fontSize(size).fillColor(color).text(text(value),{lineGap:4});doc.moveDown(.65);};
  const heading=value=>{room(80);doc.font('bold').fontSize(17).fillColor('#087647').text(value);doc.moveDown(.5);};
- doc.font('bold').fontSize(30).fillColor('#087647').text('Cited');
+ doc.image(fileURLToPath(new URL('../public/cited-logo.jpeg',import.meta.url)),48,48,{width:240});doc.y=130;
  para('QUICK START REPORT',10);doc.moveDown();
  doc.font('bold').fontSize(24).fillColor('#10271f').text(text(project.brand_name||project.name));
  para(project.domain);para(`Measurement: ${evidence.cycle?new Date(evidence.cycle).toISOString().slice(0,10):'Not available'} | Downloaded: ${new Date().toISOString().slice(0,10)}`);
@@ -26,7 +27,7 @@ export async function quickStartPdf(project,evidence,actions=[]){
  for(const warning of evidence.localeWarnings||[])para(warning,10,'#885010');
  heading('Results by AI engine');
  for(const e of evidence.engineCoverage||[])para(`${e.engine}: named in ${e.named}/${e.measured}; website cited in ${e.cited}/${e.measured} measured answers.`);
- heading('Suggested next actions');
+ heading('Three things to look at next');
  if(!actions.length)para('No suggested actions are available yet. Return to your saved report to check for updates.');
  for(const [i,row] of actions.slice(0,3).entries()){
   const p=row.evidence.action_plan;room(100);

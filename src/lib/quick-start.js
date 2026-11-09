@@ -1,10 +1,11 @@
+import {mountQuickControls} from './quick-start-controls.js';
 import { generatePrompts } from './prompts.js';
 
 export function quickStartMutationAllowed(method,path) {
   if (/^\/(?:login|logout|register|password\/(?:forgot|reset)|verify\/resend|product-tour|feedback|billing\/(?:checkout|portal)|demo\/[^/]+)$/.test(path)) return true;
   if(method==='POST' && ['/discover','/projects'].includes(path))return true;
   if(method==='DELETE' && /^\/projects\/\d+$/.test(path))return true;
-  return method==='POST' && /^\/projects\/\d+\/(?:run|quick-start\/(?:questions|suggestions|profile))$/.test(path);
+  return method==='POST' && /^\/projects\/\d+\/(?:run|quick-start\/(?:questions|suggestions|profile|assistant|competitors|preferences))$/.test(path);
 }
 export function validateQuickQuestions(items) {
   if(!Array.isArray(items)||items.length!==20)throw new Error('Keep exactly 20 questions for your initial report.');
@@ -13,10 +14,12 @@ export function validateQuickQuestions(items) {
   if(new Set(texts.map(v=>v.normalize('NFKC').toLowerCase().replace(/[?؟.!\s]+$/gu,''))).size!==20)throw new Error('Replace duplicate questions with distinct buying situations.');
   return texts;
 }
-export function mountQuickStart(app,{requireAuth,assertProject,getEntitlements,query,one,many,pool,generate=generatePrompts}) {
+export function mountQuickStart(app,{requireAuth,assertProject,getEntitlements,query,one,many,pool,generate=generatePrompts,getCycleStatus=()=>null}) {
+ mountQuickControls(app,{requireAuth,assertProject,many,one,query,pool,validateQuestions:validateQuickQuestions});
  const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(next);
  app.get('/api/projects/:id/quick-start/report.pdf',requireAuth,wrap(async(req,res)=>{
   const project=await assertProject(req,res);if(!project)return;
+  if(['starting','asking','thinking'].includes(getCycleStatus(project.id)?.phase))return res.status(409).json({error:'Your report is still running. The PDF will include next actions when preparation finishes.'});
   const {reportEvidence}=await import('./report-evidence.js');
   const {quickStartPdf}=await import('./quick-start-pdf.js');
   const evidence=await reportEvidence(project.id,{},many);
@@ -73,6 +76,7 @@ export function mountQuickStart(app,{requireAuth,assertProject,getEntitlements,q
   const project=await assertProject(req,res);if(!project)return;
   if(!project.quick_start)return res.status(400).json({error:'Use question management for this existing project.'});
   let texts;try{texts=validateQuickQuestions(req.body.questions);}catch(e){return res.status(422).json({error:e.message});}
+  const entitlements=await getEntitlements(req.session.orgId);
   const client=await pool.connect();
   try {
    await client.query('BEGIN');
@@ -80,8 +84,8 @@ export function mountQuickStart(app,{requireAuth,assertProject,getEntitlements,q
    if(!locked.rows[0].locked)throw new Error('A scan is already running. Your questions have not been changed.');
    const history=await client.query('SELECT 1 FROM runs WHERE project_id=$1 LIMIT 1',[project.id]);
    const claim=await client.query('SELECT 1 FROM quick_start_reports WHERE project_id=$1',[project.id]);
-   if(history.rowCount||claim.rowCount)throw new Error('Your report questions are already saved. Upgrade to manage questions for future scans.');
-   // Before the first measurement only. Keep identifiers and metadata for unchanged suggestions.
+   if(!entitlements.advanced&&(history.rowCount||claim.rowCount))throw new Error('Your report questions are already saved. Upgrade to manage questions for future scans.');
+   // Preserve historical runs and identifiers for unchanged suggestions.
    const current=(await client.query('SELECT id,text FROM prompts WHERE project_id=$1 AND active ORDER BY id',[project.id])).rows;
    for(const row of current)if(!texts.includes(row.text))await client.query('UPDATE prompts SET active=false WHERE id=$1',[row.id]);
    for(const text of texts)await client.query("INSERT INTO prompts(project_id,text,cluster,intent,source) VALUES($1,$2,'quick-start','commercial','custom') ON CONFLICT(project_id,text) DO UPDATE SET active=true",[project.id,text]);

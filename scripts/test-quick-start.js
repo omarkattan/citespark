@@ -37,10 +37,14 @@ async function fixture({verified=true,used=false,advanced=false,failRun=false,th
   else if(url==='/api/projects'&&!opts.method)data=created?[project]:[];
   else if(url==='/api/projects'){created=true;if(duplicate){status=409;data={error:'You are already tracking that domain'};}else data={project};}
   else if(url==='/api/discover'){if(failDiscovery){status=503;data={error:'Unavailable'};}else data={domain:'example.com',brandName:'Example',category:'accountants',market:'AE'};}
+  else if(url.endsWith('/quick-start/controls'))data={emailAvailable:true,emailWhenDone:false,competitors:[],customCompetitors:false};
+  else if(url.endsWith('/quick-start/preferences'))data={ok:true};
+  else if(url.endsWith('/quick-start/assistant')){const body=JSON.parse(opts.body);data={items:body.items.map((x,i)=>i===0&&body.scope==='questions'?'Who are the best accountants for small businesses in Dubai?':x)};}
   else if(url.endsWith('/quick-start'))data={project,billing,questions:savedQuestions.map((text,id)=>({text,id:id+1})),claim:ran?{}:null,measurement:ran?{status:'completed'}:null};
   else if(url.endsWith('/quick-start/questions')){savedQuestions=JSON.parse(opts.body).questions;data={ok:true};}
   else if(url.endsWith('/quick-start/suggestions')){data={questions:failSuggestions?list.slice(0,17):list};}
   else if(url.endsWith('/quick-start/profile')){Object.assign(project,{brand_name:JSON.parse(opts.body).brandName,category:JSON.parse(opts.body).category});data={ok:true};}
+  else if(url.endsWith('/run-scope'))data={checksAll:40,costAll:1.2};
   else if(url.endsWith('/run')){if(failRun){status=402;data={error:'Your free report has already been used.'};}else{ran=true;data={ok:true};}}
   else if(url.endsWith('/cycle-status'))data={phase:thinking?'thinking':'done'};
   else if(url.endsWith('/overview'))data={project,cycle:'2026-11-07',visibility:.5,runs:40,engines:[{engine:'chatgpt',rate:.5,runs:20}],competitors:[]};
@@ -233,4 +237,35 @@ test('Quick Start repair explicitly requests provider-selection wording and pres
   return JSON.stringify(list.map(text=>({text})));
  }});
  assert.equal(result.length,20);assert.equal(calls,2);
+});
+test('progress overlay can be dismissed and reopened without starting another scan',async()=>{
+ const {dom,w,calls}=await fixture({used:true,thinking:true});await settle();
+ assert.match(w.document.getElementById('scan-stage').textContent,/next actions/);
+ assert.equal(w.document.getElementById('download-pdf'),null);
+ w.document.getElementById('scan-dismiss').click();assert.equal(w.document.getElementById('scan-overlay'),null);
+ w.document.getElementById('scan-reopen').click();assert.ok(w.document.getElementById('scan-overlay'));
+ assert.equal(calls.filter(([p])=>p.endsWith('/run')).length,0);dom.window.close();
+});
+test('completion email is opt-in and saved independently from starting a scan',async()=>{
+ const {dom,w,calls}=await fixture({existing:true});await settle();
+ const input=w.document.querySelector('#ready-email input');assert.equal(input.checked,false);
+ input.checked=true;input.dispatchEvent(new w.Event('change'));await settle();
+ assert.deepEqual(calls.find(([p])=>p.endsWith('/preferences'))[1],{emailWhenDone:true});
+ assert.equal(calls.filter(([p])=>p.endsWith('/run')).length,0);dom.window.close();
+});
+test('typed AI question edits require preview then apply and never run a scan',async()=>{
+ const {dom,w,calls}=await fixture({existing:true});await settle();const before=w.document.getElementById('q0').value;
+ w.document.querySelector('#question-ai textarea').value='Make the first question about small businesses';
+ w.document.querySelector('#question-ai button').click();await settle();
+ assert.equal(w.document.getElementById('q0').value,before);
+ assert.match(w.document.querySelector('.ai-preview').textContent,/small businesses/);
+ w.document.querySelector('.ai-preview button').click();
+ assert.match(w.document.getElementById('q0').value,/small businesses/);
+ assert.equal(calls.filter(([p])=>p.endsWith('/run')||p.endsWith('/questions')).length,0);dom.window.close();
+});
+test('paid repeat scans require explicit confirmation before saving questions or running',async()=>{
+ const {dom,w,calls}=await fixture({used:true,advanced:true});await settle();w.confirm=()=>false;
+ w.document.getElementById('edit-report-questions').click();await settle();
+ w.document.getElementById('run').click();await settle();
+ assert.equal(calls.filter(([p])=>p.endsWith('/run')||p.endsWith('/questions')).length,0);dom.window.close();
 });

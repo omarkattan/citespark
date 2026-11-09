@@ -179,7 +179,7 @@ app.use('/api',wrap(async(req,res,next)=>{
   if(e.quickStart.enabled && !e.advanced)return res.status(402).json({error:'Upgrade for ongoing monitoring and advanced tools. Your Quick Start report and evidence remain available.',upgrade:true});
   next();
 }));
-mountQuickStart(app,{requireAuth,assertProject,getEntitlements,query,one,many,pool});
+mountQuickStart(app,{requireAuth,assertProject,getEntitlements,query,one,many,pool,getCycleStatus:id=>cycles.get(id)});
 mountContentWorkflow(app,{requireAuth,assertProject});
 
 /* ---------------- auth ---------------- */
@@ -1883,6 +1883,7 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
     return res.status(409).json({ error: 'A cycle is already running for this site.' });
   }
 
+  const scanStartedAt=new Date();
   cycles.set(project.id, { phase: 'starting', done: 0, total: budget.maxCalls, startedAt: Date.now() });
 
   res.json({
@@ -1901,9 +1902,10 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
       cycles.set(project.id, { ...prev, ...p, total: p.total ?? prev.total });
     }
   })
-    .then((summary) => {
+    .then(async (summary) => {
       if(summary.blocked){cycles.set(project.id,{phase:'failed',error:summary.reason});return;}
       cycles.set(project.id, { phase: 'done', done: summary.runs, total: summary.runs, summary, finishedAt: Date.now() });
+      try{const {completionEmail}=await import('./lib/quick-start-controls.js');await completionEmail(project,scanStartedAt,{many,query});}catch(e){console.error('Report completion email failed:',e.message);}
     })
     .catch((err) => {
       console.error('cycle failed:', err);
