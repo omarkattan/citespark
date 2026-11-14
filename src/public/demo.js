@@ -80,7 +80,7 @@ async function scan() {
     note(err.message, err.limited?'limit':'warn');
   } finally {
     $('demoScan').disabled = false;
-    $('demoScan').textContent = 'Read my site';
+    $('demoScan').textContent = 'Check my business';
   }
 }
 
@@ -185,9 +185,9 @@ function showResult(d) {
       <p class="demo-hint">These reported queries are context, not proof of how the engine chose its answer.</p>` : ''}
 
     <div class="demo-cta">
-      <p><b>Build a clearer picture across your buyer questions.</b> Create an account to set up a project, inspect supporting evidence and review next steps. Available checks and engines depend on your plan.</p>
+      <p><b>Get your free Quick Start report.</b> Create an account for 20 buyer questions across ChatGPT and Perplexity, one initial scan on one website, saved evidence and three suggested next actions. No credit card needed.</p>
       <p class="demo-hint">${retained?'Your demo notes are kept in this browser for 24 hours so you can refer to them during setup. They are separate from project measurements.':'This browser could not retain your demo. You can still create an account.'}</p><div class="demo-cta-row">
-        <a class="btn" href="/login?demo=1&signup=1">${retained?'Continue with my demo':'Create a free account'}</a>
+        <a class="btn" href="/login?demo=1&signup=1">Get my free report</a>
         <button class="btn ghost" id="demoAgain">Try another question</button>
       </div>
     </div>`;

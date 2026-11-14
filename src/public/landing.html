@@ -21,7 +21,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/landing.css?v=111" />
+<link rel="stylesheet" href="/landing.css?v=144" />
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -167,6 +167,22 @@
       "@type": "FAQPage",
       "@id": "https://cited.ae/#faq",
       "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What can I try for free?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "The public demo checks one chosen buyer question on ChatGPT without an account or credit card, subject to demo usage limits. Register for one free Quick Start report on one website: 20 buyer questions, ChatGPT and Perplexity, and one initial scan. This is not an unlimited free reporting plan."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How much does it cost to test client websites?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Monthly billing is $79 for Starter with 1 website and 650 answer checks, $199 for Growth with up to 3 websites and 1,650 checks, or $499 for Agency with up to 10 websites and 4,900 checks. Checks are pooled across the account. Adding a website within your plan allowance has no separate setup fee. Scan usage depends on questions, engines and runs. Prices are in USD, excluding VAT where applicable."
+          }
+        },
         {
           "@type": "Question",
           "name": "What is an AI visibility tool?",
@@ -327,63 +343,21 @@
   </div>
 </nav>
 
-<header class="hero">
-  <div class="wrap hero-grid">
-    <div>
-      <p class="eyebrow">AI visibility tool</p>
-      <h1>When buyers ask AI, someone gets named. Make it <em>you</em>.</h1>
-      <p class="lede">
-        Cited puts your buyers' real questions to ChatGPT, Gemini and Perplexity, reads every answer,
-        and turns what it finds into a ranked list of things to fix. Not another dashboard. A to-do list.
-      </p>
-      <div class="hero-cta">
-        <a class="btn" href="/app">Open Cited</a>
-        <a class="btn ghost" href="#try">Try it on your site</a>
-      </div>
-      <p class="hero-meta">
-        Built by Sandstorm Digital, Google Partner since 2013.
-      </p>
-    </div>
-
-    <div class="answer reveal" style="animation-delay:0.15s">
-      <div class="answer-head"><span class="dot"></span> ChatGPT &middot; example answer</div>
-      <p class="q">"Which clinic in Dubai is best for clear aligners?"</p>
-      <p class="a">
-        A few clinics worth considering:<br /><br />
-        <strong>1. Marina Smile Studio</strong> &mdash; large orthodontic team, strong reviews.<br />
-        <strong>2. Jumeirah Dental Care</strong> &mdash; long established, several locations.<br />
-        <strong>3. The Aligner Clinic</strong> &mdash; specialists, transparent pricing.<br />
-        <strong>4. <mark>Your clinic</mark></strong> &mdash; named, but fourth, and only sometimes.
-      </p>
-      <div class="verdict">
-        <span class="verdict-you hit">Named &middot; position 4</span>
-        <div class="ticks" role="img" aria-label="Named in three of eight answers">
-          <span class="tick hit"></span><span class="tick"></span><span class="tick hit"></span><span class="tick"></span>
-          <span class="tick"></span><span class="tick hit"></span><span class="tick"></span><span class="tick"></span>
-        </div>
-        <span class="action-pri">3 of 8 answers</span>
-      </div>
-    </div>
-  </div>
-</header>
-
-
-<section id="try">
+<header class="hero demo-hero" id="try">
   <div class="wrap">
-    <p class="eyebrow">Try it now</p>
-    <h2>Ask ChatGPT about your own business.</h2>
-    <p class="note">
-      Give us a domain. We read the site, work out what the business does, and write the questions its buyers would
-      actually type. Then we ask ChatGPT and show you whether your name comes back. No account, no card.
-    </p>
+    <p class="eyebrow">Free AI visibility check</p>
+    <h1>Would AI recommend <em>your business?</em></h1>
+    <p class="lede">Enter your website, choose a buyer question, and see whether ChatGPT names your business in a sample of answers.</p>
+    <p class="demo-free">Free sample check. No account or credit card needed.</p>
 
     <div class="demo" id="demo">
       <div class="demo-step" id="demoStep1">
+        <label class="demo-domain-label" for="demoDomain">Your website</label>
         <div class="demo-input">
-          <input id="demoDomain" placeholder="yourcompany.com" autocomplete="off" spellcheck="false" aria-label="Your domain" />
-          <button class="btn" id="demoScan">Read my site</button>
+          <input id="demoDomain" placeholder="yourcompany.com" type="text" inputmode="url" autocapitalize="none" autocomplete="url" spellcheck="false" aria-describedby="demoNote" />
+          <button class="btn" id="demoScan">Check my business</button>
         </div>
-        <p class="demo-note" id="demoNote">Takes about ten seconds.</p>
+        <p class="demo-note" id="demoNote" role="status" aria-live="polite">First, we read your site and suggest questions. You choose which one to test.</p>
       </div>
 
       <div class="demo-step" id="demoStep2" hidden>
@@ -398,8 +372,10 @@
 
       <div class="demo-step" id="demoResult" hidden></div>
     </div>
+    <p class="demo-followup">Want a fuller picture? <a href="/login?signup=1">Get your free Quick Start report</a>: 20 questions, ChatGPT + Perplexity, one initial scan for one website.</p>
+    <p class="demo-followup">Testing client websites? <a href="#pricing">Compare plans and included websites</a>. Public demo usage limits apply.</p>
   </div>
-</section>
+</header>
 
 <section>
   <div class="wrap">
@@ -562,12 +538,13 @@
 <section id="pricing">
   <div class="wrap">
     <p class="eyebrow">Pricing</p>
-    <h2>Priced on what it actually costs to ask.</h2>
-    <p class="note">
-      Every answer we read costs real money, because the engines charge for the web search that makes citations possible.
-      So plans are sized in answer checks rather than vague tiers, and you can see exactly what you have used at any point.
-      No setup fee, no minimum term, cancel from inside the app.
-    </p>
+    <h2>Start free. Choose a plan as you grow.</h2>
+    <p class="note">Try a public sample without signing up, or create a free account for one Quick Start report on one website. For ongoing monitoring and more client websites, choose a paid plan below.</p>
+    <div class="pricing-explainer">
+      <h3>What does it cost to test another client?</h3>
+      <p>Paid subscriptions include a website allowance: Starter covers 1 website, Growth up to 3, and Agency up to 10. Adding a client website within that allowance has no separate setup fee. Its scans use your account's shared monthly answer checks.</p>
+      <p>The free Quick Start report is for one website per account, not a free report for every client. Need more websites than your plan includes? Choose a higher plan or <a href="mailto:omar@sandstormdigital.com">contact us</a>.</p>
+    </div>
 
     <div class="toggle" role="group" aria-label="Billing period">
       <button class="toggle-b is-on" data-interval="month">Monthly</button>
@@ -577,8 +554,8 @@
     <div class="tiers">
       <div class="tier">
         <div class="tier-name">Free</div>
-        <div class="tier-price"><span class="amt" data-m="0" data-y="0">$0</span><span class="per">forever</span></div>
-        <p class="tier-blurb">See where you stand on one domain.</p>
+        <div class="tier-price"><span class="amt" data-m="0" data-y="0">$0</span><span class="per">one initial report</span></div>
+        <p class="tier-blurb">One website. One free Quick Start report.</p>
         <a class="btn ghost full" href="/login?signup=1">Start free</a>
         <ul class="tier-list">
           <li>1 site, 20 suggested buyer questions</li>
@@ -595,7 +572,7 @@
         <p class="tier-blurb">For one brand you want to win.</p>
         <a class="btn ghost full" href="/login">Choose Starter</a>
         <ul class="tier-list">
-          <li>1 site, 25 questions</li>
+          <li>1 website, 25 questions</li>
           <li>2 AI surfaces, 3 runs per question</li>
           <li>Automatic weekly cycle</li>
           <li>650 answer checks a month</li>
@@ -611,7 +588,7 @@
         <p class="tier-blurb">For a brand portfolio or a small client list.</p>
         <a class="btn full" href="/login">Choose Growth</a>
         <ul class="tier-list">
-          <li>3 sites, 40 questions each</li>
+          <li>Up to 3 websites, 40 questions each</li>
           <li>3 AI surfaces, 3 runs per question</li>
           <li>Automatic weekly cycles</li>
           <li>1,650 checks a month, pooled across sites</li>
@@ -626,7 +603,7 @@
         <p class="tier-blurb">For agencies reporting to a roster of clients.</p>
         <a class="btn ghost full" href="/login">Choose Agency</a>
         <ul class="tier-list">
-          <li>10 sites, 60 questions each</li>
+          <li>Up to 10 websites, 60 questions each</li>
           <li>All 6 AI surfaces, up to 5 runs</li>
           <li>Daily cycles available</li>
           <li>4,900 checks a month, pooled across sites</li>
@@ -638,7 +615,7 @@
 
     <p class="note" style="margin-top:28px;font-size:13.5px">
       An answer check is one question put to one engine once. Questions multiply by engines and by runs, which is why we ask
-      you to choose deliberately rather than switching everything on. Prices in USD, excluding VAT where it applies.
+      you to choose deliberately rather than switching everything on. Monthly checks are shared across all websites, not an allowance per client. The number of scans depends on questions, engines and runs selected. Prices in USD, excluding VAT where it applies.
     </p>
   </div>
 </section>
@@ -648,6 +625,8 @@
     <p class="eyebrow">FAQs</p>
     <h2>Questions worth asking before you trust any of this.</h2>
     <div style="margin-top:40px">
+      <details class="faq"><summary>What can I try for free?</summary><p class="faq-a">The public demo checks one chosen buyer question on ChatGPT without an account or credit card, subject to demo usage limits. Register for one free Quick Start report on one website: 20 buyer questions, ChatGPT and Perplexity, and one initial scan. This is not an unlimited free reporting plan.</p></details>
+      <details class="faq"><summary>How much does it cost to test client websites?</summary><p class="faq-a">Monthly billing is $79 for Starter with 1 website and 650 answer checks, $199 for Growth with up to 3 websites and 1,650 checks, or $499 for Agency with up to 10 websites and 4,900 checks. Checks are pooled across the account. Adding a website within your plan allowance has no separate setup fee. Scan usage depends on questions, engines and runs. Prices are in USD, excluding VAT where applicable.</p></details>
 
       <details class="faq">
         <summary>What is an AI visibility tool?</summary>
@@ -870,7 +849,7 @@
 </footer>
 
 <script src="/demo-handoff.js?v=119"></script>
-<script src="/demo.js?v=119"></script>
+<script src="/demo.js?v=144"></script>
 <script>
   document.getElementById('year').textContent = new Date().getFullYear();
 
