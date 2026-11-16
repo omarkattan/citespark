@@ -24,16 +24,18 @@ test('free controls allow signup, evidence preparation and checkout, but not pai
 const html=fs.readFileSync(new URL('../src/public/quick-start.html',import.meta.url),'utf8');
 const js=fs.readFileSync(new URL('../src/public/quick-start.js',import.meta.url),'utf8');
 const settle=()=>new Promise(r=>setImmediate(r));
-async function fixture({verified=true,used=false,advanced=false,failRun=false,thinking=false,incomplete=false,failDiscovery=false,failSuggestions=false,guidedCheck=false,existing=false,newLink=false,duplicate=false,failCompetitors=false,zeroVisibility=false,suggestCompetitors=false,demoWebsite=null,demoHint=null}={}){
+async function fixture({verified=true,used=false,advanced=false,failRun=false,thinking=false,incomplete=false,failDiscovery=false,failSuggestions=false,guidedCheck=false,existing=false,newLink=false,duplicate=false,failCompetitors=false,zeroVisibility=false,suggestCompetitors=false,demoWebsite=null,demoHint=null,actionPreview=false,checkoutUnavailable=false}={}){
  const dom=new JSDOM(html,{url:'https://cited.ae/quick-start'+(demoWebsite?'?demo=1&website='+encodeURIComponent(demoWebsite):newLink?'?new=1':''),runScripts:'outside-only'});
  const w=dom.window,calls=[]; w.CitedDemoHandoff={read:()=>demoHint};let created=used||existing,ran=used,savedQuestions=incomplete?list.slice(0,15):list;
  w.countryOptions=()=>'<option value="AE">United Arab Emirates</option>';w.DEFAULT_COUNTRY='AE';w.print=()=>{};
  const project={id:1,brand_name:'Example',domain:'example.com',category:'accountants',market:'AE',quick_start:true};
- const billing={advanced,quickStart:{enabled:true,used},plan:{id:advanced?'starter':'free'}};
+ const billing={advanced,actionPreview,quickStart:{enabled:true,used},plan:{id:advanced?'starter':'free'}};
  w.fetch=async(url,opts={})=>{
   calls.push([url,opts.body&&JSON.parse(opts.body)]);let data,status=200;
   if(url==='/api/me')data={signedIn:true,emailVerified:verified};
   else if(url==='/api/billing')data=billing;
+  else if(url==='/api/plans')data={plans:Object.values(PLANS),stripeEnabled:!checkoutUnavailable};
+  else if(url==='/api/billing/checkout'){status=503;data={error:'Checkout test unavailable'};}
   else if(url==='/api/projects'&&!opts.method)data=created?[project]:[];
   else if(url==='/api/projects'){created=true;if(duplicate){status=409;data={error:'You are already tracking that domain'};}else data={project};}
   else if(url==='/api/discover'){if(failDiscovery){status=503;data={error:'Unavailable'};}else data={domain:'example.com',brandName:'Example',category:'accountants',market:'AE',competitors:suggestCompetitors?[{name:'Direct Agency',domain:'directagency.com'}]:[]};}
@@ -330,4 +332,21 @@ test('demo continuation resumes an existing matching business without duplicatio
 });
 test('failed discovery retains the demo domain and asks only for missing business details',async()=>{
  const {dom,w}=await fixture({demoWebsite:'example.com',failDiscovery:true});assert.ok(w.document.getElementById('manual'));assert.match(w.document.body.textContent,/example.com/);assert.equal(w.document.getElementById('domain'),null);dom.window.close();
+});
+
+test('free completed reports open all paid packages with explicit totals and direct checkout',async()=>{
+ const {dom,w,calls}=await fixture({used:true});await settle();
+ const dialog=w.document.getElementById('upgrade-dialog');assert.ok(dialog);assert.equal(dialog.querySelectorAll('[data-checkout-plan]').length,3);assert.match(dialog.textContent,/79/);assert.match(dialog.textContent,/199/);assert.match(dialog.textContent,/499/);
+ const yearly=dialog.querySelector('[value="year"]');yearly.checked=true;yearly.dispatchEvent(new w.Event('change'));assert.match(dialog.textContent,/790/);assert.match(dialog.textContent,/billed yearly/);
+ dialog.querySelector('[data-checkout-plan="starter"]').click();await settle();assert.deepEqual(calls.find(([url])=>url==='/api/billing/checkout')[1],{plan:'starter',interval:'year'});assert.match(dialog.querySelector('#upgrade-error').textContent,/Checkout test unavailable/);
+ dialog.querySelector('#keep-free-report').click();assert.equal(w.document.getElementById('upgrade-dialog'),null);w.document.getElementById('refresh').click();await settle();await settle();assert.equal(w.document.getElementById('upgrade-dialog'),null);dom.window.close();
+});
+test('paid reports never receive the automatic upgrade overlay',async()=>{
+ const {dom,w}=await fixture({used:true,advanced:true});await settle();assert.equal(w.document.getElementById('upgrade-dialog'),null);assert.equal(w.document.querySelector('[data-upgrade]'),null);dom.window.close();
+});
+test('new free preview shows opportunities without implementation copy',async()=>{
+ const {dom,w}=await fixture({used:true,guidedCheck:true,actionPreview:true});assert.match(w.document.getElementById('content').textContent,/Your opportunity preview/);assert.doesNotMatch(w.document.getElementById('content').textContent,/Review this question against the page/);dom.window.close();
+});
+test('unavailable checkout is explained and cannot be submitted',async()=>{
+ const {dom,w}=await fixture({used:true,checkoutUnavailable:true});await settle();const dialog=w.document.getElementById('upgrade-dialog');assert.ok([...dialog.querySelectorAll('[data-checkout-plan]')].every(b=>b.disabled));assert.match(dialog.textContent,/Checkout is temporarily unavailable/);dom.window.close();
 });

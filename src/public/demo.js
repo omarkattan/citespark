@@ -129,10 +129,10 @@ function verdict(d) {
   return {
     head: `Named in ${d.mentions} of ${d.runs} answers`,
     body: d.mentions === 0
-      ? `${esc(d.brandName)} was not named in this sample. Check whether the answer recommends any providers. Advice-only answers may name none, so absence alone is not a competitive loss.`
+      ? `${esc(d.brandName)} wasn’t named for this question. Check more buyer questions to find where your business appears and what to work on next.`
       : d.mentions === d.runs
-        ? `${esc(d.brandName)} appeared in every answer in this sample. Test another buying question to see where that presence holds.`
-        : `${esc(d.brandName)} appeared in some answers in this sample. Review the evidence before deciding what to change.`
+        ? `${esc(d.brandName)} appeared in every answer in this sample. Check more buyer questions to see where that visibility holds.`
+        : `${esc(d.brandName)} appeared in some answers, but not all. Check more buyer questions to find gaps and useful next actions.`
   };
 }
 
@@ -151,18 +151,18 @@ function answerEvidenceHtml(d) {
 
 function showResult(d) {
   const v = verdict(d);
-  const known=Number.isInteger(d.runs)&&d.runs>0&&Number.isInteger(d.mentions)&&d.mentions>=0&&d.mentions<=d.runs;
+  const known=d.status!=='inconclusive'&&Number.isInteger(d.runs)&&d.runs>0&&Number.isInteger(d.mentions)&&d.mentions>=0&&d.mentions<=d.runs;
   const pct = known ? Math.round(d.mentions/d.runs*100) : null;
   if(known||d.status==='inconclusive')demo.results.set(d.question,{...d});
   const retained=window.CitedDemoHandoff?.save(demo.site||d,demo.results.values());
-  const strip = (d.strip||[]).map((hit) => `<span class="tick ${hit ? 'hit' : ''}"></span>`).join('');
+  const strip = (known ? d.strip||[] : []).map((hit) => `<span class="tick ${hit ? 'hit' : ''}"></span>`).join('');
 
   const signupUrl='/login?demo=1&signup=1&website='+encodeURIComponent(demo.site?.domain||d.domain||'');
   const reportButton=`<a class="btn" href="${esc(signupUrl)}">Get my free AI visibility report</a>`;
   $('demoResult').innerHTML = `
     <p class="demo-label">Question tested · ${esc(d.engine||'Engine not recorded')}</p>
     <h3>${esc(d.question)}</h3>
-    <p class="demo-hint">${d.cached?'Previously collected result, reused without a new check.':'New answer sample.'} ${d.collectedAt?`Collected ${esc(d.collectedAt)}.`:''} ${d.failed>0?`${d.failed} failed attempts excluded from the naming denominator.`:''}</p>
+    <p class="demo-scope">One question · ${esc(d.engine||'One engine')} · ${d.cached?'Saved sample':'New sample'}. This is a snapshot, not your overall AI visibility.</p>
     <div class="demo-verdict ${pct === 0 ? 'bad' : pct === 100 ? 'good' : 'mixed'}">
       <div class="demo-score">
         <div class="demo-pct" style="font-size:1.6rem">${known?`${d.mentions} / ${d.runs}`:'—'}</div><small>${known?`${pct}% named in this sample`:d.status==='inconclusive'?'Score withheld':'Not measured'}</small>
@@ -174,9 +174,8 @@ function showResult(d) {
       </div>
     </div>
 
-    <p class="demo-hint">API-generated answer sample${d.requestedModel?` · ${esc(d.requestedModel)}`:''}. These answers can contain errors. Citations identify sources the engine referenced, not independently verified claims.</p>
-    <p class="demo-hint">One question on one engine. Naming is not the same as citing your website. This sample does not measure overall market visibility.</p>
-    <div class="demo-cta demo-cta-top">${reportButton}<p class="demo-hint">No card required · 20 buyer questions across ChatGPT and Perplexity</p></div>
+    <div class="demo-cta demo-cta-top"><h3>Find your next steps.</h3><p>Check 20 buyer questions across ChatGPT and Perplexity and get an opportunity preview.</p>${reportButton}<p class="demo-hint">Free initial report · No card required</p></div>
+    <details class="demo-evidence"><summary>Explore the answers and sources</summary>
     ${comparisonHtml(d.collectionProfile)}
     ${answerEvidenceHtml(d)}
 
@@ -187,9 +186,15 @@ function showResult(d) {
       <div class="chips">${d.fanOut.map((q) => `<span class="chip dashed">${esc(q)}</span>`).join('')}</div>
       <p class="demo-hint">These reported queries are context, not proof of how the engine chose its answer.</p>` : ''}
 
+    </details>
+    <details class="demo-method"><summary>How this sample was collected</summary>
+    <p class="demo-hint">${d.cached?'Previously collected result, reused without a new check.':'New answer sample.'} ${d.collectedAt?`Collected ${esc(d.collectedAt)}.`:''} ${d.failed>0?`${d.failed} failed attempts excluded from the naming denominator.`:''}</p>
+    <p>AI answers can contain errors. Naming your business is different from linking to your website. An answer may name no providers at all, so absence alone does not prove a competitive loss.</p>
+    <p>Model: ${esc(d.requestedModel||'Not recorded')}. Citations identify sources the engine referenced, not independently verified claims.</p>
+    <p>${retained?'Your demo notes are kept in this browser for 24 hours. They are separate from project measurements.':'This browser could not retain your demo notes. Your tested website will still carry through the signup link.'}</p></details>
     <div class="demo-cta">
-      <p><b>Get your free AI visibility report.</b> Create an account for 20 buyer questions across ChatGPT and Perplexity, one initial scan on one website, saved evidence and three suggested next actions. No credit card needed.</p>
-      <p class="demo-hint">${retained?'Your demo notes are kept in this browser for 24 hours so you can refer to them during setup. They are separate from project measurements.':'This browser could not retain your demo. You can still create an account.'}</p><div class="demo-cta-row">
+      <p>Ready to check more buyer questions?</p>
+      <div class="demo-cta-row">
         ${reportButton}
         <button class="btn ghost" id="demoAgain">Try another question</button>
       </div>

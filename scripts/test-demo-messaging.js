@@ -30,7 +30,7 @@ test('duplicate clicks cannot start concurrent requests and failure resets busy 
 test('all saved answers are inspectable, escaped and old excerpts are identified',()=>{
  const w=page();const long='Example '+ 'detail '.repeat(200);
  w.showResult(result({answerEvidence:[{text:long,mentioned:true},{text:'<img src=x onerror=alert(1)>',mentioned:false},{text:'Unknown',mentioned:null}]}));
- assert.equal(w.document.querySelectorAll('#demoResult details').length,3);
+ assert.equal(w.document.querySelectorAll('[aria-label="Answers behind this result"] details').length,3);
  assert.ok(w.document.body.textContent.includes(long));assert.equal(w.document.querySelectorAll('img').length,0);
  assert.match(w.document.body.textContent,/Naming unavailable/);
  w.showResult(result());assert.match(w.document.body.textContent,/older result retained only an excerpt/);
@@ -87,4 +87,18 @@ test('report CTA appears before detailed answers and repeats below with the test
  const ctas=[...w.document.querySelectorAll('a')].filter(a=>a.textContent==='Get my free AI visibility report');assert.equal(ctas.length,2);
  assert.equal(new URL(ctas[0].href).searchParams.get('website'),'example.com');assert.equal(ctas[0].href,ctas[1].href);
  const evidence=w.document.querySelector('[aria-label="Answers behind this result"]');assert.ok(ctas[0].compareDocumentPosition(evidence)&4);assert.match(ctas[0].parentElement.textContent,/No card required/);
+});
+
+test('results lead with an accurate outcome and next step while details start collapsed',()=>{
+ const w=page();
+ for(const mentions of [0,1,3]){
+  w.showResult(result({mentions}));
+  assert.equal(w.document.querySelectorAll('#demoResult > details').length,2);
+  assert.equal(w.document.querySelectorAll('#demoResult > details[open]').length,0);
+  assert.match(w.document.querySelector('.demo-scope').textContent,/One question.*not your overall/);
+  assert.match(w.document.querySelector('.demo-verdict-text h3').textContent,new RegExp(`Named in ${mentions} of 3`));
+  assert.match(w.document.querySelector('.demo-cta-top').textContent,/opportunity preview/);
+  assert.doesNotMatch(w.document.querySelector('.demo-verdict-text').textContent,/not visible|guarantee|rank #1/i);
+ }
+ w.showResult(result({status:'inconclusive'}));assert.match(w.document.querySelector('.demo-score').textContent,/Score withheld/);assert.doesNotMatch(w.document.querySelector('.demo-score').textContent,/100%/);
 });

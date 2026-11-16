@@ -1,3 +1,4 @@
+import {previewActions} from './action-preview.js';
 import {notifyQuestionPreparationFailure} from './notify.js';
 import {mountQuickControls} from './quick-start-controls.js';
 import { generatePrompts } from './prompts.js';
@@ -27,7 +28,8 @@ export function mountQuickStart(app,{requireAuth,assertProject,getEntitlements,q
   if(!evidence.measurement&&!evidence.totals.attempted)return res.status(409).json({error:'Your report is not ready yet. Please wait for the scan to finish.'});
   const rows=await many("SELECT title,action,evidence FROM recommendations WHERE project_id=$1 AND status IN ('open','doing') AND evidence ? 'action_plan' ORDER BY id",[project.id]);
   const actions=rows.sort((a,b)=>(a.evidence.action_plan.position||99)-(b.evidence.action_plan.position||99)).slice(0,3);
-  const pdf=await quickStartPdf(project,evidence,actions);
+  const entitlements=await getEntitlements(req.session.orgId);
+  const pdf=await quickStartPdf({...project,actionPreview:entitlements.actionPreview},evidence,entitlements.actionPreview?previewActions(actions):actions);
   const slug=String(project.domain||'report').replace(/[^a-zA-Z0-9.-]/g,'-');
   res.setHeader('Content-Type','application/pdf');res.setHeader('Cache-Control','private, no-store');
   res.setHeader('Content-Disposition',`attachment; filename="cited-${slug}-quick-start.pdf"`);

@@ -881,3 +881,7 @@ CREATE TABLE IF NOT EXISTS quick_start_ai_requests (
  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS quick_start_ai_requests_user ON quick_start_ai_requests(user_id,created_at);
+
+-- Existing accounts keep their promised detailed Quick Start actions.
+ALTER TABLE orgs ADD COLUMN IF NOT EXISTS quick_start_action_preview BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE orgs ALTER COLUMN quick_start_action_preview SET DEFAULT true;

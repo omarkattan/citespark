@@ -66,7 +66,7 @@ export const PLANS = {
       '1 site, 20 suggested buyer questions',
       'ChatGPT and Perplexity, one initial scan',
       'Saved report with answers and citations',
-      'Three suggested next actions'
+      'Three suggested opportunities to explore'
     ]
   },
   starter: {

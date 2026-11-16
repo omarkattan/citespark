@@ -842,3 +842,14 @@ footer { border-top: 1px solid var(--line); padding: 52px 0 40px; background: va
 .demo-cta-top .demo-hint { margin:10px 0 0; }
 .demo-cta .btn { white-space:normal; text-align:center; }
 @media(max-width:600px){.demo-cta .btn { width:100%; box-sizing:border-box; }}
+
+/* Keep the result and next step readable; evidence is available on demand. */
+#demoResult .demo-scope { font-size:16px; line-height:1.6; color:var(--sand-2); margin:12px 0 24px; }
+#demoResult .demo-verdict-text h3 { font-size:clamp(26px,4vw,34px); }
+#demoResult .demo-verdict-text p, #demoResult .demo-cta p { font-size:17px; line-height:1.65; }
+#demoResult .demo-cta h3 { font-size:24px; margin:0 0 8px; }
+#demoResult .demo-cta .demo-hint { font-size:15px; }
+#demoResult > details { border-bottom:1px solid var(--line-2); padding:18px 0; }
+#demoResult > details > summary { font-size:17px; font-weight:600; cursor:pointer; color:var(--sand); padding:6px 0; }
+#demoResult > details p, #demoResult .demo-excerpt { font-size:16px; line-height:1.65; }
+#demoResult > details[open] > summary { margin-bottom:16px; }

@@ -17,9 +17,9 @@ test('PDF endpoint requires authentication and checks project access before read
 test('PDF route returns an attachment with saved evidence and no-store headers',async()=>{
  const routes=[],headers={};let body;
  const rows=[{id:1,prompt_id:1,text:'Which wallets offer transfers in Dubai?',cycle_date:'2026-11-07',engine:'chatgpt',ok:true,mentioned:true,cited:false,response_text:'Example provides transfers.',source_links:[]}];
- mountQuickStart({get:(...a)=>routes.push(a),post:()=>{}},{requireAuth:()=>{},assertProject:async()=>({id:1,brand_name:'Example',domain:'example.com'}),many:async sql=>sql.includes('FROM reporting_runs')?rows:[]});
+ mountQuickStart({get:(...a)=>routes.push(a),post:()=>{}},{requireAuth:()=>{},assertProject:async()=>({id:1,brand_name:'Example',domain:'example.com'}),getEntitlements:async()=>({actionPreview:false}),many:async sql=>sql.includes('FROM reporting_runs')?rows:[]});
  const route=routes.find(r=>r[0].endsWith('/report.pdf'));
- await route[2]({}, {setHeader:(k,v)=>headers[k]=v,send:v=>body=v},e=>{throw e;});
+ await route[2]({session:{orgId:1}}, {setHeader:(k,v)=>headers[k]=v,send:v=>body=v},e=>{throw e;});
  assert.equal(headers['Content-Type'],'application/pdf');assert.equal(headers['Cache-Control'],'private, no-store');
  assert.equal(headers['Content-Disposition'],'attachment; filename="cited-example.com-quick-start.pdf"');assert.equal(body.subarray(0,5).toString(),'%PDF-');
 });

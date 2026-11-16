@@ -27,13 +27,14 @@ export async function quickStartPdf(project,evidence,actions=[]){
  for(const warning of evidence.localeWarnings||[])para(warning,10,'#885010');
  heading('Results by AI engine');
  for(const e of evidence.engineCoverage||[])para(`${e.engine}: named in ${e.named}/${e.measured}; website cited in ${e.cited}/${e.measured} measured answers.`);
- heading('Three things to look at next');
+ heading(project.actionPreview?'Your opportunity preview':'Three things to look at next');
+ if(project.actionPreview)para('Upgrade for the detailed action plan and ongoing monitoring. Suggested opportunities need review, and do not guarantee AI recommendations.');
  if(!actions.length)para('No suggested actions are available yet. Return to your saved report to check for updates.');
  for(const [i,row] of actions.slice(0,3).entries()){
   const p=row.evidence.action_plan;room(100);
   doc.font('bold').fontSize(12).fillColor('#10271f').text(`${i+1}. ${text(p.title||row.title)}`);doc.moveDown(.4);
   if(p.generation!=='page-grounded')para('Website verification is incomplete. Treat this as a suggested check, not a confirmed content gap.',9,'#885010');
-  para(p.change||row.action);if(p.rationale)para(p.rationale);if(p.page)para(p.page,9);
+  if(!project.actionPreview){para(p.change||row.action);if(p.rationale)para(p.rationale);if(p.page)para(p.page,9);}
  }
  doc.addPage();heading('Question results');
  para('Counts below use measured answers only. Missing or failed answers are not scored as absence.');

@@ -1,3 +1,4 @@
+import {previewActions} from './lib/action-preview.js';
 import {mountQuickStart, quickStartMutationAllowed} from './lib/quick-start.js';
 import {mountContentWorkflow} from './lib/content-workflow.js';
 import { createGa4Refresh } from './lib/ga4-refresh.js';
@@ -178,6 +179,12 @@ app.use('/api',wrap(async(req,res,next)=>{
   const e=await getEntitlements(req.session.orgId);
   if(e.quickStart.enabled && !e.advanced)return res.status(402).json({error:'Upgrade for ongoing monitoring and advanced tools. Your Quick Start report and evidence remain available.',upgrade:true});
   next();
+}));
+// Detailed report exports and review notes are paid for the new free preview cohort.
+app.use('/api',wrap(async(req,res,next)=>{
+ if(req.method!=='GET'||!req.session?.orgId||!(/^\/projects\/\d+\/report(?:\/|$)/.test(req.path)||/^\/recommendations\/\d+\/report-note-preview$/.test(req.path)))return next();
+ if((await getEntitlements(req.session.orgId)).actionPreview)return res.status(402).json({error:'Upgrade for the detailed action plan. Your free Quick Start report remains available.',upgrade:true});
+ next();
 }));
 mountQuickStart(app,{requireAuth,assertProject,getEntitlements,query,one,many,pool,getCycleStatus:id=>cycles.get(id)});
 mountContentWorkflow(app,{requireAuth,assertProject});
@@ -735,6 +742,9 @@ app.get('/api/projects/:id/history', requireAuth, wrap(async (req, res) => {
 app.get('/api/projects/:id/recommendations', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
+
+  const entitlements=await getEntitlements(req.session.orgId);
+  if(entitlements.actionPreview){const rows=await many("SELECT id,title,evidence FROM recommendations WHERE project_id=$1 AND status IN ('open','doing') AND evidence ? 'action_plan' ORDER BY id",[project.id]);return res.json({tasks:previewActions(rows),previewOnly:true});}
 
   const status = String(req.query.status || 'open');
   const valid = ['open', 'doing', 'done', 'dismissed', 'all', 'active'];
