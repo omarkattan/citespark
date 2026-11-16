@@ -100,7 +100,7 @@ export function mountQuickStart(app,{requireAuth,assertProject,getEntitlements,q
   let suggestions;
   try { suggestions=await generate({brand:project.brand_name,domain:project.domain,category:project.category,market:project.location_name||new Intl.DisplayNames(['en'],{type:'region'}).of(project.market),qualifier:project.qualifier,language:project.language,count:20,quickStart:true}); }
   catch(e){
-   const reasons=['not_configured','http_400','http_401','http_403','http_404','http_429','http_500','http_502','http_503','http_529','timeout','request_failed','truncated_response','invalid_response','insufficient_questions','no_usable_questions'];
+   const reasons=['not_configured','http_400','http_401','http_403','http_404','http_429','http_500','http_502','http_503','http_529','timeout','request_failed','truncated_response','invalid_response','insufficient_questions','no_usable_questions','invalid_question_format','branded_questions','language_mismatch'];
    const reason=reasons.includes(e.reason)?e.reason:'unexpected_error';
    console.error('Quick Start question preparation failed',JSON.stringify({projectId:project.id,reason,attempts:e.attempts||1}));
    return res.status(503).json({error:'We could not finish preparing your 20 questions. Your business is saved and no report checks have been used. Please try again. If this continues, contact support with reference '+project.id+'/'+reason+'.',code:'QUESTION_PREPARATION_FAILED',reason});

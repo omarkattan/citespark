@@ -16,3 +16,10 @@ test('a retry with too few usable questions cannot silently pass or make a third
  let calls=0;await assert.rejects(generatePrompts(args,{completeText:async()=>++calls===1?'invalid':JSON.stringify(JSON.parse(good).slice(0,16))}),e=>e.reason==='insufficient_questions');assert.equal(calls,2);
 });
 test('a complete valid list avoids retries',async()=>{let calls=0;const rows=await generatePrompts(args,{completeText:async()=>{calls++;return good}});assert.equal(calls,1);assert.equal(rows.length,20);});
+
+test('plain string question arrays retain the same validation',async()=>{
+ const rows=await generatePrompts(args,{completeText:async()=>JSON.stringify(JSON.parse(good).map(q=>q.text))});assert.equal(rows.length,20);
+});
+test('wrong language is identified and repair explicitly requests the selected language',async()=>{
+ let calls=0;await assert.rejects(generatePrompts(args,{completeText:async(p)=>{calls++;if(calls===2)assert.match(p,/Required language: English.*language_mismatch/);return JSON.stringify([{text:'أي بنوك تقدم حسابات توفير في الأردن؟'}]);}}),e=>e.reason==='language_mismatch');assert.equal(calls,2);
+});

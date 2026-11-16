@@ -185,6 +185,7 @@ Write ${count} questions.`;
   const generationError = reason => Object.assign(new Error('Question generation could not finish.'), {
     code: 'QUESTION_PREPARATION_FAILED', reason, attempts, responseStop
   });
+  let rejectionReason = null;
   let raw = await request(ask);
   let parsed = parseJsonArray(raw);
   if (quickStart && !parsed?.length) {
@@ -200,7 +201,12 @@ Write ${count} questions.`;
   if (parsed && parsed.length) {
     const clean = input => {
       const seen = new Set();
-      return input
+      const normalized = input.map(p => typeof p === 'string' ? {text:p} : p);
+      const valid = normalized.filter(p => p && isBuyerQuestion(p.text));
+      const unbranded = valid.filter(p => !containsSearchBrand(p.text, [brand, domain]));
+      const inLanguage = unbranded.filter(p => matchesLanguage(p.text, language));
+      rejectionReason = !valid.length ? 'invalid_question_format' : !unbranded.length ? 'branded_questions' : !inLanguage.length ? 'language_mismatch' : null;
+      return normalized
       .filter((p) => p && isBuyerQuestion(p.text) && !/^how\s+to\b/i.test(p.text.trim()))
       .filter((p) => !containsSearchBrand(p.text, [brand, domain]))
       .filter((p) => { const key = queryKey(p.text); if (seen.has(key)) return false; seen.add(key); return true; })
@@ -220,7 +226,7 @@ Write ${count} questions.`;
     // a full baseline or starts another measurement.
     if (!coverage.complete && (!quickStart || attempts < 2)) {
       let extra;
-      try { attempts++; extra=await completeText(`${ask}\n\nReview these existing suggestions: ${JSON.stringify(suggestions)}\n${quickStart ? 'The final set needs at least '+Math.ceil(count*.8)+' direct provider or product selection questions. Rephrase relevant suggestions that ask how to do something into which apps, wallets, providers or products meet that same need. Preserve supported services, location and customer requirements. Use natural questions such as Which apps support [need] in [market]? or Who would you recommend for [service] in [market]? Do not repeat existing questions or invent product capabilities. Return additional questions, not answers.' : 'Missing buyer needs: '+(coverage.missing.join(', ')||'none')+'.'} Current provider-discovery questions: ${coverage.discovery}, required: ${coverage.minimumDiscovery}. Write up to ${count} additional, distinct questions to fill the gaps and reach ${count} usable questions. Keep to explicitly supported services and translate category/location naturally for Arabic.`,{system,maxTokens:Math.min(6000,count*180),timeoutMs:45000,onFailure:reason=>{failure=reason;}}); } catch { /* Keep usable suggestions and surface incomplete coverage. */ }
+      try { attempts++; extra=await completeText(`${ask}\n\nRequired language: ${language === 'ar' ? 'Arabic' : 'English'}. ${rejectionReason ? 'The previous response was rejected: '+rejectionReason+'. Return complete, unbranded questions in the required language. Each JSON object must have a text field.' : ''}\nReview these existing suggestions: ${JSON.stringify(suggestions)}\n${quickStart ? 'The final set needs at least '+Math.ceil(count*.8)+' direct provider or product selection questions. Rephrase relevant suggestions that ask how to do something into which apps, wallets, providers or products meet that same need. Preserve supported services, location and customer requirements. Use natural questions such as Which apps support [need] in [market]? or Who would you recommend for [service] in [market]? Do not repeat existing questions or invent product capabilities. Return additional questions, not answers.' : 'Missing buyer needs: '+(coverage.missing.join(', ')||'none')+'.'} Current provider-discovery questions: ${coverage.discovery}, required: ${coverage.minimumDiscovery}. Write up to ${count} additional, distinct questions to fill the gaps and reach ${count} usable questions. Keep to explicitly supported services and translate category/location naturally for Arabic.`,{system,maxTokens:Math.min(6000,count*180),timeoutMs:45000,onFailure:reason=>{failure=reason;}}); } catch { /* Keep usable suggestions and surface incomplete coverage. */ }
       suggestions=clean([...suggestions,...(parseJsonArray(extra)||[])]);
     }
     if (suggestions.length) {
@@ -244,7 +250,7 @@ Write ${count} questions.`;
     }
   }
 
-  if (quickStart) throw generationError(failure || 'no_usable_questions');
+  if (quickStart) throw generationError(failure || rejectionReason || 'no_usable_questions');
   if (raw || language === 'ar') {
     throw new Error('No usable questions were returned in the selected language. Please try again.');
   }
