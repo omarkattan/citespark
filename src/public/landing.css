@@ -837,3 +837,8 @@ footer { border-top: 1px solid var(--line); padding: 52px 0 40px; background: va
   .demo-hero .demo-input input, .demo-hero .demo-input .btn { width: 100%; min-height: 56px; }
   .demo-hero .demo-input input { font-size: 17px; }
 }
+
+.demo-cta-top { margin:20px 0 28px; padding:18px 0; border-bottom:1px solid var(--line-2); }
+.demo-cta-top .demo-hint { margin:10px 0 0; }
+.demo-cta .btn { white-space:normal; text-align:center; }
+@media(max-width:600px){.demo-cta .btn { width:100%; box-sizing:border-box; }}

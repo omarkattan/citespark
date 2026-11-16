@@ -20,6 +20,9 @@
   });
   if(new URLSearchParams(location.search).get('signup')==='1')$('toggle').click();
   const demoHint=window.CitedDemoHandoff?.read();
+  const authParams=new URLSearchParams(location.search);
+  const demoWebsite=authParams.get('website')||demoHint?.site?.domain||'';
+  const continueUrl=authParams.get('demo')==='1'&&demoWebsite?'/quick-start?demo=1&website='+encodeURIComponent(demoWebsite):null;
   if(new URLSearchParams(location.search).get('demo')==='1'&&demoHint){
     $('orgName').value=demoHint.site.brandName||'';const hint=document.createElement('p');
     hint.textContent=`Continue setting up ${demoHint.site.domain}. Your demo notes remain available in this browser for 24 hours.`;panel.prepend(hint);
@@ -53,9 +56,9 @@
       const data=await post(`/api/${mode}`,{email,password:$('password').value,orgName:$('orgName').value.trim()});
       if(data.verificationSent){
         panel.innerHTML=`<h2>Check your email</h2><p class="sent-to">We sent a confirmation link to <b>${escapeHtml(email)}</b>.</p><p class="sent-note">You can add your website and review suggested questions now. Confirm your email before running your first measurement. The link works for two days.</p><div class="sent-actions"><a class="btn" href="/app">Next: add your website</a><button type="button" class="ghost" id="resend">Send it again</button></div><p class="sent-hint" id="resendMsg" role="status">Not arrived? Check spam, or request another link.</p>`;
-        busy=false;window.location.assign('/quick-start');return;
+        busy=false;window.location.assign(continueUrl||'/quick-start');return;
       }
-      window.location.href='/app';
+      window.location.href=continueUrl||'/app';
     }catch(error){$('error').textContent=error.message||'We could not connect. Please try again.';$('submit').disabled=false;$('submit').textContent=label();busy=false;}
   });
 })();

@@ -157,6 +157,8 @@ function showResult(d) {
   const retained=window.CitedDemoHandoff?.save(demo.site||d,demo.results.values());
   const strip = (d.strip||[]).map((hit) => `<span class="tick ${hit ? 'hit' : ''}"></span>`).join('');
 
+  const signupUrl='/login?demo=1&signup=1&website='+encodeURIComponent(demo.site?.domain||d.domain||'');
+  const reportButton=`<a class="btn" href="${esc(signupUrl)}">Get my free AI visibility report</a>`;
   $('demoResult').innerHTML = `
     <p class="demo-label">Question tested · ${esc(d.engine||'Engine not recorded')}</p>
     <h3>${esc(d.question)}</h3>
@@ -174,6 +176,7 @@ function showResult(d) {
 
     <p class="demo-hint">API-generated answer sample${d.requestedModel?` · ${esc(d.requestedModel)}`:''}. These answers can contain errors. Citations identify sources the engine referenced, not independently verified claims.</p>
     <p class="demo-hint">One question on one engine. Naming is not the same as citing your website. This sample does not measure overall market visibility.</p>
+    <div class="demo-cta demo-cta-top">${reportButton}<p class="demo-hint">No card required · 20 buyer questions across ChatGPT and Perplexity</p></div>
     ${comparisonHtml(d.collectionProfile)}
     ${answerEvidenceHtml(d)}
 
@@ -185,9 +188,9 @@ function showResult(d) {
       <p class="demo-hint">These reported queries are context, not proof of how the engine chose its answer.</p>` : ''}
 
     <div class="demo-cta">
-      <p><b>Get your free Quick Start report.</b> Create an account for 20 buyer questions across ChatGPT and Perplexity, one initial scan on one website, saved evidence and three suggested next actions. No credit card needed.</p>
+      <p><b>Get your free AI visibility report.</b> Create an account for 20 buyer questions across ChatGPT and Perplexity, one initial scan on one website, saved evidence and three suggested next actions. No credit card needed.</p>
       <p class="demo-hint">${retained?'Your demo notes are kept in this browser for 24 hours so you can refer to them during setup. They are separate from project measurements.':'This browser could not retain your demo. You can still create an account.'}</p><div class="demo-cta-row">
-        <a class="btn" href="/login?demo=1&signup=1">Get my free report</a>
+        ${reportButton}
         <button class="btn ghost" id="demoAgain">Try another question</button>
       </div>
     </div>`;

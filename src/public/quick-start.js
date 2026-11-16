@@ -37,6 +37,23 @@ async function createProject(details){
  catch(e){if(e.status===409&&await resumeDomain(details.domain))return;throw e;}
  projectId=d.project.id;history.replaceState({},'','/quick-start?site='+projectId);await load();
 }
+async function continueDemo(){
+ const params=new URLSearchParams(location.search),hint=window.CitedDemoHandoff?.read();
+ const domain=params.get('website')||hint?.site?.domain;
+ if(!domain){setup();return;}
+ const site=hint&&domainKey(hint.site.domain)===domainKey(domain)?hint.site:null;
+ $('content').innerHTML=`<h1>Preparing your free AI visibility report.</h1><p>Continuing with <strong>${esc(domain)}</strong> from your demo. No need to enter your website again.</p><p>Preparing your questions for review. Your report will only run when you choose to start it.</p><progress aria-label="Preparing your website"></progress>`;
+ try{
+  if(await resumeDomain(domain))return;
+  let d=site;
+  if(!d?.brandName||!d?.category){try{d=await api('/api/discover',{domain});}catch{manualBusiness(domain);return;}}
+  if(!d.brandName||!d.category){manualBusiness(domain,d);return;}
+  await createProject({domain:d.domain||domain,brandName:d.brandName,category:d.category,competitors:d.competitors||[],market:d.market||window.DEFAULT_COUNTRY,language:'en',qualifier:d.qualifier||(d.customerSuggestions||[]).join('; ')});
+ }catch(e){
+  $('content').innerHTML=`<h1>Continue with ${esc(domain)}</h1><p>Your website is remembered. We couldn’t finish setup yet.</p><button id="retry-demo">Try again</button> <button id="change-demo" class="secondary">Use another website</button>`;
+  error(e);$('retry-demo').onclick=()=>{clearError();void continueDemo();};$('change-demo').onclick=()=>{history.replaceState({},'','/quick-start?new=1');clearError();setup();};
+ }
+}
 function setup(){
  reportVisible=false;
  $('content').innerHTML=`<div class="intro"><h1>Would AI recommend your business?</h1><p class="lead">Enter your website. We’ll find the buyer questions worth checking and prepare your first report.</p><form id="setup" class="panel"><label for="domain">Your website</label><input id="domain" required placeholder="yourbusiness.com" autocomplete="url" inputmode="url"><div class="actions"><button id="discover" type="submit">Continue</button></div><p class="muted" id="discovery-note">${billing.advanced?'Quick Start uses 20 questions across ChatGPT and Perplexity.':'Free report · No card required'}</p></form></div>`;
@@ -125,6 +142,7 @@ async function report(){
 }
 async function load(){
  billing=await api('/api/billing');
+ if(!projectId&&new URLSearchParams(location.search).get('demo')==='1'){await continueDemo();return;}
  if(!projectId && new URLSearchParams(location.search).get('new')==='1' && billing.advanced){setup();return;}
  if(!projectId){const projects=await api('/api/projects');if(projects.length){projectId=projects[0].id;history.replaceState({},'','/quick-start?site='+projectId);}else{setup();return;}}
  context=await api(`/api/projects/${projectId}/quick-start`);

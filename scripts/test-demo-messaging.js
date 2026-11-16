@@ -81,3 +81,10 @@ test('comparison excludes legacy and different model settings while preserving c
  const text=w.document.querySelector('.demo-comparison').textContent;
  assert.match(text,/Current question/);assert.match(text,/Second current question/);assert.doesNotMatch(text,/Old question|Mini question/);
 });
+
+test('report CTA appears before detailed answers and repeats below with the tested website',()=>{
+ const w=page();w.showResult(result({answerEvidence:[{text:'Example is mentioned.',mentioned:true}]}));
+ const ctas=[...w.document.querySelectorAll('a')].filter(a=>a.textContent==='Get my free AI visibility report');assert.equal(ctas.length,2);
+ assert.equal(new URL(ctas[0].href).searchParams.get('website'),'example.com');assert.equal(ctas[0].href,ctas[1].href);
+ const evidence=w.document.querySelector('[aria-label="Answers behind this result"]');assert.ok(ctas[0].compareDocumentPosition(evidence)&4);assert.match(ctas[0].parentElement.textContent,/No card required/);
+});

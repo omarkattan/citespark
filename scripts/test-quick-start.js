@@ -24,9 +24,9 @@ test('free controls allow signup, evidence preparation and checkout, but not pai
 const html=fs.readFileSync(new URL('../src/public/quick-start.html',import.meta.url),'utf8');
 const js=fs.readFileSync(new URL('../src/public/quick-start.js',import.meta.url),'utf8');
 const settle=()=>new Promise(r=>setImmediate(r));
-async function fixture({verified=true,used=false,advanced=false,failRun=false,thinking=false,incomplete=false,failDiscovery=false,failSuggestions=false,guidedCheck=false,existing=false,newLink=false,duplicate=false,failCompetitors=false,zeroVisibility=false,suggestCompetitors=false}={}){
- const dom=new JSDOM(html,{url:'https://cited.ae/quick-start'+(newLink?'?new=1':''),runScripts:'outside-only'});
- const w=dom.window,calls=[];let created=used||existing,ran=used,savedQuestions=incomplete?list.slice(0,15):list;
+async function fixture({verified=true,used=false,advanced=false,failRun=false,thinking=false,incomplete=false,failDiscovery=false,failSuggestions=false,guidedCheck=false,existing=false,newLink=false,duplicate=false,failCompetitors=false,zeroVisibility=false,suggestCompetitors=false,demoWebsite=null,demoHint=null}={}){
+ const dom=new JSDOM(html,{url:'https://cited.ae/quick-start'+(demoWebsite?'?demo=1&website='+encodeURIComponent(demoWebsite):newLink?'?new=1':''),runScripts:'outside-only'});
+ const w=dom.window,calls=[]; w.CitedDemoHandoff={read:()=>demoHint};let created=used||existing,ran=used,savedQuestions=incomplete?list.slice(0,15):list;
  w.countryOptions=()=>'<option value="AE">United Arab Emirates</option>';w.DEFAULT_COUNTRY='AE';w.print=()=>{};
  const project={id:1,brand_name:'Example',domain:'example.com',category:'accountants',market:'AE',quick_start:true};
  const billing={advanced,quickStart:{enabled:true,used},plan:{id:advanced?'starter':'free'}};
@@ -314,4 +314,20 @@ test('empty competitor lists receive automatic suggestions without typing to the
  assert.equal(calls.some(([p])=>p.endsWith('/assistant')||p.endsWith('/run')),false);
  w.document.getElementById('run').click();await settle();await settle();
  assert.ok(calls.findIndex(([p])=>p.endsWith('/competitors'))<calls.findIndex(([p])=>p.endsWith('/run')));dom.window.close();
+});
+
+test('demo signup carries the saved business straight to review without rediscovery or scanning',async()=>{
+ const {dom,w,calls}=await fixture({demoWebsite:'example.com',demoHint:{site:{domain:'example.com',brandName:'Example',category:'accountants',market:'AE',qualifier:'Small businesses'}}});
+ assert.ok(w.document.getElementById('run'));assert.equal(w.document.getElementById('domain'),null);
+ assert.ok(!calls.some(([url])=>url==='/api/discover'||url.endsWith('/run')));
+ const create=calls.find(([url,body])=>url==='/api/projects'&&body);assert.equal(create[1].domain,'example.com');assert.equal(create[1].qualifier,'Small businesses');dom.window.close();
+});
+test('demo URL survives unavailable browser storage without asking for website again',async()=>{
+ const {dom,w,calls}=await fixture({demoWebsite:'example.com'});assert.ok(w.document.getElementById('run'));assert.equal(calls.find(([url])=>url==='/api/discover')[1].domain,'example.com');dom.window.close();
+});
+test('demo continuation resumes an existing matching business without duplication',async()=>{
+ const {dom,w,calls}=await fixture({existing:true,demoWebsite:'www.example.com'});assert.ok(w.document.getElementById('run'));assert.ok(!calls.some(([url,body])=>url==='/api/projects'&&body));dom.window.close();
+});
+test('failed discovery retains the demo domain and asks only for missing business details',async()=>{
+ const {dom,w}=await fixture({demoWebsite:'example.com',failDiscovery:true});assert.ok(w.document.getElementById('manual'));assert.match(w.document.body.textContent,/example.com/);assert.equal(w.document.getElementById('domain'),null);dom.window.close();
 });
