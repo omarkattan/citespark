@@ -163,7 +163,7 @@ test('Quick Start generation prioritises provider selection without mandatory ed
 });
 test('Quick Start does not accept an educational question set after failed repair',async()=>{
  const qs=Array.from({length:20},(_,i)=>({text:`How can I learn accounting topic ${i+1}?`,cluster:'education',intent:'problem'}));
- await assert.rejects(generatePrompts({brand:'Example',domain:'example.com',category:'accountants',market:'Dubai',count:20,quickStart:true},{completeText:async()=>JSON.stringify(qs)}),/Buyer-shortlist/);
+ await assert.rejects(generatePrompts({brand:'Example',domain:'example.com',category:'accountants',market:'Dubai',count:20,quickStart:true},{completeText:async()=>JSON.stringify(qs)}),{code:"QUESTION_PREPARATION_FAILED",reason:"insufficient_questions"});
 });
 
 test('software and Arabic product shortlist questions count as provider discovery',()=>{

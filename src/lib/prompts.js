@@ -173,8 +173,29 @@ Typical customer: ${qualifier}
 
 Write ${count} questions.`;
 
-  const raw = await completeText(ask, { system, maxTokens: Math.min(6000, count*180), timeoutMs:45000 });
-  const parsed = parseJsonArray(raw);
+  // Keep failures distinguishable without logging customer prompts or provider bodies.
+  let failure = null, responseStop = null, attempts = 0;
+  const request = async prompt => {
+    attempts++; failure = null; responseStop = null;
+    return completeText(prompt, { system, maxTokens: Math.min(6000, count*180), timeoutMs:45000,
+      onFailure: reason => { failure = reason; },
+      onResponse: info => { responseStop = info.stop_reason; }
+    });
+  };
+  const generationError = reason => Object.assign(new Error('Question generation could not finish.'), {
+    code: 'QUESTION_PREPARATION_FAILED', reason, attempts, responseStop
+  });
+  let raw = await request(ask);
+  let parsed = parseJsonArray(raw);
+  if (quickStart && !parsed?.length) {
+    // A malformed or temporary failed response gets one fresh attempt, not a dead end.
+    // Configuration/authentication failures will not improve with a retry.
+    if (!['not_configured','http_400','http_401','http_403','http_404'].includes(failure)) {
+      raw = await request(ask + '\nReturn only the requested JSON array of objects with text, cluster and intent.');
+      parsed = parseJsonArray(raw);
+    }
+    if (!parsed?.length) throw generationError(failure || (responseStop === 'max_tokens' ? 'truncated_response' : 'invalid_response'));
+  }
 
   if (parsed && parsed.length) {
     const clean = input => {
@@ -197,14 +218,14 @@ Write ${count} questions.`;
     let coverage=quickStart ? {complete:suggestions.length>=count && suggestions.filter(p=>isProviderDiscovery(p.text)).length>=Math.ceil(count*.8),missing:[],discovery:suggestions.filter(p=>isProviderDiscovery(p.text)).length,minimumDiscovery:Math.ceil(count*.8)} : baselineCoverage(suggestions.slice(0,count),count);
     // A bounded repair asks for missing buyer needs, never silently invents
     // a full baseline or starts another measurement.
-    if (!coverage.complete) {
+    if (!coverage.complete && (!quickStart || attempts < 2)) {
       let extra;
-      try { extra=await completeText(`${ask}\n\nReview these existing suggestions: ${JSON.stringify(suggestions)}\n${quickStart ? 'The final set needs at least '+Math.ceil(count*.8)+' direct provider or product selection questions. Rephrase relevant suggestions that ask how to do something into which apps, wallets, providers or products meet that same need. Preserve supported services, location and customer requirements. Use natural questions such as Which apps support [need] in [market]? or Who would you recommend for [service] in [market]? Do not repeat existing questions or invent product capabilities. Return additional questions, not answers.' : 'Missing buyer needs: '+(coverage.missing.join(', ')||'none')+'.'} Current provider-discovery questions: ${coverage.discovery}, required: ${coverage.minimumDiscovery}. Write up to ${count} additional, distinct questions to fill the gaps and reach ${count} usable questions. Keep to explicitly supported services and translate category/location naturally for Arabic.`,{system,maxTokens:Math.min(6000,count*180),timeoutMs:45000}); } catch { /* Keep usable suggestions and surface incomplete coverage. */ }
+      try { attempts++; extra=await completeText(`${ask}\n\nReview these existing suggestions: ${JSON.stringify(suggestions)}\n${quickStart ? 'The final set needs at least '+Math.ceil(count*.8)+' direct provider or product selection questions. Rephrase relevant suggestions that ask how to do something into which apps, wallets, providers or products meet that same need. Preserve supported services, location and customer requirements. Use natural questions such as Which apps support [need] in [market]? or Who would you recommend for [service] in [market]? Do not repeat existing questions or invent product capabilities. Return additional questions, not answers.' : 'Missing buyer needs: '+(coverage.missing.join(', ')||'none')+'.'} Current provider-discovery questions: ${coverage.discovery}, required: ${coverage.minimumDiscovery}. Write up to ${count} additional, distinct questions to fill the gaps and reach ${count} usable questions. Keep to explicitly supported services and translate category/location naturally for Arabic.`,{system,maxTokens:Math.min(6000,count*180),timeoutMs:45000,onFailure:reason=>{failure=reason;}}); } catch { /* Keep usable suggestions and surface incomplete coverage. */ }
       suggestions=clean([...suggestions,...(parseJsonArray(extra)||[])]);
     }
     if (suggestions.length) {
       const ordered=discoveryFirst(suggestions,{category,market,brand,domain,language,count:suggestions.length});
-      if(quickStart && ordered.filter(p=>isProviderDiscovery(p.text)).length<Math.ceil(count*.8))throw new Error('Buyer-shortlist questions could not be prepared. Please try again.');
+      if(quickStart && (ordered.length<count || ordered.filter(p=>isProviderDiscovery(p.text)).length<Math.ceil(count*.8)))throw generationError(failure || 'insufficient_questions');
       if(quickStart) return ordered.filter(p=>isProviderDiscovery(p.text)).concat(ordered.filter(p=>!isProviderDiscovery(p.text))).slice(0,count);
       // Reserve the W/cost needs before filling remaining slots with discovery.
       const selected=[];
@@ -223,6 +244,7 @@ Write ${count} questions.`;
     }
   }
 
+  if (quickStart) throw generationError(failure || 'no_usable_questions');
   if (raw || language === 'ar') {
     throw new Error('No usable questions were returned in the selected language. Please try again.');
   }
