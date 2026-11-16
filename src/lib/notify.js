@@ -1,5 +1,6 @@
 import 'dotenv/config';
-import { query } from '../db/index.js';
+import { query, pool } from '../db/index.js';
+import { createQuestionFailureAlert } from './question-failure-alert.js';
 
 /**
  * Tell someone when something happens, and keep a record either way.
@@ -80,6 +81,7 @@ function render({ title, lead, rows, action, actionUrl }) {
 async function send(payload) {
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
+    signal: AbortSignal.timeout(20000),
     headers: { Authorization: `Bearer ${RESEND}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ from: FROM, to: [TO], subject: payload.subject || payload.title, html: render(payload) })
   });
@@ -282,3 +284,5 @@ export function notifyFeedback({ kind, message, email, view }) {
     rows: [['From', email || 'anonymous'], view ? ['On screen', view] : null].filter(Boolean)
   });
 }
+
+export const notifyQuestionPreparationFailure = createQuestionFailureAlert({pool,send,configured:emailConfigured,site:SITE});

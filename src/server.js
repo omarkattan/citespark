@@ -32,7 +32,7 @@ import { discoverSite } from './lib/discover.js';
 import { PLANS, PLAN_ORDER, planFor } from './lib/plans.js';
 import { proposeQuestions, runDemo, checkLimits, hashIp, DEMO_CONFIG } from './lib/demo.js';
 import { teardown, attachSourceReviews } from './lib/teardown.js';
-import { notifyTrial, notifySignup, notifyPaid, notifyFeedback, notifyAssignment, looksLikeEmail, emailConfigured } from './lib/notify.js';
+import { notifyQuestionPreparationFailure, notifyTrial, notifySignup, notifyPaid, notifyFeedback, notifyAssignment, looksLikeEmail, emailConfigured } from './lib/notify.js';
 import { listSites as listGscSites, candidates as gscCandidates, importQuestions, refreshSearchEvidence } from './lib/gsc.js';
 import { landscape, PLATFORMS, mentionsConfigured } from './lib/mentions.js';
 import {
@@ -1178,7 +1178,7 @@ app.post('/api/projects', requireAuth, wrap(async (req, res) => {
         const inserted=await query(`INSERT INTO prompts(project_id,text,cluster,intent,ai_search_volume) VALUES($1,$2,$3,$4,$5) ON CONFLICT(project_id,text) DO NOTHING`,[project.id,p.text,p.cluster,p.intent,p.ai_search_volume]);
         added+=inserted.rowCount;
       }
-    }catch(error){questionGenerationWarning='Your site and selected questions are saved. Additional question suggestions were unavailable. Review your questions before running a measurement.';console.error('Question generation during setup failed:',error.message);}
+    }catch(error){void notifyQuestionPreparationFailure({project,userId:req.session.userId,stage:'New project setup',error});questionGenerationWarning='Your site and selected questions are saved. Additional question suggestions were unavailable. Review your questions before running a measurement.';console.error('Question generation during setup failed:',error.message);}
   }
 
   res.json({ ok: true, project, promptsAdded: added, questionGenerationWarning });
@@ -1658,9 +1658,10 @@ app.post('/api/projects/:id/generate-prompts', requireAuth, wrap(async (req, res
       count: requestedCount
     });
   } catch (error) {
+    void notifyQuestionPreparationFailure({project,userId:req.session.userId,stage:'Suggest questions',error});
     return res.status(502).json({ error: error.message || 'Could not generate questions. Please try again.' });
   }
-  if(!prompts.length)return res.status(502).json({error:'No usable questions came back. Add your own questions or try again.'});
+  if(!prompts.length){void notifyQuestionPreparationFailure({project,userId:req.session.userId,stage:'Suggest questions',error:{reason:'no_usable_questions'}});return res.status(502).json({error:'No usable questions came back. Add your own questions or try again.'});}
   const existing=await many('SELECT text FROM prompts WHERE project_id=$1',[project.id]);
   return res.json({questions:reviewQuestionItems(prompts,existing),coverage:baselineCoverage(prompts,requestedCount),room,language});
 }));

@@ -1,3 +1,4 @@
+import {notifyQuestionPreparationFailure} from './notify.js';
 import {mountQuickControls} from './quick-start-controls.js';
 import { generatePrompts } from './prompts.js';
 
@@ -58,7 +59,7 @@ export function mountQuickStart(app,{requireAuth,assertProject,getEntitlements,q
   try {
    suggestions=await generate({brand,domain:project.domain,category,market:location||new Intl.DisplayNames(['en'],{type:'region'}).of(market),qualifier,language,count:20,quickStart:true});
    validateQuickQuestions(suggestions.map(p=>p.text));
-  } catch { return res.status(503).json({error:'We could not finish updating your questions. Your previous details are saved. Please try again.'}); }
+  } catch(error) { void notifyQuestionPreparationFailure({project,userId:req.session.userId,stage:'Edit business details',error}); return res.status(503).json({error:'We could not finish updating your questions. Your previous details are saved. Please try again.'}); }
   const client=await pool.connect();
   try {
    await client.query('BEGIN');
@@ -100,6 +101,7 @@ export function mountQuickStart(app,{requireAuth,assertProject,getEntitlements,q
   let suggestions;
   try { suggestions=await generate({brand:project.brand_name,domain:project.domain,category:project.category,market:project.location_name||new Intl.DisplayNames(['en'],{type:'region'}).of(project.market),qualifier:project.qualifier,language:project.language,count:20,quickStart:true}); }
   catch(e){
+   void notifyQuestionPreparationFailure({project,userId:req.session.userId,stage:'Prepare Quick Start questions',error:e});
    const reasons=['not_configured','http_400','http_401','http_403','http_404','http_429','http_500','http_502','http_503','http_529','timeout','request_failed','truncated_response','invalid_response','insufficient_questions','no_usable_questions','invalid_question_format','branded_questions','language_mismatch'];
    const reason=reasons.includes(e.reason)?e.reason:'unexpected_error';
    console.error('Quick Start question preparation failed',JSON.stringify({projectId:project.id,reason,attempts:e.attempts||1}));
