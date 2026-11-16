@@ -103,7 +103,7 @@ export function mountQuickStart(app,{requireAuth,assertProject,getEntitlements,q
    const reasons=['not_configured','http_400','http_401','http_403','http_404','http_429','http_500','http_502','http_503','http_529','timeout','request_failed','truncated_response','invalid_response','insufficient_questions','no_usable_questions','invalid_question_format','branded_questions','language_mismatch'];
    const reason=reasons.includes(e.reason)?e.reason:'unexpected_error';
    console.error('Quick Start question preparation failed',JSON.stringify({projectId:project.id,reason,attempts:e.attempts||1}));
-   return res.status(503).json({error:'We could not finish preparing your 20 questions. Your business is saved and no report checks have been used. Please try again. If this continues, contact support with reference '+project.id+'/'+reason+'.',code:'QUESTION_PREPARATION_FAILED',reason});
+   return res.status(503).json({error:'We could not finish preparing your 20 questions. Your business is saved and no report checks have been used. Please try again. If this continues, contact support with reference '+project.id+'/'+reason+(e.diagnostics ? '/'+Object.values(e.diagnostics).join('-') : '')+'.',code:'QUESTION_PREPARATION_FAILED',reason});
   }
   const key=text=>text.normalize('NFKC').toLowerCase().replace(/[?؟.!\s]+$/gu,'');
   const seen=new Set(existing.map(p=>key(p.text)));

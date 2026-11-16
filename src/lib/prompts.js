@@ -183,9 +183,9 @@ Write ${count} questions.`;
     });
   };
   const generationError = reason => Object.assign(new Error('Question generation could not finish.'), {
-    code: 'QUESTION_PREPARATION_FAILED', reason, attempts, responseStop
+    code: 'QUESTION_PREPARATION_FAILED', reason, attempts, responseStop, diagnostics
   });
-  let rejectionReason = null;
+  let rejectionReason = null, diagnostics = {};
   let raw = await request(ask);
   let parsed = parseJsonArray(raw);
   if (quickStart && !parsed?.length) {
@@ -206,6 +206,7 @@ Write ${count} questions.`;
       const unbranded = valid.filter(p => !containsSearchBrand(p.text, [brand, domain]));
       const inLanguage = unbranded.filter(p => matchesLanguage(p.text, language));
       rejectionReason = !valid.length ? 'invalid_question_format' : !unbranded.length ? 'branded_questions' : !inLanguage.length ? 'language_mismatch' : null;
+      diagnostics = {returned: normalized.length, questionForm:valid.length, unbranded:unbranded.length, selectedLanguage:inLanguage.length};
       return normalized
       .filter((p) => p && isBuyerQuestion(p.text) && !/^how\s+to\b/i.test(p.text.trim()))
       .filter((p) => !containsSearchBrand(p.text, [brand, domain]))
@@ -230,6 +231,7 @@ Write ${count} questions.`;
       suggestions=clean([...suggestions,...(parseJsonArray(extra)||[])]);
     }
     if (suggestions.length) {
+      diagnostics.usable=suggestions.length; diagnostics.discovery=suggestions.filter(p=>isProviderDiscovery(p.text)).length;
       const ordered=discoveryFirst(suggestions,{category,market,brand,domain,language,count:suggestions.length});
       if(quickStart && (ordered.length<count || ordered.filter(p=>isProviderDiscovery(p.text)).length<Math.ceil(count*.8)))throw generationError(failure || 'insufficient_questions');
       if(quickStart) return ordered.filter(p=>isProviderDiscovery(p.text)).concat(ordered.filter(p=>!isProviderDiscovery(p.text))).slice(0,count);
