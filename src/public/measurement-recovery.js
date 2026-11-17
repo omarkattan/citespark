@@ -25,6 +25,7 @@
  button.onclick=async()=>{button.disabled=true;box.textContent='Reviewing saved answers with the versioned bilingual names…';
   try{const response=await fetch(button.dataset.reanalyse,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}),result=await response.json();
    if(!response.ok)throw Error(result.error);box.textContent=`Saved a separate bilingual reanalysis for ${result.entities.length} entities. No provider requests were made. Original measurement scores and settings are unchanged.`;
+   const list=document.createElement('ul');for(const entity of result.entities){const item=document.createElement('li');item.textContent=`${entity.name}: named in ${entity.named} of ${entity.measured} saved answers.`;list.append(item);}box.append(list);
   }catch(error){box.textContent=error.message;}finally{button.disabled=false;}
  };
 })();

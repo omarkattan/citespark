@@ -480,7 +480,8 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
             EXISTS (SELECT 1 FROM reporting_runs history WHERE history.prompt_id = p.id) AS has_history,
             (SELECT id FROM prompts newer WHERE newer.revises_prompt_id = p.id ORDER BY id DESC LIMIT 1) AS replaced_by,
             p.persona_id, pe.name AS persona, pe.descriptor AS persona_descriptor,
-            r.id AS run_id, r.engine, r.run_index, r.ok, r.error, r.no_overview, m.mentioned, m.ordinal, m.snippet,
+            r.id AS run_id, r.engine, r.run_index, r.ok, r.error, r.no_overview,
+            (r.citation_evidence->>'citationCollection'='recorded' AND NOT EXISTS(SELECT 1 FROM citations unresolved WHERE unresolved.run_id=r.id AND unresolved.resolution_status='unresolved')) AS citation_available, m.mentioned, m.ordinal, m.snippet,
             -- Being linked as a source is a different outcome from being named
             -- in the text, and the more valuable one. Reporting only the second
             -- made a citation with no mention read as no visibility at all.
@@ -544,7 +545,7 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
     const p = byPrompt.get(row.id);
     // A left join produces a row with no run for a question never asked.
     if (row.run_id) {
-      p.runs.push({ ok:row.ok,error:row.error,noOverview:row.no_overview, engine: row.engine, mentioned: row.mentioned, ordinal: row.ordinal, cited: row.cited });
+      p.runs.push({ ok:row.ok,error:row.error,noOverview:row.no_overview,citationAvailable:Boolean(row.citation_available), engine: row.engine, mentioned: row.mentioned, ordinal: row.ordinal, cited: row.cited });
     }
     if (!p.snippet && row.snippet) p.snippet = row.snippet;
   }
@@ -561,7 +562,7 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
     ...p,
     // Never asked is not the same as asked and not named, and a rate of zero
     // would say the second.
-    ...measuredQuestionRates(p.runs), attempted:p.runs.length, failed:p.runs.filter(r=>!r.ok).length
+    ...measuredQuestionRates(p.runs), citationComplete:p.runs.filter(r=>r.mentioned!=null).every(r=>r.citationAvailable), attempted:p.runs.length, failed:p.runs.filter(r=>!r.ok).length
   }));
 
   res.json(out);
@@ -2626,7 +2627,8 @@ app.get('/api/projects/:id/measurements/:measurementId', requireAuth, wrap(async
  const status=measurementStatus(batch,rows,project.domain);
  if(req.query.format==='json') {
   const attempts=await many('SELECT * FROM provider_attempts WHERE measurement_id=$1 ORDER BY started_at,id',[batch.id]);
-  return res.json({project:{id:project.id,name:project.name,domain:project.domain},measurement:batch,status,checks,rows,attempts});
+  const retrospective=await many('SELECT b.entity_id,b.analysis FROM competitor_baselines b JOIN entities e ON e.id=b.entity_id WHERE e.project_id=$1 AND b.measurement_id=$2',[project.id,batch.id]);
+  return res.json({project:{id:project.id,name:project.name,domain:project.domain},measurement:batch,status,checks,rows,attempts,retrospective});
  }
  const {measurementHtml}=await import('./lib/measurement-archive.js');
  res.type('html').send(measurementHtml(project,batch,rows,status,checks));

@@ -137,6 +137,8 @@ test('safe wrapper matching rejects lookalike hosts and private redirect destina
  assert.equal(isWrapper('https://vertexaisearch.cloud.google.com/grounding-api-redirect/a'),true);
  assert.equal(isWrapper('https://vertexaisearch.cloud.google.com.attacker.example/a'),false);
  assert.equal(isWrapper('https://google.com/url-invented'),false);
+ assert.equal(isWrapper('https://google.com/goto?url=opaque-token'),true);
+ assert.equal(citationFacts([{id:1,ok:true,response_text:'Answer.',engine:'ai_overview',citations:[{url:'https://google.com/goto?url=opaque-token'}]}],'bankaletihad.com').engines[0].attributable,0);
  for(const url of ['http://127.0.0.1/','http://169.254.169.254/','http://[::1]/','http://localhost/','file:///etc/passwd','https://user:pass@bankaletihad.com/'])assert.equal(publicDestination(url),false,url);
  assert.equal(publicDestination('https://blog.bankaletihad.com/a'),true);
 });

@@ -147,3 +147,9 @@ test('filtering out a selected question clears its checkbox',()=>{
  row.innerHTML='<input type="checkbox" data-qsel="1" checked>';
  x.set({state:'unrun'});assert.equal(row.hidden,true);assert.equal(row.querySelector('input').checked,false);
 });
+test('a missing citation record cannot produce a neither-named-nor-linked verdict',()=>{
+ const ctx=vm.createContext({esc});vm.runInContext(slice('function runStrip(', 'function highlight('),ctx);
+ const html=ctx.runStrip([{engine:'claude',mentioned:false,cited:false,citationAvailable:false}]);
+ assert.match(html,/not named; citation evidence is incomplete/);assert.doesNotMatch(html,/neither named nor linked/);
+ const direct=ctx.runStrip([{engine:'claude',mentioned:false,cited:true,citationAvailable:false}]);assert.match(direct,/linked as a source/);
+});

@@ -202,7 +202,7 @@ function runStrip(runs) {
             ? r.ordinal ? `named, first-mention order ${r.ordinal} among tracked brands` : 'named; mention order unavailable'
             : r.cited
               ? 'linked as a source, but not named in the answer'
-              : 'neither named nor linked';
+              : r.citationAvailable===false ? 'not named; citation evidence is incomplete' : 'neither named nor linked';
           return `<span class="tick ${state}" title="${label}"></span>`;
         })
         .join('');
@@ -1622,12 +1622,12 @@ async function viewQuestions() {
           ${p.fanOut?.length ? `<div class="fanout"><span class="fanout-label">searched for</span>${p.fanOut.map((q) => `<span class="chip">${esc(q)}</span>`).join('')}</div>` : ''}
         </div>
         <div class="rates">
-          <div class="ratesplit">Named or cited</div>
-          <div class="rate ${p.measured ? rateClass(p.seenRate ?? p.rate) : 'none'}">${p.measured ? pct(p.seenRate ?? p.rate) : '&mdash;'}</div>
+          <div class="ratesplit">${p.citationComplete===false?'Brand named':'Named or cited'}</div>
+          <div class="rate ${p.measured ? rateClass(p.seenRate ?? p.rate) : 'none'}">${p.measured ? pct(p.citationComplete===false?p.rate:p.seenRate ?? p.rate) : '&mdash;'}</div>
           ${
             p.measured
               ? `<div class="ratesplit" title="Named means the answer said your name. Cited means it linked to your site as a source.">
-                  named ${pct(p.rate)} &middot; cited ${pct(p.citedRate || 0)}
+                  named ${pct(p.rate)} &middot; ${p.citationComplete===false?'citation comparison incomplete':`cited ${pct(p.citedRate || 0)}`}
                 </div>`
               : ''
           }
