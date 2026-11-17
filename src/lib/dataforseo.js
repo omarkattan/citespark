@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto';
 import 'dotenv/config';
 import { googleLocale } from './google-locale.js';
 
@@ -252,7 +253,7 @@ export async function listModels(engine) {
   const cfg = ENGINES[engine];
   if (!cfg || cfg.kind !== 'llm') return [];
   const res = await fetch(`${BASE}/ai_optimization/${cfg.path}/llm_responses/models`, {
-    headers: { Authorization: authHeader() }
+    headers: { Authorization: authHeader() },signal:AbortSignal.timeout(15000)
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json();
@@ -308,7 +309,7 @@ function authHeader() {
  * appear in the answer. The tree walk below is kept as a fallback for engines
  * whose shape differs or changes.
  */
-function parseStructured(result) {
+export function parseStructured(result) {
   if (!Array.isArray(result) || !result.length) return null;
   const texts = [];
   const annotations = [];
@@ -319,12 +320,13 @@ function parseStructured(result) {
       if (typeof q === 'string' && q.trim()) fanOut.push(q.trim());
     }
     for (const item of res.items || []) {
+      if(item.type && item.type!=='message')continue;
       for (const section of item.sections || []) {
         if (typeof section.text === 'string' && section.text.trim()) {
           texts.push(section.text.trim());
         }
         for (const a of section.annotations || []) {
-          if (a?.url) annotations.push({ url: a.url, title: a.title, at: a.start_index ?? 0 });
+          if (a?.url) annotations.push({ ...a, at: a.start_index ?? 0 });
         }
       }
     }
@@ -529,7 +531,7 @@ function dedupeCitations(items) {
     if (!isSourceUrl(url)) continue;
     if (seen.has(url)) continue;
     seen.add(url);
-    out.push({ url, domain, position: out.length + 1, title: item.title || null });
+    out.push({ url, domain, position: out.length + 1, title: item.title || null, metadata:typeof item==='object'?item:null });
   }
   return out;
 }
@@ -589,7 +591,62 @@ function backoffFor(engine, attempt) {
  */
 const coolUntil = new Map();
 
-export async function askEngine({ engine, prompt, market = 'AE', locationName = null, model = null, maxTokens = 2000, attempt = 0 }) {
+/** Rebuild parsed evidence from an already retained payload without buying another answer. */
+export function answerFromPayload(engine,json) {
+ const cfg=ENGINES[engine],task=json?.tasks?.[0];
+ if(!cfg||!task||task.status_code!==20000)return null;
+ let text='',citations=[],fanOut=[],noOverview=false;
+ if(cfg.kind==='serp') {
+  const items=task.result?.[0]?.items||[];
+  const block=cfg.mode==='ai_mode'?{items}:items.find(i=>i.type==='ai_overview');
+  noOverview=cfg.mode!=='ai_mode'&&!block;
+  text=googleAnswerText(block);citations=dedupeCitations([...collectUrls(block),...urlsFromText(text)]);
+ } else {
+  const structured=parseStructured(task.result);
+  if(!structured)return null; // Unknown payload: do not invent a repair.
+  text=structured.text;fanOut=structured.fanOut;
+  citations=dedupeCitations(structured.annotations.length?structured.annotations:urlsFromText(text));
+ }
+ if(!text.trim()&&!noOverview)return null;
+ return {ok:true,text,citations,fanOut,noOverview,costUsd:0,model:task.result?.[0]?.model_name||cfg.label,error:null,
+  evidence:{version:1,method:cfg.kind==='serp'?'google-serp':'llm-api',citationCollection:'recorded',webSearchRequested:cfg.kind==='llm',
+   webSearchUsed:typeof task.result?.[0]?.web_search==='boolean'?task.result[0].web_search:null,
+   providerRequestId:task.id,annotations:annotationObjects(task.result),searchResults:(task.result||[]).flatMap(r=>r.search_results||[]),replayed:true}};
+}
+async function providerFetch(url, body, onAttempt) {
+ const id=randomUUID(),request={url,body};
+ await onAttempt?.({phase:'dispatch',id,request});
+ let res,json;
+ try {
+  res=await fetch(url,{method:'POST',headers:{Authorization:authHeader(),'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(150000)});
+  const text=await res.text();
+  try {json=JSON.parse(text);} catch {json={unparsed_body:text.slice(0,100000)};}
+ } catch(err) {
+  await onAttempt?.({phase:'response',id,error:String(err.message||err),httpStatus:res?.status});
+  throw err;
+ }
+ await onAttempt?.({phase:'response',id,response:json,httpStatus:res.status,costUsd:Number(json?.cost??json?.tasks?.[0]?.cost??0)});
+ return {ok:res.ok,status:res.status,json:async()=>json};
+}
+export async function askEngine(options) {
+ const attempts=[];
+ const onAttempt=async event=>{if(event.phase==='response')attempts.push(event);await options.onAttempt?.(event);};
+ const answer=await askEngineAttempt({...options,onAttempt});
+ const last=attempts.at(-1),result=last?.response?.tasks?.[0]?.result;
+ return {...answer,costUsd:attempts.length?attempts.reduce((n,a)=>n+(a.costUsd||0),0):answer.costUsd,
+  evidence:{version:1,method:ENGINES[options.engine]?.kind==='serp'?'google-serp':'llm-api',webSearchRequested:ENGINES[options.engine]?.kind==='llm',
+   webSearchUsed:Array.isArray(result)&&typeof result[0]?.web_search==='boolean'?result[0].web_search:null,
+   citationCollection:attempts.length&&answer.ok?'recorded':'unavailable',
+   providerRequestId:last?.response?.tasks?.[0]?.id||null,attemptCount:attempts.length,
+   annotations:annotationObjects(result),searchResults:(Array.isArray(result)?result:[]).flatMap(r=>r.search_results||[])}};
+}
+function annotationObjects(result) {
+ const out=[];
+ function walk(node){if(!node||typeof node!=='object')return;if(Array.isArray(node)){node.forEach(walk);return;}
+  for(const [k,v] of Object.entries(node)){if(k==='annotations'&&Array.isArray(v))out.push(...v);else walk(v);}}
+ walk(result);return out;
+}
+async function askEngineAttempt({ engine, prompt, market = 'AE', locationName = null, model = null, maxTokens = 2000, attempt = 0, onAttempt }) {
   const cool = coolUntil.get(engine) || 0;
   if (cool > Date.now()) await sleep(cool - Date.now());
   const cfg = ENGINES[engine];
@@ -604,12 +661,12 @@ export async function askEngine({ engine, prompt, market = 'AE', locationName = 
   }
 
   if (cfg.kind === 'serp') {
-    const first = await askGoogle({ cfg, prompt, market, locationName });
+    const first = await askGoogle({ cfg, prompt, market, locationName, onAttempt });
     if (!isTransient(first) || attempt >= RETRIES) return first;
     // Google-side failures clear more slowly than an LLM hiccup, so back off
     // further rather than hammering the same second.
     await sleep(backoffFor(engine, attempt));
-    return askEngine({ engine, prompt, market, locationName, model, maxTokens, attempt: attempt + 1 });
+    return askEngineAttempt({ engine, prompt, market, locationName, model, maxTokens, attempt: attempt + 1, onAttempt });
   }
 
   // Only send fields this endpoint accepts. Anything extra is rejected
@@ -629,15 +686,11 @@ export async function askEngine({ engine, prompt, market = 'AE', locationName = 
   const body = [payload];
   const retry = async () => {
     await sleep(backoffFor(engine, attempt));
-    return askEngine({ engine, prompt, market, locationName, model, maxTokens, attempt: attempt + 1 });
+    return askEngineAttempt({ engine, prompt, market, locationName, model, maxTokens, attempt: attempt + 1, onAttempt });
   };
 
   try {
-    const res = await fetch(`${BASE}/ai_optimization/${cfg.path}/llm_responses/live`, {
-      method: 'POST',
-      headers: { Authorization: authHeader(), 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    const res = await providerFetch(`${BASE}/ai_optimization/${cfg.path}/llm_responses/live`, body, onAttempt);
 
     if (!res.ok) {
       const httpFail = { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, model: cfg.label, error: `HTTP ${res.status}` };
@@ -689,6 +742,7 @@ export async function askEngine({ engine, prompt, market = 'AE', locationName = 
       error: text.trim().length ? null : 'Empty response'
     };
   } catch (err) {
+    if(err.persistence)throw err;
     const failure = { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, model: cfg.label, error: String(err.message || err) };
     return isTransient(failure) && attempt < RETRIES ? retry() : failure;
   }
@@ -702,7 +756,7 @@ export async function askEngine({ engine, prompt, market = 'AE', locationName = 
  * Google only shows one for some queries. We return ok with a flag so the
  * cycle records the absence rather than logging an error.
  */
-async function askGoogle({ cfg, prompt, market, locationName = null }) {
+async function askGoogle({ cfg, prompt, market, locationName = null, onAttempt }) {
   const isMode = cfg.mode === 'ai_mode';
   const url = isMode
     ? `${BASE}/serp/google/ai_mode/live/advanced`
@@ -741,11 +795,7 @@ async function askGoogle({ cfg, prompt, market, locationName = null }) {
   ];
 
   try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { Authorization: authHeader(), 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    const res = await providerFetch(url, body, onAttempt);
     if (!res.ok) {
       return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, model: cfg.label, error: `HTTP ${res.status}` };
     }
@@ -792,6 +842,7 @@ async function askGoogle({ cfg, prompt, market, locationName = null }) {
       error: text.length ? null : 'No AI answer returned for this query'
     };
   } catch (err) {
+    if(err.persistence)throw err;
     return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, model: cfg.label, error: String(err.message || err) };
   }
 }
@@ -925,4 +976,20 @@ export async function aiKeywordVolume(keywords, { market = 'AE', language = 'en'
   }
 
   return out;
+}
+
+/** Free capability lookup. A recovery must never silently substitute models. */
+export async function validateRecoveryModels(settings, lookup=listModels) {
+ const capabilities=[];
+ for(const engine of settings.engines) {
+  const cfg=ENGINES[engine];if(!cfg)throw Error(`The original engine ${engine} is no longer supported. A new baseline is required.`);
+  if(cfg.kind!=='llm'){capabilities.push({engine,method:'google-serp'});continue;}
+  const model=settings.models?.[engine];if(!model)throw Error(`The original ${engine} model was not recorded. A new baseline is required.`);
+  let list;try{list=await lookup(engine);}catch(error){throw Error(`Cannot verify the original ${engine} model availability: ${error.message}. No checks were requested. Try again later.`);}
+  const found=list.find(m=>m.model_name===model);
+  if(!found)throw Error(`Original ${engine} model ${model} is not in the provider's available model list. A new baseline is required; it will not be substituted silently.`);
+  if(found.web_search_supported===false)throw Error(`Original ${engine} model ${model} does not currently support the recorded web-search request. Agree a new baseline before collecting.`);
+  capabilities.push({engine,model,webSearchSupported:found.web_search_supported??null});
+ }
+ return capabilities;
 }

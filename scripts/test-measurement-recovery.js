@@ -15,9 +15,9 @@ function fixture() {
 }
 test('recovery retries only missing, failed and incomplete slots and keeps original records', () => {
   const f=fixture(), before=structuredClone(f), r=recoveryPlan(f);
-  assert.deepEqual(r.reasons,{missing:1,failed:1,incomplete:1});
-  assert.deepEqual(r.jobs.map(j=>j.prompt.id),[1,2,3]);
-  assert.deepEqual(r.inheritIds,[12,13,14]);
+  assert.deepEqual(r.reasons,{missing:1,failed:1,incomplete:2});
+  assert.deepEqual(r.jobs.map(j=>j.prompt.id),[1,2,3,5]);
+  assert.deepEqual(r.inheritIds,[12,14]);
   assert.equal(r.plan.length,6); assert.deepEqual(f,before);
 });
 test('recovery refuses a different project, unknown settings, changed questions and ambiguous records', () => {
@@ -28,8 +28,8 @@ test('recovery refuses a different project, unknown settings, changed questions 
   for(const mutate of changes) {const f=fixture();mutate(f);assert.throws(()=>recoveryPlan(f));}
 });
 test('same number of wrong entity verdicts is incomplete, and fully saved zero naming stays valid',()=>{
-  const f=fixture(); f.rows[4].entity_ids=[1,99]; assert.equal(recoveryPlan(f).reasons.incomplete,2);
-  f.rows[4].entity_ids=[2,1]; assert.equal(recoveryPlan(f).reasons.incomplete,1);
+  const f=fixture(); f.rows[4].entity_ids=[1,99]; assert.equal(recoveryPlan(f).reasons.incomplete,3);
+  f.rows[4].entity_ids=[2,1]; assert.equal(recoveryPlan(f).reasons.incomplete,2);
 });
 const {PGlite}=await import(process.env.PGLITE_MODULE||'@electric-sql/pglite');
 test('inheritance preserves costs and source evidence while enforcing project scope',async()=>{
@@ -38,7 +38,7 @@ test('inheritance preserves costs and source evidence while enforcing project sc
       CREATE TABLE measurement_answers(measurement_id int,run_id int); INSERT INTO measurement_answers VALUES(97,12),(97,13),(97,14),(97,15);
       CREATE TABLE measurement_members(measurement_id int,run_id int); CREATE TABLE method_notes(project_id int,note text,detail text);`);
     await inheritRecovery(db,{id:98,project_id:74},recoveryPlan(fixture()));
-    assert.deepEqual((await db.query('SELECT run_id FROM measurement_members ORDER BY run_id')).rows.map(r=>r.run_id),[12,13,14]);
+    assert.deepEqual((await db.query('SELECT run_id FROM measurement_members ORDER BY run_id')).rows.map(r=>r.run_id),[12,14]);
     assert.equal((await db.query('SELECT SUM(cost) AS cost FROM runs')).rows[0].cost,'0.18');
     assert.equal((await db.query('SELECT * FROM measurement_answers')).rows.length,4);
     assert.match((await db.query('SELECT detail FROM method_notes')).rows[0].detail,/not a new independent full scan/);

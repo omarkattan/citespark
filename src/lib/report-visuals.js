@@ -6,7 +6,7 @@ export const reportRate=(n,d)=>rate(n,d)==null?'Not measured':n>0&&rate(n,d)<.1?
 const fmt=(n,d)=>rate(n,d)==null?'Not measured':`${reportRate(n,d)} · ${n} / ${d}`;
 const width=(n,d)=>Math.max(0,Math.min(100,rate(n,d)||0));
 function pair(label,row,sub=''){
- return `<div class="vis-row"><div class="vis-row-title"><b dir="auto">${esc(label)}</b>${sub?`<small>${esc(sub)}</small>`:''}</div><div class="vis-pair">${['named','cited'].map((key,i)=>`<div class="vis-line"><span class="vis-line-label">${i?'Cited':'Named'}</span><span class="vis-track" aria-hidden="true"><span class="vis-fill ${key}" style="width:${width(row[key],row.measured)}%"></span></span><strong>${fmt(row[key],row.measured)}</strong></div>`).join('')}</div></div>`;
+ return `<div class="vis-row"><div class="vis-row-title"><b dir="auto">${esc(label)}</b>${sub?`<small>${esc(sub)}</small>`:''}</div><div class="vis-pair">${['named','cited'].map((key,i)=>`<div class="vis-line"><span class="vis-line-label">${i?'Cited':'Named'}</span><span class="vis-track" aria-hidden="true"><span class="vis-fill ${key}" style="width:${key==='cited'&&row.citationUnavailable?0:width(row[key],row.measured)}%"></span></span><strong>${key==='cited'&&row.citationUnavailable?'Incomplete evidence':fmt(row[key],row.measured)}</strong></div>`).join('')}</div></div>`;
 }
 export function reportVisualGroups(questions=[]){
  const topics=new Map(),languages=new Map();
@@ -22,14 +22,15 @@ export function reportVisualGroups(questions=[]){
  return {topics:[...topics.values()].sort((a,b)=>b.questions-a.questions||a.label.localeCompare(b.label)),languages:[...languages.values()]};
 }
 export function reportVisualOverview(e,{compact=false}={}){
- const groups=reportVisualGroups(e.questions),engines=e.engineCoverage||[];
+ const groups=reportVisualGroups(e.questions),engines=(e.engineCoverage||[]).map(x=>({...x,citationUnavailable:e.citationCoverage&&!e.citationCoverage.engines.find(c=>c.engine===x.engine)?.complete}));
+ if(e.citationCoverage&&!e.citationCoverage.complete)for(const x of [...groups.topics,...groups.languages])x.citationUnavailable=true;
  const limit=compact?8:12,topics=groups.topics.slice(0,limit);
  const expected=e.totals?.expectedChecks,measured=e.totals?.measured||0;
  const enginesHtml=engines.length?engines.map(x=>pair(names[x.engine]||x.engine,x,`${x.measured} measured · ${(x.failed||0)+(x.unmeasured||0)} failed / unmeasured${x.missingChecks?` · ${x.missingChecks} missing`:''}`)).join(''):'<p class="vis-note">Engine breakdown is unavailable for this saved report.</p>';
  return `<div class="vis-overview"><div class="vis-intro"><div><span class="vis-kicker">Evidence at a glance</span><h2>Where are you being found?</h2></div><div class="vis-scope"><strong>${measured.toLocaleString('en-GB')}</strong><span>measured answers${expected!=null?` of ${expected.toLocaleString('en-GB')} planned`:''}</span></div></div>
  <p class="vis-note">Each bar uses its own measured-answer denominator. Naming and website citations overlap. Missing checks are excluded, never scored as zero.</p>
  <div class="vis-grid"><section class="vis-panel"><h3>By AI surface</h3>${enginesHtml}</section><section class="vis-panel"><h3>By buyer topic</h3>${topics.length?topics.map(x=>pair(x.label,x,`${x.questions} questions`)).join(''):'<p class="vis-note">No question evidence available.</p>'}${groups.topics.length>limit?`<p class="vis-note">Showing ${limit} of ${groups.topics.length} topics by question count. See the question appendix for the remainder.</p>`:''}</section></div>
- <div class="vis-language"><h3>Language coverage</h3>${groups.languages.map(x=>`<div><b>${esc(x.label)}</b><strong>${x.questions}</strong><small>questions · ${x.measured} measured answers</small><span>Named ${fmt(x.named,x.measured)} · Cited ${fmt(x.cited,x.measured)}</span></div>`).join('')}</div><p class="vis-note">Language labels use recorded import metadata where available, otherwise question script. Topics and languages can contain different questions, so comparisons do not isolate cause.</p></div>`;
+ <div class="vis-language"><h3>Language coverage</h3>${groups.languages.map(x=>`<div><b>${esc(x.label)}</b><strong>${x.questions}</strong><small>questions · ${x.measured} measured answers</small><span>Named ${fmt(x.named,x.measured)} · Cited ${x.citationUnavailable?'incomplete evidence':fmt(x.cited,x.measured)}</span></div>`).join('')}</div><p class="vis-note">Language labels use recorded import metadata where available, otherwise question script. Topics and languages can contain different questions, so comparisons do not isolate cause.</p></div>`;
 }
 export function comparisonVisual(rows=[]){
  return rows.length?`<div class="vis-comparison" aria-label="Matched competitor visibility chart">${rows.map(x=>pair(x.name+(x.kind==='owned'?' · your brand':''),x,x.domain||'')).join('')}</div>`:'';

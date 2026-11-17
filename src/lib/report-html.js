@@ -214,7 +214,7 @@ export function reportHtml(r, { print = false, detailed = false, ceo = false } =
     .cards { page-break-inside: avoid; }
   }
 </style></head>
-<body><div class="report-print-control" style="text-align:right;margin:16px"><button onclick="window.print()">Print / save PDF</button></div><style>@media print{.report-print-control{display:none}}</style>
+<body>${r.executive?.provisional?`<section role="status"><h2>PROVISIONAL. Measurement #${esc(r.executive.measurement?.id)} needs recovery.</h2><p>Incomplete evidence cannot support a final report. Open the measurement archive to review failed or missing checks.</p></section>`:''}${r.executive?.citationCoverage&&!r.executive.citationCoverage.complete?'<p role="status">Citation evidence is incomplete. Missing source instrumentation does not establish a zero citation rate.</p>':''}<div class="report-print-control" style="text-align:right;margin:16px"><button onclick="window.print()">Print / save PDF</button></div><style>@media print{.report-print-control{display:none}}</style>
 
 <div class="masthead">
   <p class="kicker">AI visibility report &middot; ${date(r.generatedAt)}</p>
@@ -582,6 +582,15 @@ export function reportCsv(r) {
 
   const day = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
 
+  section('Measurement status',['metric','value'],[
+    ['Measurement ID',r.executive?.measurement?.id??'unknown'],['Collection status',r.executive?.measurement?.status??'unknown'],
+    ['Report provisional',r.executive?.provisional?'yes':'no'],['Planned checks',r.executive?.totals?.expectedChecks??'unknown'],
+    ['Usable measured answers',r.executive?.totals?.measured??0],['Failed checks',r.executive?.totals?.failed??0],
+    ['Missing checks',r.executive?.totals?.missingChecks??'unknown'],
+    ['Citation comparison',r.executive?.citationCoverage?.complete?'verified collection coverage':'incomplete or unavailable; retained counts are not zero-citation evidence']]);
+  section('Citation collection by engine',['engine','answers','attributable URL answers','no citations returned','collection unavailable','unresolved destination'],
+    (r.executive?.citationCoverage?.engines||[]).map(e=>[e.engine,e.answers,e.attributable,e.noCitationReturned,e.unavailable,e.unresolved]));
+  section('Owned citation hosts',['host','scope','answers'],(r.executive?.citationCoverage?.ownedHosts||[]).map(h=>[h.host,h.scope,h.answers]));
   section(
     'Summary',
     ['metric', 'value'],

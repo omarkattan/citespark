@@ -17,7 +17,7 @@ test('topic and language charts keep measured denominators and preserve unmeasur
 test('engine chart uses saved measured verdicts rather than attempts',async()=>{
  let calls=0;
  const e=await reportEvidence(1,{},async()=>++calls===1?[
-  {prompt_id:1,text:'Which garage?',cluster:'Garages',engine:'chatgpt',ok:true,response_text:'Complete.',mentioned:true,cited:true},
+  {prompt_id:1,text:'Which garage?',cluster:'Garages',engine:'chatgpt',ok:true,response_text:'Complete.',mentioned:true,cited:true,owned_domain:'garage.example',source_links:[{url:'https://garage.example/'}]},
   {prompt_id:2,text:'What service?',engine:'chatgpt',ok:false},
   {prompt_id:3,text:'What price?',engine:'chatgpt',ok:true,response_text:'',mentioned:null}
  ]:[]);

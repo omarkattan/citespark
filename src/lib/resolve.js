@@ -11,30 +11,8 @@ import { one, query } from '../db/index.js';
  * not a finding, it is a bug wearing one.
  */
 
-/** Wrappers that stand between the answer and the page it came from. */
-const WRAPPERS = [
-  'vertexaisearch.cloud.google.com',
-  'www.google.com/url',
-  'google.com/url',
-  'r.search.yahoo.com',
-  'duckduckgo.com/l',
-  'www.bing.com/ck',
-  'bing.com/ck',
-  'l.facebook.com',
-  't.co',
-  'lnkd.in'
-];
-
-export function isWrapper(url) {
-  try {
-    const u = new URL(url);
-    const host = u.hostname.toLowerCase();
-    const hostPath = `${host}${u.pathname}`;
-    return WRAPPERS.some((w) => host === w || hostPath.startsWith(w));
-  } catch {
-    return false;
-  }
-}
+export {isWrapper} from './citation-wrapper.js';
+import {isWrapper,publicDestination} from './citation-wrapper.js';
 
 /**
  * Some wrappers carry the destination in a query parameter, which costs
@@ -45,7 +23,7 @@ function fromQuery(url) {
     const u = new URL(url);
     for (const key of ['url', 'q', 'u', 'target', 'uddg']) {
       const v = u.searchParams.get(key);
-      if (v && /^https?:\/\//i.test(v)) return v;
+      if (v && publicDestination(v)) return v;
     }
   } catch {
     /* not a URL we can read */
@@ -76,12 +54,11 @@ function fromBody(body) {
   const patterns = [
     /<meta[^>]+http-equiv=['"]?refresh['"]?[^>]+url=['"]?(https?:\/\/[^'"\s>]+)/i,
     /window\.location(?:\.href)?\s*=\s*['"](https?:\/\/[^'"]+)['"]/i,
-    /location\.replace\(\s*['"](https?:\/\/[^'"]+)['"]/i,
-    /<link[^>]+rel=['"]?canonical['"]?[^>]+href=['"](https?:\/\/[^'"]+)['"]/i
+    /location\.replace\(\s*['"](https?:\/\/[^'"]+)['"]/i
   ];
   for (const re of patterns) {
     const m = body.match(re);
-    if (m?.[1] && !isWrapper(m[1])) return m[1];
+    if (m?.[1] && publicDestination(m[1]) && !isWrapper(m[1])) return m[1];
   }
   return null;
 }
@@ -93,6 +70,7 @@ async function fromRedirect(url, { timeoutMs = 12000 } = {}) {
 
   try {
     for (let hop = 0; hop < 5; hop++) {
+      if (!isWrapper(url) || new URL(url).protocol!=='https:' || new URL(url).port) return {target:null,reason:'Unsupported redirect target'};
       const res = await fetch(url, {
         method: 'GET',
         redirect: 'manual',
@@ -104,6 +82,7 @@ async function fromRedirect(url, { timeoutMs = 12000 } = {}) {
       const next = res.headers.get('location');
       if (next) {
         const abs = new URL(next, url).toString();
+        if (!publicDestination(abs)) return {target:null,reason:'Destination is not a public HTTP URL'};
         if (!isWrapper(abs)) return { target: abs };
         url = abs;
         continue;
@@ -145,7 +124,7 @@ export async function resolveUrl(url, { retryFailures = true } = {}) {
     [url]
   ).catch(() => null);
 
-  if (cached?.target) return { url: cached.target, resolved: true, cached: true };
+  if (cached?.target && publicDestination(cached.target) && !isWrapper(cached.target)) return { url: cached.target, resolved: true, cached: true };
 
   if (cached && !retryFailures) return { url, resolved: false, cached: true, reason: cached.reason };
 

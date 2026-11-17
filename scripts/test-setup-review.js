@@ -6,12 +6,12 @@ const {JSDOM}=await import(process.env.JSDOM_MODULE || 'jsdom');
 const app=readFileSync(new URL('../src/public/app.js',import.meta.url),'utf8');
 const index=readFileSync(new URL('../src/public/index.html',import.meta.url),'utf8');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function harness(api=async()=>({all:20,unrun:2,checksAll:120,checksUnrun:12,costAll:1.67,costUnrun:0.17})){
+function harness(api=async()=>({all:20,unrun:2,checksAll:120,checksUnrun:12,costAll:1.67,costUnrun:0.17,scope:{fingerprint:"all",engines:["chatgpt","perplexity"],runs:3,market:"AE",languages:{en:10,ar:10}},unrunScope:{fingerprint:"unrun"}})){
  const dom=new JSDOM(index);const document=dom.window.document;
  dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
  dom.window.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new dom.window.Event('close'));};
  const calls=[];const state={projectId:26,overview:{project:{market:'AE',engines:['chatgpt']}}};document.getElementById('brandTitle').textContent='Sandstorm';document.getElementById('runBtn').disabled=false;
- const h=vm.createContext({document,state,esc,ENGINE_LABEL:{chatgpt:'ChatGPT'},refreshVerification:async()=>true,$:id=>document.getElementById(id),api,startCycle:async only=>calls.push({id:state.projectId,only})});
+ const h=vm.createContext({document,state,esc,ENGINE_LABEL:{chatgpt:'ChatGPT'},refreshVerification:async()=>true,$:id=>document.getElementById(id),api,startCycle:async (only,confirmedScope)=>calls.push({id:state.projectId,only,confirmedScope})});
  vm.runInContext(app.slice(app.indexOf('async function reviewProjectRun()'),app.indexOf('async function startCycle(')),h);
  return {h,document,calls,state,dom};
 }
@@ -25,7 +25,7 @@ test('review displays site and estimates without starting a run or offering all 
  dialog.querySelector('[data-run-cancel]').click();assert.equal(document.getElementById('projectRunReview'),null);
 });
 test('explicit confirmation chooses the correct selected-site scope',async()=>{
- for(const [scope,expected] of [['all',null],['unrun','unrun']]){const {h,document,calls}=harness();await h.reviewProjectRun();document.querySelector(`[data-run-confirm="${scope}"]`).click();assert.deepEqual(calls,[{id:26,only:expected}]);assert.equal(document.getElementById('projectRunReview'),null);}
+ for(const [scope,expected] of [['all',null],['unrun','unrun']]){const {h,document,calls}=harness();await h.reviewProjectRun();document.querySelector(`[data-run-confirm="${scope}"]`).click();assert.deepEqual(calls,[{id:26,only:expected,confirmedScope:scope}]);assert.equal(document.getElementById('projectRunReview'),null);}
 });
 test('missing cost or a request failure cannot launch a measurement',async()=>{
  for(const result of [{all:20},{error:'Unavailable'}]){const {h,document,calls}=harness(async()=>result);await h.reviewProjectRun();assert.equal(document.querySelectorAll('[data-run-confirm]').length,0);assert.ok(document.querySelector('#projectRunReview [role="alert"]'));assert.equal(calls.length,0);}
@@ -34,7 +34,7 @@ test('project changes and already-running checks block launch',async()=>{
  for(const change of ['project','running']){const {h,document,calls,state}=harness();await h.reviewProjectRun();if(change==='project')state.projectId=25;else document.getElementById('runBtn').disabled=true;document.querySelector('[data-run-confirm]').click();assert.equal(calls.length,0);assert.ok(document.querySelector('[data-run-error]').textContent);}
 });
 test('empty scope disables both launch choices',async()=>{
- const {h,document}=harness(async()=>({all:0,unrun:0,checksAll:0,checksUnrun:0,costAll:0,costUnrun:0}));await h.reviewProjectRun();for(const b of document.querySelectorAll('[data-run-confirm]'))assert.equal(b.disabled,true);
+ const {h,document}=harness(async()=>({all:0,unrun:0,checksAll:0,checksUnrun:0,costAll:0,costUnrun:0,scope:{fingerprint:'empty',engines:['chatgpt'],runs:3,market:'AE',languages:{}},unrunScope:{fingerprint:'empty'}}));await h.reviewProjectRun();assert.equal(document.querySelectorAll('[data-run-confirm]').length,1);for(const b of document.querySelectorAll('[data-run-confirm]'))assert.equal(b.disabled,true);
 });
 test('late scope responses cannot reopen a cancelled review',async()=>{
  let resolve;const {h,document,calls}=harness(()=>new Promise(r=>resolve=r));const pending=h.reviewProjectRun();await new Promise(r=>setImmediate(r));document.querySelector('[data-run-cancel]').click();resolve({all:20});await pending;assert.equal(document.getElementById('projectRunReview'),null);assert.equal(calls.length,0);
@@ -54,4 +54,35 @@ test('scan refreshes cities for the inferred country and clears stale competitor
  const btn=document.getElementById('f_scan');const add=btn.addEventListener.bind(btn);btn.addEventListener=(name,fn)=>add(name,async e=>{await fn(e);complete();});
  vm.runInContext(app.slice(app.indexOf("$('f_scan').addEventListener"),app.indexOf("$('siteCancel').addEventListener")),h);
  btn.click();await done;assert.deepEqual(cities,['GB']);assert.equal(document.getElementById('f_rivals').value,'');assert.equal(btn.disabled,false);
+});
+
+test('review uses saved engines and repeats even when overview is stale',async()=>{
+ const {h,document}=harness();await h.reviewProjectRun();
+ const text=document.getElementById('projectRunReview').textContent;
+ assert.match(text,/ChatGPT, perplexity.*3 repeats/);assert.match(text,/en: 10, ar: 10/);
+});
+test('both header routes open review without launching a job',async()=>{
+ const {h,document,calls}=harness();
+ vm.runInContext(app.slice(app.indexOf("$('runFullBtn').addEventListener"),app.indexOf('/** Say how many are waiting')),h);
+ for(const id of ['runFullBtn','runUnrunBtn']){
+  document.getElementById(id).click();await new Promise(r=>setImmediate(r));
+  assert.ok(document.getElementById('projectRunReview'));assert.equal(calls.length,0);
+  document.querySelector('[data-run-cancel]').click();
+ }
+});
+test('account-wide review shows combined cost, supports cancel and returns exact scope only after confirm',async()=>{
+ const {h,document}=harness();
+ h.api=async path=>path==='/api/projects'?[{id:1,name:'One'},{id:2,name:'Two'}]:{all:2,checksAll:12,costAll:0.36,scope:{fingerprint:path,engines:['chatgpt','perplexity'],runs:3,market:'AE',languages:{en:1,ar:1}}};
+ vm.runInContext(app.slice(app.indexOf('async function reviewAccountRun()'),app.indexOf("$('runAllBtn').addEventListener")),h);
+ const cancelled=h.reviewAccountRun();await new Promise(r=>setImmediate(r));
+ assert.match(document.getElementById('accountRunReview').textContent,/Total: 24 checks · estimated \$0.72/);
+ document.querySelector('[data-cancel]').click();assert.equal(await cancelled,null);
+ const confirmed=h.reviewAccountRun();await new Promise(r=>setImmediate(r));document.querySelector('[data-confirm]').click();
+ assert.deepEqual(JSON.parse(JSON.stringify(await confirmed)),{1:'/api/projects/1/run-scope',2:'/api/projects/2/run-scope'});
+});
+test('running project guidance suppresses setup steps and separates collection from preparation',()=>{
+ const {h,state}=harness();state.measurementRunning=true;state.measurementPhase='thinking';state.view='setup';state.setupStep='website';
+ vm.runInContext(app.slice(app.indexOf('function runningProjectNotice()'),app.indexOf('async function viewOverview()')),h);
+ vm.runInContext(app.slice(app.indexOf('function setupJourney()'),app.indexOf('async function viewFirstMeasurement()')),h);
+ assert.match(h.setupJourney(),/Answers collected. Preparing actions/);assert.doesNotMatch(h.setupJourney(),/Step 1|Next: optional/);
 });

@@ -6,22 +6,20 @@ import {applySchema} from '../src/db/migrate.js';
 import {schemaUpgrades} from '../src/db/upgrades.js';
 const {PGlite}=await import(process.env.PGLITE_MODULE || '@electric-sql/pglite');
 const schema=readFileSync(new URL('../src/db/schema.sql',import.meta.url),'utf8');
-const previous=schema.replace(/CREATE OR REPLACE VIEW reporting_runs AS[\s\S]*?CREATE INDEX IF NOT EXISTS measurement_members_run ON measurement_members\(run_id,measurement_id\);/,
- `CREATE OR REPLACE VIEW reporting_runs AS
- SELECT r.* FROM runs r JOIN measurement_answers a ON a.run_id=r.id
- JOIN published_measurements b ON b.id=a.measurement_id;`);
+const previous=schema.split('-- Batch 47:')[0].trimEnd()+'\n';
+const upgrade=schemaUpgrades.at(-1);
 const digest=sql=>createHash('sha256').update(sql).digest('hex');
 const opts={upgrades:schemaUpgrades,log:()=>{},sleep:async()=>{}};
 function adapter(db,calls) {
  return {connect:async()=>({query:async(sql,params)=>{
   calls.push(sql);
-  if(sql===schema){await db.exec(sql);return {rows:[]};}
+  if(sql===schema||sql.includes('-- Batch 47:')){await db.exec(sql);return {rows:[]};}
   return db.query(sql,params);
  },release:()=>{}})};
 }
 test('recorded production schema upgrades without historical backfills and retains direct/inherited answers',async()=>{
- assert.equal(digest(previous),schemaUpgrades[0].from);
- assert.equal(digest(schema),schemaUpgrades[0].to);
+ assert.equal(digest(previous),upgrade.from);
+ assert.equal(digest(schema),upgrade.to);
  const db=new PGlite(),calls=[];
  try {
   await db.exec(previous);
@@ -40,7 +38,8 @@ test('recorded production schema upgrades without historical backfills and retai
   const result=await applySchema(adapter(db,calls),schema,opts);
   assert.equal(result.applied,true);
   assert.ok(!calls.includes(schema));
-  assert.ok(!calls.some(sql=>/^\s*(ALTER|UPDATE|DELETE)\b/i.test(sql)));
+  assert.ok(!calls.some(sql=>sql.includes('UPDATE projects SET runs_per_cycle')));
+  assert.ok(calls.some(sql=>sql.includes('CREATE TABLE IF NOT EXISTS measurement_checks')));
   assert.deepEqual((await db.query('SELECT id,response_text FROM reporting_runs ORDER BY id')).rows,before);
   assert.equal((await db.query('SELECT runs_per_cycle FROM projects')).rows[0].runs_per_cycle,3,'does not reset a customer-selected repeat count');
   assert.equal((await db.query('SELECT COUNT(*)::int n FROM runs')).rows[0].n,2);

@@ -885,3 +885,72 @@ CREATE INDEX IF NOT EXISTS quick_start_ai_requests_user ON quick_start_ai_reques
 -- Existing accounts keep their promised detailed Quick Start actions.
 ALTER TABLE orgs ADD COLUMN IF NOT EXISTS quick_start_action_preview BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE orgs ALTER COLUMN quick_start_action_preview SET DEFAULT true;
+
+
+-- Batch 47: durable check ledger, provider evidence and explicit partial collections.
+ALTER TABLE measurement_batches DROP CONSTRAINT IF EXISTS measurement_batches_status_check;
+ALTER TABLE measurement_batches ADD CONSTRAINT measurement_batches_status_check CHECK(status IN ('running','completed','failed','partial','interrupted'));
+ALTER TABLE measurement_batches ADD COLUMN IF NOT EXISTS recovery_of BIGINT REFERENCES measurement_batches(id);
+ALTER TABLE measurement_batches ADD COLUMN IF NOT EXISTS failure_detail TEXT;
+ALTER TABLE measurement_batches ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS measurement_recovery_once ON measurement_batches(recovery_of) WHERE recovery_of IS NOT NULL;
+CREATE TABLE IF NOT EXISTS measurement_checks (
+ measurement_id BIGINT NOT NULL REFERENCES measurement_batches(id) ON DELETE CASCADE,
+ prompt_id INTEGER NOT NULL REFERENCES prompts(id),
+ engine TEXT NOT NULL,
+ run_index INTEGER NOT NULL,
+ question_text TEXT NOT NULL,
+ state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','running','collected','no_answer','failed','interrupted','cancelled','unsupported','incomplete')),
+ selected_run_id INTEGER REFERENCES runs(id),
+ error TEXT,
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ PRIMARY KEY(measurement_id,prompt_id,engine,run_index)
+);
+CREATE TABLE IF NOT EXISTS provider_attempts (
+ id TEXT PRIMARY KEY,
+ measurement_id BIGINT NOT NULL,
+ prompt_id INTEGER NOT NULL,
+ engine TEXT NOT NULL,
+ run_index INTEGER NOT NULL,
+ started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ completed_at TIMESTAMPTZ,
+ request JSONB NOT NULL,
+ response JSONB,
+ provider_request_id TEXT,
+ http_status INTEGER,
+ error TEXT,
+ cost_usd NUMERIC(12,6) NOT NULL DEFAULT 0,
+ FOREIGN KEY(measurement_id,prompt_id,engine,run_index) REFERENCES measurement_checks(measurement_id,prompt_id,engine,run_index)
+);
+CREATE INDEX IF NOT EXISTS provider_attempt_slot ON provider_attempts(measurement_id,prompt_id,engine,run_index);
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS citation_evidence JSONB;
+ALTER TABLE citations ADD COLUMN IF NOT EXISTS original_url TEXT;
+ALTER TABLE citations ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE citations ADD COLUMN IF NOT EXISTS resolution_status TEXT;
+ALTER TABLE citations ADD COLUMN IF NOT EXISTS metadata JSONB;
+-- Every ledger slot selects at most one answer. Old attempts remain in runs.
+CREATE OR REPLACE VIEW measurement_answers AS
+ SELECT c.measurement_id,c.selected_run_id AS run_id FROM measurement_checks c WHERE c.selected_run_id IS NOT NULL
+ UNION
+ SELECT r.measurement_id,r.id AS run_id FROM runs r WHERE r.measurement_id IS NOT NULL
+ AND NOT EXISTS(SELECT 1 FROM measurement_checks c WHERE c.measurement_id=r.measurement_id)
+ UNION
+ SELECT m.measurement_id,m.run_id FROM measurement_members m
+ WHERE NOT EXISTS(SELECT 1 FROM measurement_checks c WHERE c.measurement_id=m.measurement_id);
+-- The current daily sample includes partial attempts, with status exposed to readers.
+-- Empty rejected re-asks must not hide a real measurement.
+CREATE OR REPLACE VIEW published_measurements AS
+ SELECT DISTINCT ON (b.project_id,b.cycle_date) b.* FROM measurement_batches b
+ WHERE b.purpose='monitoring' AND (b.status='completed' OR
+ (b.status IN ('partial','failed','interrupted') AND EXISTS(SELECT 1 FROM measurement_answers a WHERE a.measurement_id=b.id)))
+ ORDER BY b.project_id,b.cycle_date,b.started_at DESC,b.id DESC;
+CREATE OR REPLACE VIEW reporting_runs AS
+ SELECT r.* FROM published_measurements b JOIN measurement_checks c ON c.measurement_id=b.id
+ JOIN runs r ON r.id=c.selected_run_id AND r.project_id=b.project_id
+ UNION ALL
+ SELECT r.* FROM published_measurements b JOIN runs r ON r.measurement_id=b.id AND r.project_id=b.project_id
+ WHERE NOT EXISTS(SELECT 1 FROM measurement_checks c WHERE c.measurement_id=b.id)
+ UNION ALL
+ SELECT r.* FROM published_measurements b JOIN measurement_members m ON m.measurement_id=b.id
+ JOIN runs r ON r.id=m.run_id AND r.project_id=b.project_id
+ WHERE r.measurement_id IS DISTINCT FROM b.id AND NOT EXISTS(SELECT 1 FROM measurement_checks c WHERE c.measurement_id=b.id);

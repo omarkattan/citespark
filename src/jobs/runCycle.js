@@ -1,5 +1,7 @@
+import {seedChecks,checkState,attemptRecorder,terminalizeChecks,ledgerSummary,outcomeFor} from '../lib/measurement-ledger.js';
+import {configuredRunScope, runScopeProblem} from '../lib/run-scope.js';
 import {selectedEntities} from '../lib/quick-start-selection.js';
-import { loadRecovery, inheritRecovery } from '../lib/measurement-recovery.js';
+import { loadRecovery, inheritRecovery, recoveryConfiguration } from '../lib/measurement-recovery.js';
 import {matchedRecheckScope} from '../lib/faq-recheck.js';
 import { assertMeasurementLocation } from '../lib/measurement-location.js';
 import { estimateEngineCosts } from '../lib/measurement-cost.js';
@@ -15,7 +17,7 @@ import { buildRecommendations, persistRecommendations } from '../lib/recommend.j
 import { hasAnthropic } from '../lib/anthropic.js';
 import { budgetForCycle, recordUsage } from '../lib/billing.js';
 
-import { resolveModel, ENGINES as ENGINE_CFG, ENGINE_IDS } from '../lib/dataforseo.js';
+import { resolveModel, validateRecoveryModels, ENGINES as ENGINE_CFG, ENGINE_IDS } from '../lib/dataforseo.js';
 
 /** Engines are chosen per project. The env var is only a fallback for old rows. */
 function enginesFor(project) {
@@ -60,16 +62,25 @@ export async function runCycleForProject(projectId, options = {}) {
   try {
     return await collectProject(projectId, options, value => { batch = value; });
   } catch (err) {
-    if (batch) await finishMeasurement(batch.id, 'failed');
+    if (batch) {
+      await terminalizeChecks(pool,batch.id,String(err.message||err)).catch(()=>{});
+      await query('UPDATE measurement_batches SET failure_detail=$2 WHERE id=$1',[batch.id,String(err.message||err)]).catch(()=>{});
+      await finishMeasurement(batch.id, 'failed');
+      const {notify}=await import('../lib/notify.js');
+      void notify({kind:'problem',title:'Measurement needs recovery',subject:`Cited: measurement ${batch.id} failed`,lead:'Saved answers are retained. Review the incomplete checks before retrying.',rows:[['Project',String(projectId)],['Measurement',String(batch.id)],['Error',String(err.message||err)]]});
+    }
     await query(`DELETE FROM quick_start_reports q WHERE q.project_id=$1 AND q.completed_at IS NULL
       AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.project_id=q.project_id AND r.created_at>=q.started_at)`,[projectId]).catch(()=>{});
     throw err;
   } finally { await release(); }
 }
-async function collectProject(projectId, { cycleDate, onProgress, only = null, force = false, recoverFrom = null, previewRecovery = false } = {}, registerBatch) {
+async function collectProject(projectId, { cycleDate, onProgress, only = null, force = false, recoverFrom = null, previewRecovery = false, confirmedScope = null } = {}, registerBatch) {
   if ((recoverFrom && only) || (previewRecovery && !recoverFrom)) throw new Error('Recovery cannot be combined with a partial scan.');
-  const project = await one('SELECT * FROM projects WHERE id = $1', [projectId]);
+  let project = await one('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!project) throw new Error(`No project ${projectId}`);
+  const saved = recoverFrom ? await recoveryConfiguration(pool,project,recoverFrom) : null;
+  if(saved?.child)return {alreadyRecovered:true,measurementId:saved.child.id,status:saved.child.status,retry:0,reason:'A recovery already exists. Open that measurement to review any remaining checks.'};
+  if(saved)project=saved.project;
   await assertMeasurementLocation({ ...project, engines: enginesFor(project) });
 
   const latest = (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [projectId]))?.d;
@@ -80,7 +91,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
       ? new Date(latest).toISOString().slice(0, 10)
       : new Date().toISOString().slice(0, 10));
 
-  const prompts =
+  const prompts = saved?.prompts || (
     only === 'unrun'
       ? await many(
           `SELECT p.* FROM prompts p
@@ -89,7 +100,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
            ORDER BY p.id`,
           [projectId]
         )
-      : await many('SELECT * FROM prompts WHERE project_id = $1 AND active', [projectId]);
+      : await many('SELECT * FROM prompts WHERE project_id = $1 AND active', [projectId]));
 
   if (!prompts.length) {
     return {
@@ -101,7 +112,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
       reason: only === 'unrun' ? 'Every active question has already been asked.' : 'This site has no active questions.'
     };
   }
-  const entities = selectedEntities(project,await many('SELECT * FROM entities WHERE project_id = $1', [projectId]));
+  let entities = saved?.entities || selectedEntities(project,await many('SELECT * FROM entities WHERE project_id = $1', [projectId]));
 
   /**
    * Record a material change in what is being measured, before measuring it.
@@ -148,6 +159,12 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
     runs: project.runs_per_cycle
   });
 
+  // Re-read under the measurement lock before any provider calls. Never silently
+  // shorten a confirmed panel, even if permissions or allowance changed.
+  if (!recoverFrom) {
+    const problem = runScopeProblem(configuredRunScope(project, prompts), budget, confirmedScope);
+    if (problem) return {runs:0,spend:0,recommendations:0,cycle,blocked:true,reason:problem};
+  }
   if (!budget.ok) {
     console.log(`Cycle skipped for ${project.brand_name}: ${budget.reason}`);
     return { runs: 0, spend: 0, recommendations: 0, cycle, blocked: true, reason: budget.reason };
@@ -185,25 +202,29 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
      GROUP BY engine, model HAVING COUNT(*) >= 5`, []);
   const perCall = estimateEngineCosts(budget.engines, ENGINE_CFG, projectModels, priced, modelPrices);
 
-  const chosenModel = {};
-  for (const eng of budget.engines) {
+  const chosenModel = {...(saved?.settings.models||{})};
+  for (const eng of saved?[]:budget.engines) {
     if (ENGINE_CFG[eng]?.kind === 'llm') {
       chosenModel[eng] = await resolveModel(eng, ENGINE_CFG[eng], projectModels[eng] || null);
     }
   }
 
-  const ceiling = Number(process.env.MAX_OUTPUT_TOKENS || 2000);
-  const settings = measurementSettings(project, chosenModel, budget.engines, budget.runs, ceiling, entities);
+  const ceiling = saved?.settings.maxTokens || Number(process.env.MAX_OUTPUT_TOKENS || 2000);
+  const settings = saved?.settings || measurementSettings(project, chosenModel, budget.engines, budget.runs, ceiling, entities);
+  if(saved && (budget.runs<settings.runs || settings.engines.some(e=>!budget.engines.includes(e))))throw new Error('Your current account cannot run the original measurement scope. Upgrade access or create a clearly labelled new baseline.');
+  entities=settings.entities;
   const recovery = recoverFrom ? await loadRecovery(pool, projectId, recoverFrom, prompts, settings) : null;
-  if (recovery && recovery.jobs.length > budget.maxCalls) throw new Error('The remaining allowance cannot cover this recovery. Nothing was requested.');
+  if (recovery && recovery.jobs.filter(j=>!j.savedAnswer).length > budget.maxCalls) throw new Error('The remaining allowance cannot cover this recovery. Nothing was requested.');
 
   // Missing model history uses a planning allowance, not a price guarantee.
   const FALLBACK = 0.03;
-  const estimate = recovery ? recovery.jobs.reduce((sum, j) => sum + (perCall.get(j.engine) || FALLBACK), 0) : prompts.length * budget.runs *
+  const estimate = recovery ? recovery.jobs.filter(j=>!j.savedAnswer).reduce((sum, j) => sum + (perCall.get(j.engine) || FALLBACK), 0) : prompts.length * budget.runs *
     budget.engines.reduce((sum, e) => sum + (perCall.get(e) || FALLBACK), 0);
 
-  if (previewRecovery) return { sourceId: recovery.sourceId, planned: recovery.plan.length,
-    retained: recovery.inheritIds.length, retry: recovery.jobs.length, reasons: recovery.reasons, estimatedCost: estimate };
+  const capabilities = saved && !MOCK ? await validateRecoveryModels(settings) : [];
+  if(previewRecovery&&estimate>CAP&&!force)return {blocked:true,reason:`Recovery estimate $${estimate.toFixed(2)} exceeds the configured $${CAP.toFixed(2)} cap. No checks were requested.`};
+  if (previewRecovery) return { capabilities, sourceId: recovery.sourceId, planned: recovery.plan.length,
+    retained: recovery.inheritIds.length, retry: recovery.jobs.length-recovery.replay, replay:recovery.replay, unresolved:recovery.jobs.length, reasons: recovery.reasons, estimatedCost: estimate };
 
   console.log(`Estimated cost: $${estimate.toFixed(2)} (from matching cost history or a planning allowance), cap $${CAP.toFixed(2)}`);
 
@@ -236,7 +257,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
       }
     }
   }
-  if (jobs.length > budget.maxCalls) jobs.length = budget.maxCalls;
+  if (!recovery && jobs.length > budget.maxCalls) jobs.length = budget.maxCalls;
 
   console.log(
     `Cycle ${cycle} for ${project.brand_name}: ${prompts.length} prompts x ${budget.engines.length} engines x ${budget.runs} runs = ${jobs.length} calls` +
@@ -295,10 +316,14 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
   const batch = await startMeasurement(projectId, cycle,
     settings);
   registerBatch(batch);
+  if(recovery)await query('UPDATE measurement_batches SET recovery_of=$2 WHERE id=$1',[batch.id,recovery.sourceId]);
   await query('UPDATE measurement_batches SET collection_plan=$2::jsonb WHERE id=$1',
     [batch.id, JSON.stringify(recovery ? recovery.plan : jobs.map(j=>({prompt_id:j.prompt.id,text:j.prompt.text,source:j.prompt.source,engine:j.engine,run_index:j.runIndex})))]);
   if (recovery) await inheritRecovery(pool, batch, recovery);
   if (only) await inheritMeasurement(batch, batch.settings);
+  const fullPlan=(await one('SELECT collection_plan FROM measurement_batches WHERE id=$1',[batch.id]))?.collection_plan;
+  const retained=recovery?.retainedRows || (only?await many('SELECT r.* FROM measurement_members m JOIN runs r ON r.id=m.run_id WHERE m.measurement_id=$1',[batch.id]):[]);
+  if(fullPlan)await seedChecks(pool,batch,fullPlan,retained);
   let persistenceErrors = 0;
 
   const priorModels = await many(
@@ -326,9 +351,11 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
   const abandoned = new Map();
   const attemptsPerEngine = new Map();
 
-  await pooled(jobs, async ({ prompt, engine, runIndex }) => {
+  await pooled(jobs, async (job) => {
+    const {prompt,engine,runIndex}=job;
     if (abandoned.has(engine)) {
       abandoned.set(engine, abandoned.get(engine) + 1);
+      await checkState(pool,batch.id,job,'cancelled','Engine circuit breaker stopped this check before dispatch.');done++;report({phase:'asking'});
       return;
     }
 
@@ -336,14 +363,16 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
     noteAsked(asking);
     report({ phase: 'asking' });
 
-    attemptsPerEngine.set(engine, (attemptsPerEngine.get(engine) || 0) + 1);
-    const answer = await askEngine({
+    if(!job.savedAnswer)attemptsPerEngine.set(engine, (attemptsPerEngine.get(engine) || 0) + 1);
+    await checkState(pool,batch.id,job,'running');
+    const answer = job.savedAnswer || await askEngine({
       engine,
       prompt: prompt.text,
       market: project.market,
       locationName: project.location_name,
       model: chosenModel[engine] || null,
-      maxTokens: Number(process.env.MAX_OUTPUT_TOKENS || 2000)
+      maxTokens: ceiling,
+      onAttempt:attemptRecorder(pool,batch.id,job)
     });
 
     spend += answer.costUsd || 0;
@@ -351,7 +380,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
     // A call only costs the customer an allowance check if it either produced
     // an answer or actually cost us money. Charging for a silent failure is
     // both unfair and hides the failure.
-    if (answer.ok || (answer.costUsd || 0) > 0) billable++;
+    if (!job.savedAnswer && (answer.ok || (answer.costUsd || 0) > 0)) billable++;
     if (!answer.ok) {
       const key = engine;
       const prev = failures.get(key) || { n: 0, error: answer.error };
@@ -384,13 +413,16 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
         answer.error,
         answer.costUsd || 0,
         answer.fanOut || [],
-        collectionLimit(engine, Number(process.env.MAX_OUTPUT_TOKENS || 2000)),
+        collectionLimit(engine, ceiling),
         Boolean(answer.noOverview),
         batch.id
       ]
     );
 
+    await query('UPDATE runs SET citation_evidence=$2::jsonb,created_at=COALESCE($3::timestamptz,created_at) WHERE id=$1',[run.id,JSON.stringify(answer.evidence||null),answer.collectedAt||null]);
+    await checkState(pool,batch.id,job,'incomplete',null,run.id);
     if (!answer.ok) {
+      await checkState(pool,batch.id,job,'failed',answer.error,run.id);
       // A failed call still finished. Returning without counting it left the
       // progress bar stuck and the feed showing a question that never resolved.
       done++;
@@ -402,7 +434,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
     const results = await analyseRun({
       text: answer.text,
       entities,
-      useModel: hasAnthropic && runIndex === 0
+      useModel: false, policy:settings.detection
     });
 
     for (const r of results) {
@@ -421,27 +453,23 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
      * Google: one invented source with a huge count, and every real one
      * missing. Resolutions are cached, so the same link is followed once.
      */
-    let cites = answer.citations;
+    let cites = answer.citations || [];
     if (cites.some((c) => isWrapper(c.url))) {
       const resolved = await resolveAll(cites.map((c) => c.url));
       cites = cites.map((c) => {
         const r = resolved.get(c.url);
         // A link we could not follow keeps the honest wrapper. Guessing a
         // publisher would be worse than admitting we do not know.
-        if (!r?.resolved) return c;
-        return { ...c, url: r.url, domain: domainOf(r.url) || c.domain, via: c.domain };
+        if (!r?.resolved) return {...c,originalUrl:c.url,resolutionStatus:'unresolved',metadata:{...c.metadata,resolutionReason:r?.reason||'No verified destination'}};
+        return { ...c, originalUrl:c.url,resolutionStatus:'resolved',url: r.url, domain: domainOf(r.url) || c.domain, via: c.domain };
       });
     }
 
     for (const c of cites) {
-      await query('INSERT INTO citations (run_id, domain, url, position) VALUES ($1,$2,$3,$4)', [
-        run.id,
-        c.domain,
-        c.url,
-        c.position
-      ]);
+      await query('INSERT INTO citations (run_id, domain, url, position,original_url,title,resolution_status,metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)', [run.id,c.domain,c.url,c.position,c.originalUrl||c.url,c.title||null,c.resolutionStatus||'direct',JSON.stringify(c.metadata||null)]);
     }
 
+    await checkState(pool,batch.id,job,outcomeFor(answer),null,run.id);
     done++;
     // Mark the same entry answered, so the feed shows a result rather than a
     // list of questions that appear to hang. Whether the brand was named is
@@ -451,13 +479,21 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
     asking.named = ownedResults.length ? ownedResults.some(r => r.mentioned) : null;
     report({ phase: 'asking' });
     if (done % 20 === 0) console.log(`  ${done}/${jobs.length} runs complete`);
-  }, CONCURRENCY, () => { persistenceErrors++; });
+  }, CONCURRENCY, (err) => { persistenceErrors++; console.error(`Measurement ${batch.id} check persistence/processing failure:`,err.code||'',err.message); });
 
   await recordUsage(project.org_id, billable, spend);
-  if (persistenceErrors) throw new Error('Some answers could not be saved. The prior completed measurement remains visible.');
+  await terminalizeChecks(pool,batch.id,'Worker could not finish saving or processing this check. Review attempt evidence before recovery.');
+  const coverage=await ledgerSummary(pool,batch.id);
+  if(persistenceErrors)await query('UPDATE measurement_batches SET failure_detail=$2 WHERE id=$1',[batch.id,`${persistenceErrors} checks encountered processing or persistence errors.`]);
   if (!done && !recovery?.inheritIds.length) throw new Error('No answer records completed. The prior measurement remains visible.');
-  await finishMeasurement(batch.id, 'completed');
+  await finishMeasurement(batch.id, coverage.status);
   registerBatch(null);
+  if(coverage.status!=='completed'){
+   const {notify}=await import('../lib/notify.js');
+   void notify({kind:'problem',title:'Measurement finished with gaps',subject:`Cited: measurement ${batch.id} needs recovery`,lead:'Successful answers are saved. Retry only unresolved checks from the measurement archive.',rows:[['Site',project.name],['Measurement',String(batch.id)],['Usable',`${coverage.usable}/${coverage.planned}`],['Unresolved',String(coverage.unresolved)]]});
+   const summary={measurementId:batch.id,cycle,runs:done,spend,billable,coverage,partial:true,recommendations:0,reason:'Some checks need recovery. Results are provisional.'};
+   report({phase:'partial',summary});return summary;
+  }
   report({ phase: 'thinking' });
 
   /**

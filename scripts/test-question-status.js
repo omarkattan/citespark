@@ -8,7 +8,8 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const slice=(a,b)=>app.slice(app.indexOf(a),app.indexOf(b,app.indexOf(a)));
 function harness(){
  const document=new JSDOM('<main id="view"></main>').window.document;
- const h=vm.createContext({document,esc,$:id=>document.getElementById(id),state:{projectId:26},helpDot:()=>''});
+ const h=vm.createContext({document,esc,$:id=>document.getElementById(id),state:{projectId:26},helpDot:()=>'',refreshBulkBar:()=>{}});
+ vm.runInContext(slice('function sourceSetupGuide(', 'async function viewConnections('),h);
  vm.runInContext(slice('function gscQuestionPanel(', 'async function viewQuestions('),h);
  vm.runInContext(slice('function importRoom(', 'function gscCandidateRow('),h);
  vm.runInContext(slice('const qState =','document.addEventListener'),h);
@@ -22,7 +23,7 @@ for(const [name,status,expected] of [
 ])test(`GSC header: ${name}`,()=>{
  const {h,document}=harness();document.body.innerHTML=h.gscQuestionPanel(status);
  assert.ok(document.querySelector('summary').textContent.includes(expected));
- assert.equal(!!document.getElementById('gscSwitch'),!!status.siteUrl);
+ assert.equal(!!document.getElementById('gscSwitch'),!!status.connected);
  if(status.connected)assert.doesNotMatch(document.querySelector('summary').textContent,/connect an account/);
 });
 test('property and account strings remain escaped',()=>{
@@ -74,7 +75,7 @@ for(const success of [true,false])test(`property save ${success?'refreshes heade
  h.fetch=async()=>({ok:success,json:async()=>success?{ok:true}:{error:'Save failed'}});h.api=async()=>({connected:true,siteUrl:site.dataset.gscSite});let loaded=0;h.loadGscCandidates=async()=>loaded++;
  await vm.runInContext('(async()=>{'+slice("  const site = e.target.closest('[data-gsc-site]');", "  if (e.target.id === 'gscNone')")+'})()',h);
  assert.equal(loaded,success?1:0);assert.equal(site.disabled,false);
- if(success){assert.match(document.querySelector('summary').textContent,/sandstormdigital/);assert.equal(document.getElementById('gscPanel').open,true);}else assert.match(document.querySelector('[role="alert"]').textContent,/Save failed/);
+ if(success){assert.match(document.querySelector('summary').textContent,/sandstormdigital/);assert.equal(document.getElementById('gscPanel').open,true);}else assert.match(document.querySelector('#gscBody [role="alert"]').textContent,/Save failed/);
 });
 
 test('typing a search keeps origin and activity filters instead of a second handler overriding them',()=>{
@@ -112,7 +113,7 @@ for (const size of [0,1,21]) test(`complete Questions screen renders ${size} que
  assert.ok(document.getElementById('qBulk').contains(document.getElementById('qSelShown')));
  for(const row of document.querySelectorAll('.prompt')) {
   assert.equal(row.querySelector('.question-more').open,false);
-  assert.ok(row.querySelector('.question-more [data-brief]'));
+  assert.ok(row.querySelector('.q-actions [data-brief]'));
   assert.ok(row.querySelector('[data-qsel]'));
   if(row.querySelector('[data-see-answer]'))assert.equal(row.querySelector('.question-more').contains(row.querySelector('[data-see-answer]')),false);
  }
@@ -139,4 +140,10 @@ test('bulk controls appear after selecting a question and disappear when cleared
  const checkbox=document.querySelector('input');h.refreshBulkBar();assert.equal(document.getElementById('qBulk').hidden,true);
  checkbox.checked=true;h.refreshBulkBar();assert.equal(document.getElementById('qBulk').hidden,false);assert.equal(document.getElementById('qBulkCount').textContent,'1 selected');
  checkbox.checked=false;h.refreshBulkBar();assert.equal(document.getElementById('qBulk').hidden,true);
+});
+
+test('filtering out a selected question clears its checkbox',()=>{
+ const x=questions(),row=x.document.querySelector('[data-prompt="1"]');
+ row.innerHTML='<input type="checkbox" data-qsel="1" checked>';
+ x.set({state:'unrun'});assert.equal(row.hidden,true);assert.equal(row.querySelector('input').checked,false);
 });

@@ -1,3 +1,5 @@
+import {reviewedEntityNames} from './entity-names.js';
+import {citationHost,opaqueCitation} from './citation-evidence.js';
 import {collectionAsset} from './collection-display.js';
 import { analyseRun } from './analyze.js';
 export function domainKey(value) {
@@ -105,14 +107,15 @@ export function competitorCandidates(rows, entities, ignored = []) {
     .sort((a,b)=>Number(b.bulkEligible)-Number(a.bulkEligible)||b.evidence.length-a.evidence.length||a.name.localeCompare(b.name));
 }
 export async function retrospective(rows, entity) {
+  entity=reviewedEntityNames(entity);
   const results=[];
   for (const r of rows) {
     const [m]=await analyseRun({text:r.response_text,entities:[entity],useModel:false});
     if (!m) continue;
     const d=domainKey(entity.domain);
-    results.push({runId:r.id,engine:r.engine,named:m.mentioned,cited:!!d&&(r.citations||[]).some(c=>{const x=domainKey(c.domain||c.url);return x===d||x.endsWith('.'+d);})});
+    results.push({runId:r.id,engine:r.engine,named:m.mentioned,cited:!!d&&(r.citations||[]).some(c=>{const x=citationHost(c.url);return x&&!opaqueCitation(c.url)&&(x===d||x.endsWith('.'+d));})});
   }
-  return {version:1,reviewedAt:new Date().toISOString(),entity:{name:entity.name,domain:entity.domain,aliases:entity.aliases,ambiguous_name:entity.ambiguous_name},measured:results.length,named:results.filter(r=>r.named).length,cited:entity.domain ? results.filter(r=>r.cited).length : null,results};
+  return {version:2,scoringPolicy:'visible-text-v3-ar',reviewedAt:new Date().toISOString(),entity:{name:entity.name,domain:entity.domain,aliases:entity.aliases,ambiguous_name:entity.ambiguous_name},measured:results.length,named:results.filter(r=>r.named).length,cited:entity.domain ? results.filter(r=>r.cited).length : null,results};
 }
 export async function reviewSample(db, projectId) {
   const b=(await db.query(`SELECT id,cycle_date FROM published_measurements WHERE project_id=$1 ORDER BY cycle_date DESC LIMIT 1`,[projectId])).rows[0];
@@ -122,6 +125,6 @@ export async function reviewSample(db, projectId) {
     FROM measurement_answers a JOIN runs r ON r.id=a.run_id JOIN prompts p ON p.id=r.prompt_id
     WHERE a.measurement_id=$1 AND r.project_id=$2 AND r.ok AND length(trim(r.response_text))>0
     AND EXISTS(SELECT 1 FROM mentions m JOIN entities e ON e.id=m.entity_id WHERE m.run_id=r.id AND e.project_id=$2 AND e.kind='owned')
-    ORDER BY r.id LIMIT 251`,[b.id,projectId])).rows;
-  return {measurement:b,rows:rows.slice(0,250),limited:rows.length>250};
+    ORDER BY r.id LIMIT 5001`,[b.id,projectId])).rows;
+  return {measurement:b,rows:rows.slice(0,5000),limited:rows.length>5000};
 }

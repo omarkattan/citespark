@@ -1,3 +1,6 @@
+import {reviewedEntityNames} from './lib/entity-names.js';
+import {measurementRows,measurementStatus,projectMeasurementState} from './lib/measurement-state.js';
+import {configuredRunScope, runScopeProblem} from './lib/run-scope.js';
 import {previewActions} from './lib/action-preview.js';
 import {mountQuickStart, quickStartMutationAllowed} from './lib/quick-start.js';
 import {mountContentWorkflow} from './lib/content-workflow.js';
@@ -389,7 +392,8 @@ app.get('/api/projects/:id/overview', requireAuth, wrap(async (req, res) => {
 
   const cycleRow = await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [project.id]);
   const cycle = cycleRow?.d;
-  if (!cycle) return res.json({ project, cycle: null, engines: [], visibility: null, competitors: [] });
+  const measurementState=await projectMeasurementState(pool,project);
+  if (!cycle) return res.json({ project, measurementState, cycle: null, engines: [], visibility: null, competitors: [] });
 
   const own = await one(
     `SELECT COUNT(*)::int AS runs, SUM(CASE WHEN m.mentioned THEN 1 ELSE 0 END)::int AS hits,
@@ -443,6 +447,7 @@ app.get('/api/projects/:id/overview', requireAuth, wrap(async (req, res) => {
 
   res.json({
     project,
+    measurementState,
     cycle,
     visibility: own.runs ? own.hits / own.runs : null,
     avgOrdinal: own.avg_ordinal,
@@ -475,7 +480,7 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
             EXISTS (SELECT 1 FROM reporting_runs history WHERE history.prompt_id = p.id) AS has_history,
             (SELECT id FROM prompts newer WHERE newer.revises_prompt_id = p.id ORDER BY id DESC LIMIT 1) AS replaced_by,
             p.persona_id, pe.name AS persona, pe.descriptor AS persona_descriptor,
-            r.id AS run_id, r.engine, r.run_index, m.mentioned, m.ordinal, m.snippet,
+            r.id AS run_id, r.engine, r.run_index, r.ok, r.error, r.no_overview, m.mentioned, m.ordinal, m.snippet,
             -- Being linked as a source is a different outcome from being named
             -- in the text, and the more valuable one. Reporting only the second
             -- made a citation with no mention read as no visibility at all.
@@ -486,7 +491,7 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
             ) AS cited
      FROM prompts p
      LEFT JOIN personas pe ON pe.id = p.persona_id
-     LEFT JOIN reporting_runs r ON r.prompt_id = p.id AND r.cycle_date = $2 AND r.ok
+     LEFT JOIN reporting_runs r ON r.prompt_id = p.id AND r.cycle_date = $2
      LEFT JOIN mentions m ON m.run_id = r.id
        AND m.entity_id = (SELECT id FROM entities
                           WHERE project_id = $1 AND kind = 'owned'
@@ -539,7 +544,7 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
     const p = byPrompt.get(row.id);
     // A left join produces a row with no run for a question never asked.
     if (row.run_id) {
-      p.runs.push({ engine: row.engine, mentioned: row.mentioned, ordinal: row.ordinal, cited: row.cited });
+      p.runs.push({ ok:row.ok,error:row.error,noOverview:row.no_overview, engine: row.engine, mentioned: row.mentioned, ordinal: row.ordinal, cited: row.cited });
     }
     if (!p.snippet && row.snippet) p.snippet = row.snippet;
   }
@@ -556,7 +561,7 @@ app.get('/api/projects/:id/prompts', requireAuth, wrap(async (req, res) => {
     ...p,
     // Never asked is not the same as asked and not named, and a rate of zero
     // would say the second.
-    ...measuredQuestionRates(p.runs)
+    ...measuredQuestionRates(p.runs), attempted:p.runs.length, failed:p.runs.filter(r=>!r.ok).length
   }));
 
   res.json(out);
@@ -1812,7 +1817,19 @@ const cycles = new Map();
 app.get('/api/projects/:id/cycle-status', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
-  res.json(cycles.get(project.id) || { phase: 'idle' });
+  const memory=cycles.get(project.id);
+  if(memory)return res.json(memory);
+  const state=await projectMeasurementState(pool,project);
+  const latest=state.latest;
+  if(latest?.status==='running') {
+   // No in-memory worker. The database lock distinguishes another worker from interruption.
+   const {lockMeasurements}=await import('./lib/measurement-batches.js');
+   try {const release=await lockMeasurements(project.id);await release();
+    return res.json({phase:'partial',error:'Collection was interrupted. Saved answers are retained. Open the measurement to recover unresolved checks.',measurementId:latest.id});
+   } catch(err) {if(!/already running/.test(err.message))throw err;}
+   return res.json({phase:'asking',done:latest.retained,total:latest.planned,measurementId:latest.id,startedAt:new Date(latest.startedAt).getTime()});
+  }
+  res.json(latest?.provisional?{phase:'partial',measurementId:latest.id,summary:{coverage:latest,partial:true}}:{phase:'idle'});
 }));
 
 /** How much a run would cover, so the choice is made with the numbers visible. */
@@ -1823,19 +1840,17 @@ app.get('/api/projects/:id/run-scope', requireAuth, wrap(async (req, res) => {
   if (!location.ok) return res.status(422).json(location);
 
 
-  const all = (await one('SELECT COUNT(*)::int AS n FROM prompts WHERE project_id = $1 AND active', [project.id])).n;
-  const unrun = (
-    await one(
-      `SELECT COUNT(*)::int AS n FROM prompts p
-       WHERE p.project_id = $1 AND p.active
-         AND NOT EXISTS (SELECT 1 FROM reporting_runs r WHERE r.project_id = $1 AND r.prompt_id = p.id AND r.ok)`,
-      [project.id]
-    )
-  ).n;
+  const panel = await many('SELECT * FROM prompts WHERE project_id = $1 AND active ORDER BY id', [project.id]);
+  const waiting = await many(`SELECT p.* FROM prompts p WHERE p.project_id = $1 AND p.active
+    AND NOT EXISTS (SELECT 1 FROM reporting_runs r WHERE r.project_id = $1 AND r.prompt_id = p.id AND r.ok)
+    ORDER BY p.id`, [project.id]);
+  const scope = configuredRunScope(project, panel);
+  const unrunScope = configuredRunScope(project, waiting);
+  const all = panel.length, unrun = waiting.length;
 
-  const engineList = project.engines || [];
-  const engines = engineList.length || 1;
-  const runs = project.runs_per_cycle || 1;
+  const engineList = scope.engines;
+  const engines = engineList.length;
+  const runs = scope.runs;
   const latest = (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [project.id]))?.d;
 
   /**
@@ -1858,6 +1873,7 @@ app.get('/api/projects/:id/run-scope', requireAuth, wrap(async (req, res) => {
   const perQuestion = runs * engineList.reduce((sum, e) => sum + (perCall.get(e) ?? 0.03), 0);
 
   res.json({
+    scope, unrunScope,
     all,
     unrun,
     checksAll: all * engines * runs,
@@ -1886,20 +1902,19 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
   }
   const only = req.body?.only === 'unrun' ? 'unrun' : null;
 
-  const active = await one(
-    only === 'unrun'
-      ? `SELECT COUNT(*)::int AS n FROM prompts p WHERE p.project_id = $1 AND p.active
-         AND NOT EXISTS (SELECT 1 FROM reporting_runs r WHERE r.project_id = $1 AND r.prompt_id = p.id AND r.ok)`
-      : 'SELECT COUNT(*)::int AS n FROM prompts WHERE project_id = $1 AND active',
-    [project.id]
-  );
+  const panel = await many(only === 'unrun'
+    ? `SELECT p.* FROM prompts p WHERE p.project_id=$1 AND p.active
+       AND NOT EXISTS(SELECT 1 FROM reporting_runs r WHERE r.project_id=$1 AND r.prompt_id=p.id AND r.ok) ORDER BY p.id`
+    : 'SELECT * FROM prompts WHERE project_id=$1 AND active ORDER BY id', [project.id]);
+  const launchScope = configuredRunScope(project, panel);
   const budget = await budgetForCycle(req.session.orgId, {
-    questions: active.n,
+    questions: panel.length,
     engines: project.engines?.length ? project.engines : ['chatgpt'],
     runs: project.runs_per_cycle
   });
 
-  if (!budget.ok) return res.status(402).json({ error: budget.reason, upgrade: true });
+  const scopeError = runScopeProblem(launchScope, budget, req.body?.confirmedScope);
+  if (scopeError) return res.status(409).json({error: scopeError, code: 'RUN_SCOPE_REVIEW_REQUIRED'});
 
   if (['starting','asking','thinking'].includes(cycles.get(project.id)?.phase)) {
     return res.status(409).json({ error: 'A cycle is already running for this site.' });
@@ -1919,6 +1934,7 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
 
   runCycleForProject(project.id, {
     only,
+    confirmedScope: launchScope.fingerprint,
     onProgress: (p) => {
       const prev = cycles.get(project.id) || {};
       cycles.set(project.id, { ...prev, ...p, total: p.total ?? prev.total });
@@ -1926,7 +1942,8 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
   })
     .then(async (summary) => {
       if(summary.blocked){cycles.set(project.id,{phase:'failed',error:summary.reason});return;}
-      cycles.set(project.id, { phase: 'done', done: summary.runs, total: summary.runs, summary, finishedAt: Date.now() });
+      cycles.set(project.id, { phase: summary.partial?'partial':'done', done: summary.runs, total: summary.runs, summary, finishedAt: Date.now() });
+      if(summary.partial)return;
       try{const {completionEmail}=await import('./lib/quick-start-controls.js');await completionEmail(project,scanStartedAt,{many,query});}catch(e){console.error('Report completion email failed:',e.message);}
     })
     .catch((err) => {
@@ -1970,16 +1987,26 @@ app.post('/api/run-all', requireAuth, wrap(async (req, res) => {
       continue;
     }
 
+    const panel = await many('SELECT * FROM prompts WHERE project_id=$1 AND active ORDER BY id',[p.id]);
+    const launchScope = configuredRunScope(project,panel);
+    const scopeError = !req.body?.confirmedScopes?.[p.id]
+      ? 'Review the account-wide measurement scope before starting.'
+      : runScopeProblem(launchScope,budget,req.body.confirmedScopes[p.id]);
+    if(scopeError){skipped.push({name:p.name,reason:scopeError});continue;}
+    if(['starting','asking','thinking'].includes(cycles.get(p.id)?.phase)){
+      skipped.push({name:p.name,reason:'already running'});continue;
+    }
     cycles.set(p.id, { phase: 'starting', done: 0, total: budget.maxCalls, startedAt: Date.now() });
     started.push({ id: p.id, name: p.name, calls: budget.maxCalls });
 
     runCycleForProject(p.id, {
+      confirmedScope: launchScope.fingerprint,
       onProgress: (pr) => {
         const prev = cycles.get(p.id) || {};
         cycles.set(p.id, { ...prev, ...pr, total: pr.total ?? prev.total });
       }
     })
-      .then((summary) => cycles.set(p.id, { phase: 'done', done: summary.runs, total: summary.runs, summary, finishedAt: Date.now() }))
+      .then((summary) => cycles.set(p.id, summary.blocked ? {phase:'failed',error:summary.reason} : { phase: summary.partial?'partial':'done', done: summary.runs, total: summary.runs, summary, finishedAt: Date.now() }))
       .catch((err) => {
         console.error('cycle failed:', err);
         cycles.set(p.id, { phase: 'failed', error: err.code === 'MEASUREMENT_LOCATION_REQUIRED' ? err.message : 'The cycle did not finish.' });
@@ -2356,6 +2383,10 @@ app.post('/api/prompts/:promptId/reask', requireAuth, wrap(async (req, res) => {
     [Number(req.params.promptId), req.session.orgId]
   );
   if (!prompt) return res.status(404).json({ error: 'Question not found' });
+  const attempt=await one(`SELECT id,status FROM measurement_batches WHERE project_id=$1 AND purpose='monitoring'
+   AND (status='completed' OR status='running' OR jsonb_array_length(COALESCE(collection_plan,'[]'::jsonb))>0)
+   ORDER BY started_at DESC,id DESC LIMIT 1`,[prompt.project_id]);
+  if(attempt && attempt.status!=='completed')return res.status(409).json({error:attempt.status==='running'?'A measurement is still running.':`Measurement #${attempt.id} is incomplete. Use “Retry failed or missing checks” in its archive to retain successful answers and recover only its gaps.`,recoveryUrl:`/api/projects/${prompt.project_id}/measurements/${attempt.id}`});
 
   /**
    * No engine named means ask them all, which is what the button does - and
@@ -2590,11 +2621,66 @@ app.get('/api/projects/:id/measurements/:measurementId', requireAuth, wrap(async
  if(!/^\d+$/.test(req.params.measurementId)) return res.status(400).send('Invalid measurement');
  const batch=await one('SELECT * FROM measurement_batches WHERE id=$1 AND project_id=$2',[req.params.measurementId,project.id]);
  if(!batch) return res.status(404).send('Measurement not found');
- const rows=await many(`SELECT r.*,p.text,COALESCE((SELECT jsonb_agg(jsonb_build_object('url',c.url)) FROM citations c WHERE c.run_id=r.id),'[]'::jsonb) AS citations
- FROM measurement_answers a JOIN runs r ON r.id=a.run_id JOIN prompts p ON p.id=r.prompt_id
- WHERE a.measurement_id=$1 AND r.project_id=$2 ORDER BY r.prompt_id,r.engine,r.run_index,r.id`,[batch.id,project.id]);
+ const rows=await measurementRows(pool,project.id,batch.id);
+ const checks=await many('SELECT * FROM measurement_checks WHERE measurement_id=$1 ORDER BY prompt_id,engine,run_index',[batch.id]);
+ const status=measurementStatus(batch,rows,project.domain);
+ if(req.query.format==='json') {
+  const attempts=await many('SELECT * FROM provider_attempts WHERE measurement_id=$1 ORDER BY started_at,id',[batch.id]);
+  return res.json({project:{id:project.id,name:project.name,domain:project.domain},measurement:batch,status,checks,rows,attempts});
+ }
  const {measurementHtml}=await import('./lib/measurement-archive.js');
- res.type('html').send(measurementHtml(project,batch,rows));
+ res.type('html').send(measurementHtml(project,batch,rows,status,checks));
+}));
+
+app.get('/api/projects/:id/measurements/:measurementId/recovery',requireAuth,wrap(async(req,res)=>{
+ const project=await assertProject(req,res);if(!project)return;
+ if(!/^\d+$/.test(req.params.measurementId))return res.status(400).json({error:'Invalid measurement'});
+ try {res.json(await runCycleForProject(project.id,{recoverFrom:Number(req.params.measurementId),previewRecovery:true}));}
+ catch(error){res.status(409).json({error:error.message});}
+}));
+app.post('/api/projects/:id/measurements/:measurementId/recovery',requireAuth,wrap(async(req,res)=>{
+ const project=await assertProject(req,res);if(!project)return;
+ if(!/^\d+$/.test(req.params.measurementId))return res.status(400).json({error:'Invalid measurement'});
+ if(['starting','asking','thinking'].includes(cycles.get(project.id)?.phase))return res.status(409).json({error:'A measurement is already running.'});
+ const sourceId=Number(req.params.measurementId);
+ let preview;
+ try {preview=await runCycleForProject(project.id,{recoverFrom:sourceId,previewRecovery:true});}
+ catch(error){return res.status(409).json({error:error.message});}
+ if(preview.alreadyRecovered)return res.json(preview);
+ if(preview.blocked)return res.status(409).json({error:preview.reason});
+ if(Number(req.body?.confirmedRetry)!==preview.retry)return res.status(409).json({error:'Review the recovery count again before starting.'});
+ if(['starting','asking','thinking'].includes(cycles.get(project.id)?.phase))return res.status(409).json({error:'A measurement is already running.'});
+ cycles.set(project.id,{phase:'starting',total:preview.retry,done:0,startedAt:Date.now()});
+ res.json({started:true,...preview});
+ runCycleForProject(project.id,{recoverFrom:sourceId,onProgress:p=>cycles.set(project.id,{...cycles.get(project.id),...p})})
+  .then(summary=>cycles.set(project.id,{phase:summary.blocked?'failed':summary.partial?'partial':'done',error:summary.reason,summary}))
+  .catch(error=>{console.error('Recovery failed:',error);cycles.set(project.id,{phase:'failed',error:error.message});});
+}));
+
+app.post('/api/projects/:id/measurements/:measurementId/reanalyse',requireAuth,wrap(async(req,res)=>{
+ const project=await assertProject(req,res);if(!project)return;
+ const batch=await one('SELECT * FROM measurement_batches WHERE id=$1 AND project_id=$2',[Number(req.params.measurementId),project.id]);
+ if(!batch?.settings?.entities?.length)return res.status(409).json({error:'This measurement has no recorded entity set.'});
+ const rows=(await measurementRows(pool,project.id,batch.id)).filter(r=>r.ok&&r.response_text?.trim());
+ if(rows.length>5000)return res.status(409).json({error:'This measurement needs an offline full-evidence reanalysis.'});
+ const {retrospective}=await import('./lib/competitor-review.js');
+ const client=await pool.connect();
+ try {
+  await client.query('BEGIN');
+  const updated=[];
+  for(const original of batch.settings.entities) {
+   const entity=(await client.query('SELECT * FROM entities WHERE id=$1 AND project_id=$2 FOR UPDATE',[original.id,project.id])).rows[0];
+   if(!entity)throw new Error('An original entity was deleted. Review the report scope first.');
+   const reviewed=reviewedEntityNames(entity);
+   const analysis=await retrospective(rows,reviewed);analysis.revisedAliases=true;analysis.originalMeasurement=Number(batch.id);
+   await client.query('UPDATE entities SET aliases=$2 WHERE id=$1',[entity.id,reviewed.aliases]);
+   await client.query(`INSERT INTO competitor_baselines(entity_id,measurement_id,analysis) VALUES($1,$2,$3::jsonb)
+    ON CONFLICT(entity_id) DO UPDATE SET measurement_id=EXCLUDED.measurement_id,analysis=EXCLUDED.analysis`,[entity.id,batch.id,JSON.stringify(analysis)]);
+   updated.push({name:reviewed.name,aliases:reviewed.aliases,measured:analysis.measured,named:analysis.named});
+  }
+  await client.query('INSERT INTO method_notes(project_id,note,detail) VALUES($1,$2,$3)',[project.id,`Bilingual reanalysis of measurement ${batch.id}`,`Scoring visible-text-v3-ar applied to ${rows.length} retained answers. Original raw answers, scoring rows and settings preserved. New results are labelled retrospective analysis.`]);
+  await client.query('COMMIT');res.json({measurementId:batch.id,scoringPolicy:'visible-text-v3-ar',entities:updated,providerCalls:0});
+ } catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }));
 
 app.get('/api/projects/:id/report/prepare', requireAuth, wrap(async (req,res)=>{

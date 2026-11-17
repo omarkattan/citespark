@@ -305,7 +305,17 @@ function syncNavigation() {
   $('measurementDetails').hidden = section !== 'evidence';
 }
 
+function measurementBasisNotice() {
+ const info=state.overview?.measurementState,last=info?.latest;
+ if(!last||state.measurementRunning)return '';
+ if(!last.provisional&&last.citationComplete)return '';
+ return `<section class="panel notice" role="status"><h2>${last.provisional?'This measurement is incomplete.':'Citation comparison needs review.'}</h2><p>Latest attempt #${last.id}, ${esc(shortDate(last.startedAt))}: ${last.usable} usable of ${last.planned??'unknown'} planned checks. ${last.failed} failed, ${last.missing??'unknown'} missing, ${last.noAnswer} valid no-answer outcomes.</p>${last.provisional?'<p>Results below are provisional. Complete recovery before using them as a final report.</p>':''}${!last.citationComplete?'<p>Some source evidence is unavailable or unresolved. A missing citation record does not establish a zero citation rate.</p>':''}${info.lastCompleted?`<p>Last completed collection: #${info.lastCompleted.id}, ${esc(shortDate(info.lastCompleted.startedAt))}. Historical evidence stays separate.</p>`:''}<a class="ghost" href="/api/projects/${state.projectId}/measurements/${last.id}">${last.provisional?'Review and recover unresolved checks':'Review source coverage'}</a></section>`;
+}
+function runningProjectNotice() {
+  return `<section class="panel setup-journey" role="status"><h2>${state.measurementPhase==='thinking'?'Answers collected. Preparing actions.':'Measurement in progress.'}</h2><p>${state.measurementPhase==='thinking'?'Collection is complete. Page checks and suggested actions are still being prepared.':'Your saved questions are being checked. Early results are provisional.'}</p><p>You can leave this page and return. The run continues on our servers. There is no need to restart setup or launch another measurement.</p><p>Usage totals update after collection. Suggested actions and the final report become available when preparation finishes.</p></section>`;
+}
 async function viewOverview() {
+  if(state.measurementRunning)return runningProjectNotice();
   const o = state.overview || {};
   const [data, scope, history] = await Promise.all([
     readActionRecommendations(`/api/projects/${state.projectId}/recommendations?status=active`).catch(() => null),
@@ -382,6 +392,7 @@ async function viewOverview() {
 
 const SETUP_VIEWS={website:'setup',sources:'connections',questions:'questions',measurement:'firstMeasurement',recommendations:'actions',report:'reportGuide',complete:'overview'};
 function setupJourney() {
+  if(state.measurementRunning)return ['overview','reportGuide','firstMeasurement'].includes(state.view)?'':runningProjectNotice();
   const saved=state.setupStep;
   if(!saved||saved==='complete')return '';
   const measured=Boolean(state.overview?.cycle && state.overview?.runs>0);
@@ -392,12 +403,14 @@ function setupJourney() {
   return `<section class="panel setup-journey" aria-label="Project setup"><p class="eyebrow">Your first report · Step ${steps.findIndex(([s])=>s===active)+1} of 6</p><nav aria-label="Setup steps">${steps.map(([step,label],i)=>`<button class="ghost" data-setup-step="${step}" ${active===step?'aria-current="step"':''} ${!measured&&['recommendations','report'].includes(step)?'disabled':''}>${i+1}. ${label}</button>`).join('')}</nav><p>${copy[active]||copy[saved]||''}</p><p class="hint">Your place is saved. You can leave and return at any time.</p><p id="setupProgressError" class="error" role="alert"></p>${next}</section>`;
 }
 async function viewFirstMeasurement() {
+  if(state.measurementRunning)return runningProjectNotice();
   const d=await api(`/api/projects/${state.projectId}/run-scope`);
   if(!d||d.error)return `<div class="notice"><h2>Check your measurement settings</h2><p>${esc(d?.error||'The estimate could not be loaded. Please try again.')}</p><button data-open-view="setup">Review settings</button></div>`;
   const p=state.overview.project;
-  return `<section class="panel"><h2>Ready for your first measurement</h2><dl><dt>Website</dt><dd>${esc(p.domain)}</dd><dt>Questions</dt><dd>${d.all} active questions · ${d.checksAll} answer checks</dd><dt>Market</dt><dd>${esc(typeof COUNTRIES!=='undefined'?COUNTRIES.find(([code])=>code===p.market)?.[1]||p.market:p.market)}</dd><dt>Engines</dt><dd>${(p.engines||[]).map(e=>esc(ENGINE_LABEL[e]||e)).join(', ')}</dd><dt>Estimated provider cost</dt><dd>$${Number(d.costAll).toFixed(2)}</dd></dl><p>Your first results will show whether your brand was named, which sources were cited, and which questions need review. Results cover this question sample.</p><p class="hint">The next screen confirms the cost before any checks start. Connected Google accounts are optional.</p><button class="ghost" data-setup-step="questions">Edit questions</button> <button class="ghost" data-open-view="setup">Advanced measurement settings</button></section>`;
+  return `<section class="panel"><h2>Ready for your first measurement</h2><dl><dt>Website</dt><dd>${esc(p.domain)}</dd><dt>Questions</dt><dd>${d.all} active questions · ${d.checksAll} answer checks</dd><dt>Market</dt><dd>${esc(typeof COUNTRIES!=='undefined'?COUNTRIES.find(([code])=>code===p.market)?.[1]||p.market:p.market)}</dd><dt>Engines</dt><dd>${(d.scope.engines||[]).map(e=>esc(ENGINE_LABEL[e]||e)).join(', ')}</dd><dt>Repeats per question and engine</dt><dd>${d.scope.runs}</dd><dt>Question languages</dt><dd>${Object.entries(d.scope.languages).map(([language,n])=>`${esc(language)}: ${n}`).join(', ')}</dd><dt>Estimated provider cost</dt><dd>$${Number(d.costAll).toFixed(2)}</dd></dl><p>Your first results will show whether your brand was named, which sources were cited, and which questions need review. Results cover this question sample.</p><p class="hint">The next screen confirms the cost before any checks start. Connected Google accounts are optional.</p><button class="ghost" data-setup-step="questions">Edit questions</button> <button class="ghost" data-open-view="setup">Advanced measurement settings</button></section>`;
 }
 async function viewReportGuide() {
+  if(state.measurementRunning)return runningProjectNotice();
   return `<section class="panel"><h2>Prepare a report you can share</h2><ol><li>Review the decisions you selected. Include only recommendations supported by the evidence.</li><li>Preview the full report or the shorter executive brief.</li><li>Save a fixed report version, open it and use Print / save PDF.</li></ol><a class="btn" href="/api/projects/${state.projectId}/report/prepare" target="_blank" rel="noopener">Open report preparation</a><p class="hint">Report preparation opens in another tab. No new AI checks run when you open it. The PDF can be shared with people who do not have Cited access.</p><button class="ghost" data-setup-step="recommendations">Back to recommendations</button><hr><p>When you have checked and saved your report, finish this guide. Your questions, results and reports remain available.</p><button class="ghost" data-setup-step="complete">Finish guide</button></section>`;
 }
 async function saveSetupStep(step) {
@@ -1592,9 +1605,9 @@ async function viewQuestions() {
             ${esc(p.cluster?.replace(/[_-]/g, ' '))} &middot; ${esc(p.intent)} &middot; <span title="AI question volume is not measured. Original Google query evidence, where available, is shown separately above.">AI question volume not measured</span>
             ${p.active ? '' : ' &middot; <span class="paused">paused</span>'}
           </div>
-          ${p.measured ? runStrip(p.runs) : `<div class="notrun">${p.active ? 'Not asked yet. Included in the next cycle.' : 'Not asked yet. Paused and excluded from the next cycle.'}</div>`}
+          ${p.measured ? runStrip(p.runs) : p.attempted ? `<div class="notrun">Asked, but no measured answer. ${p.failed||0} failed checks. Review the saved outcomes.</div>` : `<div class="notrun">${p.active ? 'Not asked yet. Included in the next cycle.' : 'Not asked yet. Paused and excluded from the next cycle.'}</div>`}
           <div class="q-actions">
-            ${p.measured ? `<button class="btn" data-see-answer="${p.id}">Read answers</button>` : ''}
+            ${p.measured||p.attempted ? `<button class="btn" data-see-answer="${p.id}">Read answers</button>` : ''}
             <button class="ghost" data-brief="${p.id}">Review content brief</button>
             ${p.replacedBy ? '' : `<button class="ghost" data-question-edit="${p.id}">Edit wording</button>`}<details class="question-more"><summary>More actions</summary><div class="q-actions">
               ${p.measured ? `<button class="ghost" data-reask="${p.id}">Ask again now</button><span class="hint">Starts immediately and uses answer checks.</span>` : ''}
@@ -2274,7 +2287,7 @@ async function render() {
   if (renderId !== state.renderId || projectId !== state.projectId || view !== state.view) return;
   container.removeAttribute('aria-busy');
   const questionDraft=readQuestionDraft();
-  $('view').innerHTML = (view==='billing'?'':setupJourney()) + html;
+  $('view').innerHTML = (view==='billing'?'':measurementBasisNotice()+setupJourney()) + html;
   container.dataset.renderedProject = String(projectId);
   container.dataset.renderedView = view;
   if(['overview','actions'].includes(view))void resumeActionPreparation(state.projectId);
@@ -2305,7 +2318,7 @@ async function render() {
       if ($('q_bulk_text')) { $('q_bulk_text').value=questionDraft.bulkText || ''; $('q_bulk_text').closest('details').open=questionDraft.bulkOpen; }
       if ($('qTopicPanel')) $('qTopicPanel').innerHTML=questionDraft.preview || '';
       document.querySelectorAll('[data-topicq]').forEach((el,i)=>{el.checked=Boolean(questionDraft.selected[i]);});
-      document.querySelectorAll('[data-qsel]').forEach(el=>{el.checked=questionDraft.rows.includes(el.dataset.qsel);});
+      document.querySelectorAll('[data-qsel]').forEach(el=>{el.checked=!el.closest('.prompt')?.hidden && questionDraft.rows.includes(el.dataset.qsel);});
       for(const draft of questionDraft.editors){const editor=$(draft.id);if(editor){editor.innerHTML=draft.html;editor.hidden=false;const text=editor.querySelector('textarea');if(text)text.value=draft.text||'';}}
       refreshBulkBar();
       window.scrollTo({top:questionDraft.scrollY});
@@ -2343,9 +2356,12 @@ async function loadProject(id) {
   if(loadId!==state.projectLoadId)return false;
   if(!overview?.project || overview.error) { state.overview=null;showProjectLoadError(overview?.error||'The site response was incomplete. Please try again.');return false; }
   state.overview=overview;
-  const progress=await api(`/api/projects/${id}/setup-progress`).catch(()=>null);
+  showDemoHandoff();
+  const [progress,cycleStatus]=await Promise.all([api(`/api/projects/${id}/setup-progress`).catch(()=>null),api(`/api/projects/${id}/cycle-status`).catch(()=>null)]);
   if(loadId!==state.projectLoadId)return false;
   const measured=Boolean(state.overview.cycle && state.overview.runs>0);
+  state.measurementRunning=['starting','asking','thinking'].includes(cycleStatus?.phase);
+  state.measurementPhase=cycleStatus?.phase;
   state.setupStep=progress?.step||(measured?'complete':'sources');
   if(measured && ['website','sources','questions','measurement'].includes(state.setupStep))state.setupStep='recommendations';
   // Resume the guide only on initial project entry. Background measurement
@@ -2354,7 +2370,7 @@ async function loadProject(id) {
   const p = state.overview.project;
   $('brandTitle').textContent = p.brand_name;
   $('brandDek').textContent = state.overview.cycle
-    ? `Measured across ${state.overview.runs} answers on ${shortDate(state.overview.cycle)}. Results cover the questions and engines in that measurement.`
+    ? `${state.overview.measurementState?.latest?.provisional?'Provisional results across':'Measured across'} ${state.overview.runs} answers on ${shortDate(state.overview.cycle)}. Results cover the questions and engines in that measurement.`
     : 'Start by connecting your sources and reviewing the questions. Nothing has been measured yet.';
   $('cycleMeta').textContent = state.overview.cycle ? `cycle ${shortDate(state.overview.cycle)}` : 'no data';
   const cap = window.innerWidth < 760 ? 12 : 18;
@@ -2689,8 +2705,11 @@ const ENGINE_LABEL = {
  */
 function showProgress(phase, done, total, recent = []) {
   const justStarted = !state.measurementRunning;
+  const phaseChanged = state.measurementPhase !== phase;
   state.measurementRunning = true;
-  if (justStarted) { const guide=document.querySelector('.setup-journey'); if(guide)guide.outerHTML=setupJourney(); }
+  state.measurementPhase = phase;
+  if((justStarted || phaseChanged) && ['overview','reportGuide','firstMeasurement'].includes(state.view))void render();
+  if (justStarted || phaseChanged) { const guide=document.querySelector('.setup-journey'); if(guide)guide.outerHTML=setupJourney(); }
   if (!state.overview?.cycle) {
     $('brandDek').textContent = 'Your first measurement is in progress. The status above shows what is happening.';
     renderFigures();
@@ -2904,8 +2923,12 @@ async function pollCycle() {
   if(projectId!==state.projectId)return true;
   if (!status) return true;
 
+  if (status.phase === 'partial') {
+    hideProgress();await loadProject(projectId);await refreshUsagePill();return true;
+  }
   if (status.phase === 'failed') {
     hideProgress();
+    await loadProject(projectId);
     setupErr(status.error);
     return true;
   }
@@ -2957,8 +2980,8 @@ async function reviewProjectRun() {
     }
     if (!d || d.error) throw new Error(d?.error || 'Could not load the measurement estimate. Close and try again.');
     const valid = ['all','unrun','checksAll','checksUnrun','costAll','costUnrun'].every(k => Number.isFinite(d[k]) && d[k] >= 0);
-    if (!valid) throw new Error('The measurement estimate is incomplete. Close and try again.');
-    options.innerHTML = `<p>Only this site will run. Paused questions are excluded.</p><p>Market: ${esc(state.overview.project.market)} · ${(state.overview.project.engines||[]).map(e=>esc(ENGINE_LABEL[e]||e)).join(', ')}</p>
+    if (!valid || !d.scope?.fingerprint || !d.unrunScope?.fingerprint) throw new Error('The measurement estimate is incomplete. Close and try again.');
+    options.innerHTML = `<p>Only this site will run. Paused questions are excluded.</p><p>Market: ${esc(d.scope.market)} · ${d.scope.engines.map(e=>esc(ENGINE_LABEL[e]||e)).join(', ')} · ${d.scope.runs} repeats per question and engine</p><p>Question languages: ${Object.entries(d.scope.languages).map(([language,n])=>`${esc(language)}: ${n}`).join(', ')}</p>
       <p>${d.all} active questions · ${d.checksAll} answer checks · estimated $${d.costAll.toFixed(2)}</p>
       <button class="btn" data-run-confirm="all" ${!d.all ? 'disabled' : ''}>Run active questions</button>
       ${d.unrun>0 && d.unrun<d.all ? `<p>${d.unrun} questions never asked · ${d.checksUnrun} answer checks · estimated $${d.costUnrun.toFixed(2)}</p><button class="ghost" data-run-confirm="unrun">Run only questions never asked</button>` : ''}
@@ -2968,14 +2991,14 @@ async function reviewProjectRun() {
       if ($('runBtn').disabled) {options.querySelector('[data-run-error]').textContent = 'A measurement is already starting or running.'; return;}
       for (const b of options.querySelectorAll('button')) b.disabled = true;
       dialog.close();
-      await startCycle(button.dataset.runConfirm === 'unrun' ? 'unrun' : null);
+      await startCycle(button.dataset.runConfirm === 'unrun' ? 'unrun' : null, (button.dataset.runConfirm === 'unrun' ? d.unrunScope : d.scope).fingerprint);
     });
   } catch (error) {
     if (dialog.isConnected) options.innerHTML = `<p role="alert">${esc(error.message || 'Could not load the estimate.')}</p>`;
   }
 }
 
-async function startCycle(only = null) {
+async function startCycle(only = null, confirmedScope = null) {
   const btn = $('runBtn');
   btn.disabled = true;
   btn.textContent = 'Starting';
@@ -2984,7 +3007,7 @@ async function startCycle(only = null) {
   const res = await fetch(`/api/projects/${state.projectId}/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ only })
+    body: JSON.stringify({ only, confirmedScope })
   });
   const json = await res.json();
 
@@ -3049,13 +3072,13 @@ $('runBtn').addEventListener('click', async (e) => {
 $('runFullBtn').addEventListener('click', async (e) => {
   e.stopPropagation();
   $('runMenu').hidden = true;
-  await startCycle(null);
+  await reviewProjectRun();
 });
 
 $('runUnrunBtn').addEventListener('click', async (e) => {
   e.stopPropagation();
   $('runMenu').hidden = true;
-  await startCycle('unrun');
+  await reviewProjectRun();
 });
 
 /** Say how many are waiting, so the menu item is a decision rather than a guess. */
@@ -3098,10 +3121,36 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+async function reviewAccountRun() {
+  if(document.getElementById('accountRunReview'))return null;
+  const dialog=document.createElement('dialog');dialog.id='accountRunReview';dialog.className='sheet';
+  dialog.setAttribute('aria-label','Review account-wide measurement');
+  dialog.innerHTML='<h2>Review account-wide measurement</h2><p>This affects multiple websites. No checks start until you confirm.</p><div data-account-scope>Loading saved settings and estimates…</div><button data-cancel>Cancel</button>';
+  document.body.append(dialog);dialog.showModal();
+  return new Promise(resolve=>{
+    let answered=false;
+    const finish=value=>{if(answered)return;answered=true;dialog.remove();resolve(value);};
+    dialog.querySelector('[data-cancel]').onclick=()=>finish(null);
+    dialog.addEventListener('cancel',event=>{event.preventDefault();finish(null);});
+    (async()=>{
+      const projects=await api('/api/projects');
+      const scopes=await Promise.all(projects.map(async p=>({p,d:await api(`/api/projects/${p.id}/run-scope`)})));
+      if(!dialog.isConnected)return;
+      if(scopes.some(({d})=>d?.error||!d?.scope?.fingerprint||!Number.isFinite(d.costAll)))throw Error('One or more site estimates could not be loaded. Cancel and review those sites individually.');
+      const active=scopes.filter(({d})=>d.all>0);
+      dialog.querySelector('[data-account-scope]').innerHTML=active.map(({p,d})=>`<h3>${esc(p.name)}</h3><p>${d.all} questions · ${d.scope.engines.map(e=>esc(ENGINE_LABEL[e]||e)).join(', ')} · ${d.scope.runs} repeats · ${d.checksAll} checks · estimated $${d.costAll.toFixed(2)}</p><p>${esc(d.scope.market)} · ${Object.entries(d.scope.languages).map(([l,n])=>`${esc(l)}: ${n}`).join(', ')}</p>`).join('')+`<p><b>Total: ${active.reduce((n,{d})=>n+d.checksAll,0)} checks · estimated $${active.reduce((n,{d})=>n+d.costAll,0).toFixed(2)}</b></p><p>Sites already running or no longer eligible will be skipped. Actual provider costs can differ.</p><button data-confirm ${active.length?'':'disabled'}>Confirm account-wide run</button>`;
+      dialog.querySelector('[data-confirm]').onclick=event=>{event.target.disabled=true;finish(Object.fromEntries(active.map(({p,d})=>[p.id,d.scope.fingerprint])));};
+    })().catch(error=>{if(dialog.isConnected)dialog.querySelector('[data-account-scope]').textContent=error.message;});
+  });
+}
+
 $('runAllBtn').addEventListener('click', async (e) => {
   e.stopPropagation();
   $('runMenu').hidden = true;
-  const res = await fetch('/api/run-all', { method: 'POST' });
+  if(!(await refreshVerification()))return;
+  const confirmedScopes=await reviewAccountRun();
+  if(!confirmedScopes)return;
+  const res = await fetch('/api/run-all', { method: 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({confirmedScopes}) });
   const json = await res.json();
   if (!res.ok) { alert(json.error || 'Could not start.'); return; }
 
@@ -3171,6 +3220,7 @@ function applyQuestionView() {
     if (ok) { counts.all++; counts[d.state]++; }
     const visible = ok && (qState.state === 'all' || d.state === qState.state);
     r.hidden = !visible;
+    if(!visible){const box=r.querySelector('[data-qsel]');if(box)box.checked=false;}
     if (visible) shown++;
   }
 
@@ -3210,6 +3260,7 @@ function applyQuestionView() {
   }
   const counter = document.getElementById('promptFilterCount');
   if (counter) counter.textContent = `${shown} shown · ${counts.all} match filters · ${rows.length} total including history`;
+  refreshBulkBar();
 }
 
 document.addEventListener('click', async (e) => {
@@ -3656,10 +3707,9 @@ document.addEventListener('click', async (e) => {
     ov.id = 'reaskOverlay';
     ov.setAttribute('style', 'position:fixed;inset:0;z-index:70;background:rgba(20,20,18,.55);display:flex;align-items:center;justify-content:center;padding:20px;');
     ov.innerHTML = `<div style="background:var(--paper);border-radius:8px;max-width:460px;width:100%;padding:22px 24px;box-shadow:0 10px 40px rgba(0,0,0,.35);">
-      <div style="font-weight:600;font-size:15px;margin-bottom:6px">${engine ? `Asking ${esc(ENGINE_LABEL[engine] || engine)} only` : 'Asking every engine again'}</div>
+      <div style="font-weight:600;font-size:15px;margin-bottom:6px">Checking whether this request can run</div>
       <div data-reask-body style="font-size:13px;line-height:1.6;color:var(--ink-2)">
-        ${engine ? 'Only this engine is being asked.' : 'All configured engines are being asked.'}
-        This uses provider/API measurement and answer checks. Cost depends on the selected model and returned answer. Leave this open.
+        The server is validating the measurement settings. If accepted, this request uses provider/API measurement and answer checks. Cost depends on the selected model and returned answer. Leave this open.
       </div>
       <div data-reask-actions style="margin-top:16px;display:none;gap:8px;justify-content:flex-end"></div>
     </div>`;
@@ -3908,6 +3958,7 @@ document.addEventListener('click', async (e) => {
     e.target.disabled = false;
 
     if (r?.error) return toast(r.error, 'bad');
+    for(const box of document.querySelectorAll('[data-qsel]:checked'))box.checked=false;
     await render();
     toast(`${r.changed} question${r.changed === 1 ? '' : 's'} updated`);
     return;
@@ -3921,7 +3972,7 @@ document.addEventListener('click', async (e) => {
     try {
       const result=await api(`/api/projects/${projectId}/prompts/bulk`,{method:'PATCH',body:{ids,active:e.target.id==='qBulkResume'}});
       if(result?.error)throw Error(result.error);
-      if(state.projectId===projectId){await render();toast(`${result.changed} questions updated. Earlier answers are preserved.`);}
+      if(state.projectId===projectId){for(const box of document.querySelectorAll('[data-qsel]:checked'))box.checked=false;await render();toast(`${result.changed} questions updated. Earlier answers are preserved.`);}
     }catch(error){toast(error.message,'bad');}finally{if(e.target.isConnected)e.target.disabled=false;}
     return;
   }
@@ -6605,6 +6656,8 @@ function showDemoHandoff(){
  const draft=window.CitedDemoHandoff?.read();
  if(!draft)return;
  const domainKey=value=>String(value||'').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/^www\./,'').replace(/\/$/,'');
+ const current=(state.projects||[]).find(p=>Number(p.id)===Number(state.projectId));
+ if(current && domainKey(current.domain)!==domainKey(draft.site.domain))return;
  const existing=(state.projects||[]).find(p=>domainKey(p.domain)===domainKey(draft.site.domain));
  const box=document.createElement('section');box.className='panel';box.id='demoHandoff';
  box.innerHTML=`<h2>Continue your demo: ${esc(draft.site.domain)}</h2><p>Browser-local notes, retained for 24 hours. These are not verified project measurements and are not included in reports.</p><details><summary>Review tested questions and demo notes</summary>${(Array.isArray(draft.results)?draft.results:[]).slice(0,10).map(r=>`<article><h3>${esc(r.question)}</h3><p>${!r.collectionProfile?'Older demo note · score unavailable':r.status==='inconclusive'||r.mentions==null?'Inconclusive · score withheld':`${esc(r.mentions)} / ${esc(r.runs)} answers`} · ${esc(r.engine)} · ${esc(r.collectedAt||'Collection date unavailable')}</p><p>${esc(r.excerpt||'')}</p></article>`).join('')}</details><p>${existing?'This site already has a project in your account. Review its saved questions before running a measurement.':'Use these notes to choose your project questions. You can select these questions during setup.'} Demo answers are never imported as project measurements, and setup does not run new checks.</p><button type="button" id="demoUseSetup">${existing?'Open project questions':'Use this site for setup'}</button> <button type="button" class="ghost" id="demoDiscard">Discard demo notes</button>`;

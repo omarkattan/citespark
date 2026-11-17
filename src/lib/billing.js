@@ -97,7 +97,8 @@ export async function getEntitlements(orgId) {
   const plan = internal
     ? {
         ...basePlan,
-        name: `${basePlan.name} (internal)`,
+        name: 'Internal access',
+        runs: 10,
         monthlyCalls: Number.MAX_SAFE_INTEGER,
         sites: Number.MAX_SAFE_INTEGER,
         questions: Number.MAX_SAFE_INTEGER,

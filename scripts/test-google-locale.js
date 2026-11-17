@@ -18,9 +18,9 @@ test('actual Google request uses locale and never spends on unknown-country fall
  const src=text.slice(start,end);
  const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
  let bodies=[];
- const fetch=async(url,opts)=>{bodies.push(JSON.parse(opts.body)[0]);return {ok:false,status:503};};
- const run=new AsyncFunction('googleLocale','LOCATIONS','fetch','BASE','authHeader','cfg','prompt','market','process',src+';return askGoogle({cfg,prompt,market});');
- const deps=[googleLocale,LOCATIONS,fetch,'https://example.test',()=>'',{mode:'ai_mode',label:'Google AI Mode'}];
+ const providerFetch=async(url,body)=>{bodies.push(body[0]);return {ok:false,status:503};};
+ const run=new AsyncFunction('googleLocale','LOCATIONS','providerFetch','BASE','authHeader','cfg','prompt','market','process',src+';return askGoogle({cfg,prompt,market});');
+ const deps=[googleLocale,LOCATIONS,providerFetch,'https://example.test',()=>'',{mode:'ai_mode',label:'Google AI Mode'}];
  await run(...deps,ar,'JO',{env:{}});assert.equal(bodies[0].location_name,'Jordan');assert.equal(bodies[0].language_code,'ar');
  const failure=await run(...deps,ar,'XX',{env:{}});assert.equal(bodies.length,1);assert.equal(failure.ok,false);assert.equal(failure.costUsd,0);
 });

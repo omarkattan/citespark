@@ -60,3 +60,13 @@ test('existing account project opens questions instead of repeating setup, notes
  w.state.projects=[];w.showDemoHandoff();assert.equal(w.document.getElementById('demoUseSetup').textContent,'Use this site for setup');
  w.CitedDemoHandoff.clear();w.showDemoHandoff();assert.equal(w.document.getElementById('demoHandoff'),null);
 });
+
+test('demo notes are hidden on unrelated projects and recover on their own domain',()=>{
+ const w=new JSDOM('<main></main>',{url:'https://cited.ae/app?site=181',runScripts:'outside-only'}).window;
+ w.eval(readFileSync(new URL('../src/public/demo-handoff.js',import.meta.url),'utf8'));
+ w.CitedDemoHandoff.save({domain:'thepetsitterdubai.com'},[]);
+ w.eval("var state={projectId:181,projects:[{id:181,domain:'mawarid.ae'},{id:182,domain:'thepetsitterdubai.com'}]};var $=id=>document.getElementById(id);var esc=s=>String(s??'');");
+ const app=readFileSync(new URL('../src/public/app.js',import.meta.url),'utf8');w.eval(app.slice(app.indexOf('function showDemoHandoff(){')));
+ w.showDemoHandoff();assert.equal(w.document.getElementById('demoHandoff'),null);assert.ok(w.CitedDemoHandoff.read());
+ w.eval('state.projectId=182');w.showDemoHandoff();assert.ok(w.document.getElementById('demoHandoff'));
+});

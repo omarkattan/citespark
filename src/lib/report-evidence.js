@@ -1,3 +1,4 @@
+import {citationFacts,citationHost,opaqueCitation} from './citation-evidence.js';
 import { reportActions } from './report-actions.js';
 import { historicalGoogleWarnings } from './google-locale.js';
 import { coverageFor } from './measurement-coverage.js';
@@ -57,11 +58,11 @@ export async function reportEvidence(projectId, period, many) {
     SELECT MAX(cycle_date) AS day FROM reporting_runs WHERE project_id=$1
       AND ($2::date IS NULL OR cycle_date >= $2) AND ($3::date IS NULL OR cycle_date <= $3)
   )
-  SELECT r.id, r.cycle_date, r.prompt_id, r.engine, r.ok, r.response_text, r.error,
+  SELECT r.id, r.cycle_date, r.prompt_id, r.engine, r.ok, r.response_text, r.error, to_jsonb(r)->'citation_evidence' AS citation_evidence, pr.domain AS owned_domain,
          (to_jsonb(r)->>'max_output_tokens')::int AS max_output_tokens,
          (to_jsonb(r)->>'no_overview')::boolean AS no_overview,
          to_jsonb(r)->'quality_review' AS quality_review,
-         (SELECT COALESCE(jsonb_agg(jsonb_build_object('url',to_jsonb(c)->>'url','owned',
+         (SELECT COALESCE(jsonb_agg(jsonb_build_object('url',to_jsonb(c)->>'url','resolution_status',to_jsonb(c)->>'resolution_status','owned',
            lower(regexp_replace(c.domain, '^www\\.', '')) = lower(regexp_replace(pr.domain, '^www\\.', '')))), '[]'::jsonb)
            FROM citations c WHERE c.run_id=r.id) AS source_links,
          p.text, p.source, to_jsonb(p)->>'cluster' AS cluster, to_jsonb(p)->'origin_details' AS origin_details, m.mentioned,
@@ -74,6 +75,12 @@ export async function reportEvidence(projectId, period, many) {
   const batches = await many(`SELECT * FROM published_measurements WHERE project_id=$1
     AND ($2::date IS NULL OR cycle_date >= $2) AND ($3::date IS NULL OR cycle_date <= $3)
     ORDER BY cycle_date DESC LIMIT 1`,[projectId,period.from,period.to]);
+  for(const row of rows) {
+    const root=String(row.owned_domain||'').replace(/^www\./,'').toLowerCase();
+    row.source_links=(row.source_links||[]).map(c=>({...c,owned:!opaqueCitation(c.url)&&(citationHost(c.url)===root||citationHost(c.url)?.endsWith('.'+root))}));
+    row.cited=row.source_links.some(c=>c.owned);
+  }
+  const citationCoverage=citationFacts(rows,rows[0]?.owned_domain);
   const result = summariseEvidence(rows, { maxTokens: Number(process.env.MAX_OUTPUT_TOKENS || 2000), coverage: coverageFor(rows,batches[0]) });
   const engineNames = [...new Set([...(batches[0]?.settings?.engines || []), ...rows.map(r=>r.engine)])];
   const engineCoverage = engineNames.map(engine => {
@@ -83,5 +90,6 @@ export async function reportEvidence(projectId, period, many) {
     const scoped=Array.isArray(plan)?coverageFor(subset,{...batches[0],collection_plan:plan.filter(p=>p.engine===engine)}):null;
     return {engine, measured:facts.measured, named:facts.named, cited:facts.cited, failed:facts.failed, unmeasured:facts.unmeasured, ...(scoped?{expectedChecks:scoped.expected,missingChecks:scoped.missing}:{})};
   });
-  return { ...result, priorities: reportActions(result, rows), engineCoverage, localeWarnings: historicalGoogleWarnings(batches[0], result.questions), measurement: batches[0] || null, cycle: rows[0]?.cycle_date || null };
+  const provisional=batches[0]?.status!=='completed'||result.totals.failed>0||result.totals.missingChecks!==0;
+  return { ...result, provisional, citationCoverage, priorities: provisional?result.priorities.filter(p=>p.owner==='Measurement owner'):reportActions(result, rows), engineCoverage, localeWarnings: historicalGoogleWarnings(batches[0], result.questions), measurement: batches[0] || null, cycle: rows[0]?.cycle_date || null };
 }

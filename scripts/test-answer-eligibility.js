@@ -36,8 +36,8 @@ test('withheld answers stay outside report denominators and cannot create gap re
  // Withheld evidence is retained, rather than silently retried or deleted.
  assert.equal(retrySamples(rows).sound.length,4);
 });
-test('new collection settings identify the eligibility policy without changing the model or detector',()=>{
+test('new collection settings identify the eligibility policy and versioned bilingual detector without changing the selected model',()=>{
  const s=measurementSettings({market:'AE'},{chatgpt:'project-pin'},['chatgpt'],1,2000,entities);
  assert.equal(s.answerEligibility,ANSWER_ELIGIBILITY_POLICY);
- assert.equal(s.detection,'visible-text-v2');assert.equal(s.models.chatgpt,'project-pin');
+ assert.equal(s.detection,'visible-text-v3-ar');assert.equal(s.models.chatgpt,'project-pin');
 });

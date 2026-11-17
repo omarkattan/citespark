@@ -1,3 +1,5 @@
+import {selectedEntities} from '../src/lib/quick-start-selection.js';
+import {configuredRunScope,runScopeProblem} from '../src/lib/run-scope.js';
 import { assertMeasurementLocation } from '../src/lib/measurement-location.js';
 import { estimateEngineCosts } from '../src/lib/measurement-cost.js';
 import {test} from 'node:test';
@@ -108,18 +110,19 @@ test('full schema installs twice and native report selects only latest completed
 const jobSource=readFileSync(new URL('../src/jobs/runCycle.js',import.meta.url),'utf8');
 const collectSource=jobSource.slice(jobSource.indexOf('async function collectProject'),jobSource.indexOf('/**\n * What actually changed'))
  .replace("  const { resolveModel, ENGINES: ENGINE_CFG } = await import('../lib/dataforseo.js');",'')
+ .replaceAll("await import('../lib/notify.js')","({notify:async()=>{}})")
  .replace("const { teardownTopCited } = await import('../lib/teardown.js');",'const teardownTopCited=async()=>({torn:0});');
 const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
 async function collectionFixture(failSave=false, options={}){
  const events=[],inserts=[];let registered;
- const deps={pool:{},loadRecovery:async()=>({sourceId:97,plan:[{prompt_id:1,engine:'gemini',run_index:0},{prompt_id:2,engine:'gemini',run_index:0}],inheritIds:[99],jobs:[{prompt:{id:1,text:'Q'},engine:'gemini',runIndex:0}],reasons:{missing:1,failed:0,incomplete:0}}),inheritRecovery:async()=>events.push('inherit'),assertMeasurementLocation,estimateEngineCosts,requestCounts,one:async(sql,params)=>{
+ const deps={selectedEntities,configuredRunScope,runScopeProblem,seedChecks:async()=>{},checkState:async()=>{},attemptRecorder:()=>async()=>{},terminalizeChecks:async()=>{},outcomeFor:()=> 'collected',ledgerSummary:async()=>({status:failSave?'partial':'completed',planned:1,usable:failSave?0:1,unresolved:failSave?1:0}),recoveryConfiguration:async(db,project)=>({source:{id:97},project,prompts:[{id:1,text:'Q'}],settings:{engines:['gemini'],models:{gemini:'selected-model'},runs:1,maxTokens:2000,entities:[{id:1,kind:'owned',name:'Acme'}]},entities:[{id:1,kind:'owned',name:'Acme'}]}),pool:{},loadRecovery:async()=>({sourceId:97,replay:0,plan:[{prompt_id:1,engine:'gemini',run_index:0},{prompt_id:2,engine:'gemini',run_index:0}],inheritIds:[99],jobs:[{prompt:{id:1,text:'Q'},engine:'gemini',runIndex:0}],reasons:{missing:1,failed:0,incomplete:0}}),inheritRecovery:async()=>events.push('inherit'),assertMeasurementLocation,estimateEngineCosts,requestCounts,one:async(sql,params)=>{
   if(sql.includes('FROM projects'))return {id:27,org_id:1,market:'GB',brand_name:'Acme',engines:['gemini'],runs_per_cycle:1};
   if(sql.includes('INSERT INTO runs')){inserts.push(params);if(failSave)throw Error('write failed');return {id:1};}
   return null;
  },many:async sql=>sql.includes('SELECT * FROM prompts')?[{id:1,text:'Q'}]:sql.includes('SELECT * FROM entities')?[{id:1,kind:'owned',name:'Acme'}]:[],
- query:async()=>{},enginesFor:p=>p.engines,budgetForCycle:async()=>({ok:true,engines:['gemini'],runs:1,maxCalls:1}),MOCK:true,
+ query:async()=>{},enginesFor:p=>p.engines,budgetForCycle:async()=>({ok:true,engines:['gemini'],runs:1,maxCalls:1,entitlements:{advanced:true}}),MOCK:true,
  resolveModel:async()=> 'selected-model',ENGINE_CFG:{gemini:{kind:'llm'}},
- startMeasurement:async()=>{events.push('start');return {id:123,settings:{}};},measurementSettings:()=>({}),inheritMeasurement:async()=>{},
+ startMeasurement:async()=>{events.push('start');return {id:123,settings:{}};},measurementSettings:()=>({entities:[{id:1,kind:'owned',name:'Acme'}]}),inheritMeasurement:async()=>{},
  pooled:async(items,worker,limit,onError)=>{for(const item of items)try{await worker(item);}catch(e){onError(e);}},CONCURRENCY:1,
  askEngine:async()=>{events.push('ask');return {ok:true,text:'Acme.',model:'selected-model',costUsd:.01,citations:[]};},collectionLimit:(e,n)=>n,
  analyseRun:async()=>[{entity_id:1,mentioned:true}],hasAnthropic:false,isWrapper:()=>false,resolveAll:async()=>new Map(),domainOf:()=>null,
@@ -133,8 +136,8 @@ test('full collector attaches each answer to its batch and publishes only after 
  const r=await collectionFixture();assert.equal(r.error,undefined);
  assert.equal(r.inserts[0].at(-1),123);assert.deepEqual(r.events,['start','ask','usage','completed']);assert.equal(r.registered,null);
 });
-test('a persistence failure leaves the batch unpublished and accounts for provider spend',async()=>{
- const r=await collectionFixture(true);assert.match(r.error.message,/could not be saved/);
+test('a persistence failure retains accounting and refuses to claim completion',async()=>{
+ const r=await collectionFixture(true);assert.match(r.error.message,/No answer records completed/);
  assert.deepEqual(r.events,['start','ask','usage']);assert.equal(r.registered.id,123);
 });
 

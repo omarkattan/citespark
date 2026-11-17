@@ -1,3 +1,4 @@
+import {normaliseArabic} from './entity-names.js';
 import { introductionOnly } from './answer-eligibility.js';
 import { mentionText } from './mention-text.js';
 import { complete } from './anthropic.js';
@@ -56,20 +57,29 @@ function titleCased(matched) {
 }
 
 /** First character index at which this entity appears, or -1. */
-function findFirstIndex(text, entity) {
+function findFirstIndex(text, entity, policy='visible-text-v3-ar') {
   let best = -1;
   const strict = Boolean(entity.ambiguous_name);
 
-  for (const v of variants(entity)) {
-    const isTheName = v === entity.name;
-    const re = new RegExp(`(^|[^a-z0-9])(${escapeRegex(v)})([^a-z0-9]|$)`, 'gi');
+  const modern=policy==='visible-text-v3-ar';
+  const blocked=[];
+  if(modern)for(const name of entity.exclusions||[]) {
+   const re=new RegExp(escapeRegex(normaliseArabic(name)),'giu');let m;
+   while((m=re.exec(text)))blocked.push([m.index,m.index+m[0].length]);
+  }
+  for (const raw of variants(entity)) {
+    const v=modern?normaliseArabic(raw):raw;
+    const isTheName = raw === entity.name;
+    const boundary=modern?'[^\\p{L}\\p{N}]':'[^a-z0-9]';
+    const re = modern ? new RegExp(`(^|${boundary})(${escapeRegex(v)})(?=${boundary}|$)`, 'giu') : new RegExp(`(^|[^a-z0-9])(${escapeRegex(v)})([^a-z0-9]|$)`, 'gi');
 
     let m;
     while ((m = re.exec(text)) !== null) {
       // Keep scanning: the first occurrence may be the common noun while a
       // later one is the firm, and stopping at the first would lose it.
-      if (strict && isTheName && !titleCased(m[2])) continue;
+      if (strict && isTheName && !(modern && /[\u0600-\u06ff]/.test(m[2])) && !titleCased(m[2])) continue;
       const idx = m.index + m[1].length;
+      if(blocked.some(([a,b])=>idx>=a&&idx+m[2].length<=b))continue;
       if (best === -1 || idx < best) best = idx;
       break;
     }
@@ -118,12 +128,13 @@ export function looksTruncated(text, maxTokens = 2000) {
   return !/[.!?)\]"'\u201d|]$/.test(t);
 }
 
-export async function analyseRun({ text, entities, useModel = false }) {
+export async function analyseRun({ text, entities, useModel = false, policy='visible-text-v3-ar' }) {
   if (typeof text !== 'string' || !text.trim() || introductionOnly(text)) return [];
   text = mentionText(text);
+  if(policy==='visible-text-v3-ar')text=normaliseArabic(text);
   const found = entities.map((entity) => ({
     entity,
-    index: findFirstIndex(text || '', entity)
+    index: findFirstIndex(text || '', entity, policy)
   }));
 
   const ordered = found

@@ -1,3 +1,4 @@
+import {reviewedEntityNames} from './entity-names.js';
 import { ANSWER_ELIGIBILITY_POLICY } from './answer-eligibility.js';
 import { one, query, pool } from '../db/index.js';
 
@@ -6,7 +7,9 @@ export async function lockMeasurements(projectId) {
  try {
    const { rows } = await client.query('SELECT pg_try_advisory_lock(290029,$1) AS locked',[projectId]);
    if (!rows[0].locked) throw new Error('A measurement is already running for this site.');
-   // If we own the lock, any earlier running batch was interrupted.
+   // Only the owner of the advisory lock can establish worker interruption.
+   await client.query(`UPDATE measurement_checks c SET state='interrupted',error='Worker connection ended before saving a terminal outcome.',updated_at=now()
+    FROM measurement_batches b WHERE b.id=c.measurement_id AND b.project_id=$1 AND b.status='running' AND c.state IN ('pending','running')`,[projectId]);
    await client.query("UPDATE measurement_batches SET status='failed',completed_at=now() WHERE project_id=$1 AND status='running'",[projectId]);
  } catch (err) {
    try { await client.query('SELECT pg_advisory_unlock(290029,$1)',[projectId]); } finally { client.release(); }
@@ -18,8 +21,8 @@ export function measurementSettings(project, models, engines, runs, maxTokens, e
  return {version:1,market:project.market,locationName:project.location_name || null,models,
    engines:[...engines].sort(),runs,maxTokens,
    ...(engines.some(e=>e==='ai_mode'||e==='ai_overview') ? {googleLocalePolicy:'country-map-v2-question-script-ar-en-v1'} : {}),
-   detection:'visible-text-v2',answerEligibility:ANSWER_ELIGIBILITY_POLICY,
-   entities:entities.map(e=>({id:e.id,name:e.name,aliases:e.aliases,domain:e.domain,kind:e.kind,ambiguous_name:e.ambiguous_name})).sort((a,b)=>a.id-b.id)};
+   detection:'visible-text-v3-ar',citationCollection:'provider-payload-v1',answerEligibility:ANSWER_ELIGIBILITY_POLICY,
+   entities:entities.map(reviewedEntityNames).map(e=>({id:e.id,name:e.name,aliases:e.aliases,domain:e.domain,kind:e.kind,ambiguous_name:e.ambiguous_name,exclusions:e.exclusions||[],aliasPolicy:e.aliasPolicy||'user-configured'})).sort((a,b)=>a.id-b.id)};
 }
 export async function startMeasurement(projectId, day, settings) {
  const prior=await one('SELECT * FROM measurement_batches WHERE project_id=$1 AND status=\'completed\' AND purpose=\'monitoring\' ORDER BY cycle_date DESC,completed_at DESC,id DESC LIMIT 1',[projectId]);
@@ -36,7 +39,7 @@ export async function finishMeasurement(id,status) {
 }
 // Conservative: unknown legacy settings cannot support a like-for-like claim.
 export async function comparableSettings(projectId, period={}) {
- const row=await one(`SELECT COUNT(*)::int AS n, BOOL_AND(NOT legacy) AS known,
+ const row=await one(`SELECT COUNT(*)::int AS n, BOOL_AND(NOT legacy AND status='completed') AS known,
  COUNT(DISTINCT settings)::int AS variants FROM published_measurements
  WHERE project_id=$1 AND ($2::date IS NULL OR cycle_date >= $2) AND ($3::date IS NULL OR cycle_date <= $3)`,
  [projectId,period.from || null,period.to || null]);
