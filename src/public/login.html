@@ -31,7 +31,7 @@
         <label for="email">Email</label>
         <input id="email" type="email" autocomplete="email" inputmode="email" required autofocus />
       </div>
-      <div class="field">
+      <div class="field" id="passwordField">
         <label for="password">Password</label>
         <input id="password" type="password" autocomplete="current-password" required />
         <button type="button" class="ghost" id="showPassword" aria-controls="password" aria-pressed="false">Show password</button>
@@ -42,14 +42,14 @@
       <p class="error" id="error" role="alert"></p>
       <p class="switch">
         <a href="#" id="toggle">Create an account instead</a>
-        <a href="#" id="forgot">Forgotten your password?</a>
+        <a href="/login?forgot=1" id="forgot">Forgotten your password?</a>
       </p>
     </form>
   </div>
 </div>
 
 <script src="/demo-handoff.js?v=119"></script>
-<script src="/login.js?v=3"></script>
+<script src="/login.js?v=4"></script>
 <script src="/feedback.js"></script>
 </body>
 </html>

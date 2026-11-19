@@ -4950,7 +4950,7 @@ console.log('\nsignup and passwords');
 await test('signing up says an email is coming', async () => {
   const { readFileSync } = await import('node:fs');
   const markup = readFileSync(new URL('../src/public/login.html', import.meta.url), 'utf8');
-  assert.ok(/src="\/login.js\?v=2"/.test(markup), 'the login behaviour is loaded');
+  assert.ok(/src="\/login.js\?v=\d+"/.test(markup), 'the login behaviour is loaded');
   const login = markup + readFileSync(new URL('../src/public/login.js', import.meta.url), 'utf8');
 
   // Dropping someone straight into the app meant the first they heard of
@@ -4965,7 +4965,7 @@ await test('signing up says an email is coming', async () => {
   // A resend has to be reachable from here, not only from inside the app.
   assert.ok(/id="resend"/.test(login));
   // And a forgotten password needs a way out from the sign-in screen.
-  assert.ok(/id="forgot"/.test(login), 'reset must be reachable where people notice they need it');
+  assert.ok(/href="\/login\?forgot=1" id="forgot"/.test(markup), 'reset must be reachable where people notice they need it');
 });
 
 await test('an unverified account is stopped before the work, not after', async () => {

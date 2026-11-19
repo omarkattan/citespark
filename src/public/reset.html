@@ -25,10 +25,13 @@
   <div class="box">
     <h1>Set a new password</h1>
     <p>At least eight characters. This link works once.</p>
+    <form id="resetForm">
     <label for="pw">New password</label>
-    <input id="pw" type="password" autocomplete="new-password" />
-    <button class="btn" id="go">Save it</button>
-    <p class="msg" id="msg"></p>
+    <input id="pw" type="password" autocomplete="new-password" minlength="8" required />
+    <button type="submit" class="btn" id="go">Save password</button>
+    </form>
+    <p class="msg" id="msg" role="status" aria-live="polite"></p>
+    <p><a href="/login?forgot=1">Request a new reset link</a> · <a href="/login">Back to sign in</a></p>
   </div>
 
 <script>
@@ -41,31 +44,39 @@
     document.getElementById('go').disabled = true;
   }
 
-  document.getElementById('go').addEventListener('click', async () => {
+  let busy = false;
+  document.getElementById('resetForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!token || busy || !e.currentTarget.reportValidity()) return;
+    const button = document.getElementById('go');
     const password = document.getElementById('pw').value;
-    if (password.length < 8) {
-      msg.textContent = 'Use at least eight characters.';
+    busy = true;
+    button.disabled = true;
+    button.textContent = 'Saving…';
+    msg.className = 'msg';
+    msg.textContent = '';
+    try {
+      const res = await fetch('/api/password/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, password }),
+        signal: AbortSignal.timeout(15000)
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || 'We could not save your password. Please try again.');
+      msg.textContent = 'Password saved. Taking you to sign in.';
+      msg.className = 'msg good';
+      document.getElementById('pw').value = '';
+      setTimeout(() => (location.href = '/login'), 1200);
+    } catch (err) {
+      msg.textContent = err.name === 'TimeoutError' || err.name === 'TypeError'
+        ? 'The request could not complete. Try signing in with your new password. If needed, request a new reset link.'
+        : err.message;
       msg.className = 'msg bad';
-      return;
+      busy = false;
+      button.disabled = false;
+      button.textContent = 'Save password';
     }
-    const res = await fetch('/api/password/reset', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, password })
-    });
-    const d = await res.json();
-    if (!res.ok) {
-      msg.textContent = d.error || 'That did not work.';
-      msg.className = 'msg bad';
-      return;
-    }
-    msg.textContent = 'Saved. Taking you to sign in.';
-    msg.className = 'msg good';
-    setTimeout(() => (location.href = '/login'), 1200);
-  });
-
-  document.getElementById('pw').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') document.getElementById('go').click();
   });
 </script>
 </body>

@@ -2,23 +2,46 @@
   let mode='login',busy=false;
   const $=id=>document.getElementById(id),panel=$('panel');
   const escapeHtml=t=>String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const label=()=>mode==='login'?'Sign in':'Create account';
-  $('toggle').addEventListener('click',e=>{
-    e.preventDefault();if(busy)return;
-    mode=mode==='login'?'register':'login';
-    $('formTitle').textContent=mode==='login'?'Sign in':'Create an account';
-    document.title=`${$('formTitle').textContent} | Cited`;
-    $('submit').textContent=label();$('toggle').textContent=mode==='login'?'Create an account instead':'Sign in instead';
-    $('orgField').hidden=true;$('forgot').hidden=mode==='register';$('authIntro').textContent=mode==='register'?'Get your free AI visibility report. 20 buyer questions, no card required.':'Sign in to view your reports and next actions.';$('passwordHint').hidden=mode==='login';
-    $('password').autocomplete=mode==='login'?'current-password':'new-password';
-    if(mode==='register')$('password').minLength=8;else $('password').removeAttribute('minlength');
-    $('error').textContent='';$('error').className='error';
+  const labels = { login: 'Sign in', register: 'Create account', forgot: 'Send reset link' };
+  const label = () => labels[mode];
+  function setMode(next) {
+    mode = next;
+    const forgot = mode === 'forgot';
+    const register = mode === 'register';
+    $('formTitle').textContent = forgot ? 'Reset your password' : register ? 'Create an account' : 'Sign in';
+    document.title = `${$('formTitle').textContent} | Cited`;
+    $('authIntro').textContent = forgot ? 'Enter your account email to request a password reset link.' :
+      register ? 'Get your free AI visibility report. 20 buyer questions, no card required.' : 'Sign in to view your reports and next actions.';
+    $('submit').textContent = label();
+    $('toggle').textContent = mode === 'login' ? 'Create an account instead' : 'Sign in instead';
+    $('forgot').hidden = mode !== 'login';
+    $('passwordField').hidden = forgot;
+    $('password').disabled = forgot;
+    $('password').required = !forgot;
+    $('passwordHint').hidden = !register;
+    $('password').autocomplete = register ? 'new-password' : 'current-password';
+    if (register) $('password').minLength = 8;
+    else $('password').removeAttribute('minlength');
+    $('error').textContent = '';
+    $('error').className = 'error';
+  }
+  $('toggle').addEventListener('click', e => {
+    e.preventDefault();
+    if (!busy) setMode(mode === 'login' ? 'register' : 'login');
+  });
+  $('forgot').addEventListener('click', e => {
+    e.preventDefault();
+    if (busy) return;
+    setMode('forgot');
+    $('email').focus();
   });
   $('showPassword').addEventListener('click',()=>{
     const shown=$('password').type==='password';$('password').type=shown?'text':'password';
     $('showPassword').textContent=shown?'Hide password':'Show password';$('showPassword').setAttribute('aria-pressed',String(shown));
   });
-  if(new URLSearchParams(location.search).get('signup')==='1')$('toggle').click();
+  const params = new URLSearchParams(location.search);
+  if (params.get('forgot') === '1') setMode('forgot');
+  else if (params.get('signup') === '1') setMode('register');
   const demoHint=window.CitedDemoHandoff?.read();
   const authParams=new URLSearchParams(location.search);
   const demoWebsite=authParams.get('website')||demoHint?.site?.domain||'';
@@ -39,20 +62,22 @@
       catch(error){$('resendMsg').textContent=error.message||'Could not resend. Please try again.';}
       finally{e.target.disabled=false;}
     }
-    if(e.target.id==='forgot'){
-      e.preventDefault();if(busy)return;
-      if(!$('email').reportValidity())return;
-      const email=$('email').value.trim();busy=true;
-      try{await post('/api/password/forgot',{email});$('error').className='note';$('error').textContent=`If ${email} has an account, a reset link is on its way. It works for one hour.`;}
-      catch(error){$('error').className='error';$('error').textContent=error.message||'Could not request a reset. Please try again.';}
-      finally{busy=false;}
-    }
+
   });
   panel.addEventListener('submit',async e=>{
     e.preventDefault();if(busy||!$('email')||!panel.reportValidity())return;
-    busy=true;$('error').textContent='';$('error').className='error';$('submit').disabled=true;$('submit').textContent=mode==='login'?'Signing in…':'Creating your account…';
+    busy=true;$('error').textContent='';$('error').className='error';$('submit').disabled=true;$('submit').textContent=mode==='forgot'?'Sending…':mode==='login'?'Signing in…':'Creating your account…';
     try{
       const email=$('email').value.trim();
+      if (mode === 'forgot') {
+        await post('/api/password/forgot', { email });
+        $('error').className = 'note';
+        $('error').textContent = 'If this email has an account, check your inbox and spam folder for a reset link. The link works for one hour.';
+        $('submit').disabled = false;
+        $('submit').textContent = label();
+        busy = false;
+        return;
+      }
       const data=await post(`/api/${mode}`,{email,password:$('password').value,orgName:$('orgName').value.trim()});
       if(data.verificationSent){
         panel.innerHTML=`<h2>Check your email</h2><p class="sent-to">We sent a confirmation link to <b>${escapeHtml(email)}</b>.</p><p class="sent-note">You can add your website and review suggested questions now. Confirm your email before running your first measurement. The link works for two days.</p><div class="sent-actions"><a class="btn" href="/app">Next: add your website</a><button type="button" class="ghost" id="resend">Send it again</button></div><p class="sent-hint" id="resendMsg" role="status">Not arrived? Check spam, or request another link.</p>`;
