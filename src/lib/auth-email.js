@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { one, query, many } from '../db/index.js';
+import { one, query, pool } from '../db/index.js';
 import { notifyTo } from './notify.js';
 
 /**
@@ -20,12 +20,10 @@ const LIFETIME = {
 export async function issueToken(userId, kind) {
   const token = randomBytes(32).toString('base64url');
 
-  // One live token per purpose. An old link left working after a new one is
-  // requested is a second door nobody is watching.
-  await query('UPDATE auth_tokens SET used_at = now() WHERE user_id = $1 AND kind = $2 AND used_at IS NULL', [
-    userId,
-    kind
-  ]);
+  // Keep earlier reset emails usable until a password change succeeds.
+  if (kind !== 'reset') {
+    await query('UPDATE auth_tokens SET used_at = now() WHERE user_id = $1 AND kind = $2 AND used_at IS NULL', [userId, kind]);
+  }
 
   await query(
     'INSERT INTO auth_tokens (user_id, kind, token_hash, expires_at) VALUES ($1,$2,$3,now() + ($4 || \' milliseconds\')::interval)',
@@ -51,6 +49,43 @@ export async function consumeToken(token, kind) {
   return row;
 }
 
+export async function changePasswordWithToken(token, password) {
+  if (!token) return false;
+  const digest = hash(token);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT u.id FROM users u JOIN auth_tokens t ON t.user_id = u.id
+       WHERE t.token_hash = $1 AND t.kind = 'reset' AND t.used_at IS NULL
+         AND t.expires_at > now() FOR UPDATE OF u`, [digest]);
+    if (rows.length) {
+      const claimed = await client.query(
+        `UPDATE auth_tokens SET used_at = now() WHERE token_hash = $1
+         AND used_at IS NULL AND expires_at > clock_timestamp()`, [digest]);
+      if (claimed.rowCount) {
+        const { default: bcrypt } = await import('bcryptjs');
+        const passwordHash = await bcrypt.hash(password, 10);
+        await client.query(
+          'UPDATE users SET password_hash = $2, email_verified_at = COALESCE(email_verified_at, now()) WHERE id = $1',
+          [rows[0].id, passwordHash]);
+        await client.query(
+          "UPDATE auth_tokens SET used_at = now() WHERE user_id = $1 AND kind = 'reset' AND used_at IS NULL",
+          [rows[0].id]);
+        await client.query('COMMIT');
+        return true;
+      }
+    }
+    await client.query('ROLLBACK');
+    return false;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export function sendVerification(email, link) {
   notifyTo(email, {
     kind: 'verify',
@@ -64,7 +99,7 @@ export function sendVerification(email, link) {
 }
 
 export function sendReset(email, link) {
-  notifyTo(email, {
+  return notifyTo(email, {
     kind: 'reset',
     title: 'Set a new password',
     subject: 'Reset your Cited password',

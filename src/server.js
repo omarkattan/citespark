@@ -276,6 +276,7 @@ app.post('/api/verify/resend', requireAuth, wrap(async (req, res) => {
 
 /* ---------------- password reset ---------------- */
 
+let resetMailUnavailableUntil = 0;
 app.post('/api/password/forgot', wrap(async (req, res) => {
   const address = String(req.body?.email || '').toLowerCase().trim();
   const user = await one('SELECT id, email FROM users WHERE email = $1', [address]);
@@ -285,9 +286,14 @@ app.post('/api/password/forgot', wrap(async (req, res) => {
   if (user) {
     const { issueToken, sendReset } = await import('./lib/auth-email.js');
     const token = await issueToken(user.id, 'reset');
-    sendReset(user.email, `${siteUrl(req)}/reset?t=${encodeURIComponent(token)}`);
+    const link = `${siteUrl(req)}/reset?t=${encodeURIComponent(token)}`;
+    if (await sendReset(user.email, link)) resetMailUnavailableUntil = 0;
+    else resetMailUnavailableUntil = Date.now() + 60_000;
   }
 
+  if (Date.now() < resetMailUnavailableUntil) {
+    return res.status(503).json({ error: 'Reset email delivery is having trouble. Try again in a minute. An earlier link can still work for one hour.' });
+  }
   res.json({ ok: true, sent: true });
 }));
 
@@ -300,16 +306,10 @@ app.post('/api/password/reset', wrap(async (req, res) => {
   const password = String(req.body?.password || '');
   if (password.length < 8) return res.status(400).json({ error: 'Use at least 8 characters' });
 
-  const { consumeToken } = await import('./lib/auth-email.js');
-  const row = await consumeToken(String(req.body?.token || ''), 'reset');
-  if (!row) return res.status(400).json({ error: 'That link has expired or has already been used.' });
-
-  const hash = await bcrypt.hash(password, 10);
-  await query('UPDATE users SET password_hash = $2 WHERE id = $1', [row.user_id, hash]);
-
-  // A reset proves the address works, so verification comes free with it.
-  await query('UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()) WHERE id = $1', [row.user_id]);
-
+  const { changePasswordWithToken } = await import('./lib/auth-email.js');
+  if (!await changePasswordWithToken(String(req.body?.token || ''), password)) {
+    return res.status(400).json({ error: 'This link has expired or a password reset has already been completed. Request a new link below.' });
+  }
   res.json({ ok: true });
 }));
 

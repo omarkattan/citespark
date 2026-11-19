@@ -177,6 +177,7 @@ export function notifyTo(to, payload) {
     try {
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
+        signal: AbortSignal.timeout(10000),
         headers: { Authorization: `Bearer ${RESEND}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           from: FROM,
@@ -195,7 +196,7 @@ export function notifyTo(to, payload) {
     try {
       await query(
         'INSERT INTO notifications (kind, title, detail, emailed, email_error) VALUES ($1,$2,$3,$4,$5)',
-        [payload.kind || 'assignment', payload.title, JSON.stringify({ ...payload, to }), emailed, error]
+        [payload.kind || 'assignment', payload.title, JSON.stringify({ ...payload, actionUrl: ['verify', 'reset'].includes(payload.kind) ? undefined : payload.actionUrl, to }), emailed, error]
       );
     } catch (err) {
       console.error('could not write notification log:', String(err.message || err));
