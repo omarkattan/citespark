@@ -9,6 +9,7 @@ export function summariseEvidence(rows, { maxTokens = 2000, coverage = null } = 
   const questions = new Map();
   for(const q of coverage?.questions || []) questions.set(q.id,{...q,measured:0,named:0,cited:0,failed:0,unmeasured:0,possiblyTruncated:0,engines:new Set()});
   const totals = { missingChecks: coverage?.missing ?? null, expectedChecks: coverage?.expected ?? null, coverageBasis: coverage?.basis || 'unknown', attempted: rows.length, measured: 0, named: 0, cited: 0, failed: 0, unmeasured: 0, possiblyTruncated: 0, noOverview: 0, missingText: 0 };
+  const answers = [];
   for (const row of rows) {
     if (!questions.has(row.prompt_id)) questions.set(row.prompt_id, { id: row.prompt_id, text: row.text, source: row.source,
       measured: 0, named: 0, cited: 0, failed: 0, unmeasured: 0, possiblyTruncated: 0, engines: new Set() });
@@ -22,10 +23,16 @@ export function summariseEvidence(rows, { maxTokens = 2000, coverage = null } = 
       continue;
     }
     if (row.mentioned == null) { totals.unmeasured++; q.unmeasured++; continue; }
+    const truncated = possibleTruncation(row, maxTokens);
+    answers.push({
+      id:row.id, questionId:q.id, engine:row.engine, collected:row.collected || row.cycle_date,
+      possiblyTruncated:truncated, named:row.mentioned, cited:row.cited === true, peerIds:row.peer_ids || [],
+      urls:[...new Set((row.source_links || []).filter(s=>s.owned).map(s=>s.url))]
+    });
     totals.measured++; q.measured++; q.engines.add(row.engine);
     if (row.mentioned) { totals.named++; q.named++; }
     if (row.cited) { totals.cited++; q.cited++; }
-    if (possibleTruncation(row, maxTokens)) { totals.possiblyTruncated++; q.possiblyTruncated++; }
+    if (truncated) { totals.possiblyTruncated++; q.possiblyTruncated++; }
   }
   const list = [...questions.values()].map(q => ({ ...q, engines: [...q.engines].sort() }));
   const supported = list.filter(q => q.measured > 0);
@@ -49,7 +56,7 @@ export function summariseEvidence(rows, { maxTokens = 2000, coverage = null } = 
   if (!priorities.length) priorities.push({ do: totals.measured ? 'Review this baseline and repeat the same question set.' : 'Collect a measured baseline.',
     because: totals.measured ? 'There is not enough evidence here for a specific content recommendation. Confirm the question set and inspect the stored answers before scheduling a comparable repeat.' : 'No owned-brand measurements are available in this selected cycle. Missing measurements are not zero visibility.',
     owner: 'Marketing lead', done: 'The agreed buyer questions have a measured baseline with recorded collection settings.' });
-  return { totals, questions: list, strongest, citationAsset, priorities: priorities.slice(0,3),
+  return { answers, totals, questions: list, strongest, citationAsset, priorities: priorities.slice(0,3),
     coveredQuestions: supported.filter(q => q.named || q.cited).length, measuredQuestions: supported.length };
 }
 
@@ -58,7 +65,9 @@ export async function reportEvidence(projectId, period, many) {
     SELECT MAX(cycle_date) AS day FROM reporting_runs WHERE project_id=$1
       AND ($2::date IS NULL OR cycle_date >= $2) AND ($3::date IS NULL OR cycle_date <= $3)
   )
-  SELECT r.id, r.cycle_date, r.prompt_id, r.engine, r.ok, r.response_text, r.error, to_jsonb(r)->'citation_evidence' AS citation_evidence, pr.domain AS owned_domain,
+  SELECT r.id, r.cycle_date, to_jsonb(r)->>'created_at' AS collected,
+         ARRAY(SELECT peer.entity_id FROM mentions peer JOIN entities ent ON ent.id=peer.entity_id
+           WHERE peer.run_id=r.id AND peer.mentioned AND ent.project_id=$1 AND ent.kind='competitor') AS peer_ids, r.prompt_id, r.engine, r.ok, r.response_text, r.error, to_jsonb(r)->'citation_evidence' AS citation_evidence, pr.domain AS owned_domain,
          (to_jsonb(r)->>'max_output_tokens')::int AS max_output_tokens,
          (to_jsonb(r)->>'no_overview')::boolean AS no_overview,
          to_jsonb(r)->'quality_review' AS quality_review,
