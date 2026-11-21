@@ -15,6 +15,16 @@ export async function quickStartPdf(project,evidence,actions=[]){
  doc.registerFont('body',font);doc.registerFont('bold',bold);doc.font('body');
  const room=h=>{if(doc.y+h>doc.page.height-65)doc.addPage();};
  const para=(value,size=10,color='#243d32')=>{doc.font('body').fontSize(size).fillColor(color).text(text(value),{lineGap:4});doc.moveDown(.5);};
+ const numberedTitle=(number,value,size)=>{
+  const options=textOptions(value);
+  doc.font('bold').fontSize(size).fillColor('#10271f');
+  if(options.align==='right'){
+   const y=doc.y,left=doc.page.margins.left,width=doc.page.width-left-doc.page.margins.right;
+   doc.text(String(number)+'.',left+width-20,y,{width:20,align:'right',lineBreak:false});
+   doc.text(text(value),left,y,{...options,width:width-26,lineGap:3});
+  }else doc.text(number+'. '+text(value),{lineGap:3});
+  doc.moveDown(.4);
+ };
  const heading=value=>{room(64);doc.font('bold').fontSize(17).fillColor('#087647').text(value);doc.moveDown(.5);};
  doc.image(fileURLToPath(new URL('../public/cited-logo.jpeg',import.meta.url)),48,48,{width:240});doc.y=130;
  para('QUICK START REPORT',10);doc.moveDown();
@@ -38,14 +48,14 @@ export async function quickStartPdf(project,evidence,actions=[]){
  if(!actions.length)para('No suggested actions are available yet. Return to your saved report to check for updates.');
  for(const [i,row] of actions.slice(0,3).entries()){
   const p=row.evidence.action_plan;room(project.actionPreview?55:100);
-  doc.font('bold').fontSize(12).fillColor('#10271f').text(`${i+1}. ${text(p.title||row.title)}`,textOptions(p.title||row.title));doc.moveDown(.4);
+  numberedTitle(i+1,p.title||row.title,12);
   if(p.generation!=='page-grounded')para('Website verification is incomplete. Treat this as a suggested check, not a confirmed content gap.',9,'#885010');
   if(!project.actionPreview){para(p.change||row.action);if(p.rationale)para(p.rationale);if(p.page)para(p.page,9);}
  }
- heading('Question results');
+ room(160);heading('Question results');
  para('Counts below use measured answers only. Missing or failed answers are not scored as absence.');
  for(const [i,q] of evidence.questions.entries()){
-  room(78);doc.font('bold').fontSize(11).fillColor('#10271f').text(`${i+1}. ${text(q.text)}`,{lineGap:3,...textOptions(q.text)});doc.moveDown(.4);
+  room(78);numberedTitle(i+1,q.text,11);
   const flagged=(evidence.answers||[]).filter(a=>a.questionId===q.id&&a.offTopic);
   if(flagged.length)para('Flagged as off-topic by reviewer: '+flagged.map(a=>a.engine).join(', ')+'. Original measurements retained.',9);
   para(`Named: ${q.named}/${q.measured} | Cited: ${q.cited}/${q.measured} | Failed: ${q.failed} | Unmeasured: ${q.unmeasured}`,9);
