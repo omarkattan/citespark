@@ -250,8 +250,28 @@ async function competitorEditor(o,rivals,beforeScan=false){
 function engineCoverage(o){
  const measured=new Map((o.engines||[]).map(e=>[e.engine,e]));
  const checks=new Map((o.engineChecks||[]).map(e=>[e.engine,e]));
- const ids=[...new Set(['chatgpt','perplexity','ai_overview','ai_mode','claude','gemini',...measured.keys(),...checks.keys()])];
- return `<h2>AI engines checked in this report</h2><p>Quick Start begins with ChatGPT and Perplexity. Other engines are only checked when included in a scan.</p>${ids.map(id=>{const e=measured.get(id),c=checks.get(id);let status=e?.runs?`Named in ${Math.round(e.rate*100)}% of ${e.runs} measured answers`:c?.attempted?'Checks attempted, but no measured answers are available':'Not checked in this report';if(c?.failed)status+=` · ${c.failed} failed check${c.failed===1?'':'s'}`;if(c?.unmeasured)status+=` · ${c.unmeasured} unmeasured answer${c.unmeasured===1?'':'s'}`;return `<p><b>${esc(label(id))}</b> · ${status}</p>`;}).join('')}<p><b>Grok</b> · Not currently supported</p><p class="muted">Not checked, failed or unmeasured does not mean your business was absent. A measured 0% means it was not named in the measured answers for that engine.</p>`;
+ const planned=o.plannedByEngine;
+ const selected=planned ? Object.keys(planned) : o.scanEngines;
+ const hasScope=Array.isArray(selected);
+ const ids=new Set([...(selected||[]),...measured.keys(),...checks.keys()]);
+ const rows=[...ids].map(id=>{
+   const result=measured.get(id),check=checks.get(id),attempted=Number(check?.attempted||0);
+   const missing=Math.max(0,(planned?.[id]||0)-attempted);
+   const statuses=[];
+   if(result?.runs)statuses.push(`Named in ${Math.round(result.rate*100)}% of ${result.runs} measured answers`);
+   else if(attempted)statuses.push('No measured answers');
+   else statuses.push('Selected for this scan. No saved result');
+   if(missing)statuses.push(`${missing} planned check${missing===1?'':'s'} without a saved result`);
+   if(check?.queuePending)statuses.push(`${check.queuePending} awaiting a Google queue result`);
+   if(check?.failed)statuses.push(`${check.failed} failed check${check.failed===1?'':'s'}`);
+   if(check?.noOverview)statuses.push(`Google returned no AI Overview for ${check.noOverview} check${check.noOverview===1?'':'s'}`);
+   const other=Math.max(0,(check?.unmeasured||0)-(check?.noOverview||0));
+   if(other)statuses.push(`${other} unmeasured answer${other===1?'':'s'}`);
+   return `<p><b>${esc(label(id))}</b> · ${esc(statuses.join(' · '))}</p>`;
+ });
+ const others=['chatgpt','perplexity','ai_overview','ai_mode','claude','gemini'].filter(id=>!ids.has(id)).map(label);
+ if(others.length)rows.push(`<p class="muted">${hasScope?'Outside the saved scan plan':'No saved results or confirmed scan scope'}: ${esc(others.join(', '))}.</p>`);
+ return `<h2>AI engines checked in this report</h2>${rows.join('')}<p class="muted">Cited does not currently support Grok. Visibility uses answers with a brand measurement.</p>`;
 }
 
 let upgradeOpening=false,upgradeInterval='month';

@@ -24,7 +24,7 @@ test('free controls allow signup, evidence preparation and checkout, but not pai
 const html=fs.readFileSync(new URL('../src/public/quick-start.html',import.meta.url),'utf8');
 const js=fs.readFileSync(new URL('../src/public/quick-start.js',import.meta.url),'utf8');
 const settle=()=>new Promise(r=>setImmediate(r));
-async function fixture({verified=true,used=false,advanced=false,failRun=false,thinking=false,incomplete=false,failDiscovery=false,failSuggestions=false,guidedCheck=false,existing=false,newLink=false,duplicate=false,failCompetitors=false,zeroVisibility=false,suggestCompetitors=false,demoWebsite=null,demoHint=null,actionPreview=false,checkoutUnavailable=false}={}){
+async function fixture({coverage={},verified=true,used=false,advanced=false,failRun=false,thinking=false,incomplete=false,failDiscovery=false,failSuggestions=false,guidedCheck=false,existing=false,newLink=false,duplicate=false,failCompetitors=false,zeroVisibility=false,suggestCompetitors=false,demoWebsite=null,demoHint=null,actionPreview=false,checkoutUnavailable=false}={}){
  const dom=new JSDOM(html,{url:'https://cited.ae/quick-start'+(demoWebsite?'?demo=1&website='+encodeURIComponent(demoWebsite):newLink?'?new=1':''),runScripts:'outside-only'});
  const w=dom.window,calls=[]; w.CitedDemoHandoff={read:()=>demoHint};let created=used||existing,ran=used,savedQuestions=incomplete?list.slice(0,15):list;
  w.countryOptions=()=>'<option value="AE">United Arab Emirates</option>';w.DEFAULT_COUNTRY='AE';w.print=()=>{};
@@ -51,7 +51,7 @@ async function fixture({verified=true,used=false,advanced=false,failRun=false,th
   else if(url.endsWith('/run-scope'))data={checksAll:40,costAll:1.2};
   else if(url.endsWith('/run')){if(failRun){status=402;data={error:'Your free report has already been used.'};}else{ran=true;data={ok:true};}}
   else if(url.endsWith('/cycle-status'))data={phase:thinking?'thinking':'done'};
-  else if(url.endsWith('/overview'))data={project,cycle:'2026-11-07',visibility:.5,runs:40,engines:[{engine:'chatgpt',rate:zeroVisibility?0:.5,runs:20}],engineChecks:[{engine:'chatgpt',attempted:20,failed:0,unmeasured:0},{engine:'perplexity',attempted:20,failed:20,unmeasured:0}],competitors:[]};
+  else if(url.endsWith('/overview'))data={project,cycle:'2026-11-07',visibility:.5,runs:40,engines:[{engine:'chatgpt',rate:zeroVisibility?0:.5,runs:20}],engineChecks:[{engine:'chatgpt',attempted:20,failed:0,unmeasured:0},{engine:'perplexity',attempted:20,failed:20,unmeasured:0}],competitors:[],scanEngines:['chatgpt','perplexity'],...coverage};
   else if(url.endsWith('/prompts'))data=list.map((text,id)=>({id:id+1,text,runs:[{mentioned:true,cited:true}]}));
   else if(url.includes('/recommendations?'))data={tasks:guidedCheck?[{title:'Check the relevant page',evidence:{action_plan:{generation:'guided-check',title:'Check the relevant page',change:'Review this question against the page.'}}}]:[]};
   else if(url.endsWith('/competitor-review'))data={candidates:[]};
@@ -294,10 +294,24 @@ test('coverage distinguishes measured zero, failed checks, unchecked engines and
  const {dom,w}=await fixture({used:true,zeroVisibility:true});await settle();
  const text=w.document.getElementById('content').textContent;
  assert.match(text,/ChatGPT.*Named in 0% of 20 measured answers/);
- assert.match(text,/Perplexity.*no measured answers.*20 failed checks/);
- assert.match(text,/Google AI Overviews.*Not checked in this report/);
- assert.match(text,/Claude \(Anthropic\).*Not checked in this report/);
- assert.match(text,/Grok.*Not currently supported/);dom.window.close();
+ assert.match(text,/Perplexity.*No measured answers.*20 failed checks/);
+ assert.match(text,/Outside the saved scan plan: Google AI Overviews, Google AI Mode, Claude \(Anthropic\), Gemini/);
+ assert.match(text,/does not currently support Grok/);dom.window.close();
+});
+test('a missing planned engine and successful no-overview checks stay distinct from failures and exclusions',async()=>{
+ const {dom,w}=await fixture({used:true,coverage:{plannedByEngine:{ai_overview:6,gemini:3},engineChecks:[{engine:'ai_overview',attempted:5,queuePending:1,failed:1,unmeasured:3,noOverview:2}],engines:[]}});
+ await settle();
+ const rows=[...w.document.querySelectorAll('#content .panel p')].map(p=>p.textContent);
+ assert.ok(rows.some(t=>t.startsWith('Google AI Overviews · No measured answers')&&t.includes('1 planned check without a saved result')&&t.includes('1 failed check')&&t.includes('no AI Overview for 2 checks')&&t.includes('1 unmeasured answer')));
+ assert.ok(rows.some(t=>t.startsWith('Gemini · Selected for this scan')&&t.includes('3 planned checks without a saved result')));
+ assert.ok(!rows.find(t=>t.startsWith('Outside the saved scan plan')).includes('Gemini'));
+ assert.match(rows.join(' '),/1 awaiting a Google queue result/);dom.window.close();
+});
+test('older results without a saved plan do not declare unobserved engines excluded',async()=>{
+ const {dom,w}=await fixture({used:true,coverage:{scanEngines:null}});await settle();
+ const text=w.document.getElementById('content').textContent;
+ assert.match(text,/No saved results or confirmed scan scope: Google AI Overviews/);
+ assert.doesNotMatch(text,/Outside the saved scan plan/);dom.window.close();
 });
 test('assistant has a personable Cited identity in both editors',async()=>{
  const {dom,w}=await fixture({existing:true});await settle();

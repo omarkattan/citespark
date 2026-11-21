@@ -147,3 +147,39 @@ test('historical v2 recovery keeps its original Arabic matching policy',async()=
  assert.equal((await analyseRun({text:'بَنْك الأُرْدُنّ.',entities:[entity],policy:'visible-text-v2'}))[0].mentioned,false);
  assert.equal((await analyseRun({text:'بَنْك الأُرْدُنّ.',entities:[entity],policy:'visible-text-v3-ar'}))[0].mentioned,true);
 });
+
+test('a monitoring scan resumes a pending Google task by ID and publishes its recovered answer',async t=>{
+ const db=await fixture();
+ try {
+  await db.exec("UPDATE prompts SET active=false WHERE id>1; UPDATE projects SET engines='{ai_overview}'");
+  process.env.DATAFORSEO_LOGIN='fixture';process.env.DATAFORSEO_PASSWORD='fixture';
+  const {askEngine}=await import('../src/lib/dataforseo.js');
+  const timer=globalThis.setTimeout;
+  t.mock.method(globalThis,'setTimeout',(fn,ms,...args)=>timer(fn,[10000,20000,30000,45000,60000].includes(ms)?0:ms,...args));
+  const methods=[];let ready=false;
+  t.mock.method(globalThis,'fetch',async(url,opts)=>{
+    methods.push(opts.method);
+    const task=url.includes('/live/')?{id:'live-attempt',status_code:40101,cost:.004}:
+      url.endsWith('/task_post')?{id:'queued-attempt',status_code:20100,cost:.0018}:
+      ready?{id:'queued-attempt',status_code:20000,cost:.0018,result:[{items:[{type:'ai_overview',text:'Bank al Etihad offers banking services in Jordan.'}]}]}:
+      {id:'queued-attempt',status_code:40602};
+    return Response.json({tasks:[task]});
+  });
+  const run=worker(db,askEngine), many=async(s,p)=>(await db.query(s,p)).rows;
+  const initial=await run(28);
+  const partial=await reportEvidence(28,{from:null,to:null},many);
+  assert.equal(initial.partial,true);assert.equal(initial.spend,0);assert.equal(initial.billable,0);
+  assert.equal(partial.totals.queuePending,1);assert.equal(partial.totals.failed,0);assert.equal(partial.totals.measured,0);
+  assert.equal(partial.engineCoverage[0].queuePending,1);
+  assert.equal((await ledgerSummary(db,initial.measurementId)).counts.incomplete,1);
+  const preview=await run(28,{recoverFrom:initial.measurementId,previewRecovery:true});assert.equal(preview.estimatedCost,0);
+  const before=methods.length;ready=true;
+  const recovery=await run(28,{recoverFrom:initial.measurementId});
+  assert.deepEqual(methods.slice(before),['GET']);
+  const cost=(await db.query('SELECT SUM(cost_usd) AS cost FROM runs WHERE measurement_id=$1',[recovery.measurementId])).rows[0].cost;
+  assert.equal(Number(cost),.0018);
+  const finished=await reportEvidence(28,{from:null,to:null},many);
+  assert.equal(finished.totals.measured,1);assert.equal(finished.totals.named,1);
+  assert.equal(methods.filter(m=>m==='POST').length,2);
+ }finally{await db.close();}
+});

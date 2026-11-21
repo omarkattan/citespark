@@ -1,4 +1,4 @@
-import {answerFromPayload} from './dataforseo.js';
+import {answerFromPayload,recoverGoogleReceipt} from './dataforseo.js';
 import { isDeepStrictEqual } from 'node:util';
 import { introductionOnly } from './answer-eligibility.js';
 
@@ -49,10 +49,17 @@ export async function loadRecovery(db, projectId, sourceId, prompts, settings) {
   const rows = (await db.query(`SELECT r.*, (SELECT c.state FROM measurement_checks c WHERE c.measurement_id=$1 AND c.selected_run_id=r.id) AS check_state, ARRAY(SELECT m.entity_id FROM mentions m WHERE m.run_id=r.id) AS entity_ids
     FROM measurement_answers a JOIN runs r ON r.id=a.run_id WHERE a.measurement_id=$1 AND r.project_id=$2`, [sourceId, projectId])).rows;
   const recovery=recoveryPlan({ source, projectId, prompts, settings, rows });
-  const attempts=(await db.query('SELECT * FROM provider_attempts WHERE measurement_id=$1 AND response IS NOT NULL ORDER BY started_at DESC',[sourceId])).rows;
+  const attempts=(await db.query(`WITH RECURSIVE lineage AS (
+    SELECT id,recovery_of FROM measurement_batches WHERE id=$1 AND project_id=$2
+    UNION SELECT b.id,b.recovery_of FROM measurement_batches b JOIN lineage l ON b.id=l.recovery_of WHERE b.project_id=$2
+  ) SELECT a.* FROM provider_attempts a JOIN lineage l ON l.id=a.measurement_id
+  WHERE l.id=$1 OR (a.engine IN ('ai_overview','ai_mode') AND (a.request->>'url' LIKE '%/task_post' OR a.request->>'url' LIKE '%/task_get/advanced/%'))
+  ORDER BY a.started_at DESC,a.id DESC`,[sourceId,projectId])).rows;
   for(const job of recovery.jobs) {
-   const a=attempts.find(a=>Number(a.prompt_id)===Number(job.prompt.id)&&a.engine===job.engine&&Number(a.run_index)===job.runIndex&&answerFromPayload(job.engine,a.response));
+   const slot=attempts.filter(a=>Number(a.prompt_id)===Number(job.prompt.id)&&a.engine===job.engine&&Number(a.run_index)===job.runIndex);
+   const a=slot.find(a=>Number(a.measurement_id)===Number(sourceId)&&(!a.request?.receipt || a.request.receipt.id===a.response?.tasks?.[0]?.id) && answerFromPayload(job.engine,a.response));
    if(a)job.savedAnswer={...answerFromPayload(job.engine,a.response),collectedAt:a.completed_at,replayedAttempt:a.id};
+   else job.googleReceipt=recoverGoogleReceipt(job.engine,slot);
   }
   recovery.replay=recovery.jobs.filter(j=>j.savedAnswer).length;
   return recovery;

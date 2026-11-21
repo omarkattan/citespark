@@ -547,6 +547,7 @@ function dedupeCitations(items) {
  */
 export function isTransient(result) {
   const e = String(result?.error || '');
+  if ([40101, 40103, 50000].includes(result?.providerStatusCode)) return true;
   if (!e) return false;
   if (/Invalid Field|not authorized|40100|Unknown engine/i.test(e)) return false;
   /**
@@ -555,7 +556,7 @@ export function isTransient(result) {
    * calls, every one recorded as a hard failure at full speed, and the
    * product then advised switching the engine off. Slowing down was the fix.
    */
-  return /Internal SE Server Error|Task In Queue|HTTP 5\d\d|HTTP 429|rate.?limit|Service Unavailable|timeout|ECONNRESET|fetch failed/i.test(
+  return /^(?:50000: )?Internal Error\.?$|Internal SE Server Error|Task In Queue|HTTP 5\d\d|HTTP 429|rate.?limit|Service Unavailable|timeout|ECONNRESET|fetch failed/i.test(
     e
   );
 }
@@ -597,7 +598,8 @@ export function answerFromPayload(engine,json) {
  if(!cfg||!task||task.status_code!==20000)return null;
  let text='',citations=[],fanOut=[],noOverview=false;
  if(cfg.kind==='serp') {
-  const items=task.result?.[0]?.items||[];
+  const items=task.result?.[0]?.items;
+  if(!Array.isArray(items) || !items.length)return null;
   const block=cfg.mode==='ai_mode'?{items}:items.find(i=>i.type==='ai_overview');
   noOverview=cfg.mode!=='ai_mode'&&!block;
   text=googleAnswerText(block);citations=dedupeCitations([...collectUrls(block),...urlsFromText(text)]);
@@ -613,19 +615,39 @@ export function answerFromPayload(engine,json) {
    webSearchUsed:typeof task.result?.[0]?.web_search==='boolean'?task.result[0].web_search:null,
    providerRequestId:task.id,annotations:annotationObjects(task.result),searchResults:(task.result||[]).flatMap(r=>r.search_results||[]),replayed:true}};
 }
-async function providerFetch(url, body, onAttempt) {
- const id=randomUUID(),request={url,body};
+function providerTaskFailure(json, task, model) {
+  const status = task || json;
+  const code = status?.status_code;
+  const message = status?.status_message || 'Provider task failed';
+  return {ok:false, text:'', citations:[], fanOut:[], costUsd:Number(json?.cost || 0), model,
+    providerStatusCode:code, error:code && code !== 20000 ? `${code}: ${message}` : 'Missing provider task'};
+}
+// The queued GET may repeat the task price. Recognise it once when a result
+// arrives. The raw submission receipt retains the quoted price in the meantime.
+function attemptCost(json, method, url, receipt) {
+ const task=json?.tasks?.[0];
+ if (url.includes('/serp/google/') && (task?.status_code??json?.status_code)===40101) return 0;
+ if (url.endsWith('/task_post')) return 0;
+ if (method==='GET') {
+   if(task?.status_code!==20000 || task.id!==receipt.id) return 0;
+   return Number(task.cost || json?.cost || receipt.cost || 0);
+ }
+ return Number(json?.cost ?? task?.cost ?? 0);
+}
+async function providerFetch(url, body, onAttempt, receipt=null) {
+ const method=receipt?'GET':'POST';
+ const id=randomUUID(),request=receipt?{url,method,receipt}:{url,body};
  await onAttempt?.({phase:'dispatch',id,request});
  let res,json;
  try {
-  res=await fetch(url,{method:'POST',headers:{Authorization:authHeader(),'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(150000)});
+  res=await fetch(url,{method,headers:{Authorization:authHeader(),'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(150000)});
   const text=await res.text();
   try {json=JSON.parse(text);} catch {json={unparsed_body:text.slice(0,100000)};}
  } catch(err) {
   await onAttempt?.({phase:'response',id,error:String(err.message||err),httpStatus:res?.status});
   throw err;
  }
- await onAttempt?.({phase:'response',id,response:json,httpStatus:res.status,costUsd:Number(json?.cost??json?.tasks?.[0]?.cost??0)});
+ await onAttempt?.({phase:'response',id,response:json,httpStatus:res.status,costUsd:attemptCost(json,method,url,receipt)});
  return {ok:res.ok,status:res.status,json:async()=>json};
 }
 export async function askEngine(options) {
@@ -636,6 +658,7 @@ export async function askEngine(options) {
  return {...answer,costUsd:attempts.length?attempts.reduce((n,a)=>n+(a.costUsd||0),0):answer.costUsd,
   evidence:{version:1,method:ENGINES[options.engine]?.kind==='serp'?'google-serp':'llm-api',webSearchRequested:ENGINES[options.engine]?.kind==='llm',
    webSearchUsed:Array.isArray(result)&&typeof result[0]?.web_search==='boolean'?result[0].web_search:null,
+   ...(answer.queuePending?{queuePending:true}:{}),
    citationCollection:attempts.length&&answer.ok?'recorded':'unavailable',
    providerRequestId:last?.response?.tasks?.[0]?.id||null,attemptCount:attempts.length,
    annotations:annotationObjects(result),searchResults:(Array.isArray(result)?result:[]).flatMap(r=>r.search_results||[])}};
@@ -646,7 +669,7 @@ function annotationObjects(result) {
   for(const [k,v] of Object.entries(node)){if(k==='annotations'&&Array.isArray(v))out.push(...v);else walk(v);}}
  walk(result);return out;
 }
-async function askEngineAttempt({ engine, prompt, market = 'AE', locationName = null, model = null, maxTokens = 2000, attempt = 0, onAttempt }) {
+async function askEngineAttempt({ engine, prompt, market = 'AE', locationName = null, model = null, maxTokens = 2000, attempt = 0, onAttempt, googleReceipt }) {
   const cool = coolUntil.get(engine) || 0;
   if (cool > Date.now()) await sleep(cool - Date.now());
   const cfg = ENGINES[engine];
@@ -661,8 +684,8 @@ async function askEngineAttempt({ engine, prompt, market = 'AE', locationName = 
   }
 
   if (cfg.kind === 'serp') {
-    const first = await askGoogle({ cfg, prompt, market, locationName, onAttempt });
-    if (!isTransient(first) || attempt >= RETRIES) return first;
+    const first = await askGoogle({ cfg, prompt, market, locationName, onAttempt, googleReceipt });
+    if (first.queued || !isTransient(first) || attempt >= RETRIES) return first;
     // Google-side failures clear more slowly than an LLM hiccup, so back off
     // further rather than hammering the same second.
     await sleep(backoffFor(engine, attempt));
@@ -699,16 +722,8 @@ async function askEngineAttempt({ engine, prompt, market = 'AE', locationName = 
 
     const json = await res.json();
     const taskData = json?.tasks?.[0];
-    if (!taskData || taskData.status_code >= 40000) {
-      const taskFail = {
-        ok: false,
-        text: '',
-        citations: [],
-        fanOut: [],
-        costUsd: Number(json?.cost || 0),
-        model: cfg.label,
-        error: taskData?.status_message || 'Task failed'
-      };
+    if (taskData?.status_code !== 20000) {
+      const taskFail = providerTaskFailure(json, taskData, cfg.label);
       // A rate limit is about pace, not this particular question, so the
       // whole engine waits rather than only this call.
       if (/rate.?limit/i.test(taskFail.error || '')) {
@@ -756,11 +771,71 @@ async function askEngineAttempt({ engine, prompt, market = 'AE', locationName = 
  * Google only shows one for some queries. We return ok with a flag so the
  * cycle records the absence rather than logging an error.
  */
-async function askGoogle({ cfg, prompt, market, locationName = null, onAttempt }) {
+const pendingGoogleCodes = new Set([20100, 40601, 40602]);
+const googleTaskId = /^[a-zA-Z0-9-]{1,80}$/;
+const googleSurfaces = { ai_overview: 'organic', ai_mode: 'ai_mode' };
+
+// Attempts arrive newest first, including requests interrupted before a reply.
+export function recoverGoogleReceipt(engine, attempts) {
+  const surface = googleSurfaces[engine];
+  if (!surface) return null;
+  const base = BASE + '/serp/google/' + surface;
+  for (const attempt of attempts) {
+    const url = attempt.request?.url;
+    const task = attempt.response?.tasks?.[0];
+    if (url === base + '/task_post') {
+      if (task?.status_code !== 20100 || !googleTaskId.test(task.id || '')) return null;
+      return { id: task.id, cost: Number(task.cost ?? attempt.response.cost ?? 0) };
+    }
+
+    const receipt = attempt.request?.receipt;
+    if (!receipt || !googleTaskId.test(receipt.id || '') || url !== base + '/task_get/advanced/' + receipt.id) continue;
+    // An expired or terminal task can be replaced during an explicitly
+    // requested recovery. Transport errors can reuse the existing ID.
+    const code = task?.id === receipt.id ? task.status_code : null;
+    if (code && !pendingGoogleCodes.has(code) && code !== 50000) return null;
+    return receipt;
+  }
+  return null;
+}
+
+async function queuedGoogleResult(base, body, onAttempt, receipt) {
+  if (!receipt) {
+    const submitted = await providerFetch(base + '/task_post', [{ ...body[0], priority: 2 }], onAttempt);
+    const json = await submitted.json();
+    const task = json?.tasks?.[0];
+    if (!submitted.ok) return { error: 'HTTP ' + submitted.status };
+    if (task?.status_code !== 20100) return { error: providerTaskFailure(json, task, null).error };
+    if (!googleTaskId.test(task.id || '')) return { error: 'Missing Google queue task ID' };
+    receipt = { id: task.id, cost: Number(task.cost ?? json.cost ?? 0) };
+  }
+
+  // A later recovery polls this same ID if the queue outlasts this worker.
+  const resultUrl = base + '/task_get/advanced/' + receipt.id;
+  for (const waitMs of [0, 10000, 20000, 30000, 45000, 60000, 60000, 60000, 60000]) {
+    if (waitMs) await sleep(waitMs);
+    let response;
+    try {
+      response = await providerFetch(resultUrl, undefined, onAttempt, receipt);
+    } catch (err) {
+      if (err.persistence) throw err;
+      continue;
+    }
+    if (response.status === 429 || response.status >= 500) continue;
+    if (!response.ok) return { error: 'HTTP ' + response.status };
+    const json = await response.json();
+    const task = json?.tasks?.[0];
+    if (task && task.id !== receipt.id) return { error: 'Google returned a different queue task ID' };
+    const code = task?.status_code ?? json?.status_code;
+    if (pendingGoogleCodes.has(code) || code === 50000) continue;
+    return { json };
+  }
+  return { pending: true, error: 'Google has not returned the queued result yet.' };
+}
+
+async function askGoogle({ cfg, prompt, market, locationName = null, onAttempt, googleReceipt }) {
   const isMode = cfg.mode === 'ai_mode';
-  const url = isMode
-    ? `${BASE}/serp/google/ai_mode/live/advanced`
-    : `${BASE}/serp/google/organic/live/advanced`;
+  const base = BASE+'/serp/google/'+(isMode?'ai_mode':'organic');
 
   /**
    * load_async_ai_overview asks DataForSEO to fetch the overview in a second
@@ -794,23 +869,27 @@ async function askGoogle({ cfg, prompt, market, locationName = null, onAttempt }
     }
   ];
 
+  const failure={ok:false,text:'',citations:[],fanOut:[],costUsd:0,model:cfg.label};
+  let queued=Boolean(googleReceipt);
   try {
-    const res = await providerFetch(url, body, onAttempt);
-    if (!res.ok) {
-      return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, model: cfg.label, error: `HTTP ${res.status}` };
+    let json;
+    if(!queued) {
+      const res=await providerFetch(base+'/live/advanced',body,onAttempt);
+      if(!res.ok)return {...failure,error:'HTTP '+res.status};
+      json=await res.json();
+      queued=(json?.tasks?.[0]?.status_code??json?.status_code)===40101;
     }
-
-    const json = await res.json();
-    const task = json?.tasks?.[0];
-    if (!task || task.status_code >= 40000) {
-      return {
-        ok: false, text: '', citations: [], fanOut: [],
-        costUsd: Number(json?.cost || 0), model: cfg.label,
-        error: task?.status_message || 'Task failed'
-      };
+    if(queued) {
+      const result=await queuedGoogleResult(base,body,onAttempt,googleReceipt);
+      if(result.error)return {...failure,queued:true,queuePending:Boolean(result.pending),error:result.error};
+      json=result.json;
     }
-
-    const items = task.result?.[0]?.items || [];
+    const task=json?.tasks?.[0];
+    if(task?.status_code!==20000)return {...providerTaskFailure(json,task,cfg.label),queued};
+    const items = task.result?.[0]?.items;
+    if (!Array.isArray(items) || !items.length) {
+      return {ok:false, text:'', citations:[], fanOut:[], costUsd:Number(json?.cost || 0), model:cfg.label, error:'Google search result items were missing'};
+    }
     // AI Mode returns its answer as the result; organic search nests the
     // overview inside an ai_overview item alongside the blue links.
     const block = isMode
@@ -843,7 +922,7 @@ async function askGoogle({ cfg, prompt, market, locationName = null, onAttempt }
     };
   } catch (err) {
     if(err.persistence)throw err;
-    return { ok: false, text: '', citations: [], fanOut: [], costUsd: 0, model: cfg.label, error: String(err.message || err) };
+    return {...failure,queued,error:String(err.message||err)};
   }
 }
 
