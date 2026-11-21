@@ -5,6 +5,8 @@ const require=createRequire(import.meta.url);
 const font=require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans.ttf');
 const bold=require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf');
 const text=v=>String(v??'').replace(/[\x00-\x08\x0b-\x1f]/g,'');
+// Shape Arabic as a whole line so PDFKit does not reorder words independently.
+const textOptions=value=>/\p{Script=Arabic}/u.test(value)?{align:'right',features:['liga']}:{};
 const rate=(n,d)=>d>0?`${Math.round(n/d*100)}%`:'Not measured';
 
 export async function quickStartPdf(project,evidence,actions=[]){
@@ -12,14 +14,14 @@ export async function quickStartPdf(project,evidence,actions=[]){
  const chunks=[];const ready=new Promise((resolve,reject)=>{doc.on('data',c=>chunks.push(c));doc.on('end',()=>resolve(Buffer.concat(chunks)));doc.on('error',reject);});
  doc.registerFont('body',font);doc.registerFont('bold',bold);doc.font('body');
  const room=h=>{if(doc.y+h>doc.page.height-65)doc.addPage();};
- const para=(value,size=10,color='#243d32')=>{doc.font('body').fontSize(size).fillColor(color).text(text(value),{lineGap:4});doc.moveDown(.65);};
- const heading=value=>{room(80);doc.font('bold').fontSize(17).fillColor('#087647').text(value);doc.moveDown(.5);};
+ const para=(value,size=10,color='#243d32')=>{doc.font('body').fontSize(size).fillColor(color).text(text(value),{lineGap:4});doc.moveDown(.5);};
+ const heading=value=>{room(64);doc.font('bold').fontSize(17).fillColor('#087647').text(value);doc.moveDown(.5);};
  doc.image(fileURLToPath(new URL('../public/cited-logo.jpeg',import.meta.url)),48,48,{width:240});doc.y=130;
  para('QUICK START REPORT',10);doc.moveDown();
  doc.font('bold').fontSize(24).fillColor('#10271f').text(text(project.brand_name||project.name));
  para(project.domain);para(`Measurement: ${evidence.cycle?new Date(evidence.cycle).toISOString().slice(0,10):'Not available'} | Downloaded: ${new Date().toISOString().slice(0,10)}`);
  const market=evidence.measurement?.settings?.market||project.market;
- if(market)para('Configured market: '+market+'. Places named in questions may differ.');
+ if(market)para('Configured market: '+(/^[A-Z]{2}$/.test(market)?new Intl.DisplayNames(['en'],{type:'region'}).of(market):market)+'. Places named in questions may differ.');
  const langs=[...new Set(evidence.questions.map(q=>/[\u0600-\u06ff]/.test(q.text)?'Arabic':'English'))];
  if(langs.length)para('Question languages: '+langs.join(' and '));
  const t=evidence.totals;
@@ -35,15 +37,15 @@ export async function quickStartPdf(project,evidence,actions=[]){
  if(project.actionPreview)para('Upgrade for the detailed action plan and ongoing monitoring. Suggested opportunities need review, and do not guarantee AI recommendations.');
  if(!actions.length)para('No suggested actions are available yet. Return to your saved report to check for updates.');
  for(const [i,row] of actions.slice(0,3).entries()){
-  const p=row.evidence.action_plan;room(100);
-  doc.font('bold').fontSize(12).fillColor('#10271f').text(`${i+1}. ${text(p.title||row.title)}`);doc.moveDown(.4);
+  const p=row.evidence.action_plan;room(project.actionPreview?55:100);
+  doc.font('bold').fontSize(12).fillColor('#10271f').text(`${i+1}. ${text(p.title||row.title)}`,textOptions(p.title||row.title));doc.moveDown(.4);
   if(p.generation!=='page-grounded')para('Website verification is incomplete. Treat this as a suggested check, not a confirmed content gap.',9,'#885010');
   if(!project.actionPreview){para(p.change||row.action);if(p.rationale)para(p.rationale);if(p.page)para(p.page,9);}
  }
- doc.addPage();heading('Question results');
+ heading('Question results');
  para('Counts below use measured answers only. Missing or failed answers are not scored as absence.');
  for(const [i,q] of evidence.questions.entries()){
-  room(100);doc.font('bold').fontSize(11).fillColor('#10271f').text(`${i+1}. ${text(q.text)}`,{lineGap:3});doc.moveDown(.4);
+  room(78);doc.font('bold').fontSize(11).fillColor('#10271f').text(`${i+1}. ${text(q.text)}`,{lineGap:3,...textOptions(q.text)});doc.moveDown(.4);
   const flagged=(evidence.answers||[]).filter(a=>a.questionId===q.id&&a.offTopic);
   if(flagged.length)para('Flagged as off-topic by reviewer: '+flagged.map(a=>a.engine).join(', ')+'. Original measurements retained.',9);
   para(`Named: ${q.named}/${q.measured} | Cited: ${q.cited}/${q.measured} | Failed: ${q.failed} | Unmeasured: ${q.unmeasured}`,9);
