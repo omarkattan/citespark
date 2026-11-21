@@ -14,7 +14,7 @@ import { validateDecision, decisionReportText } from './lib/recommendation-decis
 import { competitorCandidates, domainKey, retrospective, reviewSample } from './lib/competitor-review.js';
 import { comparableHistorySql } from './lib/history-query.js';
 import { comparableSettings } from './lib/measurement-batches.js';
-import { hasAnswerText, measuredQuestionRates, unmeasuredReason, possibleTruncation } from './lib/answer-quality.js';
+import { hasAnswerText, measuredQuestionRates, unmeasuredReason, possibleTruncation, NO_OVERVIEW } from './lib/answer-quality.js';
 import 'dotenv/config';
 import express from 'express';
 import cookieSession from 'cookie-session';
@@ -390,7 +390,16 @@ app.get('/api/projects/:id/overview', requireAuth, wrap(async (req, res) => {
   const project = await assertProject(req, res);
   if (!project) return;
 
-  const cycleRow = await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE project_id = $1', [project.id]);
+  const cycleRow = await one(`SELECT b.cycle_date AS d,
+      CASE WHEN NOT b.legacy THEN b.settings->'engines' END AS engines,
+      CASE WHEN NOT b.legacy AND jsonb_typeof(b.collection_plan)='array' THEN
+        (SELECT COALESCE(jsonb_object_agg(counts.engine,counts.n),'{}'::jsonb)
+         FROM (SELECT item->>'engine' AS engine,COUNT(*)::int AS n
+               FROM jsonb_array_elements(b.collection_plan) item
+               WHERE item->>'engine' IS NOT NULL GROUP BY 1) counts)
+      END AS planned
+    FROM published_measurements b WHERE b.project_id=$1
+    ORDER BY b.cycle_date DESC LIMIT 1`, [project.id]);
   const cycle = cycleRow?.d;
   const measurementState=await projectMeasurementState(pool,project);
   if (!cycle) return res.json({ project, measurementState, cycle: null, engines: [], visibility: null, competitors: [] });
@@ -415,12 +424,14 @@ app.get('/api/projects/:id/overview', requireAuth, wrap(async (req, res) => {
 
   const engineChecks = await many(
     `SELECT r.engine, COUNT(*)::int AS attempted,
-       COUNT(*) FILTER (WHERE NOT r.ok)::int AS failed,
+       COUNT(*) FILTER (WHERE NOT r.ok AND (r.citation_evidence->>'queuePending') IS DISTINCT FROM 'true')::int AS failed,
+       COUNT(*) FILTER (WHERE NOT r.ok AND r.citation_evidence->>'queuePending'='true')::int AS "queuePending",
+       COUNT(*) FILTER (WHERE r.ok AND r.engine='ai_overview' AND (r.no_overview OR r.error=$3))::int AS "noOverview",
        COUNT(*) FILTER (WHERE r.ok AND NOT EXISTS (
          SELECT 1 FROM mentions m JOIN entities e ON e.id=m.entity_id
          WHERE m.run_id=r.id AND e.kind='owned'))::int AS unmeasured
      FROM reporting_runs r WHERE r.project_id=$1 AND r.cycle_date=$2 GROUP BY r.engine`,
-    [project.id,cycle]
+    [project.id,cycle,NO_OVERVIEW]
   );
 
   const competitors = await many(
@@ -453,6 +464,8 @@ app.get('/api/projects/:id/overview', requireAuth, wrap(async (req, res) => {
     avgOrdinal: own.avg_ordinal,
     runs: own.runs,
     engineChecks,
+    scanEngines: cycleRow.engines,
+    plannedByEngine: cycleRow.planned,
     engines: engines.map((e) => ({ engine: e.engine, rate: e.runs ? e.hits / e.runs : 0, runs: e.runs })),
     competitors: competitors.map((c) => ({ name: c.name, kind: c.kind, rate: c.runs ? c.hits / c.runs : 0 })),
     history: (await comparableSettings(project.id) ? history : []).map((h) => ({ date: h.cycle_date, rate: Number(h.rate) })),

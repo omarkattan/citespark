@@ -1273,16 +1273,16 @@ await test('retries transient failures but not permanent ones', async () => {
     return calls;
   };
 
-  const transient = await run(() => ({ ok: true, json: async () => ({ tasks: [{ status_code: 50000, status_message: 'Internal SE Server Error.' }] }) }));
+  const transient = await run(() => new Response(JSON.stringify({ tasks: [{ status_code: 50000, status_message: 'Internal Error.' }] })));
   assert.equal(transient, 3, 'transient failures get 1 attempt plus 2 retries');
 
-  const permanent = await run(() => ({ ok: true, json: async () => ({ tasks: [{ status_code: 40501, status_message: "Invalid Field: 'model_name'." }] }) }));
+  const permanent = await run(() => new Response(JSON.stringify({ tasks: [{ status_code: 40501, status_message: "Invalid Field: 'model_name'." }] })));
   assert.equal(permanent, 1, 'a rejected field will fail identically every time, so do not retry');
 
-  const unauthorised = await run(() => ({ ok: false, status: 401 }));
+  const unauthorised = await run(() => new Response(null,{status:401}));
   assert.equal(unauthorised, 1, 'bad credentials must not be retried');
 
-  const serverError = await run(() => ({ ok: false, status: 503 }));
+  const serverError = await run(() => new Response(null,{status:503}));
   assert.equal(serverError, 3, 'upstream 5xx is worth retrying');
 
   global.fetch = realFetch;
@@ -3046,10 +3046,9 @@ await test('AI Overview parses, and an absent overview is not an error', async (
   process.env.DATAFORSEO_PASSWORD = 'y';
   const { askEngine: live } = await import('../src/lib/dataforseo.js?serp=1');
   const realFetch = global.fetch;
-  const respond = (items) => ({
-    ok: true,
-    json: async () => ({ cost: 0.002, tasks: [{ status_code: 20000, cost: 0.002, result: [{ items }] }] })
-  });
+  const respond = items => new Response(JSON.stringify({
+    cost: 0.002, tasks: [{ status_code:20000, cost:0.002, result:[{items}] }]
+  }));
 
   global.fetch = async () => respond([
     { type: 'organic', title: 'x' },

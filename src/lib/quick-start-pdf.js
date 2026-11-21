@@ -39,10 +39,19 @@ export async function quickStartPdf(project,evidence,actions=[]){
  para(`Brand named: ${rate(t.named,t.measured)} (${t.named} of ${t.measured} measured answers)`,13);
  para(`Website cited: ${rate(t.cited,t.measured)} (${t.cited} of ${t.measured} measured answers)`,13);
  para(`${evidence.questions.length} questions in this sample. Naming and citations overlap. This is a snapshot of collected answers, not overall market visibility.`);
- para(`Coverage: ${t.failed} failed checks, ${t.unmeasured} unmeasured answers, ${t.missingChecks??'unknown'} missing checks. ${t.possiblyTruncated} measured answers may be truncated.`);
+ para(`Coverage: ${t.failed} failed checks, ${t.queuePending ? t.queuePending+' awaiting a Google queue result, ' : ''}${t.unmeasured} unmeasured answers, ${t.missingChecks??'unknown'} missing checks. ${t.possiblyTruncated} measured answers may be truncated.`);
  for(const warning of evidence.localeWarnings||[])para(warning,10,'#885010');
  heading('Results by AI engine');
- for(const e of evidence.engineCoverage||[])para(`${e.engine}: named in ${e.named}/${e.measured}; website cited in ${e.cited}/${e.measured} measured answers.`);
+ for(const e of evidence.engineCoverage||[]){
+  const results=e.measured ? `named in ${e.named}/${e.measured}, website cited in ${e.cited}/${e.measured} measured answers` : 'no measured answers';
+  const counts=[results];
+  if(e.queuePending)counts.push(`${e.queuePending} awaiting a Google queue result`);
+  if(e.failed)counts.push(`${e.failed} failed`);
+  if(e.missingChecks)counts.push(`${e.missingChecks} planned without a saved result`);
+  if(e.noOverview)counts.push(`${e.noOverview} with no Google AI Overview`);
+  if(e.unmeasured>(e.noOverview||0))counts.push(`${e.unmeasured-(e.noOverview||0)} other unmeasured`);
+  para(`${e.engine}: ${counts.join(', ')}.`);
+ }
  heading(project.actionPreview?'Your opportunity preview':'Three things to look at next');
  if(project.actionPreview)para('Upgrade for the detailed action plan and ongoing monitoring. Suggested opportunities need review, and do not guarantee AI recommendations.');
  if(!actions.length)para('No suggested actions are available yet. Return to your saved report to check for updates.');

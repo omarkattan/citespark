@@ -16,6 +16,9 @@ export function summariseEvidence(rows, { maxTokens = 2000, coverage = null } = 
     const q = questions.get(row.prompt_id);
     q.originDetails = row.origin_details || q.originDetails || {};
     q.cluster = row.cluster || q.cluster || null;
+    if (!row.ok && row.citation_evidence?.queuePending) {
+      totals.queuePending=(totals.queuePending||0)+1; q.unmeasured++; continue;
+    }
     if (!row.ok) { totals.failed++; q.failed++; continue; }
     if (!hasAnswerText(row.response_text)) {
       totals.unmeasured++; q.unmeasured++;
@@ -42,9 +45,9 @@ export function summariseEvidence(rows, { maxTokens = 2000, coverage = null } = 
     .sort((a,b) => b.measured-a.measured || a.id-b.id);
   const citationAsset = supported.filter(q => q.cited > 0).sort((a,b) => b.cited/b.measured-a.cited/a.measured || b.measured-a.measured || a.id-b.id)[0] || null;
   const priorities = [];
-  if (totals.possiblyTruncated || totals.failed || totals.missingChecks || totals.unmeasured > totals.noOverview) priorities.push({
+  if (totals.possiblyTruncated || totals.failed || totals.queuePending || totals.missingChecks || totals.unmeasured > totals.noOverview) priorities.push({
     do: 'Resolve incomplete evidence before interpreting gaps.',
-    because: `${totals.possiblyTruncated} measured answers may be cut short, ${totals.failed} calls failed, ${totals.missingChecks ?? 'an unknown number of'} planned checks have no stored result, and ${totals.unmeasured} successful answers have no brand measurement. Review those stored answers before treating absence as a content gap.`,
+    because: `${totals.possiblyTruncated} measured answers may be cut short, ${totals.failed} calls failed, ${totals.queuePending ? totals.queuePending+' Google checks await a queued result, ' : ''}${totals.missingChecks ?? 'an unknown number of'} planned checks have no stored result, and ${totals.unmeasured} successful answers have no brand measurement. Review those stored answers before treating absence as a content gap.`,
     owner: 'Measurement owner', done: 'Affected questions have a reviewed, complete measurement or a clearly recorded limitation.'
   });
   if (gaps[0]) priorities.push({ do: 'Review a buyer question with no recorded presence.',
@@ -97,7 +100,7 @@ export async function reportEvidence(projectId, period, many) {
     const facts = summariseEvidence(subset).totals;
     const plan=batches[0]?.collection_plan;
     const scoped=Array.isArray(plan)?coverageFor(subset,{...batches[0],collection_plan:plan.filter(p=>p.engine===engine)}):null;
-    return {engine, measured:facts.measured, named:facts.named, cited:facts.cited, failed:facts.failed, unmeasured:facts.unmeasured, ...(scoped?{expectedChecks:scoped.expected,missingChecks:scoped.missing}:{})};
+    return {engine, measured:facts.measured, named:facts.named, cited:facts.cited, failed:facts.failed, ...(facts.queuePending?{queuePending:facts.queuePending}:{}), unmeasured:facts.unmeasured, noOverview:facts.noOverview, ...(scoped?{expectedChecks:scoped.expected,missingChecks:scoped.missing}:{})};
   });
   const provisional=batches[0]?.status!=='completed'||result.totals.failed>0||result.totals.missingChecks!==0;
   return { ...result, provisional, citationCoverage, priorities: provisional?result.priorities.filter(p=>p.owner==='Measurement owner'):reportActions(result, rows), engineCoverage, localeWarnings: historicalGoogleWarnings(batches[0], result.questions), measurement: batches[0] || null, cycle: rows[0]?.cycle_date || null };

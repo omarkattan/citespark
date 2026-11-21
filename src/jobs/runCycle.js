@@ -218,7 +218,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
 
   // Missing model history uses a planning allowance, not a price guarantee.
   const FALLBACK = 0.03;
-  const estimate = recovery ? recovery.jobs.filter(j=>!j.savedAnswer).reduce((sum, j) => sum + (perCall.get(j.engine) || FALLBACK), 0) : prompts.length * budget.runs *
+  const estimate = recovery ? recovery.jobs.filter(j=>!j.savedAnswer&&!j.googleReceipt).reduce((sum, j) => sum + (perCall.get(j.engine) || FALLBACK), 0) : prompts.length * budget.runs *
     budget.engines.reduce((sum, e) => sum + (perCall.get(e) || FALLBACK), 0);
 
   const capabilities = saved && !MOCK ? await validateRecoveryModels(settings) : [];
@@ -353,7 +353,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
 
   await pooled(jobs, async (job) => {
     const {prompt,engine,runIndex}=job;
-    if (abandoned.has(engine)) {
+    if (abandoned.has(engine) && !job.googleReceipt && !job.savedAnswer) {
       abandoned.set(engine, abandoned.get(engine) + 1);
       await checkState(pool,batch.id,job,'cancelled','Engine circuit breaker stopped this check before dispatch.');done++;report({phase:'asking'});
       return;
@@ -372,6 +372,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
       locationName: project.location_name,
       model: chosenModel[engine] || null,
       maxTokens: ceiling,
+      googleReceipt:job.googleReceipt,
       onAttempt:attemptRecorder(pool,batch.id,job)
     });
 
@@ -388,7 +389,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
 
       // A run of refusals with nothing in between is a provider saying no,
       // not a series of unlucky questions.
-      const run = (consecutive.get(engine) || 0) + 1;
+      const run = (consecutive.get(engine) || 0) + (answer.queuePending ? 0 : 1);
       consecutive.set(engine, run);
       if (run >= GIVE_UP_AFTER) {
         abandoned.set(engine, 0);
@@ -422,7 +423,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
     await query('UPDATE runs SET citation_evidence=$2::jsonb,created_at=COALESCE($3::timestamptz,created_at) WHERE id=$1',[run.id,JSON.stringify(answer.evidence||null),answer.collectedAt||null]);
     await checkState(pool,batch.id,job,'incomplete',null,run.id);
     if (!answer.ok) {
-      await checkState(pool,batch.id,job,'failed',answer.error,run.id);
+      await checkState(pool,batch.id,job,answer.queuePending?'incomplete':'failed',answer.error,run.id);
       // A failed call still finished. Returning without counting it left the
       // progress bar stuck and the feed showing a question that never resolved.
       done++;
@@ -774,7 +775,7 @@ async function collectRetry(promptId, { engine = null, matched = null } = {}, re
     });
     spend += answer.costUsd || 0;
     // Account for the provider call even if later persistence or analysis fails.
-    await recordUsage(project.org_id, 1, answer.costUsd || 0);
+    await recordUsage(project.org_id, answer.ok || answer.costUsd > 0 ? 1 : 0, answer.costUsd || 0);
 
     if (!answer.ok) {
       if(matched)await query(`INSERT INTO runs(prompt_id,project_id,engine,model,cycle_date,run_index,ok,cost_usd,error,measurement_id,max_output_tokens)
