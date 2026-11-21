@@ -233,7 +233,7 @@ Write ${count} questions.`;
     if (suggestions.length) {
       diagnostics.usable=suggestions.length; diagnostics.discovery=suggestions.filter(p=>isProviderDiscovery(p.text)).length;
       const ordered=discoveryFirst(suggestions,{category,market,brand,domain,language,count:suggestions.length});
-      if(quickStart && (ordered.length<count || ordered.filter(p=>isProviderDiscovery(p.text)).length<Math.ceil(count*.8)))throw generationError(failure || 'insufficient_questions');
+      if(quickStart && ordered.length<count)throw generationError(failure || 'insufficient_questions');
       if(quickStart) return ordered.filter(p=>isProviderDiscovery(p.text)).concat(ordered.filter(p=>!isProviderDiscovery(p.text))).slice(0,count);
       // Reserve the W/cost needs before filling remaining slots with discovery.
       const selected=[];
