@@ -163,9 +163,11 @@ test('Quick Start generation prioritises provider selection without mandatory ed
  assert.equal(result.length,20);assert.ok(result.every(p=>isProviderDiscovery(p.text)));
  assert.match(system,/at least 80%/);
 });
-test('Quick Start does not accept an educational question set after failed repair',async()=>{
+test('Quick Start keeps 20 usable questions editable after the discovery mix repair',async()=>{
  const qs=Array.from({length:20},(_,i)=>({text:`How can I learn accounting topic ${i+1}?`,cluster:'education',intent:'problem'}));
- await assert.rejects(generatePrompts({brand:'Example',domain:'example.com',category:'accountants',market:'Dubai',count:20,quickStart:true},{completeText:async()=>JSON.stringify(qs)}),{code:"QUESTION_PREPARATION_FAILED",reason:"insufficient_questions"});
+ const result=await generatePrompts({brand:'Example',domain:'example.com',category:'accountants',market:'Dubai',count:20,quickStart:true},{completeText:async()=>JSON.stringify(qs)});
+ assert.equal(validateQuickQuestions(result.map(q=>q.text)).length,20);
+ assert.ok(result.filter(q=>isProviderDiscovery(q.text)).length<16);
 });
 
 test('software and Arabic product shortlist questions count as provider discovery',()=>{

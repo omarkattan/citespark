@@ -1,7 +1,7 @@
 import {previewActions} from './action-preview.js';
 import {notifyQuestionPreparationFailure} from './notify.js';
 import {mountQuickControls} from './quick-start-controls.js';
-import { generatePrompts } from './prompts.js';
+import { generatePrompts, isProviderDiscovery } from './prompts.js';
 
 export function quickStartMutationAllowed(method,path) {
   if (/^\/(?:login|logout|register|password\/(?:forgot|reset)|verify\/resend|product-tour|feedback|billing\/(?:checkout|portal)|demo\/[^/]+)$/.test(path)) return true;
@@ -43,7 +43,7 @@ export function mountQuickStart(app,{requireAuth,assertProject,getEntitlements,q
     one('SELECT * FROM quick_start_reports WHERE org_id=$1',[req.session.orgId])
   ]);
   const measurement=await one("SELECT id,status,started_at,completed_at FROM measurement_batches WHERE project_id=$1 ORDER BY id DESC LIMIT 1",[project.id]);
-  res.json({project,questions,billing,claim,measurement});
+  res.json({project,questions,billing,claim,measurement,discoveryCount:questions.filter(q=>isProviderDiscovery(q.text)).length});
  }));
  app.post('/api/projects/:id/quick-start/profile',requireAuth,wrap(async(req,res)=>{
   const project=await assertProject(req,res);if(!project)return;
@@ -113,6 +113,7 @@ export function mountQuickStart(app,{requireAuth,assertProject,getEntitlements,q
   const seen=new Set(existing.map(p=>key(p.text)));
   const fresh=suggestions.filter(p=>{const k=key(p.text);if(seen.has(k))return false;seen.add(k);return true;});
   // Return suggestions for review. Saving them is an explicit separate action.
-  res.json({questions:[...existing.map(p=>p.text),...fresh.map(p=>p.text)].slice(0,20)});
+  const questions=[...existing.map(p=>p.text),...fresh.map(p=>p.text)].slice(0,20);
+  res.json({questions,discoveryCount:questions.filter(isProviderDiscovery).length});
  }));
 }
