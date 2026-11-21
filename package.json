@@ -8,10 +8,10 @@
     "node": ">=26.12.1 <27"
   },
   "scripts": {
-    "start": "node src/server.js",
+    "start": "PGOPTIONS=\"-c default_transaction_read_only=on\" node scripts/transient-preview-check.js",
     "dev": "node --watch src/server.js",
     "test": "node scripts/test.js",
-    "migrate": "node scripts/migrate.js",
+    "migrate": "npm install --no-save --package-lock=false --no-audit --no-fund @sparticuz/chromium@153.0.0 puppeteer-core@25.18.1 pdfjs-dist@5.4.624",
     "seed": "node scripts/seed.js",
     "cycle": "node src/jobs/runCycle.js",
     "models": "node scripts/models.js",
