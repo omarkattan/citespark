@@ -81,7 +81,8 @@ test('traffic UI distinguishes importing, error, empty successful data and prope
   const fn=source.slice(source.indexOf('async function viewTraffic()'),source.indexOf('async function loadGa4Properties()'));
   let conn, rows={html:'<p>0 visits</p>'},polls=0;
   const context=vm.createContext({state:{projectId:1,view:'traffic'},api:async url=>url.endsWith('/ga4')?conn:rows,esc:s=>String(s).replaceAll('<','&lt;'),shortDate:s=>s,setTimeout:()=>{polls++;return 1;},render(){}});
-  vm.runInContext('let ga4RefreshPoll;'+fn,context);
+  const guide=source.slice(source.indexOf('function sourceSetupGuide('),source.indexOf('\n}',source.indexOf('function sourceSetupGuide('))+2);
+  vm.runInContext('let ga4RefreshPoll;'+guide+fn,context);
   conn={connected:true,propertyId:'123',refresh:{state:'running'},syncedAt:null};
   let html=await context.viewTraffic();assert.match(html,/Importing your Analytics data/);assert.match(html,/id="ga4Sync" disabled/);assert.doesNotMatch(html,/0 visits/);assert.equal(polls,1);
   conn.refresh={state:'error',error:'<bad>'};html=await context.viewTraffic();assert.match(html,/>Retry</);assert.match(html,/&lt;bad>/);assert.doesNotMatch(html,/0 visits/);

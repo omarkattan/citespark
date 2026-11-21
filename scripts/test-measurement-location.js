@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
+import {selectedEntities} from '../src/lib/quick-start-selection.js';
 import { measurementLocation, assertMeasurementLocation } from '../src/lib/measurement-location.js';
 const { JSDOM } = await import(process.env.JSDOM_MODULE || 'jsdom');
 const server = readFileSync(new URL('../src/server.js',import.meta.url),'utf8');
@@ -46,7 +47,8 @@ test('creation rejects before INSERT and question-generation spending',async()=>
 });
 test('setup progression and engine enablement reject invalid location before mutation',async()=>{
  let writes=0;const deps={assertProject:async()=>project,query:async()=>{writes++;},ENGINE_IDS:project.engines,getEntitlements:async()=>({plan:{engines:6}})};
- for(const step of ['sources','questions','measurement','complete']) {const r=response();await route('post','/api/projects/:id/setup-progress',deps)({body:{step}},r);assert.equal(r.statusCode,422);}
+ for(const step of ['sources','questions','complete']) {const r=response();await route('post','/api/projects/:id/setup-progress',deps)({body:{step}},r);assert.equal(r.statusCode,200);}
+ writes=0;const blocked=response();await route('post','/api/projects/:id/setup-progress',deps)({body:{step:'measurement'}},blocked);assert.equal(blocked.statusCode,422);
  const r=response();await route('patch','/api/projects/:id',deps)({body:{engines:['ai_mode']},session:{orgId:1}},r);assert.equal(r.statusCode,422);assert.equal(writes,0);
 });
 test('changing country clears old city; invalid new market cannot be saved',async()=>{
@@ -62,7 +64,7 @@ test('worker and retry reject before a measurement is created or any provider ru
  const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
  for(const name of ['collectProject','collectRetry']){
   const start=jobs.indexOf(`async function ${name}(`);const end=jobs.indexOf('\n}',start)+2;const source=jobs.slice(start,end);let calls=0;
-  const deps={one:async sql=>sql.includes('JOIN projects')?{id:1,project_id:37}:project,many:async()=>[],enginesFor:p=>p.engines,assertMeasurementLocation,startMeasurement:async()=>{calls++;},askEngine:async()=>{calls++;}};
+  const deps={selectedEntities,one:async sql=>sql.includes('JOIN projects')?{id:1,project_id:37}:project,many:async()=>[],enginesFor:p=>p.engines,assertMeasurementLocation,startMeasurement:async()=>{calls++;},askEngine:async()=>{calls++;}};
   const execute=new AsyncFunction(...Object.keys(deps),`${source}; return ${name}(37,{},()=>{});`);
   await assert.rejects(execute(...Object.values(deps)),/not configured/);assert.equal(calls,0);
  }
@@ -74,8 +76,8 @@ function ui(api){
 }
 test('required location is visible and Continue stays disabled until supported',async()=>{
  let finish;const u=ui(()=>new Promise(r=>finish=r));const pending=u.h.fillCities('HK',u.select,u.hint);
- assert.equal(u.save.disabled,true);assert.equal(u.document.getElementById('siteOptional').contains(u.select),false);
- finish({country:'HK',countryLocation:null,cities:[]});await pending;assert.equal(u.save.disabled,true);assert.match(u.hint.textContent,/not configured/);assert.equal(u.select.querySelector('option').disabled,true);
+ assert.equal(u.save.disabled,true);
+ finish({country:'HK',countryLocation:null,cities:[]});await pending;assert.equal(u.document.getElementById('siteOptional').open,true);assert.equal(u.save.disabled,true);assert.match(u.hint.textContent,/not configured/);assert.equal(u.select.querySelector('option').disabled,true);
 });
 test('verified country or explicit valid city enables Continue, while stale choice is preserved and blocked',async()=>{
  const u=ui(async()=>({countryLocation:'United Kingdom',cities:[{name:'London',label:'London',type:'City'}]}));
@@ -95,6 +97,6 @@ test('failed lookup is not cached and retry can recover; late response cannot ov
 });
 test('run review offers a location fix and no run button on blocked scope',async()=>{
  const dom=new JSDOM(index);const document=dom.window.document;dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
- const h=vm.createContext({document,state:{projectId:37},esc,$:id=>document.getElementById(id),api:async()=>measurementLocation(project)});
+ const h=vm.createContext({document,refreshVerification:async()=>true,state:{projectId:37},esc,$:id=>document.getElementById(id),api:async()=>measurementLocation(project)});
  vm.runInContext(app.slice(app.indexOf('async function reviewProjectRun()'),app.indexOf('async function startCycle(')),h);await h.reviewProjectRun();assert.equal(document.querySelectorAll('[data-run-confirm]').length,0);assert.ok(document.querySelector('[data-fix-run-location]'));assert.match(document.querySelector('#projectRunReview [role="alert"]').textContent,/not configured/);
 });

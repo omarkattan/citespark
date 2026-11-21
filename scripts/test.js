@@ -773,7 +773,7 @@ await test('parses the verified ChatGPT payload shape', async () => {
     }] }]
   };
   const realFetch = global.fetch;
-  global.fetch = async () => ({ ok: true, json: async () => fixture });
+  global.fetch = async () => Response.json(fixture);
   process.env.MOCK_MODE = 'false';
   process.env.DATAFORSEO_LOGIN = 'x';
   process.env.DATAFORSEO_PASSWORD = 'y';
@@ -1194,7 +1194,7 @@ await test('model_name is always sent, because the API requires it', async () =>
     const se = url.split('/ai_optimization/')[1].split('/')[0];
     if (url.endsWith('/models')) return { ok: true, json: async () => ({ tasks: [{ result: MODELS[se] }] }) };
     sent[se] = JSON.parse(opts.body)[0];
-    return { ok: true, json: async () => ({ tasks: [{ status_code: 20000, result: [{ items: [{ sections: [{ text: 'ok' }] }] }] }] }) };
+    return Response.json({ tasks: [{ status_code: 20000, result: [{ items: [{ type:'message',sections: [{ text: 'ok' }] }] }] }] });
   };
 
   await live({ engine: 'chatgpt', prompt: 'test', market: 'AE' });
@@ -1218,7 +1218,7 @@ await test('a broken models endpoint falls back rather than failing', async () =
   global.fetch = async (url, opts) => {
     if (url.endsWith('/models')) return { ok: false, status: 500 };
     sent = JSON.parse(opts.body)[0];
-    return { ok: true, json: async () => ({ tasks: [{ status_code: 20000, result: [{ items: [{ sections: [{ text: 'ok' }] }] }] }] }) };
+    return Response.json({ tasks: [{ status_code: 20000, result: [{ items: [{ type:'message',sections: [{ text: 'ok' }] }] }] }] });
   };
   const r = await live({ engine: 'chatgpt', prompt: 'test' });
   global.fetch = realFetch;
@@ -1236,7 +1236,7 @@ await test('sends only the fields each endpoint accepts', async () => {
   const realFetch = global.fetch;
   global.fetch = async (url, opts) => {
     sent[url.split('/').slice(-3)[0]] = JSON.parse(opts.body)[0];
-    return { ok: true, json: async () => ({ tasks: [{ status_code: 20000, result: [{ items: [{ sections: [{ text: 'ok' }] }] }] }] }) };
+    return Response.json({ tasks: [{ status_code: 20000, result: [{ items: [{ type:'message',sections: [{ text: 'ok' }] }] }] }] });
   };
   for (const e of ['chatgpt', 'gemini', 'claude', 'perplexity']) {
     await live({ engine: e, prompt: 'test', market: 'AE' });
@@ -1940,7 +1940,11 @@ await test('creating something says so, and clears itself', async () => {
   assert.ok(/prefers-reduced-motion/.test(css.slice(css.indexOf('#toasts'))), 'and respect a motion preference');
 
   // Saying "added" when a plan limit stopped some of them would be a lie.
-  assert.ok(/of \$\{chosen\.length\} added/.test(app), 'a partial add must say how many landed');
+  const start = app.indexOf('if (Number.isInteger(r?.saved))');
+  const feedback = new Function('r', 'chosen', 'toast', app.slice(start, app.indexOf('    return;', start)));
+  const messages = [];
+  for (const r of [{saved:0}, {saved:1}, {saved:2}, {}]) feedback(r,[{},{}],(message,kind)=>messages.push([message,kind]));
+  assert.deepEqual(messages,[['0 of 2 buyer types added','warn'],['1 of 2 buyer types added','warn'],['2 of 2 buyer types added','ok'],['Cited could not confirm how many buyer types were saved.','warn']]);
 });
 
 await test('a long question truncates but can still be read', async () => {
@@ -2202,7 +2206,7 @@ await test('the report remains available in populated and empty task views', asy
   // It was a ghost link at the end of a right-aligned row, which reads as a
   // minor control next to the real ones.
   assert.ok(/class="reportbar"/.test(app), 'the report needs its own bar');
-  assert.ok(/<a class="btn"[^>]*href="\/api\/projects\/\$\{state\.projectId\}\/report"/.test(app), 'and a primary button, not a ghost link');
+  assert.ok(/<a class="btn"[^>]*href="\/api\/projects\/\$\{state\.projectId\}\/report\/prepare\?/.test(app), 'and a primary button, not a ghost link');
   assert.ok(/\.reportbar \{[\s\S]{0,400}border: 1px solid var\(--you\)/.test(css), 'visibly separated from the list below it');
 
   // It sat below an early return, so filtering to a view with no tasks
@@ -2224,7 +2228,7 @@ await test('the traffic panel says more than a session count', async () => {
   assert.match(html,/Landing pages to review/);
   assert.match(html,/key events/);
   assert.match(html,/No conversion rate is inferred/);
-  assert.match(app,/rows.html/);
+  assert.ok(app.includes('rows?.html'), 'the connected traffic view renders the server report');
 });
 
 await test('Analytics and Search Console can be different Google accounts', async () => {
@@ -2627,7 +2631,7 @@ await test('an email failure never breaks the thing that triggered it', async ()
   global.fetch = realFetch;
 });
 
-await test('a zero-visibility trial is flagged as the lead it is', async () => {
+await test('a public demo email distinguishes zero naming in the sample from an unavailable result', async () => {
   process.env.RESEND_API_KEY = 'test';
   process.env.NOTIFY_EMAIL = 'you@example.com';
   const n = await import('../src/lib/notify.js?trial=1');
@@ -2638,15 +2642,15 @@ await test('a zero-visibility trial is flagged as the lead it is', async () => {
     return { ok: true, text: async () => '' };
   };
 
-  n.notifyTrial({ domain: 'bigbrand.ae', brandName: 'Big Brand', rate: 0, runs: 3, source: 'uae' });
-  n.notifyTrial({ domain: 'acme.ae', rate: 0.33, runs: 3, source: 'landing' });
+  n.notifyTrial({ domain: 'bigbrand.ae', brandName: 'Big Brand', mentions: 0, runs: 3, source: 'uae' });
+  n.notifyTrial({ domain: 'acme.ae', mentions: 1, runs: 3, source: 'landing' });
   await new Promise((r) => setTimeout(r, 200));
   global.fetch = realFetch;
 
-  assert.ok(/scored 0% AI visibility/.test(sent[0].subject), 'the zero case says so in the subject line');
-  assert.ok(/easiest conversation/i.test(sent[0].html), 'and explains why it matters');
-  assert.ok(/33%/.test(sent[1].subject));
-  assert.ok(!/easiest conversation/i.test(sent[1].html), 'a partial score is not the same lead');
+  assert.match(sent[0].subject,/named in 0\/3 answers/);
+  assert.match(sent[0].html,/One question on one engine/);
+  assert.match(sent[1].subject,/named in 1\/3 answers/);
+  assert.match(sent[1].html,/33%/);
 
   // The values must be escaped, since a domain is visitor-supplied.
   const evil = [];
@@ -2654,6 +2658,7 @@ await test('a zero-visibility trial is flagged as the lead it is', async () => {
   n.notifyTrial({ domain: '<script>alert(1)</script>.ae', rate: 0.5, runs: 2 });
   await new Promise((r) => setTimeout(r, 120));
   global.fetch = realFetch;
+  assert.match(evil[0].subject,/result unavailable/);
   assert.ok(!/<script>/.test(evil[0].html), 'visitor-supplied values must be escaped');
 });
 
@@ -3143,7 +3148,7 @@ await test('SERP engines have a location for the markets we default to', () => {
 
 console.log('\nnothing runs unattended');
 
-await test('no scheduler is wired into the app itself', async () => {
+await test('connected Analytics refresh is the only internal timer and cannot schedule paid measurements', async () => {
   const { readFileSync, readdirSync } = await import('node:fs');
   const dirs = ['../src', '../src/lib', '../src/jobs'];
   const offenders = [];
@@ -3158,7 +3163,11 @@ await test('no scheduler is wired into the app itself', async () => {
       if (/setInterval\s*\(|node-cron|cron\.schedule\s*\(/.test(body)) offenders.push(d + '/' + f);
     }
   }
-  assert.deepEqual(offenders, [], `these files schedule work on their own: ${offenders.join(', ')}`);
+  assert.deepEqual(offenders, ['../src/lib/ga4-refresh.js']);
+  const refresh = readFileSync(new URL('../src/lib/ga4-refresh.js', import.meta.url), 'utf8');
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  assert.match(server, /createGa4Refresh\(\{ pool, sync: syncGa4/);
+  assert.doesNotMatch(refresh, /runCycleForProject|askEngine|dataforseo|startMeasurement|^import\s/m);
 });
 
 await test('a new site does not schedule itself', async () => {
@@ -3289,7 +3298,7 @@ await test('two views of one question do not fill each other', async () => {
   // The same question appears on the Questions tab and on an action card. A
   // shared element id meant clicking one filled the other, invisibly.
   assert.ok(!/id="answers-\$\{/.test(app), 'no shared id between the two');
-  assert.ok(/see\.closest\('\.rec, \.prompt'\)/.test(app), 'the panel is found relative to its button');
+  assert.ok(/see\.closest\('\.rec, \.prompt, \.action-plan'\)\?\.querySelector\('\[data-answers\]'\)/.test(app), 'the panel is found relative to its button');
 });
 
 await test('an action says what it is, in words, and does not look pressable', async () => {
@@ -3448,7 +3457,7 @@ await test('one answer is shown once, whatever else is tracked', async () => {
   );
   // A verdict that disagreed with the row the reader clicked would be worse
   // than the duplicate, so both must resolve the brand the same way.
-  const list = server.slice(server.indexOf('r.id AS run_id, r.engine, r.run_index, m.mentioned'), server.indexOf('const citations = await many'));
+  const list = server.slice(server.indexOf('r.id AS run_id, r.engine, r.run_index, r.ok'), server.indexOf('const citations = await many'));
   assert.ok(/kind = 'owned'\s*\n?\s*ORDER BY id LIMIT 1/.test(list) || /kind = 'owned' LIMIT 1/.test(list), 'the questions list picks the owned entity the same way');
 });
 
@@ -3511,10 +3520,12 @@ await test('a city that is not in the country is refused', async () => {
 
   // A project labelled UAE but asking Google from Manchester would produce
   // numbers about the wrong place, and nothing on screen would say so.
-  assert.ok(/async function cityWithin/.test(server), 'the pair must be checked server-side');
-  assert.ok(/not in the market you chose/.test(server), 'and refused in words');
+  const { measurementLocation } = await import('../src/lib/measurement-location.js');
+  const mismatch = await measurementLocation({market:'AE',location_name:'Manchester',engines:['ai_mode']}, {lookup:async()=>[{name:'Dubai'}]});
+  assert.equal(mismatch.ok,false);
+  assert.match(mismatch.error,/not be verified in the selected market/);
   const patch = server.slice(server.indexOf("app.patch('/api/projects/:id'"), server.indexOf("app.delete('/api/projects/:id'"));
-  assert.ok(/const nextMarket = market\?\.toUpperCase\(\) \|\| project\.market/.test(patch),
+  assert.ok(/measurementLocation\(\{ \.\.\.project, market: nextMarket, location_name: nextCity/.test(patch),
     'resolved against the country being saved, not the one already stored');
 
   // And the form reloads the list so nobody has to meet that refusal.
@@ -3554,19 +3565,19 @@ await test('the city says which engines it actually covers', async () => {
 
   // Picking Manchester and assuming all four engines moved is exactly the
   // kind of unstated claim this product does not make.
-  assert.ok(/ChatGPT and the other assistants cannot be asked from a city/.test(html), 'the dialog must say so');
-  assert.ok(/stay at country level whatever is chosen here/.test(app), 'and so must settings');
+  assert.match(html,/The city applies to Google AI Mode and AI Overviews/);
+  assert.match(app,/Applies to Google AI Mode and AI Overviews/);
 
   // An empty dropdown reads as "this country has no cities", which is never
   // what happened.
-  assert.ok(/Loading cities/.test(app), 'loading is a state, not a blank');
-  assert.ok(/The whole country/.test(app) && /The whole country/.test(html), 'and national is an option, not an absence');
-  assert.ok(/city list could not be loaded/.test(app), 'an outage is explained rather than shown as no cities');
+  assert.ok(/Checking Google locations/.test(app), 'loading is a state, not a blank');
+  assert.ok(/data.countryLocation \? 'The whole country'/.test(app), 'and national is an option, not an absence');
+  assert.ok(/Location support could not be checked/.test(app), 'an outage is explained rather than shown as no cities');
 
   // The UAE alone returns about 280 places. Flat and alphabetical, Dubai
   // sits between two neighbourhoods nobody is searching for.
   assert.ok(/<optgroup label=/.test(app), 'the list is grouped by place size');
-  assert.ok(/Emirates and provinces/.test(app), 'in words that suit the region');
+  assert.ok(/<optgroup label="Cities">/.test(app) && /<optgroup label="Current saved location">/.test(app), 'new city choices and existing saved locations are grouped separately' );
 });
 
 await test('a silent engine is findable', async () => {
@@ -4011,7 +4022,7 @@ await test('the cost figure opens into causes with switches', async () => {
   // A historical figure must not move when a setting changes, but the
   // person who changed it looks there for confirmation. The card is labelled
   // as history and its sub-line carries the live next-cycle estimate.
-  assert.ok(/Last cycle cost/.test(app), 'the header figure is named as history');
+  assert.ok(/Last answer-check cost/.test(app), 'the header figure is named as history');
   assert.ok(/data-spend-sub/.test(app), 'and its sub-line answers the person who just acted');
   assert.ok(/next about \$\{money\(est\)\}/.test(app), 'with the estimate that does respond');
 
@@ -4654,7 +4665,7 @@ await test('a failed resolution is retried, not frozen', async () => {
   // Caching failures permanently meant one missing header froze a link as
   // unresolvable for good, and the wrapper sat in the data looking like a
   // real source with nothing ever trying again.
-  assert.ok(/cached\?\.target\) return/.test(fn), 'a success is trusted');
+  assert.ok(/publicDestination\(cached.target\) && !isWrapper\(cached.target\)\) return/.test(fn), 'a verified publisher is reused');
   assert.ok(/6 \* 3600_000/.test(fn), 'a failure is only trusted briefly');
   assert.ok(/reason/.test(fn), 'and the reason recorded so it can be diagnosed');
 });
