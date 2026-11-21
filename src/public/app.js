@@ -4400,7 +4400,11 @@ document.addEventListener('click', async (e) => {
     const r = await api(`/api/projects/${state.projectId}/personas`, { method: 'POST', body: { personas: chosen } });
     await loadPersonas();
     if (r?.note) setupErr(r.note);
-    toast(`${r?.saved || chosen.length} buyer type${(r?.saved || chosen.length) === 1 ? '' : 's'} added`);
+    if (Number.isInteger(r?.saved)) {
+      toast(`${r.saved} of ${chosen.length} buyer types added`, r.saved < chosen.length ? 'warn' : 'ok');
+    } else {
+      toast('Cited could not confirm how many buyer types were saved.', 'warn');
+    }
     return;
   }
 
@@ -4994,11 +4998,10 @@ async function viewSetup() {
         <div class="field"><label for="s_qualifier">Who the customer is</label><input id="s_qualifier" value="${esc(p.qualifier || '')}" /></div>
         <div class="field"><label for="s_market">Market</label><select id="s_market">${window.countryOptions(p.market)}</select></div>
         <div class="field">
-          <label for="s_city">City</label>
+          <label for="s_city">Google measurement location</label>
           <select id="s_city" data-selected="${esc(p.location_name || '')}"><option value="">The whole country</option></select>
           <span class="hint" id="s_cityHint" style="display:block;margin-top:5px">
-            Applies to Google AI Mode and AI Overviews only. ChatGPT and the other assistants are answered
-            through an API with no location, so they stay at country level whatever is chosen here.
+            The city applies to Google AI Mode and AI Overviews.
           </span>
         </div>
         <div class="field">
