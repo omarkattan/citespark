@@ -28,14 +28,16 @@ try {
   console.log('Preview QA reconciled',JSON.stringify({measurement:e.measurement.id,...counts}));
   stage='browser';browser=await puppeteer.launch({args:chromium.args,executablePath:await chromium.executablePath(),headless:true});
   const page=await browser.newPage();
-  await page.setRequestInterception(true);page.on('request',r=>r.abort());
-  await page.setContent(reportHtml(report),{waitUntil:'domcontentloaded'});
+  const reportUrl='https://preview.invalid/report';
+  const html=reportHtml(report);
+  await page.setRequestInterception(true);page.on('request',r=>r.url()===reportUrl?r.respond({status:200,contentType:'text/html',body:html}):r.abort());
+  await page.goto(reportUrl,{waitUntil:'domcontentloaded'});
   const ids=rs=>rs.map(r=>String(r.id)).sort();
   for(const [key,group] of Object.entries(groups)){
     await page.click('a[href="#answers-'+key+'"]');
     await page.waitForFunction((n)=>document.querySelector('#answer-evidence-count')?.textContent.startsWith(n+' matching'),{},group.length);
     const visible=await page.$$eval('#answer-evidence-list tbody tr:not([hidden]) td:first-child a',as=>as.map(a=>a.hash.replace('#run-','')).sort());
-    assert.deepEqual(visible,ids(group));
+    assert.deepEqual(visible,ids(group),'Stored IDs for '+key+' ('+visible.length+' rendered, '+group.length+' expected)');
   }
   stage='print';await page.emulateMediaType('print');
   assert.equal(await page.$eval('.printed-answer-refs',el=>getComputedStyle(el).display),'block');
