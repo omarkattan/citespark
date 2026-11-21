@@ -2055,7 +2055,7 @@ app.get('/api/prompts/:promptId/answers', requireAuth, wrap(async (req, res) => 
   );
   if (!prompt) return res.status(404).json({ error: 'Not found' });
 
-  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE prompt_id = $1', [prompt.id]))?.d;
+  const cycle = (await one('SELECT MAX(cycle_date) AS d FROM reporting_runs WHERE prompt_id = $1 AND project_id=$2', [prompt.id,prompt.project_id]))?.d;
   if (!cycle) return res.json({ prompt: prompt.text, runs: [] });
 
   /**
@@ -2083,7 +2083,7 @@ app.get('/api/prompts/:promptId/answers', requireAuth, wrap(async (req, res) => 
                           WHERE project_id = $3 AND kind = 'owned'
                           ORDER BY id LIMIT 1)
      LEFT JOIN entities e ON e.id = m.entity_id
-     WHERE r.prompt_id = $1 AND r.cycle_date = $2
+     WHERE r.prompt_id = $1 AND r.cycle_date = $2 AND r.project_id=$3
      ORDER BY r.engine, r.run_index`,
     [prompt.id, cycle, prompt.project_id]
   );
@@ -3975,6 +3975,10 @@ app.get('/api/version', (_req, res) => {
 app.use((err, _req, res, _next) => {
   console.error('request failed:', err);
   if (res.headersSent) return;
+  if (['ECONNREFUSED','ECONNRESET','57P01','57P02','57P03','53300'].includes(err.code) || /timeout exceeded when trying to connect/i.test(err.message || '')) {
+    res.set('Retry-After','3');
+    return res.status(503).json({error:'Cited temporarily lost its database connection. Please try again in a moment.'});
+  }
   res.status(500).json({ error: 'Something went wrong on our side. Try again in a moment.' });
 });
 

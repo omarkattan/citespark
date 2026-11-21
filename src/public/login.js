@@ -15,6 +15,7 @@
     $('submit').textContent = label();
     $('toggle').textContent = mode === 'login' ? 'Create an account instead' : 'Sign in instead';
     $('forgot').hidden = mode !== 'login';
+    $('registerFromReset').hidden = !forgot;
     $('passwordField').hidden = forgot;
     $('password').disabled = forgot;
     $('password').required = !forgot;
@@ -28,6 +29,10 @@
   $('toggle').addEventListener('click', e => {
     e.preventDefault();
     if (!busy) setMode(mode === 'login' ? 'register' : 'login');
+  });
+  $('registerFromReset').addEventListener('click', e => {
+    e.preventDefault();
+    if (!busy) setMode('register');
   });
   $('forgot').addEventListener('click', e => {
     e.preventDefault();
@@ -72,7 +77,7 @@
       if (mode === 'forgot') {
         await post('/api/password/forgot', { email });
         $('error').className = 'note';
-        $('error').textContent = 'If this email has an account, check your inbox and spam folder for a reset link. The link works for one hour.';
+        $('error').textContent = 'If this email has an account, check your inbox and spam folder for a reset link. The link works for one hour. If nothing arrives, check the address you signed up with. New here? Choose Create an account below.';
         $('submit').disabled = false;
         $('submit').textContent = label();
         busy = false;

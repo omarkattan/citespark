@@ -12,8 +12,8 @@ export async function repairEmptyAnswers(db, projectId, {apply=false,maxTokens=2
     ORDER BY m.run_id,m.entity_id FOR UPDATE OF m`,[projectId]);
   const runs=new Set(rows.map(r=>r.run_id));
   const {rows: retained}=await db.query(`SELECT id,engine,response_text, max_output_tokens,quality_review FROM runs
-    WHERE project_id=$1 AND ok AND length(trim(response_text))>0 AND max_output_tokens IS NULL AND quality_review IS NULL AND engine NOT IN ('ai_mode','ai_overview') FOR UPDATE`,[projectId]);
-  if(apply) for(const run of retained) await db.query('UPDATE runs SET quality_review=$2::jsonb WHERE id=$1',[run.id,JSON.stringify({possibleTruncation:possibleTruncation(run,maxTokens),limitUsed:maxTokens,limitSource:'runtime-at-review, historical collection limit unknown',method:'text-heuristic-v2',reviewedAt:new Date().toISOString()})]);
+    WHERE project_id=$1 AND ok AND length(trim(response_text))>0 AND max_output_tokens IS NULL AND quality_review->'possibleTruncation' IS NULL AND engine NOT IN ('ai_mode','ai_overview') FOR UPDATE`,[projectId]);
+  if(apply) for(const run of retained) await db.query("UPDATE runs SET quality_review=COALESCE(quality_review,'{}'::jsonb) || $2::jsonb WHERE id=$1",[run.id,JSON.stringify({possibleTruncation:possibleTruncation(run,maxTokens),limitUsed:maxTokens,limitSource:'runtime-at-review, historical collection limit unknown',method:'text-heuristic-v2',reviewedAt:new Date().toISOString()})]);
   if(apply && (rows.length || retained.length)){
    await db.query(`CREATE TABLE IF NOT EXISTS measurement_repairs (
     id SERIAL PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE, method TEXT NOT NULL,

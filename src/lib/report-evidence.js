@@ -25,7 +25,7 @@ export function summariseEvidence(rows, { maxTokens = 2000, coverage = null } = 
     if (row.mentioned == null) { totals.unmeasured++; q.unmeasured++; continue; }
     const truncated = possibleTruncation(row, maxTokens);
     answers.push({
-      id:row.id, questionId:q.id, engine:row.engine, collected:row.collected || row.cycle_date,
+      id:row.id, offTopic:row.quality_review?.relevance?.offTopic===true, questionId:q.id, engine:row.engine, collected:row.collected || row.cycle_date,
       possiblyTruncated:truncated, named:row.mentioned, cited:row.cited === true, peerIds:row.peer_ids || [],
       urls:[...new Set((row.source_links || []).filter(s=>s.owned).map(s=>s.url))]
     });

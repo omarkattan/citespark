@@ -41,6 +41,20 @@ test('correcting business details replaces questions atomically before the first
  const current=await many('SELECT text FROM prompts WHERE project_id=1 AND active');
  assert.equal(current.length,20);assert.ok(current.every(p=>p.text.includes('Abu Dhabi')));
 });
+test('relevance review is project scoped and retains machine evidence',async()=>{
+ const prompt=await one('SELECT id FROM prompts WHERE project_id=1 LIMIT 1');
+ const run=await one(`INSERT INTO runs(project_id,prompt_id,engine,run_index,cycle_date,ok,response_text,quality_review)
+ VALUES(1,$1,'perplexity',1,current_date,true,'Saved original answer','{"possibleTruncation":false}') RETURNING id`,[prompt.id]);
+ const path='POST /api/projects/:id/quick-start/answer-review';
+ assert.equal((await request(path,{runId:run.id,offTopic:true},2)).code,404);
+ for(const offTopic of [true,false]){
+  assert.equal((await request(path,{runId:run.id,offTopic})).code,200);
+  const row=await one('SELECT quality_review,response_text FROM runs WHERE id=$1',[run.id]);
+  assert.equal(row.quality_review.relevance.offTopic,offTopic);
+  assert.equal(row.quality_review.possibleTruncation,false);
+  assert.equal(row.response_text,'Saved original answer');
+ }
+});
 test('free report reservation cannot be duplicated or reset by deleting a project',async()=>{
  const sql='INSERT INTO quick_start_reports(org_id,project_id) VALUES($1,$2) ON CONFLICT(org_id) DO NOTHING RETURNING org_id';
  assert.equal((await q(sql,[1,1])).rows.length,1);
