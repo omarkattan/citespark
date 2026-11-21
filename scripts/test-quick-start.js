@@ -247,7 +247,7 @@ test('Quick Start repair explicitly requests provider-selection wording and pres
 test('progress overlay can be dismissed and reopened without starting another scan',async()=>{
  const {dom,w,calls}=await fixture({used:true,thinking:true});await settle();
  assert.match(w.document.getElementById('scan-stage').textContent,/next actions/);
- assert.equal(w.document.getElementById('download-pdf'),null);
+ assert.ok(w.document.getElementById('download-pdf'));
  w.document.getElementById('scan-dismiss').click();assert.equal(w.document.getElementById('scan-overlay'),null);
  w.document.getElementById('scan-reopen').click();assert.ok(w.document.getElementById('scan-overlay'));
  assert.equal(calls.filter(([p])=>p.endsWith('/run')).length,0);dom.window.close();
@@ -351,4 +351,17 @@ test('new free preview shows opportunities without implementation copy',async()=
 });
 test('unavailable checkout is explained and cannot be submitted',async()=>{
  const {dom,w}=await fixture({used:true,checkoutUnavailable:true});await settle();const dialog=w.document.getElementById('upgrade-dialog');assert.ok([...dialog.querySelectorAll('[data-checkout-plan]')].every(b=>b.disabled));assert.match(dialog.textContent,/Checkout is temporarily unavailable/);dom.window.close();
+});
+test('failed evidence has an inline retry and loaded answers survive report refresh',async()=>{
+ const {dom,w,calls}=await fixture({used:true,advanced:true});
+ const saved=w.fetch;let unavailable=true;
+ w.fetch=async(path,opts)=>path.endsWith('/answers')&&unavailable?{ok:false,status:500,json:async()=>({error:'Temporary failure'})}:saved(path,opts);
+ const detail=w.document.querySelector('[data-evidence]');
+ detail.open=true;detail.dispatchEvent(new w.Event('toggle'));await settle();await settle();
+ const retry=detail.querySelector('button');assert.equal(retry.textContent,'Retry saved answers');
+ unavailable=false;retry.click();await settle();await settle();assert.equal(detail.dataset.loaded,'true');
+ w.document.getElementById('refresh').click();await settle();await settle();
+ assert.equal(w.document.querySelector('[data-evidence]'),detail);
+ assert.match(detail.textContent,/Business named/);assert.equal(calls.filter(([p])=>p.endsWith('/run')).length,0);
+ dom.window.close();
 });

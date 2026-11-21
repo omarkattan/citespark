@@ -7,7 +7,7 @@ export function quickStartMutationAllowed(method,path) {
   if (/^\/(?:login|logout|register|password\/(?:forgot|reset)|verify\/resend|product-tour|feedback|billing\/(?:checkout|portal)|demo\/[^/]+)$/.test(path)) return true;
   if(method==='POST' && ['/discover','/projects'].includes(path))return true;
   if(method==='DELETE' && /^\/projects\/\d+$/.test(path))return true;
-  return method==='POST' && /^\/projects\/\d+\/(?:run|quick-start\/(?:questions|suggestions|profile|assistant|competitors|competitor-suggestions|preferences))$/.test(path);
+  return method==='POST' && /^\/projects\/\d+\/(?:run|quick-start\/(?:questions|suggestions|profile|assistant|competitors|competitor-suggestions|preferences|answer-review))$/.test(path);
 }
 export function validateQuickQuestions(items) {
   if(!Array.isArray(items)||items.length!==20)throw new Error('Keep exactly 20 questions for your initial report.');
@@ -21,7 +21,7 @@ export function mountQuickStart(app,{requireAuth,assertProject,getEntitlements,q
  const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(next);
  app.get('/api/projects/:id/quick-start/report.pdf',requireAuth,wrap(async(req,res)=>{
   const project=await assertProject(req,res);if(!project)return;
-  if(['starting','asking','thinking'].includes(getCycleStatus(project.id)?.phase))return res.status(409).json({error:'Your report is still running. The PDF will include next actions when preparation finishes.'});
+  if(['starting','asking'].includes(getCycleStatus(project.id)?.phase))return res.status(409).json({error:'Your report is still running. The PDF will include next actions when preparation finishes.'});
   const {reportEvidence}=await import('./report-evidence.js');
   const {quickStartPdf}=await import('./quick-start-pdf.js');
   const evidence=await reportEvidence(project.id,{},many);
@@ -34,6 +34,16 @@ export function mountQuickStart(app,{requireAuth,assertProject,getEntitlements,q
   res.setHeader('Content-Type','application/pdf');res.setHeader('Cache-Control','private, no-store');
   res.setHeader('Content-Disposition',`attachment; filename="cited-${slug}-quick-start.pdf"`);
   res.send(pdf);
+ }));
+ app.post('/api/projects/:id/quick-start/answer-review',requireAuth,wrap(async(req,res)=>{
+  const project=await assertProject(req,res);if(!project)return;
+  const {runId,offTopic}=req.body||{};
+  if(!Number.isSafeInteger(runId)||runId<1||typeof offTopic!=='boolean')return res.status(422).json({error:'Choose a saved answer and a review status.'});
+  const reviewed=await one(`UPDATE runs SET quality_review=jsonb_set(COALESCE(quality_review,'{}'::jsonb),'{relevance}',
+    jsonb_build_object('offTopic',$3::boolean,'reviewedBy',$4::integer,'reviewedAt',now()))
+    WHERE project_id=$1 AND id=$2 AND ok RETURNING id`,[project.id,runId,offTopic,req.session.userId]);
+  if(!reviewed)return res.status(404).json({error:'Answer not found.'});
+  res.json({ok:true});
  }));
  app.get('/api/projects/:id/quick-start',requireAuth,wrap(async(req,res)=>{
   const project=await assertProject(req,res);if(!project)return;

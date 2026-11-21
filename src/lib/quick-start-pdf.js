@@ -18,6 +18,10 @@ export async function quickStartPdf(project,evidence,actions=[]){
  para('QUICK START REPORT',10);doc.moveDown();
  doc.font('bold').fontSize(24).fillColor('#10271f').text(text(project.brand_name||project.name));
  para(project.domain);para(`Measurement: ${evidence.cycle?new Date(evidence.cycle).toISOString().slice(0,10):'Not available'} | Downloaded: ${new Date().toISOString().slice(0,10)}`);
+ const market=evidence.measurement?.settings?.market||project.market;
+ if(market)para('Configured market: '+market+'. Places named in questions may differ.');
+ const langs=[...new Set(evidence.questions.map(q=>/[\u0600-\u06ff]/.test(q.text)?'Arabic':'English'))];
+ if(langs.length)para('Question languages: '+langs.join(' and '));
  const t=evidence.totals;
  heading('Your AI visibility snapshot');
  para(`Brand named: ${rate(t.named,t.measured)} (${t.named} of ${t.measured} measured answers)`,13);
@@ -40,6 +44,8 @@ export async function quickStartPdf(project,evidence,actions=[]){
  para('Counts below use measured answers only. Missing or failed answers are not scored as absence.');
  for(const [i,q] of evidence.questions.entries()){
   room(100);doc.font('bold').fontSize(11).fillColor('#10271f').text(`${i+1}. ${text(q.text)}`,{lineGap:3});doc.moveDown(.4);
+  const flagged=(evidence.answers||[]).filter(a=>a.questionId===q.id&&a.offTopic);
+  if(flagged.length)para('Flagged as off-topic by reviewer: '+flagged.map(a=>a.engine).join(', ')+'. Original measurements retained.',9);
   para(`Named: ${q.named}/${q.measured} | Cited: ${q.cited}/${q.measured} | Failed: ${q.failed} | Unmeasured: ${q.unmeasured}`,9);
  }
  heading('Supporting evidence');

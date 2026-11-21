@@ -3,7 +3,15 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 const label=id=>({chatgpt:'ChatGPT',perplexity:'Perplexity',gemini:'Gemini',claude:'Claude (Anthropic)',ai_mode:'Google AI Mode',ai_overview:'Google AI Overviews'}[id]||id);
 let projectId=Number(new URLSearchParams(location.search).get('site'))||null,billing,me,context,pollTimer,preparing=false,reportVisible=false;
 const safeLink=(url,title)=>{try{const u=new URL(url);return ['https:','http:'].includes(u.protocol)?`<a href="${esc(u.href)}" target="_blank" rel="noopener noreferrer">${esc(title||url)}</a>`:esc(title||url);}catch{return esc(title||url);}};
-async function api(path,body){const response=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(response.status===401){location.assign('/login');throw new Error('Please sign in.');}const value=await response.json();if(!response.ok){const failure=new Error(value.error||'This step could not finish. Please try again.');failure.status=response.status;throw failure;}return value;}
+async function api(path,body){
+ let response;
+ for(let attempt=0;attempt<3;attempt++){
+   try{response=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+     if(body!==undefined||![502,503,504].includes(response.status)||attempt===2)break;
+   }catch(e){if(body!==undefined||attempt===2)throw e;}
+   await new Promise(resolve=>setTimeout(resolve,1500*(attempt+1)));
+ }
+ if(response.status===401){location.assign('/login');throw new Error('Please sign in.');}const value=await response.json().catch(()=>({error:'Cited could not load this page. Please try again.'}));if(!response.ok){const failure=new Error(value.error||'This step could not finish. Please try again.');failure.status=response.status;throw failure;}return value;}
 function revealNotice(node){node.tabIndex=-1;node.focus({preventScroll:true});node.scrollIntoView?.({block:'center',behavior:'smooth'});}
 function error(e){const message=e.message||String(e);$('error').textContent=message;const target=$('run-error')||$('error');$('error').hidden=target!==$('error');target.textContent=message;target.hidden=false;revealNotice(target);}
 function clearError(){$('error').hidden=true;if($('run-error'))$('run-error').hidden=true;}
@@ -20,6 +28,7 @@ function renderVerification(){
 }
 async function verify(){me=await api('/api/me');renderVerification();return me.emailVerified!==false;}
 
+window.addEventListener('focus',()=>{if(me?.emailVerified===false)void verify().catch(()=>{});});
 async function act(button,fn){clearError();button.disabled=true;try{await fn();}catch(e){error(e);}finally{button.disabled=false;}}
 const country=code=>{try{return new Intl.DisplayNames(['en'],{type:'region'}).of(code);}catch{return code;}};
 function businessFields(p={}){return `<div class="two"><div><label for="brand">Business name</label><input id="brand" required maxlength="150" value="${esc(p.brand_name)}"></div><div><label for="category">Products or services</label><input id="category" required maxlength="500" value="${esc(p.category)}"></div><div><label for="market">Customers’ country</label><select id="market">${window.countryOptions(p.market||window.DEFAULT_COUNTRY)}</select></div><div><label for="city">City or area</label><input id="city" placeholder="Optional" value="${esc(p.location_name)}"></div></div><label for="language">Question language</label><select id="language"><option value="en" ${p.language==='ar'?'':'selected'}>English</option><option value="ar" ${p.language==='ar'?'selected':''}>Arabic</option></select><label for="customer">Who you serve</label><textarea id="customer">${esc(p.qualifier)}</textarea>`;}
@@ -64,7 +73,7 @@ function setup(){
   $('discover').textContent='Reading your website…';$('discovery-note').textContent='Finding your services and customers. This can take a minute.';
   let d;try{d=await api('/api/discover',{domain});}catch{manualBusiness(domain);return;}
   if(!d.brandName||!d.category){manualBusiness(d.domain||domain,d);return;}
-  $('discover').textContent='Preparing your questions…';
+  $('discover').textContent='Preparing your questions…';$('discovery-note').textContent='Preparing buyer questions for your market.';
   await createProject({domain:d.domain||domain,brandName:d.brandName,category:d.category,competitors:d.competitors||[],market:d.market||window.DEFAULT_COUNTRY,language:'en',qualifier:(d.customerSuggestions||[]).join('; ')||d.qualifier||''});
  }).finally(()=>{if($('discover')){$('discover').textContent='Continue';$('discovery-note').textContent='Your website is ready to try again.';}});};
 }
@@ -134,14 +143,55 @@ async function report(){
  const answers=prompts.flatMap(p=>p.runs||[]).filter(r=>r.mentioned!==null&&r.mentioned!==undefined);
  const cited=answers.filter(a=>a.cited).length;
  const plans=(recs.tasks||[]).filter(t=>t.evidence?.action_plan).sort((a,b)=>(a.evidence.action_plan.position||99)-(b.evidence.action_plan.position||99)).slice(0,3);
+ const previousEvidence=reportVisible?$('saved-answers'):null;
+ const preserveEvidence=previousEvidence?.dataset.cycle===String(o.cycle||'');
  reportVisible=true;
- $('content').innerHTML=`<h1>Your Quick Start report.</h1><p class="lead">${esc(o.project.brand_name)} · ${o.cycle?esc(new Date(o.cycle).toLocaleDateString()):'No completed measurement yet'}</p><p>Your first snapshot across the questions and AI engines below.</p>${preparing?'<p class="pill" role="status">Your results are ready. Suggested actions are still being prepared.</p>':''}<div class="grid"><article class="card"><span class="metric">${o.visibility==null?'—':Math.round(o.visibility*100)+'%'}</span>Named in measured answers</article><article class="card"><span class="metric">${cited}</span>Answers linking to your website</article><article class="card"><span class="metric">${o.runs||0}</span>Answers with a brand measurement</article></div>${billing.advanced?'':upgrade()}<section class="panel">${engineCoverage(o)}</section><section class="panel"><h2>Competitors in this sample</h2><div id="competitor-results">${(o.competitors||[]).filter(c=>c.kind!=='owned').slice(0,5).map(c=>`<p>${esc(c.name)} · Named in ${Math.round(c.rate*100)}% of its measured sample</p>`).join('')||((rivals.candidates||[]).slice(0,5).map(c=>`<p><b>${esc(c.name)}</b> · Found in ${c.evidence.length} saved answer${c.evidence.length===1?'':'s'}</p>`).join('')+'<p class="muted">These are possible competitors identified in answer evidence. Review their relevance before treating them as direct competitors.</p>')}</div><details id="competitor-editor"></details></section><section class="panel"><h2>${billing.actionPreview?'Your opportunity preview':'Three things to look at next'}</h2>${billing.actionPreview?'<p>These suggested opportunities need review. Upgrade for the detailed action plan and ongoing tracking.</p><button type="button" data-upgrade>See plans for my action plan</button>':''}${plans.map(t=>{const p=t.evidence.action_plan;if(billing.actionPreview)return `<article><h3>${esc(p.title||t.title)}</h3><p>Suggested opportunity · Details included with paid membership.</p></article>`;return `<article><h3>${esc(p.title||t.title)}</h3>${p.generation==='page-grounded'?'':'<p class="muted">Website verification is incomplete. Treat this as a suggested check, not a confirmed content gap.</p>'}<p>${esc(p.change||t.action)}</p><p>${esc(p.rationale||'')}</p>${p.page?`<p>${safeLink(p.page,'Review the relevant page')}</p>`:''}<p class="muted">${esc(p.evidence?.observation||'Review the supporting answer before making changes.')}</p></article>`;}).join('')||(preparing?'<p>We’re checking your website against these answers. Your suggested actions will appear here automatically.</p>':'<p>No specific action could be prepared from the available evidence. Open the supporting answers below to review what AI said.</p>')}<p class="muted">Suggested actions. Check the facts before updating your website.</p></section><details class="panel"><summary>View questions and supporting answers</summary>${prompts.map(p=>`<details data-evidence="${p.id}"><summary>${esc(p.text)}</summary><div class="evidence">Open to load saved answers.</div></details>`).join('')}</details><details class="panel"><summary>How to read this report</summary><p>This is a snapshot of the saved question and engine sample, not an overall market score. Missing or failed answers are excluded, never scored as “not mentioned”. Naming and website citations are different outcomes. Suggestions do not guarantee future recommendations.</p></details><div class="actions"><a class="button" id="download-pdf" href="/api/projects/${projectId}/quick-start/report.pdf" download>Download PDF</a><button class="secondary" id="print">Print report</button>${advanced()}<button class="secondary" id="edit-report-questions">Edit questions for next scan</button><button class="secondary" id="refresh">Refresh saved report</button></div>${billing.advanced?'':upgrade()}`;
+ $('content').innerHTML=`<h1>Your Quick Start report.</h1><p class="lead">${esc(o.project.brand_name)} · ${o.cycle?esc(new Date(o.cycle).toLocaleDateString()):'No completed measurement yet'}</p><p>Configured market: ${esc(country(context.project.market)||context.project.market)}. Question languages: ${[...new Set(prompts.map(p=>/[\u0600-\u06ff]/.test(p.text)?'Arabic':'English'))].join(' and ')||'Unavailable'}. Places mentioned in a question may differ from the configured market.</p>${preparing?'<p class="pill" role="status">Your results are ready. Suggested actions are still being prepared. You can download the saved results now.</p>':''}<div class="grid"><article class="card"><span class="metric">${o.visibility==null?'—':Math.round(o.visibility*100)+'%'}</span>Named in measured answers</article><article class="card"><span class="metric">${cited}</span>Answers linking to your website</article><article class="card"><span class="metric">${o.runs||0}</span>Answers with a brand measurement</article></div><p><a href="#saved-answers" id="open-evidence">View the answers behind these numbers</a></p><section class="panel">${engineCoverage(o)}</section><section class="panel"><h2>Competitors in this sample</h2><div id="competitor-results">${(o.competitors||[]).filter(c=>c.kind!=='owned').slice(0,5).map(c=>`<p>${esc(c.name)} · Named in ${Math.round(c.rate*100)}% of its measured sample</p>`).join('')||((rivals.candidates||[]).slice(0,5).map(c=>`<p><b>${esc(c.name)}</b> · Found in ${c.evidence.length} saved answer${c.evidence.length===1?'':'s'}</p>`).join('')+'<p class="muted">These are possible competitors identified in answer evidence. Review their relevance before treating them as direct competitors.</p>')}</div><details id="competitor-editor"></details></section><section class="panel"><h2>${billing.actionPreview?'Your opportunity preview':'Three things to look at next'}</h2>${billing.actionPreview?'<p>These suggested opportunities need review. Upgrade for the detailed action plan and ongoing tracking.</p><button type="button" data-upgrade>See plans for my action plan</button>':''}${plans.map(t=>{const p=t.evidence.action_plan;if(billing.actionPreview)return `<article><h3>${esc(p.title||t.title)}</h3><p>Suggested opportunity · Details included with paid membership.</p></article>`;return `<article><h3>${esc(p.title||t.title)}</h3>${p.generation==='page-grounded'?'':'<p class="muted">Website verification is incomplete. Treat this as a suggested check, not a confirmed content gap.</p>'}<p>${esc(p.change||t.action)}</p><p>${esc(p.rationale||'')}</p>${p.page?`<p>${safeLink(p.page,'Review the relevant page')}</p>`:''}<p class="muted">${esc(p.evidence?.observation||'Review the supporting answer before making changes.')}</p></article>`;}).join('')||(preparing?'<p>We’re checking your website against these answers. Your suggested actions will appear here automatically.</p>':'<p>No specific action could be prepared from the available evidence. Open the supporting answers below to review what AI said.</p>')}<p class="muted">Suggested actions. Check the facts before updating your website.</p></section><details class="panel" id="saved-answers"><summary>View questions and supporting answers</summary>${prompts.map(p=>`<details data-evidence="${p.id}"><summary>${esc(p.text)}</summary><div class="evidence">Open to load saved answers.</div></details>`).join('')}</details><details class="panel"><summary>How to read this report</summary><p>This is a snapshot of the saved question and engine sample, not an overall market score. Missing or failed answers are excluded, never scored as “not mentioned”. Naming and website citations are different outcomes. Suggestions do not guarantee future recommendations.</p></details><div class="actions"><a class="button" id="download-pdf" href="/api/projects/${projectId}/quick-start/report.pdf" download>Download PDF</a><button class="secondary" id="print">Print report</button>${advanced()}<button class="secondary" id="edit-report-questions">Edit questions for next scan</button><button class="secondary" id="refresh">Refresh saved report</button></div>${billing.advanced?'':upgrade()}`;
  if(!billing.advanced&&o.cycle&&!preparing)void showUpgrade(true);
- if(preparing)$('download-pdf').replaceWith(Object.assign(document.createElement('p'),{textContent:'PDF available when next actions finish.'}));
+ const evidenceRoot=$('saved-answers');
+ evidenceRoot.dataset.cycle=String(o.cycle||'');
+ if(preserveEvidence){
+  evidenceRoot.open=previousEvidence.open;
+  for(const old of previousEvidence.querySelectorAll('[data-evidence][data-loaded]')){
+   const replacement=evidenceRoot.querySelector('[data-evidence="'+old.dataset.evidence+'"]');
+   if(replacement)replacement.replaceWith(old);
+  }
+ }
+ $('open-evidence').onclick=()=>{$('saved-answers').open=true;};
  competitorEditor(o,rivals);
  $('edit-report-questions').onclick=()=>act($('edit-report-questions'),async()=>{context=await api(`/api/projects/${projectId}/quick-start`);questions();$('question-editor').open=true;});
  $('print').onclick=()=>window.print();$('refresh').onclick=()=>act($('refresh'),report);
- for(const detail of document.querySelectorAll('[data-evidence]'))detail.addEventListener('toggle',async()=>{if(!detail.open||detail.dataset.loaded)return;const box=detail.querySelector('.evidence');box.textContent='Loading saved evidence…';try{const d=await api(`/api/prompts/${detail.dataset.evidence}/answers`);box.innerHTML=d.runs.map(r=>`<h3>${esc(label(r.engine))}</h3><p class="pill">${r.measured?(r.mentioned?'Business named':'Business not named'):'Not measured'}${r.cited?' · Website cited':''}</p>${r.truncated?'<p>Answer may be incomplete. Interpret cautiously.</p>':''}<pre class="answer">${esc(r.response_text||r.unmeasuredReason||'No answer was returned.')}</pre><div class="sources">${(r.citations||[]).map(c=>`<p>${safeLink(c.url,c.domain||c.url)}</p>`).join('')}</div>`).join('')||'No saved answers for this question.';detail.dataset.loaded='true';}catch(e){box.textContent=e.message;}});
+ let evidenceQueue=Promise.resolve();
+ for(const detail of document.querySelectorAll('[data-evidence]:not([data-loaded])')){
+  const box=detail.querySelector('.evidence');
+  function enqueue(){
+   if(!detail.open||detail.dataset.loaded||detail.dataset.loading)return;
+   detail.dataset.loading='true';
+   box.textContent='Loading saved evidence…';
+   evidenceQueue=evidenceQueue.then(async()=>{
+    try{
+     if(!detail.isConnected||!detail.open)return;
+     const d=await api('/api/prompts/'+detail.dataset.evidence+'/answers');
+     box.innerHTML=d.runs.map(r=>`<h3>${esc(label(r.engine))}</h3><p class="pill">${r.measured?(r.mentioned?'Business named':'Business not named'):'Not measured'}${r.cited?' · Website cited':''}</p>${r.truncated?'<p>Answer may be incomplete. Interpret cautiously.</p>':''}${r.id&&r.measured?`<button type="button" class="secondary" data-review="${esc(r.id)}" aria-pressed="${r.quality_review?.relevance?.offTopic===true}">${r.quality_review?.relevance?.offTopic?'Off-topic · Clear flag':'Flag as off-topic'}</button>`:''}<pre class="answer">${esc(r.response_text||r.unmeasuredReason||'No answer was returned.')}</pre><div class="sources">${(r.citations||[]).map(c=>`<p>${safeLink(c.url,c.domain||c.url)}</p>`).join('')}</div>`).join('')||'No saved answers for this question.';
+     detail.dataset.loaded='true';
+    }catch(e){
+     box.textContent=e.message+' ';
+     const retry=document.createElement('button');
+     retry.type='button';retry.textContent='Retry saved answers';retry.onclick=enqueue;box.append(retry);
+    }finally{delete detail.dataset.loading;}
+   });
+  }
+  detail.addEventListener('toggle',enqueue);
+  box.addEventListener('click',e=>{
+   const button=e.target.closest('[data-review]');if(!button)return;
+   void act(button,async()=>{
+    const offTopic=button.getAttribute('aria-pressed')!=='true';
+    await api('/api/projects/'+projectId+'/quick-start/answer-review',{runId:Number(button.dataset.review),offTopic});
+    button.setAttribute('aria-pressed',String(offTopic));
+    button.textContent=offTopic?'Off-topic · Clear flag':'Flag as off-topic';
+   });
+  });
+ }
 }
 async function load(){
  billing=await api('/api/billing');
@@ -235,4 +285,13 @@ async function showUpgrade(automatic=false){
 document.addEventListener('click',e=>{if(e.target.closest('[data-upgrade]')){e.preventDefault();void showUpgrade();}});
 
 $('logout').onclick=()=>act($('logout'),async()=>{await api('/api/logout',{});location.assign('/login');});
-try{await verify();await load();}catch(e){error(e);$('content').innerHTML='<h1>Your workspace could not load.</h1><button onclick="location.reload()">Try again</button>';}
+async function openWorkspace(){
+ clearError();
+ try{await verify();await load();}
+ catch(e){
+  error(e);
+  $('content').innerHTML='<h1>Your workspace could not load.</h1><p>Retry to reopen your saved project. This does not start a scan.</p><button id="retry-workspace">Try again</button>';
+  $('retry-workspace').onclick=()=>act($('retry-workspace'),openWorkspace);
+ }
+}
+await openWorkspace();
