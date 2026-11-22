@@ -1,5 +1,5 @@
 import {seedChecks,checkState,attemptRecorder,terminalizeChecks,ledgerSummary,outcomeFor} from '../lib/measurement-ledger.js';
-import {configuredRunScope, runScopeProblem} from '../lib/run-scope.js';
+import {projectForSample, configuredRunScope, runScopeProblem} from '../lib/run-scope.js';
 import {selectedEntities} from '../lib/quick-start-selection.js';
 import { loadRecovery, inheritRecovery, recoveryConfiguration } from '../lib/measurement-recovery.js';
 import {matchedRecheckScope} from '../lib/faq-recheck.js';
@@ -74,10 +74,12 @@ export async function runCycleForProject(projectId, options = {}) {
     throw err;
   } finally { await release(); }
 }
-async function collectProject(projectId, { cycleDate, onProgress, only = null, force = false, recoverFrom = null, previewRecovery = false, confirmedScope = null } = {}, registerBatch) {
+async function collectProject(projectId, { cycleDate, onProgress, only = null, force = false, recoverFrom = null, previewRecovery = false, sample = null, confirmedScope = null } = {}, registerBatch) {
   if ((recoverFrom && only) || (previewRecovery && !recoverFrom)) throw new Error('Recovery cannot be combined with a partial scan.');
   let project = await one('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!project) throw new Error(`No project ${projectId}`);
+  project = projectForSample(project, sample);
+  if (!project) throw new Error('The selected measurement engine changed.');
   const saved = recoverFrom ? await recoveryConfiguration(pool,project,recoverFrom) : null;
   if(saved?.child)return {alreadyRecovered:true,measurementId:saved.child.id,status:saved.child.status,retry:0,reason:'A recovery already exists. Open that measurement to review any remaining checks.'};
   if(saved)project=saved.project;
