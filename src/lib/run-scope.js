@@ -26,3 +26,11 @@ export function runScopeProblem(scope, budget, confirmed) {
     return 'The available allowance or spend limit cannot cover this complete measurement. Reduce the scope or increase your allowance, then review again. No answer checks have started.';
   return null;
 }
+
+/** A manual run may sample each saved engine once, or one saved engine once. */
+export function projectForSample(project, sample) {
+  if (sample == null) return project;
+  const engines = project.engines?.length ? project.engines : ['chatgpt'];
+  if (sample !== 'each-once' && !engines.includes(sample)) return null;
+  return {...project, engines: sample === 'each-once' ? engines : [sample], runs_per_cycle: 1};
+}

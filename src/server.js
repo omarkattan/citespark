@@ -1,6 +1,6 @@
 import {reviewedEntityNames} from './lib/entity-names.js';
 import {measurementRows,measurementStatus,projectMeasurementState} from './lib/measurement-state.js';
-import {configuredRunScope, runScopeProblem} from './lib/run-scope.js';
+import {projectForSample, configuredRunScope, runScopeProblem} from './lib/run-scope.js';
 import {previewActions} from './lib/action-preview.js';
 import {mountQuickStart, quickStartMutationAllowed} from './lib/quick-start.js';
 import {mountContentWorkflow} from './lib/content-workflow.js';
@@ -1886,7 +1886,22 @@ app.get('/api/projects/:id/run-scope', requireAuth, wrap(async (req, res) => {
   const perCall = estimateEngineCosts(engineList, ENGINES, project.models || {}, priced, mp);
   const perQuestion = runs * engineList.reduce((sum, e) => sum + (perCall.get(e) ?? 0.03), 0);
 
+  const samples = [];
+  if (!project.quick_start || (await getEntitlements(req.session.orgId)).advanced) {
+    const choices = [...(runs > 1 && engines > 1 ? ['each-once'] : []), ...engineList];
+    for (const sample of choices) {
+      const sampled = projectForSample(project, sample);
+      const full = configuredRunScope(sampled, panel);
+      if (full.checks >= scope.checks) continue;
+      const unit = full.engines.reduce((sum, engine) => sum + perCall.get(engine), 0);
+      samples.push({sample, engines:full.engines, runs:1, fingerprint:full.fingerprint,
+        unrunFingerprint:configuredRunScope(sampled, waiting).fingerprint,
+        checksAll:full.checks, checksUnrun:waiting.length*full.engines.length,
+        costAll:all*unit, costUnrun:waiting.length*unit});
+    }
+  }
   res.json({
+    samples,
     scope, unrunScope,
     all,
     unrun,
@@ -1903,7 +1918,7 @@ app.get('/api/projects/:id/run-scope', requireAuth, wrap(async (req, res) => {
 }));
 
 app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
-  const project = await assertProject(req, res);
+  let project = await assertProject(req, res);
   if (!project) return;
   const location = await measurementLocation(project);
   if (!location.ok) return res.status(422).json(location);
@@ -1913,6 +1928,13 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
   if(project.quick_start && !runEntitlements.advanced){
     const count=await one('SELECT COUNT(*)::int AS n FROM prompts WHERE project_id=$1 AND active',[project.id]);
     if(count.n!==20)return res.status(422).json({error:'Review and save 20 buyer questions before running Quick Start.'});
+  }
+  const sample = req.body?.sample;
+  if (sample != null) {
+    if (!req.body?.confirmedScope || (project.quick_start && !runEntitlements.advanced))
+      return res.status(422).json({error:'This run option is unavailable. Review the measurement again.'});
+    project = projectForSample(project, sample);
+    if (!project) return res.status(422).json({error:'The selected engine is no longer available.'});
   }
   const only = req.body?.only === 'unrun' ? 'unrun' : null;
 
@@ -1949,6 +1971,7 @@ app.post('/api/projects/:id/run', requireAuth, wrap(async (req, res) => {
   runCycleForProject(project.id, {
     only,
     confirmedScope: launchScope.fingerprint,
+    sample,
     onProgress: (p) => {
       const prev = cycles.get(project.id) || {};
       cycles.set(project.id, { ...prev, ...p, total: p.total ?? prev.total });
