@@ -31,6 +31,32 @@ export function runScopeProblem(scope, budget, confirmed) {
 export function projectForSample(project, sample) {
   if (sample == null) return project;
   const engines = project.engines?.length ? project.engines : ['chatgpt'];
+  if (typeof sample === 'object') {
+    if (!Array.isArray(sample.engines) || !sample.engines.length ||
+        sample.engines.some(engine => !engines.includes(engine)) ||
+        !Number.isSafeInteger(sample.runs) || sample.runs < 1 || sample.runs > Number(project.runs_per_cycle || 1) ||
+        !Number.isSafeInteger(sample.questions) || sample.questions < 1) return null;
+    return {...project, engines:engines.filter(engine => sample.engines.includes(engine)), runs_per_cycle:sample.runs};
+  }
   if (sample !== 'each-once' && !engines.includes(sample)) return null;
   return {...project, engines: sample === 'each-once' ? engines : [sample], runs_per_cycle: 1};
+}
+
+/** Stable language-balanced subset of the active panel, which arrives in question ID order. */
+export function sampledQuestions(panel, sample) {
+  if (!sample?.questions || sample.questions >= panel.length) return panel;
+  const groups = new Map();
+  for (const prompt of panel) {
+    const language = prompt.language || prompt.origin_details?.language || (/[\u0620-\u064A]/u.test(prompt.text || '') ? 'ar' : 'en');
+    if (!groups.has(language)) groups.set(language, []);
+    groups.get(language).push(prompt);
+  }
+  const picked = [];
+  for (let i=0; picked.length<sample.questions; i++) {
+    for (const group of groups.values()) {
+      if (group[i]) picked.push(group[i]);
+      if (picked.length===sample.questions) break;
+    }
+  }
+  return picked;
 }
