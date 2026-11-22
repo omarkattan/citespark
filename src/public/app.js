@@ -2975,7 +2975,82 @@ async function pollCycle() {
  * A partial run joins the most recent cycle rather than opening a new one,
  * so the trend keeps comparing like with like.
  */
-async function reviewProjectRun() {
+async function customRunPlanner(options, d, projectId, dialog) {
+  options.textContent='Loading active questions…';
+  let rows;
+  try { rows=await api(`/api/projects/${projectId}/prompts`); }
+  catch(error){options.textContent=error.message;return;}
+  if(!dialog.open || state.projectId!==projectId)return;
+  if(!Array.isArray(rows)){options.textContent='Could not load active questions.';return;}
+  const active=rows.filter(p=>p.active).sort((a,b)=>a.id-b.id);
+  if(active.length!==d.all){options.textContent='Active questions changed. Reopen the planner.';return;}
+  const groups=new Map();
+  for(const p of active){
+    const language=p.originDetails?.language || (/[\u0620-\u064A]/u.test(p.text)?'ar':'en');
+    if(!groups.has(language))groups.set(language,[]);
+    groups.get(language).push(p);
+  }
+  const ordered=[];
+  for(let i=0;ordered.length<active.length;i++)for(const group of groups.values())if(group[i])ordered.push(group[i]);
+  const q = sel => options.querySelector(sel);
+  options.innerHTML = `<h3>Plan a lower-cost project setup</h3>
+    <label>Questions to check (of ${d.all}) <input type="number" min="1" max="${d.all}" value="${d.all}" data-count></label>
+    <fieldset><legend>AI surfaces</legend>${d.scope.engines.map(e=>`<label style="display:block"><input type="checkbox" data-surface value="${esc(e)}" checked> ${esc(ENGINE_LABEL[e]||e)} · ~$${Number(d.perEngineCosts[e]).toFixed(4)} per check</label>`).join('')}</fieldset>
+    <label>Answers per question on each surface <input type="number" min="1" max="${d.scope.runs}" value="${d.scope.runs}" data-runs></label>
+    <p data-estimate aria-live="polite"></p><p data-impact></p><p data-final role="status"></p>
+    <details><summary>Preview questions to keep</summary><ol data-keep></ol></details>
+    <p>Saving applies to future manual and scheduled runs. Paused questions keep their history and can be resumed in Questions.</p>
+    <button class="btn" data-review>Save selected coverage</button>`;
+  const selection = () => ({questions:q('[data-count]').valueAsNumber, runs:q('[data-runs]').valueAsNumber,
+    engines:[...options.querySelectorAll('[data-surface]:checked')].map(el=>el.value)});
+  function update() {
+    q('[data-final]').textContent='';
+    const {questions,runs,engines}=selection();
+    const valid=engines.length && Number.isInteger(questions) && questions>=1 && questions<=d.all &&
+      Number.isInteger(runs) && runs>=1 && runs<=d.scope.runs;
+    q('[data-review]').disabled=!valid;
+    q('[data-impact]').textContent='';
+    q('[data-keep]').innerHTML=valid?ordered.slice(0,questions).map(p=>`<li>${esc(p.text)}</li>`).join(''):'';
+    if(!valid){q('[data-estimate]').textContent='Choose at least one surface and enter counts within the ranges shown.';return;}
+    const cost=questions*runs*engines.reduce((sum,e)=>sum+d.perEngineCosts[e],0);
+    q('[data-estimate]').textContent=`${questions} questions × ${engines.length} surfaces × ${runs} = ${questions*engines.length*runs} checks · estimated $${cost.toFixed(2)} (full run $${d.costAll.toFixed(2)}).`;
+    const impact=[];
+    if(questions<d.all)impact.push(`Only ${questions} of ${d.all} questions will be updated. We alternate between available languages in saved question order. This smaller sample can miss topics and should be compared with the same questions over time.`);
+    const omitted=d.scope.engines.filter(e=>!engines.includes(e));
+    if(omitted.length)impact.push('No fresh results for '+omitted.map(e=>ENGINE_LABEL[e]||e).join(', ')+'.');
+    impact.push(runs===1?'One answer per surface gives a snapshot. Repeat runs help show whether mentions recur.':'Repeated answers help show whether mentions recur.');
+    q('[data-impact]').textContent=impact.join(' ');
+    q('[data-review]').textContent=`Save ${engines.length} surfaces and ${runs} run(s) per question${questions<d.all?` and pause ${d.all-questions} questions`:''}`;
+  }
+  options.addEventListener('input',update);
+  update();
+  q('[data-review]').onclick=async()=>{
+    if(state.projectId!==projectId || !dialog.open)return;
+    const {questions,engines,runs}=selection();
+    const controls=[...options.querySelectorAll('input,button')];
+    controls.forEach(el=>el.disabled=true);
+    let engineSettingsSaved=false, paused=0;
+    try {
+      if(runs!==d.scope.runs || engines.length!==d.scope.engines.length){
+        const result=await api(`/api/projects/${projectId}`,{method:'PATCH',body:{engines,runsPerCycle:runs}});
+        if(!result || result.error)throw Error(result?.error || 'Could not save surfaces and repeats.');
+        engineSettingsSaved=true;
+      }
+      const ids=ordered.slice(questions).map(p=>p.id);
+      for(let offset=0;offset<ids.length;offset+=500){
+        const result=await api(`/api/projects/${projectId}/prompts/bulk`,{method:'PATCH',body:{ids:ids.slice(offset,offset+500),active:false}});
+        if(!result || result.error)throw Error(result?.error || 'Could not pause questions.');
+        paused+=result.changed || 0;
+      }
+      dialog.close();
+      if(state.projectId===projectId){await loadProject(projectId);toast('Coverage saved. Review the current estimate before starting a run.');}
+    } catch(error){
+      q('[data-final]').textContent=(engineSettingsSaved?'Surface and repeat settings were saved. ':'')+(paused?`${paused} questions paused. `:'')+error.message+' Close and reopen to review the saved setup.';
+    }
+  };
+}
+
+async function reviewProjectRun(customize = false) {
   if (!state.projectId || state.measurementRunning || document.getElementById('projectRunReview')) return;
   if (!(await refreshVerification())) return;
   const projectId = state.projectId;
@@ -3001,11 +3076,12 @@ async function reviewProjectRun() {
     if (!d || d.error) throw new Error(d?.error || 'Could not load the measurement estimate. Close and try again.');
     const valid = ['all','unrun','checksAll','checksUnrun','costAll','costUnrun'].every(k => Number.isFinite(d[k]) && d[k] >= 0);
     if (!valid || !d.scope?.fingerprint || !d.unrunScope?.fingerprint) throw new Error('The measurement estimate is incomplete. Close and try again.');
+    if (customize && (!state.overview?.project?.quick_start || state.billing?.advanced) && d.all) { customRunPlanner(options,d,projectId,dialog); return; }
     const saved = {...d, fingerprint:d.scope.fingerprint, unrunFingerprint:d.unrunScope.fingerprint, engines:d.scope.engines, runs:d.scope.runs, sample:null};
     const choices = [saved, ...(d.samples || [])];
     const label = c => c.sample === null ? 'Saved settings' : c.sample === 'each-once' ? 'All selected engines once' : (ENGINE_LABEL[c.sample] || c.sample) + ' once';
     let selected = saved;
-    options.innerHTML = `${choices.length>1?`<label>Coverage for this run <select data-run-choice>${choices.map((c,i)=>`<option value="${i}">${esc(label(c))} · ${c.checksAll} checks · ~${c.costAll.toFixed(2)}</option>`).join('')}</select></label>`:''}<div data-choice-summary></div><p>Only this site will run. Paused questions are excluded.</p><p>Market: ${esc(d.scope.market)}</p><p>Question languages: ${Object.entries(d.scope.languages).map(([language,n])=>`${esc(language)}: ${n}`).join(', ')}</p>
+    options.innerHTML = `${choices.length>1?`<label>Coverage for this run <select data-run-choice>${choices.map((c,i)=>`<option value="${i}">${esc(label(c))} · ${c.checksAll} checks · ~${c.costAll.toFixed(2)}</option>`).join('')}</select></label>`:''}<div data-choice-summary></div>${(!state.overview?.project?.quick_start || state.billing?.advanced) && d.all ? '<button class="ghost" data-customize>Choose question count and surfaces</button>' : ''}<p>Only this site will run. Paused questions are excluded.</p><p>Market: ${esc(d.scope.market)}</p><p>Question languages: ${Object.entries(d.scope.languages).map(([language,n])=>`${esc(language)}: ${n}`).join(', ')}</p>
 
       <button class="btn" data-run-confirm="all" ${!d.all ? 'disabled' : ''}>Run active questions</button>
       ${d.unrun>0 && d.unrun<d.all ? `<p data-unrun-estimate></p><button class="ghost" data-run-confirm="unrun">Run only questions never asked</button>` : ''}
@@ -3020,6 +3096,7 @@ async function reviewProjectRun() {
     }
     options.querySelector('[data-run-choice]')?.addEventListener('change', updateEstimate);
     updateEstimate();
+    options.querySelector('[data-customize]')?.addEventListener('click',()=>customRunPlanner(options,d,projectId,dialog));
     for (const button of options.querySelectorAll('[data-run-confirm]')) button.addEventListener('click', async () => {
       if (state.projectId !== projectId) {options.querySelector('[data-run-error]').textContent = 'The selected site changed. Close and review again.'; return;}
       if ($('runBtn').disabled) {options.querySelector('[data-run-error]').textContent = 'A measurement is already starting or running.'; return;}
@@ -3540,7 +3617,7 @@ document.addEventListener('click', async (e) => {
   }
 
   if (e.target.closest('[data-start-first-cycle]')) {
-    await reviewProjectRun();
+    await reviewProjectRun(Boolean(e.target.closest('[data-lower-cost]')));
     return;
   }
 
@@ -5066,7 +5143,7 @@ async function viewSetup() {
             <span class="per" data-cost-label>per cycle</span>
             <span class="month" data-month-cost></span>
           </div>
-          <p class="hint" data-cost-source style="margin-top:8px"></p>
+          <p class="hint" data-cost-source style="margin-top:8px"></p><button type="button" class="ghost" data-start-first-cycle data-lower-cost>Compare lower-cost runs</button>
         </div>
         <button id="s_save">Save changes</button>
         <span id="s_saved" class="sub" style="font-family:var(--mono);font-size:11px;color:var(--good);margin-left:10px"></span>
@@ -5369,7 +5446,7 @@ function recalcEstimate() {
   box.querySelector('[data-calls]').textContent = calls;
   box.querySelector('[data-cycle-cost]').textContent = `$${perCycle.toFixed(2)}`;
   box.querySelector('[data-month-cost]').textContent =
-    perCycle > 0 ? `about $${(perCycle * 4.33).toFixed(0)} a month at weekly cadence` : '';
+    $('s_auto')?.checked ? `about ${(perCycle * 4.33).toFixed(0)} per month at weekly cadence` : 'Weekly runs off · $0 scheduled per month';
 
   const note = box.querySelector('[data-cost-source]');
   const label = box.querySelector('[data-cost-label]');
@@ -5505,6 +5582,7 @@ document.addEventListener('change', (e) => {
 });
 
 document.addEventListener('input', (e) => {
+  if (e.target.id === 's_auto') { recalcEstimate(); return; }
   if (e.target.id !== 's_runs') return;
   const box = document.querySelector('[data-active-count]');
   if (!box) return;
