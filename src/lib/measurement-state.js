@@ -17,7 +17,9 @@ export function measurementStatus(batch,rows,domain) {
  const citations=citationFacts(rows,domain);
  return {id:batch.id,status:batch.status,startedAt:batch.started_at,completedAt:batch.completed_at,planned:coverage.expected,
   retained:rows.length,usable,failed,missing:coverage.missing,noAnswer,incomplete,
-  provisional:batch.status!=='completed'||failed>0||coverage.missing!==0||incomplete>0,
+  provisional:batch.status!=='completed'||failed>0||coverage.missing>0||incomplete>0,
+  canRecover:!batch.legacy && ['partial','failed','interrupted'].includes(batch.status) &&
+    Array.isArray(batch.collection_plan) && batch.collection_plan.length>0 && (failed>0 || coverage.missing>0 || incomplete>0),
   citationComplete:citations.complete,citations,failureDetail:batch.failure_detail||null,recoveryOf:batch.recovery_of||null};
 }
 export async function projectMeasurementState(db,project) {
