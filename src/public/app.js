@@ -306,10 +306,25 @@ function syncNavigation() {
 }
 
 function measurementBasisNotice() {
- const info=state.overview?.measurementState,last=info?.latest;
- if(!last||state.measurementRunning)return '';
- if(!last.provisional&&last.citationComplete)return '';
- return `<section class="panel notice" role="status"><h2>${last.provisional?'This measurement is incomplete.':'Citation comparison needs review.'}</h2><p>Latest attempt #${last.id}, ${esc(shortDate(last.startedAt))}: ${last.usable} usable of ${last.planned??'unknown'} planned checks. ${last.failed} failed, ${last.missing??'unknown'} missing, ${last.noAnswer} valid no-answer outcomes.</p>${last.provisional?'<p>Results below are provisional. Complete recovery before using them as a final report.</p>':''}${!last.citationComplete?'<p>Some source evidence is unavailable or unresolved. A missing citation record does not establish a zero citation rate.</p>':''}${info.lastCompleted?`<p>Last completed collection: #${info.lastCompleted.id}, ${esc(shortDate(info.lastCompleted.startedAt))}. Historical evidence stays separate.</p>`:''}<a class="ghost" href="/api/projects/${state.projectId}/measurements/${last.id}">${last.provisional?'Review and recover unresolved checks':'Review source coverage'}</a></section>`;
+ const info=state.overview?.measurementState, last=info?.latest;
+ if(!last || state.measurementRunning)return '';
+ const historical=last.planned==null && last.status==='completed';
+ if(!historical && !last.provisional && last.citationComplete)return '';
+ const heading=historical?'Historical measurement':last.provisional?'This measurement is incomplete.':'Citation comparison needs review.';
+ const coverage=last.planned==null?'The original number of planned checks is unavailable.':`The collection planned ${last.planned} checks.`;
+ const gaps=[];
+ if(last.failed>0)gaps.push(`${last.failed} failed`);
+ if(last.missing>0)gaps.push(`${last.missing} missing`);
+ if(last.incomplete>0)gaps.push(`${last.incomplete} with incomplete answer text`);
+ const archive=`/api/projects/${state.projectId}/measurements/${last.id}`;
+ const action=last.canRecover?'Review and recover unresolved checks':'View saved evidence';
+ return `<section class="panel${historical && !gaps.length?'':' notice'}" role="status"><h2>${heading}</h2>
+   <p>Collection #${last.id}, ${esc(shortDate(last.startedAt))} · ${last.usable} usable answers. ${coverage}</p>
+   ${gaps.length?`<p>Recorded gaps: ${gaps.join(', ')}.</p>`:''}
+   ${last.noAnswer?`<p>${last.noAnswer} valid no-answer outcomes.</p>`:''}
+   ${!last.citationComplete?'<p>Source evidence is incomplete. Citation rates are unknown where source records are unavailable.</p>':''}
+   ${info.lastCompleted && info.lastCompleted.id!==last.id?`<p>Last completed collection: #${info.lastCompleted.id}, ${esc(shortDate(info.lastCompleted.startedAt))}.</p>`:''}
+   <a class="ghost" href="${archive}">${action}</a></section>`;
 }
 function runningProjectNotice() {
   return `<section class="panel setup-journey" role="status"><h2>${state.measurementPhase==='thinking'?'Answers collected. Preparing actions.':'Measurement in progress.'}</h2><p>${state.measurementPhase==='thinking'?'Collection is complete. Page checks and suggested actions are still being prepared.':'Your saved questions are being checked. Early results are provisional.'}</p><p>You can leave this page and return. The run continues on our servers. There is no need to restart setup or launch another measurement.</p><p>Usage totals update after collection. Suggested actions and the final report become available when preparation finishes.</p></section>`;
@@ -365,7 +380,7 @@ async function viewOverview() {
     ? (cycles.length ? 'One day of results is available. Daily charts use its latest completed measurement. Earlier same-day runs remain in Measurement archive.' : 'No completed measurements yet.')
     : `${cycles.length} days of results available. Open the trend view for the comparable question-and-engine cohort and any measurement-method changes.`;
   return `${!data || data.error || !scope || scope.error || !history || history.error ? '<div class="notice" role="status">Some sections could not be loaded. Available results are shown below. <button class="ghost" data-retry-view>Try again</button></div>' : ''}<div class="overview-intro"><div><p class="eyebrow">Your next move</p><h2>${measured ? 'What needs your attention' : 'Start with the questions your buyers ask'}</h2>
-    <p>${measured ? `Latest measurement: ${esc(shortDate(o.cycle))}. Start with one evidence review below.` : 'Review your questions and their origins, then measure how AI engines answer them.'}</p></div>
+    <p>${measured ? `Latest measurement: ${esc(shortDate(o.measurementState?.latest?.startedAt || o.cycle))}. Start with one evidence review below.` : 'Review your questions and their origins, then measure how AI engines answer them.'}</p></div>
     <div class="overview-ctas"><a class="btn" href="/api/projects/${state.projectId}/report/prepare" target="_blank" rel="noopener">Prepare report</a>
     ${measured && suggested.length ? '<button class="ghost" data-overview-next>Review next task</button>' : '<button class="btn" data-open-view="questions">Review questions</button>'}</div></div>
     ${immediateActionSection(tasks,{offerPrepare:measured,total:openCount})}
@@ -2369,7 +2384,10 @@ async function loadProject(id) {
   if(!sameProject && state.view!=='billing' && state.view===viewAtStart && state.setupStep!=='complete')state.view=SETUP_VIEWS[state.setupStep]||'connections';
   const p = state.overview.project;
   $('brandTitle').textContent = p.brand_name;
-  $('brandDek').textContent = state.overview.cycle
+  const latestMeasurement = state.overview.measurementState?.latest;
+  $('brandDek').textContent = latestMeasurement
+    ? `${latestMeasurement.planned==null && latestMeasurement.status==='completed'?'Historical measurement':latestMeasurement.provisional?'Provisional measurement':'Measurement'} · ${latestMeasurement.usable} usable answers on ${shortDate(latestMeasurement.startedAt)}.`
+    : state.overview.cycle
     ? `${state.overview.measurementState?.latest?.provisional?'Provisional results across':'Measured across'} ${state.overview.runs} answers on ${shortDate(state.overview.cycle)}. Results cover the questions and engines in that measurement.`
     : 'Start by connecting your sources and reviewing the questions. Nothing has been measured yet.';
   $('cycleMeta').textContent = state.overview.cycle ? `cycle ${shortDate(state.overview.cycle)}` : 'no data';
