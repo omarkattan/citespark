@@ -310,7 +310,7 @@ function measurementBasisNotice() {
  if(!last || state.measurementRunning)return '';
  const historical=last.planned==null && last.status==='completed';
  if(!historical && !last.provisional && last.citationComplete)return '';
- const heading=historical?'Historical measurement':last.provisional?'This measurement is incomplete.':'Citation comparison needs review.';
+ const heading=last.provisional?'This measurement is incomplete.':'Citation comparison needs review.';
  const coverage=last.planned==null?'The original number of planned checks is unavailable.':`The collection planned ${last.planned} checks.`;
  const gaps=[];
  if(last.failed>0)gaps.push(`${last.failed} failed`);
@@ -318,13 +318,15 @@ function measurementBasisNotice() {
  if(last.incomplete>0)gaps.push(`${last.incomplete} with incomplete answer text`);
  const archive=`/api/projects/${state.projectId}/measurements/${last.id}`;
  const action=last.canRecover?'Review and recover unresolved checks':'View saved evidence';
- return `<section class="panel${historical && !gaps.length?'':' notice'}" role="status"><h2>${heading}</h2>
+ const details = `
    <p>Collection #${last.id}, ${esc(shortDate(last.startedAt))} · ${last.usable} usable answers. ${coverage}</p>
    ${gaps.length?`<p>Recorded gaps: ${gaps.join(', ')}.</p>`:''}
    ${last.noAnswer?`<p>${last.noAnswer} valid no-answer outcomes.</p>`:''}
    ${!last.citationComplete?'<p>Source evidence is incomplete. Citation rates are unknown where source records are unavailable.</p>':''}
    ${info.lastCompleted && info.lastCompleted.id!==last.id?`<p>Last completed collection: #${info.lastCompleted.id}, ${esc(shortDate(info.lastCompleted.startedAt))}.</p>`:''}
-   <a class="ghost" href="${archive}">${action}</a></section>`;
+   <a class="ghost" href="${archive}">${action}</a>`;
+ if(historical)return `<details><summary>Historical evidence details</summary>${details}</details>`;
+ return `<section class="panel notice" role="status"><h2>${heading}</h2>${details}</section>`;
 }
 function runningProjectNotice() {
   return `<section class="panel setup-journey" role="status"><h2>${state.measurementPhase==='thinking'?'Answers collected. Preparing actions.':'Measurement in progress.'}</h2><p>${state.measurementPhase==='thinking'?'Collection is complete. Page checks and suggested actions are still being prepared.':'Your saved questions are being checked. Early results are provisional.'}</p><p>You can leave this page and return. The run continues on our servers. There is no need to restart setup or launch another measurement.</p><p>Usage totals update after collection. Suggested actions and the final report become available when preparation finishes.</p></section>`;
