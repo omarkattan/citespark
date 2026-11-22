@@ -3001,24 +3001,38 @@ async function reviewProjectRun() {
     if (!d || d.error) throw new Error(d?.error || 'Could not load the measurement estimate. Close and try again.');
     const valid = ['all','unrun','checksAll','checksUnrun','costAll','costUnrun'].every(k => Number.isFinite(d[k]) && d[k] >= 0);
     if (!valid || !d.scope?.fingerprint || !d.unrunScope?.fingerprint) throw new Error('The measurement estimate is incomplete. Close and try again.');
-    options.innerHTML = `<p>Only this site will run. Paused questions are excluded.</p><p>Market: ${esc(d.scope.market)} · ${d.scope.engines.map(e=>esc(ENGINE_LABEL[e]||e)).join(', ')} · ${d.scope.runs} repeats per question and engine</p><p>Question languages: ${Object.entries(d.scope.languages).map(([language,n])=>`${esc(language)}: ${n}`).join(', ')}</p>
-      <p>${d.all} active questions · ${d.checksAll} answer checks · estimated $${d.costAll.toFixed(2)}</p>
+    const saved = {...d, fingerprint:d.scope.fingerprint, unrunFingerprint:d.unrunScope.fingerprint, engines:d.scope.engines, runs:d.scope.runs, sample:null};
+    const choices = [saved, ...(d.samples || [])];
+    const label = c => c.sample === null ? 'Saved settings' : c.sample === 'each-once' ? 'All selected engines once' : (ENGINE_LABEL[c.sample] || c.sample) + ' once';
+    let selected = saved;
+    options.innerHTML = `${choices.length>1?`<label>Coverage for this run <select data-run-choice>${choices.map((c,i)=>`<option value="${i}">${esc(label(c))} · ${c.checksAll} checks · ~${c.costAll.toFixed(2)}</option>`).join('')}</select></label>`:''}<div data-choice-summary></div><p>Only this site will run. Paused questions are excluded.</p><p>Market: ${esc(d.scope.market)}</p><p>Question languages: ${Object.entries(d.scope.languages).map(([language,n])=>`${esc(language)}: ${n}`).join(', ')}</p>
+
       <button class="btn" data-run-confirm="all" ${!d.all ? 'disabled' : ''}>Run active questions</button>
-      ${d.unrun>0 && d.unrun<d.all ? `<p>${d.unrun} questions never asked · ${d.checksUnrun} answer checks · estimated $${d.costUnrun.toFixed(2)}</p><button class="ghost" data-run-confirm="unrun">Run only questions never asked</button>` : ''}
+      ${d.unrun>0 && d.unrun<d.all ? `<p data-unrun-estimate></p><button class="ghost" data-run-confirm="unrun">Run only questions never asked</button>` : ''}
       ${Number.isFinite(state.billing?.usage?.limit)?`<p>${Math.max(0,state.billing.usage.limit-state.billing.usage.calls)} answer checks remain in your current allowance.</p>`:''}<p class="hint">Starting uses answer checks and may incur provider costs. Estimates are not a guaranteed final cost.</p><p role="alert" data-run-error></p>`;
+    function updateEstimate() {
+      const index = Number(options.querySelector('[data-run-choice]')?.value || 0);
+      selected = choices[index];
+      const names = selected.engines.map(e => ENGINE_LABEL[e] || e).join(', ');
+      options.querySelector('[data-choice-summary]').textContent = `${d.all} questions × ${selected.engines.length} engine(s) × ${selected.runs} run(s) = ${selected.checksAll} checks · estimated $${selected.costAll.toFixed(2)}. Engines: ${names}.`;
+      const unrun = options.querySelector('[data-unrun-estimate]');
+      if (unrun) unrun.textContent = `${d.unrun} questions never asked · ${selected.checksUnrun} checks · estimated $${selected.costUnrun.toFixed(2)}`;
+    }
+    options.querySelector('[data-run-choice]')?.addEventListener('change', updateEstimate);
+    updateEstimate();
     for (const button of options.querySelectorAll('[data-run-confirm]')) button.addEventListener('click', async () => {
       if (state.projectId !== projectId) {options.querySelector('[data-run-error]').textContent = 'The selected site changed. Close and review again.'; return;}
       if ($('runBtn').disabled) {options.querySelector('[data-run-error]').textContent = 'A measurement is already starting or running.'; return;}
       for (const b of options.querySelectorAll('button')) b.disabled = true;
       dialog.close();
-      await startCycle(button.dataset.runConfirm === 'unrun' ? 'unrun' : null, (button.dataset.runConfirm === 'unrun' ? d.unrunScope : d.scope).fingerprint);
+      await startCycle(button.dataset.runConfirm === 'unrun' ? 'unrun' : null, button.dataset.runConfirm === 'unrun' ? selected.unrunFingerprint : selected.fingerprint, selected.sample);
     });
   } catch (error) {
     if (dialog.isConnected) options.innerHTML = `<p role="alert">${esc(error.message || 'Could not load the estimate.')}</p>`;
   }
 }
 
-async function startCycle(only = null, confirmedScope = null) {
+async function startCycle(only = null, confirmedScope = null, sample = null) {
   const btn = $('runBtn');
   btn.disabled = true;
   btn.textContent = 'Starting';
@@ -3027,7 +3041,7 @@ async function startCycle(only = null, confirmedScope = null) {
   const res = await fetch(`/api/projects/${state.projectId}/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ only, confirmedScope })
+    body: JSON.stringify({ only, confirmedScope, sample })
   });
   const json = await res.json();
 
@@ -3118,7 +3132,7 @@ async function refreshRunScope() {
     }
     if(!d || d.error || !['all','unrun','checksAll','checksUnrun','costAll','costUnrun'].every(k=>Number.isFinite(d[k])&&d[k]>=0)) throw Error('Estimate unavailable');
     const money=n=>`~$${n<10?n.toFixed(2):n.toFixed(0)}`;
-    $('runFullCount').textContent=d.all?` (${d.all}, ${d.checksAll} checks, ${money(d.costAll)})`:' (no questions yet)';
+    $('runFullCount').textContent=d.all?` (${d.all} questions × ${d.scope.engines.length} engines × ${d.scope.runs} runs, ${money(d.costAll)})`:' (no questions yet)';
     $('runUnrunCount').textContent=d.unrun?` (${d.unrun}, ${d.checksUnrun} checks, ${money(d.costUnrun)})`:' (none waiting)';
     $('runFullBtn').disabled=d.all===0;
     $('runUnrunBtn').disabled=d.unrun===0;
