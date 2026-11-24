@@ -310,7 +310,6 @@ function measurementBasisNotice() {
  if(!last || state.measurementRunning)return '';
  const historical=last.planned==null && last.status==='completed';
  if(!historical && !last.provisional && last.citationComplete)return '';
- const heading=last.provisional?'This measurement is incomplete.':'Citation comparison needs review.';
  const coverage=last.planned==null?'The original number of planned checks is unavailable.':`The collection planned ${last.planned} checks.`;
  const gaps=[];
  if(last.failed>0)gaps.push(`${last.failed} failed`);
@@ -326,7 +325,16 @@ function measurementBasisNotice() {
    ${info.lastCompleted && info.lastCompleted.id!==last.id?`<p>Last completed collection: #${info.lastCompleted.id}, ${esc(shortDate(info.lastCompleted.startedAt))}.</p>`:''}
    <a class="ghost" href="${archive}">${action}</a>`;
  if(historical)return `<details><summary>Historical evidence details</summary>${details}</details>`;
- return `<section class="panel notice" role="status"><h2>${heading}</h2>${details}</section>`;
+ if(!last.provisional){
+   const byEngine=(last.citations?.engines||[]).filter(e=>e.unavailable||e.unresolved).map(e=>{
+     const counts=[];
+     if(e.unavailable)counts.push(`${e.unavailable} answers with unavailable source records`);
+     if(e.unresolved)counts.push(`${e.unresolved} answers with unresolved links`);
+     return `<li>${esc(e.engine)} · ${counts.join(', ')}</li>`;
+   });
+   return `<details><summary>Citation evidence is partial</summary>${details}${byEngine.length?`<ul>${byEngine.join('')}</ul>`:''}</details>`;
+ }
+ return `<section class="panel notice" role="status"><h2>This measurement is incomplete.</h2>${details}</section>`;
 }
 function runningProjectNotice() {
   return `<section class="panel setup-journey" role="status"><h2>${state.measurementPhase==='thinking'?'Answers collected. Preparing actions.':'Measurement in progress.'}</h2><p>${state.measurementPhase==='thinking'?'Collection is complete. Page checks and suggested actions are still being prepared.':'Your saved questions are being checked. Early results are provisional.'}</p><p>You can leave this page and return. The run continues on our servers. There is no need to restart setup or launch another measurement.</p><p>Usage totals update after collection. Suggested actions and the final report become available when preparation finishes.</p></section>`;
