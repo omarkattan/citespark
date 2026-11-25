@@ -189,7 +189,8 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
   // down, after its first use, and every cycle died on a ReferenceError
   // before printing anything - a button that "did nothing".
   const projectModels = project.models || {};
-  const CAP = Number(process.env.MAX_CYCLE_COST_USD || 15);
+  const { cycleSpendCap = Number(process.env.MAX_CYCLE_COST_USD || 15) } = budget.entitlements;
+  const CAP = cycleSpendCap ?? Infinity;
   const priced = await many(
     `SELECT engine, AVG(cost_usd)::float AS per
      FROM reporting_runs
@@ -228,7 +229,7 @@ async function collectProject(projectId, { cycleDate, onProgress, only = null, f
   if (previewRecovery) return { capabilities, sourceId: recovery.sourceId, planned: recovery.plan.length,
     retained: recovery.inheritIds.length, retry: recovery.jobs.length-recovery.replay, replay:recovery.replay, unresolved:recovery.jobs.length, reasons: recovery.reasons, estimatedCost: estimate };
 
-  console.log(`Estimated cost: $${estimate.toFixed(2)} (from matching cost history or a planning allowance), cap $${CAP.toFixed(2)}`);
+  console.log(`Estimated cost: $${estimate.toFixed(2)} (from matching cost history or a planning allowance), ${Number.isFinite(CAP) ? `cap $${CAP.toFixed(2)}` : 'no cycle cap'}`);
 
   if (estimate > CAP && !force) {
     const reason =

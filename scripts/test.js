@@ -5052,14 +5052,14 @@ await test('an internal account lifts the allowance but not the spend cap', asyn
   assert.ok(/sites: Number\.MAX_SAFE_INTEGER/.test(src), 'and sites');
   assert.ok(/questions: Number\.MAX_SAFE_INTEGER/.test(src), 'and questions per site');
   assert.ok(/engines: ENGINE_IDS\.length/.test(src), 'and every engine available');
-  assert.ok(/monthlyBudgetUsd: INTERNAL_BUDGET/.test(src), 'spend must still be capped');
+  assert.ok(/monthlyBudgetUsd: unmeteredUsage \? null : INTERNAL_BUDGET/.test(src), 'spend must still be capped');
   assert.ok(/INTERNAL_MONTHLY_BUDGET/.test(src), 'and the cap must be raisable');
 
   // MAX_SAFE_INTEGER rendered in a usage pill is nonsense.
-  assert.ok(/limit: internal \? null/.test(src), 'an internal account reports no limit rather than a huge one');
+  assert.ok(/limit: unlimitedChecks \? null/.test(src), 'an internal account reports no limit rather than a huge one');
 
   const app = readFileSync(new URL('../src/public/app.js', import.meta.url), 'utf8');
-  assert.ok(/b\.internal/.test(app), 'and the pill must handle it');
+  assert.ok(/b\.usage\.limit == null/.test(app), 'and the pill must handle it');
 
   // The message when it does stop has to point at the right cause.
   assert.ok(/something is looping/.test(src), 'hitting the internal cap means a bug, not an upsell');

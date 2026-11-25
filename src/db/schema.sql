@@ -954,3 +954,6 @@ CREATE OR REPLACE VIEW reporting_runs AS
  SELECT r.* FROM published_measurements b JOIN measurement_members m ON m.measurement_id=b.id
  JOIN runs r ON r.id=m.run_id AND r.project_id=b.project_id
  WHERE r.measurement_id IS DISTINCT FROM b.id AND NOT EXISTS(SELECT 1 FROM measurement_checks c WHERE c.measurement_id=b.id);
+
+-- Billing access belongs to the verified user. Administration stays on orgs.internal.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS unmetered_usage BOOLEAN NOT NULL DEFAULT false;

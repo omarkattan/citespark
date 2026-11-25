@@ -2284,7 +2284,7 @@ app.get('/api/projects/:id/spend', requireAuth, wrap(async (req, res) => {
     enabledEngines: project.engines || [],
     runsPerCycle: project.runs_per_cycle,
     perCall: pricing.costs || {},
-    cap: Number(process.env.MAX_CYCLE_COST_USD || 15)
+    cap: (await getEntitlements(req.session.orgId)).cycleSpendCap
   });
 }));
 

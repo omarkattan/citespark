@@ -76,35 +76,29 @@ export async function recordUsage(orgId, calls, spendUsd) {
  */
 const INTERNAL_BUDGET = Number(process.env.INTERNAL_MONTHLY_BUDGET || 250);
 
-async function isInternal(orgId) {
-  const row = await one('SELECT internal FROM orgs WHERE id = $1', [orgId]);
-  return Boolean(row?.internal);
-}
-
 export async function getEntitlements(orgId) {
   const sub = await getSubscription(orgId);
   const basePlan = planFor(sub.effectivePlan);
-  const internal = await isInternal(orgId);
-
-  /**
-   * Every commercial ceiling goes, not just the answer checks.
-   *
-   * Sites, questions, engines and competitors are all limits that exist to
-   * price a plan. Lifting one and leaving the rest was inconsistent and meant
-   * the account we use most kept hitting walls built for customers. The spend
-   * cap stays, because that one guards the provider balance against a bug.
-   */
-  const plan = internal
+  const account = await one(
+    `SELECT internal, quick_start_enabled, quick_start_action_preview,
+            (SELECT COUNT(*) = 1 AND BOOL_AND(unmetered_usage AND email_verified_at IS NOT NULL)
+             FROM users WHERE org_id = orgs.id) AS unmetered_usage
+     FROM orgs WHERE id = $1`, [orgId]
+  );
+  const internal = Boolean(account?.internal);
+  const unmeteredUsage = !internal && account?.unmetered_usage === true;
+  const unlimitedChecks = internal || unmeteredUsage;
+  const plan = unlimitedChecks
     ? {
         ...basePlan,
-        name: 'Internal access',
+        name: internal ? 'Internal access' : 'Unlimited usage',
         runs: 10,
         monthlyCalls: Number.MAX_SAFE_INTEGER,
         sites: Number.MAX_SAFE_INTEGER,
         questions: Number.MAX_SAFE_INTEGER,
         engines: ENGINE_IDS.length,
-        monthlyBudgetUsd: INTERNAL_BUDGET,
-        internal: true
+        monthlyBudgetUsd: unmeteredUsage ? null : INTERNAL_BUDGET,
+        internal
       }
     : basePlan;
 
@@ -117,32 +111,32 @@ export async function getEntitlements(orgId) {
     [orgId]
   );
 
-  const quickStartAccount = await one('SELECT quick_start_enabled,quick_start_action_preview FROM orgs WHERE id=$1',[orgId]);
   const quickStartReport = await one('SELECT project_id,started_at,completed_at FROM quick_start_reports WHERE org_id=$1',[orgId]);
   const remaining = Math.max(0, plan.monthlyCalls - usage.calls);
   const budgetLeft = Math.max(0, (plan.monthlyBudgetUsd ?? Infinity) - usage.spend);
   return {
     plan,
-    quickStart: {enabled:Boolean(quickStartAccount?.quick_start_enabled), used:Boolean(quickStartReport), report:quickStartReport},
-    actionPreview: !internal && plan.id === 'free' && Boolean(quickStartAccount?.quick_start_action_preview),
-    advanced: internal || plan.id !== 'free',
+    quickStart: {enabled:Boolean(account?.quick_start_enabled), used:Boolean(quickStartReport), report:quickStartReport},
+    actionPreview: !unlimitedChecks && plan.id === 'free' && Boolean(account?.quick_start_action_preview),
+    advanced: unlimitedChecks || plan.id !== 'free',
     status: sub.status,
     interval: sub.interval,
     cancelAtPeriodEnd: sub.cancel_at_period_end,
     currentPeriodEnd: sub.current_period_end,
     hasStripeCustomer: Boolean(sub.stripe_customer_id),
     internal,
+    cycleSpendCap: unmeteredUsage ? null : Number(process.env.MAX_CYCLE_COST_USD || 15),
     usage: {
       calls: usage.calls,
       remaining,
       // A ceiling of MAX_SAFE_INTEGER rendered as a number is nonsense in a
       // usage pill, so an internal account reports no limit rather than a
       // very large one.
-      limit: internal ? null : plan.monthlyCalls,
+      limit: unlimitedChecks ? null : plan.monthlyCalls,
       spend: usage.spend,
       budget: plan.monthlyBudgetUsd ?? null,
       budgetLeft,
-      percent: internal ? 0 : plan.monthlyCalls ? Math.min(100, Math.round((usage.calls / plan.monthlyCalls) * 100)) : 0,
+      percent: unlimitedChecks ? 0 : plan.monthlyCalls ? Math.min(100, Math.round((usage.calls / plan.monthlyCalls) * 100)) : 0,
       budgetPercent: plan.monthlyBudgetUsd
         ? Math.min(100, Math.round((usage.spend / plan.monthlyBudgetUsd) * 100))
         : 0

@@ -3721,7 +3721,7 @@ document.addEventListener('click', async (e) => {
         .filter((it) => panel.querySelector(`[data-spend-intent="${it.intent}"]`)?.checked)
         .reduce((n, it) => n + it.questions, 0);
       const est = questions * d.runsPerCycle * engines.reduce((sum, en) => sum + (perCallChosen.get(en) || 0), 0);
-      const over = est > d.cap;
+      const over = d.cap != null && est > d.cap;
       /**
        * The person who just turned something off looks at the header figure
        * for confirmation, and a historical figure rightly does not move. So
@@ -3732,7 +3732,7 @@ document.addEventListener('click', async (e) => {
       if (sub) sub.innerHTML = `${esc(shortDate(d.cycle))} &middot; next about ${money(est)}`;
       $('spendProjection').innerHTML =
         `Next cycle as configured: <b>${questions}</b> questions x <b>${engines.length}</b> engines x <b>${d.runsPerCycle}</b> run${d.runsPerCycle === 1 ? '' : 's'} `
-        + `= about <b>${money(est)}</b>, against a $${d.cap.toFixed(2)} cap.`
+        + `= about <b>${money(est)}</b>${d.cap == null ? '. No per-cycle spending cap.' : `, against a $${d.cap.toFixed(2)} cap.`}`
         + (over ? ' <span class="warn-text">Above the cap: the cycle will refuse to start until something here is turned off or the cap is raised.</span>' : '');
       return { engines, questions };
     };
@@ -6196,16 +6196,16 @@ async function viewBilling() {
 
     <div class="usage-track"><div class="usage-fill ${barClass}" style="width:${Math.max(u.percent, u.budgetPercent || 0)}%"></div></div>
     <p class="hint" style="margin-top:10px">
-      ${(u.budgetPercent || 0) > u.percent
+      ${u.limit != null && (u.budgetPercent || 0) > u.percent
         ? `Heavier surfaces such as ChatGPT use more of the allowance than Google's AI Overview does, so you are ${u.budgetPercent}% through this month's usage on ${u.percent}% of your checks. Switching a site to lighter surfaces makes the allowance go further.<br />`
         : ''}
-      ${u.limit==null ? 'No monthly check limit applies to this internal account.' : u.remaining > 0
+      ${u.limit==null ? (u.budget == null ? 'Unlimited answer checks. No monthly spending cap.' : `Unlimited answer checks. Monthly spending cap: $${u.budget}.`) : u.remaining > 0
         ? `${u.remaining.toLocaleString()} left, resetting on the 1st. A cycle trims itself to fit rather than running you over.`
         : 'Allowance used for this month. Cycles are paused until the 1st, or upgrade to carry on now.'}
     </p>
 
     <div class="usage-counts">
-      <span><b>${b.counts.sites}</b> of ${b.plan.sites} sites</span>
+      <span><b>${b.counts.sites}</b> ${b.plan.sites === Number.MAX_SAFE_INTEGER ? 'sites tracked · unlimited sites' : 'of ' + b.plan.sites + ' sites'}</span>
       <span><b>${b.counts.questions}</b> active questions</span>
       <span>${b.plan.engines} engine${b.plan.engines > 1 ? 's' : ''} allowed</span>
       <span>${b.plan.runs} run${b.plan.runs > 1 ? 's' : ''} per question</span>
@@ -6365,7 +6365,7 @@ async function refreshUsagePill() {
   pill.hidden = false;
   pill.title='Account-wide checks and spending this month, across all sites. This is different from retained answers in the selected measurement.';
   // An internal account has no sold allowance, so showing one is misleading.
-  pill.textContent = b.internal
+  pill.textContent = b.usage.limit == null
     ? `${b.plan.name} \u00b7 ${b.usage.calls} checks this month \u00b7 $${(b.usage.spend || 0).toFixed(2)}`
     : `${b.plan.name} \u00b7 ${b.usage.calls}/${b.usage.limit} checks this month`;
   pill.className = 'pill' + (b.usage.percent >= 90 ? ' over' : b.usage.percent >= 70 ? ' warn' : '');
